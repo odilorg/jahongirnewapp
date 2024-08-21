@@ -5,6 +5,7 @@ namespace App\Filament\Resources;
 use App\Filament\Resources\TourPaymentResource\Pages;
 use App\Filament\Resources\TourPaymentResource\RelationManagers;
 use App\Models\TourPayment;
+use App\Models\Guest;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
@@ -32,6 +33,7 @@ class TourPaymentResource extends Resource
                 Forms\Components\TextInput::make('amount_paid')
                     ->required()
                     ->numeric(),
+                
             ]);
     }
 
@@ -47,12 +49,15 @@ class TourPaymentResource extends Resource
                     ->dateTime()
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
-                Tables\Columns\TextColumn::make('tour_booking_id')
+                Tables\Columns\TextColumn::make('tour_booking.group_number')
                     ->numeric()
                     ->sortable(),
                 Tables\Columns\TextColumn::make('amount_paid')
                     ->numeric()
                     ->sortable(),
+                Tables\Columns\TextColumn::make('tour_booking.driver.full_name')
+                    ->numeric()
+                    ->sortable(),    
             ])
             ->filters([
                 //

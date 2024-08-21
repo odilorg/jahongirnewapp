@@ -17,7 +17,9 @@ class GuideResource extends Resource
 {
     protected static ?string $model = Guide::class;
 
-    protected static ?string $navigationIcon = 'heroicon-o-rectangle-stack';
+    protected static ?string $navigationIcon = 'heroicon-o-document-currency-bangladeshi';
+
+    protected static ?string $navigationGroup = 'Tour Details';
 
     public static function form(Form $form): Form
     {
