@@ -96,14 +96,18 @@ class TourBookingResource extends Resource
                     ->sortable(),
                 Tables\Columns\TextColumn::make('number_of_adults')
                     ->numeric()
+                    ->toggleable(isToggledHiddenByDefault: true)
                     ->sortable(),
                 Tables\Columns\TextColumn::make('number_of_children')
                     ->numeric()
+                    ->toggleable(isToggledHiddenByDefault: true)
                     ->sortable(),
                 Tables\Columns\TextColumn::make('pickup_location')
                     ->searchable(),
                 Tables\Columns\TextColumn::make('dropoff_location')
                     ->searchable(),
+                Tables\Columns\TextColumn::make('group_number')
+                    ->searchable(),    
             ])
             ->filters([
                 //

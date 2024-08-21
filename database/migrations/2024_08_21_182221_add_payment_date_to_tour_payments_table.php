@@ -11,8 +11,8 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('tours', function (Blueprint $table) {
-            $table->string('title');
+        Schema::table('tour_payments', function (Blueprint $table) {
+            $table->date('payment_date');
         });
     }
 
@@ -21,7 +21,7 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::table('tours', function (Blueprint $table) {
+        Schema::table('tour_payments', function (Blueprint $table) {
             //
         });
     }
