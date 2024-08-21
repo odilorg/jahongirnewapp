@@ -17,7 +17,7 @@ class TourBookingResource extends Resource
 {
     protected static ?string $model = TourBooking::class;
 
-    protected static ?string $navigationIcon = 'heroicon-o-rectangle-stack';
+    protected static ?string $navigationIcon = 'heroicon-o-bold';
 
     public static function form(Form $form): Form
     {
