@@ -10,6 +10,7 @@ use Filament\Tables\Table;
 use Filament\Infolists\Infolist;
 use Filament\Resources\Resource;
 use Illuminate\Database\Eloquent\Builder;
+use Filament\Infolists\Components\Section;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Infolists\Components\ImageEntry;
 use App\Filament\Resources\DriverResource\Pages;
@@ -111,15 +112,21 @@ class DriverResource extends Resource
     public static function infolist(Infolist $infolist): Infolist
     {
         return $infolist
-            ->schema([
-                TextEntry::make('full_name'),
-                TextEntry::make('email'),
-                TextEntry::make('phone01'),
-                TextEntry::make('fuel_type'),
-                ImageEntry::make('driver_image')
+            
+        
+        ->schema([
 
-
-
+            Section::make('Rate limiting')
+                ->description('Prevent abuse by limiting the number of requests per period')
+                ->schema([
+                    TextEntry::make('full_name'),
+                    TextEntry::make('email'),
+                    TextEntry::make('phone01'),
+                    TextEntry::make('phone02'),
+                    TextEntry::make('fuel_type'),
+                    ImageEntry::make('driver_image') 
+                ])->columns(2)   
+                
 
             ]);
     }
@@ -136,7 +143,7 @@ class DriverResource extends Resource
         return [
             'index' => Pages\ListDrivers::route('/'),
             'create' => Pages\CreateDriver::route('/create'),
-            'view' => Pages\ViewDriver::route('/{record}'),
+          //  'view' => Pages\ViewDriver::route('/{record}'),
             'edit' => Pages\EditDriver::route('/{record}/edit'),
         ];
     }
