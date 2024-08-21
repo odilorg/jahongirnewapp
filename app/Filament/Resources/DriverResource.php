@@ -16,6 +16,7 @@ use Filament\Infolists\Components\ImageEntry;
 use App\Filament\Resources\DriverResource\Pages;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
 use App\Filament\Resources\DriverResource\RelationManagers;
+use App\Filament\Resources\DriverResource\RelationManagers\CarRelationManager;
 
 
 class DriverResource extends Resource
@@ -116,8 +117,8 @@ class DriverResource extends Resource
         
         ->schema([
 
-            Section::make('Rate limiting')
-                ->description('Prevent abuse by limiting the number of requests per period')
+            Section::make('Driver Info')
+               // ->description('Prevent abuse by limiting the number of requests per period')
                 ->schema([
                     TextEntry::make('full_name'),
                     TextEntry::make('email'),
@@ -125,16 +126,32 @@ class DriverResource extends Resource
                     TextEntry::make('phone02'),
                     TextEntry::make('fuel_type'),
                     ImageEntry::make('driver_image') 
-                ])->columns(2)   
+                ])->columns(2),
                 
 
-            ]);
+           
+
+            Section::make('Relationship Info')
+            // ->description('Prevent abuse by limiting the number of requests per period')
+             ->schema([
+                 TextEntry::make('car.model')
+                 ->label('Car Model'),
+                 TextEntry::make('car.number_seats')
+                 ->label('Number of Seats'),
+                 TextEntry::make('car.number_luggage')
+                 ->label('Number of Luggage'),
+                 ImageEntry::make('car.image')
+                 ->label('Car Image'), 
+             ])->columns(2)   
+             
+
+         ]);
     }
 
     public static function getRelations(): array
     {
         return [
-            //
+           CarRelationManager::class
         ];
     }
 

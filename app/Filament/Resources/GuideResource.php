@@ -2,16 +2,20 @@
 
 namespace App\Filament\Resources;
 
-use App\Filament\Resources\GuideResource\Pages;
-use App\Filament\Resources\GuideResource\RelationManagers;
-use App\Models\Guide;
 use Filament\Forms;
-use Filament\Forms\Form;
-use Filament\Resources\Resource;
 use Filament\Tables;
+use App\Models\Guide;
+use Filament\Forms\Form;
 use Filament\Tables\Table;
+use Filament\Infolists\Infolist;
+use Filament\Resources\Resource;
 use Illuminate\Database\Eloquent\Builder;
+use Filament\Infolists\Components\Section;
+use Filament\Infolists\Components\TextEntry;
+use Filament\Infolists\Components\ImageEntry;
+use App\Filament\Resources\GuideResource\Pages;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
+use App\Filament\Resources\GuideResource\RelationManagers;
 
 class GuideResource extends Resource
 {
@@ -90,12 +94,35 @@ class GuideResource extends Resource
                 //
             ])
             ->actions([
+                Tables\Actions\ViewAction::make(),
                 Tables\Actions\EditAction::make(),
+                
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
                     Tables\Actions\DeleteBulkAction::make(),
                 ]),
+            ]);
+    }
+    public static function infolist(Infolist $infolist): Infolist
+    {
+        return $infolist
+            
+        
+        ->schema([
+
+            Section::make('Guide Info')
+               // ->description('Prevent abuse by limiting the number of requests per period')
+                ->schema([
+                    TextEntry::make('full_name'),
+                    TextEntry::make('email'),
+                    TextEntry::make('phone01'),
+                    TextEntry::make('phone02'),
+                    TextEntry::make('lang_spoken'),
+                    ImageEntry::make('guide_image') 
+                ])->columns(2)   
+                
+
             ]);
     }
 

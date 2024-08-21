@@ -2,16 +2,19 @@
 
 namespace App\Filament\Resources;
 
-use App\Filament\Resources\TourResource\Pages;
-use App\Filament\Resources\TourResource\RelationManagers;
-use App\Models\Tour;
 use Filament\Forms;
-use Filament\Forms\Form;
-use Filament\Resources\Resource;
+use App\Models\Tour;
 use Filament\Tables;
+use Filament\Forms\Form;
 use Filament\Tables\Table;
+use Filament\Infolists\Infolist;
+use Filament\Resources\Resource;
 use Illuminate\Database\Eloquent\Builder;
+use Filament\Infolists\Components\Section;
+use Filament\Infolists\Components\TextEntry;
+use App\Filament\Resources\TourResource\Pages;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
+use App\Filament\Resources\TourResource\RelationManagers;
 
 class TourResource extends Resource
 {
@@ -70,7 +73,23 @@ class TourResource extends Resource
                 ]),
             ]);
     }
+    public static function infolist(Infolist $infolist): Infolist
+    {
+        return $infolist
+            
+        
+        ->schema([
 
+            Section::make('Tour Info')
+               // ->description('Prevent abuse by limiting the number of requests per period')
+                ->schema([
+                    TextEntry::make('title'),
+                    TextEntry::make('tour_duration'),
+                ])->columns(2)   
+                
+
+            ]);
+    }
     public static function getRelations(): array
     {
         return [
@@ -83,7 +102,7 @@ class TourResource extends Resource
         return [
             'index' => Pages\ListTours::route('/'),
             'create' => Pages\CreateTour::route('/create'),
-            'view' => Pages\ViewTour::route('/{record}'),
+       //     'view' => Pages\ViewTour::route('/{record}'),
             'edit' => Pages\EditTour::route('/{record}/edit'),
         ];
     }

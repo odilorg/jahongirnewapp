@@ -2,16 +2,19 @@
 
 namespace App\Filament\Resources;
 
-use App\Filament\Resources\GuestResource\Pages;
-use App\Filament\Resources\GuestResource\RelationManagers;
-use App\Models\Guest;
 use Filament\Forms;
-use Filament\Forms\Form;
-use Filament\Resources\Resource;
 use Filament\Tables;
+use App\Models\Guest;
+use Filament\Forms\Form;
 use Filament\Tables\Table;
+use Filament\Infolists\Infolist;
+use Filament\Resources\Resource;
 use Illuminate\Database\Eloquent\Builder;
+use Filament\Infolists\Components\Section;
+use Filament\Infolists\Components\TextEntry;
+use App\Filament\Resources\GuestResource\Pages;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
+use App\Filament\Resources\GuestResource\RelationManagers;
 
 class GuestResource extends Resource
 {
@@ -81,6 +84,27 @@ class GuestResource extends Resource
                 ]),
             ]);
     }
+    public static function infolist(Infolist $infolist): Infolist
+    {
+        return $infolist
+            
+        
+        ->schema([
+
+            Section::make('Guest Info')
+               // ->description('Prevent abuse by limiting the number of requests per period')
+                ->schema([
+                    TextEntry::make('full_name'),
+                    TextEntry::make('email'),
+                    TextEntry::make('email'),
+                    TextEntry::make('phone'),
+                    TextEntry::make('country'),
+                ])->columns(2)   
+                
+
+            ]);
+    }
+
 
     public static function getRelations(): array
     {
@@ -94,7 +118,7 @@ class GuestResource extends Resource
         return [
             'index' => Pages\ListGuests::route('/'),
             'create' => Pages\CreateGuest::route('/create'),
-            'view' => Pages\ViewGuest::route('/{record}'),
+         //   'view' => Pages\ViewGuest::route('/{record}'),
             'edit' => Pages\EditGuest::route('/{record}/edit'),
         ];
     }
