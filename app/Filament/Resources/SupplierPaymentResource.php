@@ -65,12 +65,15 @@ class SupplierPaymentResource extends Resource
                     ->sortable(),
                 Tables\Columns\TextColumn::make('driver.full_name')
                     ->numeric()
+                    ->placeholder('No driver')
                     ->sortable(),
                 Tables\Columns\TextColumn::make('guide.full_name')
                     ->numeric()
+                    ->placeholder('No guide')
                     ->sortable(),
                 Tables\Columns\TextColumn::make('amount_paid')
                     ->numeric()
+                    ->money('USD')
                     ->sortable(),
                 Tables\Columns\TextColumn::make('payment_date')
                     ->date()
@@ -80,6 +83,7 @@ class SupplierPaymentResource extends Resource
                 //
             ])
             ->actions([
+                Tables\Actions\ViewAction::make(),
                 Tables\Actions\EditAction::make(),
             ])
             ->bulkActions([

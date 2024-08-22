@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Driver extends Model
 {
@@ -15,4 +16,10 @@ class Driver extends Model
     {
         return $this->belongsTo(Car::class);
     }
+
+    public function supplier_payments(): HasMany
+    {
+        return $this->hasMany(SupplierPayment::class);
+    }
+
 }

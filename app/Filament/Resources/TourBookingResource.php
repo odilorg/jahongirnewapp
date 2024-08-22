@@ -16,6 +16,7 @@ use Filament\Infolists\Components\ImageEntry;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
 use App\Filament\Resources\TourBookingResource\Pages;
 use App\Filament\Resources\TourBookingResource\RelationManagers;
+use App\Filament\Resources\TourBookingResource\RelationManagers\DriverRelationManager;
 
 class TourBookingResource extends Resource
 {
@@ -203,7 +204,7 @@ class TourBookingResource extends Resource
     public static function getRelations(): array
     {
         return [
-            //
+            DriverRelationManager::class
         ];
     }
 

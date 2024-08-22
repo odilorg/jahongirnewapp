@@ -11,12 +11,15 @@ use Filament\Infolists\Infolist;
 use Filament\Resources\Resource;
 use Illuminate\Database\Eloquent\Builder;
 use Filament\Infolists\Components\Section;
+use Filament\Infolists\Components\Fieldset;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Infolists\Components\ImageEntry;
 use App\Filament\Resources\DriverResource\Pages;
+use Filament\Infolists\Components\RepeatableEntry;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
 use App\Filament\Resources\DriverResource\RelationManagers;
 use App\Filament\Resources\DriverResource\RelationManagers\CarRelationManager;
+use App\Filament\Resources\DriverResource\RelationManagers\SupplierPaymentsRelationManager;
 
 
 class DriverResource extends Resource
@@ -134,6 +137,7 @@ class DriverResource extends Resource
             Section::make('Relationship Info')
             // ->description('Prevent abuse by limiting the number of requests per period')
              ->schema([
+                 
                  TextEntry::make('car.model')
                  ->label('Car Model'),
                  TextEntry::make('car.number_seats')
@@ -142,8 +146,10 @@ class DriverResource extends Resource
                  ->label('Number of Luggage'),
                  ImageEntry::make('car.image')
                  ->label('Car Image'), 
-             ])->columns(2)   
-             
+             ])->columns(2),
+            
+            
+                    
 
          ]);
     }
@@ -151,8 +157,11 @@ class DriverResource extends Resource
     public static function getRelations(): array
     {
         return [
-           CarRelationManager::class
+           CarRelationManager::class,
+           SupplierPaymentsRelationManager::class
+
         ];
+
     }
 
     public static function getPages(): array
