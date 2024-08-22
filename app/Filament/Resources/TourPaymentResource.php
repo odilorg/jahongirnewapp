@@ -58,16 +58,17 @@ class TourPaymentResource extends Resource
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\TextColumn::make('payment_date')  
-                    ->numeric()                 
+                    ->numeric() 
+                    ->date()
                     ->sortable(),
-                    Tables\Columns\TextColumn::make('tour_booking.group_number')
+                Tables\Columns\TextColumn::make('tour_booking.group_number')
                     ->numeric()
                     ->sortable(),
                 Tables\Columns\TextColumn::make('tour_booking.guest.full_name')
                     ->numeric()
                     ->sortable(),    
                 Tables\Columns\TextColumn::make('amount_paid')
-                    ->numeric()
+                    ->money('USD')
                     ->sortable(),
                 Tables\Columns\TextColumn::make('tour_booking.tour.title')
                     ->numeric()
@@ -96,8 +97,10 @@ class TourPaymentResource extends Resource
             Section::make('Tour Booking Payment')
                // ->description('Prevent abuse by limiting the number of requests per period')
                 ->schema([
-                    TextEntry::make('payment_date'),
+                    TextEntry::make('payment_date')
+                    ->date(),
                     TextEntry::make('amount_paid')
+                    ->money('USD')
                    // ->label('Tour Title'),
                     // TextEntry::make('tour_booking.tour.tour_duration')
                     // ->label('Tour Duration'),

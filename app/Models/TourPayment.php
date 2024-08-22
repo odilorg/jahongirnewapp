@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class TourPayment extends Model
 {
     use HasFactory;
-    protected $fillable = ['amount_paid', 'tour_booking_id'];
+    protected $fillable = ['payment_date', 'amount_paid', 'tour_booking_id'];
 
     public function tour_booking(): BelongsTo
     {
