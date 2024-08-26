@@ -72,7 +72,15 @@ class TerminalCheckResource extends Resource
                     'Uzcard OK' => 'Uzcard OK',
                     'Uzcard YTT' => 'Uzcard YTT',
                 ])
+
+
+
                 ], layout: FiltersLayout::AboveContent) 
+            
+                
+
+
+
             ->actions([
                 Tables\Actions\EditAction::make(),
             ])
