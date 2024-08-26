@@ -8,8 +8,11 @@ use Filament\Forms\Form;
 use Filament\Tables\Table;
 use Filament\Support\RawJs;
 use App\Models\TerminalCheck;
+use Illuminate\Support\Carbon;
 use Filament\Resources\Resource;
+use Filament\Tables\Filters\Filter;
 use Filament\Tables\Enums\FiltersLayout;
+use Filament\Tables\Filters\SelectFilter;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
 use App\Filament\Resources\TerminalCheckResource\Pages;
@@ -65,17 +68,49 @@ class TerminalCheckResource extends Resource
 
             ])
             ->filters([
-                Tables\Filters\SelectFilter::make('card_type')
+                SelectFilter::make('card_type')
                 ->options([
                     'Humo OK' => 'Humo OK',
                     'Humo YTT' => 'Humo YTT',
                     'Uzcard OK' => 'Uzcard OK',
                     'Uzcard YTT' => 'Uzcard YTT',
-                ])
+                ]),
+
+                Filter::make('check_date')
+    ->form([
+        Forms\Components\DatePicker::make('created_from'),
+        Forms\Components\DatePicker::make('created_until'),
+    ])
+    ->query(function (Builder $query, array $data): Builder {
+        return $query
+            ->when(
+                $data['created_from'],
+                fn (Builder $query, $date): Builder => $query->whereDate('check_date', '>=', $date),
+            )
+            ->when(
+                $data['created_until'],
+                fn (Builder $query, $date): Builder => $query->whereDate('check_date', '<=', $date),
+            );
+
+            
+    })
+    ->indicateUsing(function (array $data): array {
+        $indicators = [];
+ 
+        if ($data['created_from'] ?? null) {
+            $indicators['created_from'] = 'Created from ' . Carbon::parse($data['created_from'])->toFormattedDateString();
+        }
+ 
+        if ($data['created_until'] ?? null) {
+            $indicators['created_until'] = 'Created until ' . Carbon::parse($data['created_until'])->toFormattedDateString();
+        }
+ 
+        return $indicators;
+    })->columnSpan(2)->columns(2)
 
 
-
-                ], layout: FiltersLayout::AboveContent) 
+                ], layout: FiltersLayout::AboveContent)
+                ->filtersFormColumns(3) 
             
                 
 
