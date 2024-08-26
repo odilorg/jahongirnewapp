@@ -14,7 +14,7 @@ return new class extends Migration
         Schema::create('terminal_checks', function (Blueprint $table) {
             $table->id();
             $table->timestamps();
-            $table->date('check_date');
+            $table->date('check_date')->nullable();
             $table->unsignedInteger('amount')->nullable();
             $table->string('card_type');
 

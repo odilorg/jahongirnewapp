@@ -23,7 +23,21 @@ class TerminalCheckResource extends Resource
     {
         return $form
             ->schema([
-                //
+                Forms\Components\TextInput::make('amount')
+                ->numeric()
+                ->prefix('UZS'),
+                
+            Forms\Components\DatePicker::make('check_date')
+                ->required()
+                ->native(false)
+                ->maxDate(now()),
+            Forms\Components\Select::make('card_type')
+                ->options([
+                    'humo_ok' => 'Humo OK',
+                    'humo_ytt' => 'Humo YTT',
+                    'uzcard_ok' => 'Uzcard OK',
+                    'uzcard_ytt' => 'Uzcard YTT',
+                ])
             ]);
     }
 
