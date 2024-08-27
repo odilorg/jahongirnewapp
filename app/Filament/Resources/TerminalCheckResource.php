@@ -12,6 +12,7 @@ use Illuminate\Support\Carbon;
 use Filament\Resources\Resource;
 use Filament\Actions\CreateAction;
 use Filament\Tables\Filters\Filter;
+use Filament\Tables\Grouping\Group;
 use Filament\Tables\Enums\FiltersLayout;
 use Filament\Tables\Filters\SelectFilter;
 use Illuminate\Database\Eloquent\Builder;
@@ -25,6 +26,8 @@ class TerminalCheckResource extends Resource
     protected static ?string $model = TerminalCheck::class;
 
     protected static ?string $navigationIcon = 'heroicon-o-rectangle-stack';
+
+    protected static ?string $navigationGroup = 'Hotel Related';
 
     public static function form(Form $form): Form
     {
@@ -61,11 +64,19 @@ class TerminalCheckResource extends Resource
     public static function table(Table $table): Table
     {
         return $table
-        
+        ->groups([
+            Group::make('created_at')
+                ->date(),
+        ])
+        //->dateTime()
+        ->defaultGroup('check_date')
             ->columns([
+
+                
                 Tables\Columns\TextColumn::make('check_date')
-                 ->defaultGroup('status')
-                ->sortable(),
+                // ->defaultGroup('check_date')
+                ->sortable()
+                ->dateTime(),
                 Tables\Columns\TextColumn::make('card_type')
                 ->badge()
                 ->color(fn (string $state): string => match ($state) {
@@ -86,7 +97,7 @@ class TerminalCheckResource extends Resource
               ->money('UZS')
 
             ])
-            ->defaultGroup('check_date')
+           
             ->filters([
                 SelectFilter::make('card_type')
                 ->options([
