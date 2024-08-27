@@ -15,5 +15,5 @@ class TerminalCheck extends Model
         'amount' => MoneyCast::class,
     ];
 
-    protected $fillable = ['amount', 'check_date', 'card_type'];
+    protected $fillable = ['amount', 'check_date', 'card_type', 'doc_type'];
 }

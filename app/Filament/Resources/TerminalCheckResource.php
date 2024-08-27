@@ -14,6 +14,7 @@ use Filament\Tables\Filters\Filter;
 use Filament\Tables\Enums\FiltersLayout;
 use Filament\Tables\Filters\SelectFilter;
 use Illuminate\Database\Eloquent\Builder;
+use Filament\Tables\Columns\Summarizers\Sum;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
 use App\Filament\Resources\TerminalCheckResource\Pages;
 use App\Filament\Resources\TerminalCheckResource\RelationManagers;
@@ -45,7 +46,13 @@ class TerminalCheckResource extends Resource
                     'Humo YTT' => 'Humo YTT',
                     'Uzcard OK' => 'Uzcard OK',
                     'Uzcard YTT' => 'Uzcard YTT',
-                ])
+                ]),
+            Forms\Components\Select::make('doc_type')
+                ->options([
+                    'TerminalCheck' => 'TerminalCheck',
+                    'BankVipiska' => 'BankVipiska',
+                    
+                ])    
                 
             ]);
     }
@@ -64,7 +71,16 @@ class TerminalCheckResource extends Resource
                     'Uzcard OK' => 'success',
                     'Uzcard YTT' => 'danger',
                 }),
-                Tables\Columns\TextColumn::make('amount'),
+            Tables\Columns\TextColumn::make('doc_type')
+                ->badge()
+                ->color(fn (string $state): string => match ($state) {
+                    'TerminalCheck' => 'info',
+                    'BankVipiska' => 'warning',
+                   
+                }),
+                Tables\Columns\TextColumn::make('amount')
+                ->summarize(Sum::make()->money('UZS', divideBy: 100))
+              ->money('UZS')
 
             ])
             ->filters([
@@ -75,6 +91,11 @@ class TerminalCheckResource extends Resource
                     'Uzcard OK' => 'Uzcard OK',
                     'Uzcard YTT' => 'Uzcard YTT',
                 ]),
+                SelectFilter::make('doc_type')
+                ->options([
+                   'TerminalCheck' => 'TerminalCheck',
+                    'BankVipiska' => 'BankVipiska',
+                ]),  
 
                 Filter::make('check_date')
     ->form([
@@ -106,11 +127,11 @@ class TerminalCheckResource extends Resource
         }
  
         return $indicators;
-    })->columnSpan(2)->columns(2)
+    })->columnSpan(3)->columns(2)
 
 
                 ], layout: FiltersLayout::AboveContent)
-                ->filtersFormColumns(3) 
+                ->filtersFormColumns(2) 
             
                 
 
