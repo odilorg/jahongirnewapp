@@ -1,0 +1,2 @@
+INSERT INTO `users` (`id`, `name`, `email`, `email_verified_at`, `password`, `remember_token`, `created_at`, `updated_at`) VALUES
+(1, 'Odil', 'odilorg@gmail.com', NULL, '$2y$12$hChgm0YaZMS/6y0BGOteL.mCuUg/4/PZSp1Kpha4eYyU9fR4ixag6', 'Z2rPM94oHdkbEiEFKQfjIxu6YnglYVPsKr2YdQPDcmqLIEyK87XNzxOlw9Hy', '2024-08-20 23:25:16', '2024-08-20 23:25:16');

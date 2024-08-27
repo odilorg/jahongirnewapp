@@ -10,6 +10,7 @@ use Filament\Support\RawJs;
 use App\Models\TerminalCheck;
 use Illuminate\Support\Carbon;
 use Filament\Resources\Resource;
+use Filament\Actions\CreateAction;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Enums\FiltersLayout;
 use Filament\Tables\Filters\SelectFilter;
@@ -60,8 +61,10 @@ class TerminalCheckResource extends Resource
     public static function table(Table $table): Table
     {
         return $table
+        
             ->columns([
                 Tables\Columns\TextColumn::make('check_date')
+                 ->defaultGroup('status')
                 ->sortable(),
                 Tables\Columns\TextColumn::make('card_type')
                 ->badge()
@@ -83,6 +86,7 @@ class TerminalCheckResource extends Resource
               ->money('UZS')
 
             ])
+            ->defaultGroup('check_date')
             ->filters([
                 SelectFilter::make('card_type')
                 ->options([
@@ -138,11 +142,14 @@ class TerminalCheckResource extends Resource
 
 
             ->actions([
-                Tables\Actions\EditAction::make(),
+                Tables\Actions\EditAction::make()
+                //->successRedirectUrl(route('terminal-checks')),
             ])
+            
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
                     Tables\Actions\DeleteBulkAction::make(),
+                    
                 ]),
             ]);
     }
@@ -162,4 +169,13 @@ class TerminalCheckResource extends Resource
             'edit' => Pages\EditTerminalCheck::route('/{record}/edit'),
         ];
     }
+
+    protected function getHeaderActions(): array {
+        return [
+            CreateAction::make()
+        ];
+    }
+
+
+
 }
