@@ -34,7 +34,26 @@ class TourBookingResource extends Resource
                     ->multiple()
                     ->searchable()
                     ->preload()
-                    ->required(),   
+                    ->required(), 
+                Forms\Components\Select::make('drivers')
+                    ->relationship('drivers','full_name')
+                    ->multiple()
+                    ->searchable()
+                    ->preload()
+                    ->required(), 
+                   
+                Forms\Components\Select::make('guests')
+                        ->relationship('guests','full_name')
+                        ->multiple()
+                        ->searchable()
+                        ->preload()
+                        ->required(),   
+                Forms\Components\Select::make('guides')
+                        ->relationship('guides','full_name')
+                        ->multiple()
+                        ->searchable()
+                        ->preload()
+                        ->required(),           
                
                     
                 // Forms\Components\Select::make('guest_id')
@@ -86,7 +105,10 @@ class TourBookingResource extends Resource
                     ->dateTime()
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
-                TextColumn::make('tours.title'),    
+                TextColumn::make('tours.title'),
+                TextColumn::make('drivers.full_name'),
+                TextColumn::make('guests.full_name'), 
+                TextColumn::make('guides.full_name'),    
                 // Tables\Columns\TextColumn::make('tour.title')
                    
                 //     ->sortable(),

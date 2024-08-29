@@ -20,18 +20,18 @@ class TourBooking extends Model
     
     
 
-    // public function guest(): BelongsTo
-    // {
-    //     return $this->belongsTo(Guest::class);
-    // }
+    public function guests(): BelongsToMany
+    {
+        return $this->belongsToMany(Guest::class, 'guest_tour_booking');
+    }
 
-    // public function driver(): BelongsTo
-    // {
-    //     return $this->belongsTo(Driver::class);
-    // }
+    public function drivers(): BelongsToMany
+    {
+        return $this->belongsToMany(Driver::class, 'driver_tour_booking' );
+    }
 
-    // public function guide(): BelongsTo
-    // {
-    //     return $this->belongsTo(Guide::class);
-    // }
+    public function guides(): BelongsToMany
+    {
+        return $this->belongsToMany(Guide::class, 'guide_tour_booking');
+    }
 }
