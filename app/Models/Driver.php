@@ -2,19 +2,21 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 class Driver extends Model
 {
     use HasFactory;
     protected $fillable = ['car_id', 'first_name', 'last_name', 'email', 'phone01', 'phone02', 'fuel_type', 'driver_image'];
 
-    public function car(): BelongsTo
+    
+    public function cars(): BelongsToMany
     {
-        return $this->belongsTo(Car::class);
+        return $this->belongsToMany(Car::class, 'car_driver');
     }
 
     public function supplier_payments(): HasMany

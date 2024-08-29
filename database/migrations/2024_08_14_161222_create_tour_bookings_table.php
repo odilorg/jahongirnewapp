@@ -14,10 +14,10 @@ return new class extends Migration
         Schema::create('tour_bookings', function (Blueprint $table) {
             $table->id();
             $table->timestamps();
-            $table->foreignId('tour_id');
-            $table->foreignId('guest_id');
-            $table->foreignId('driver_id');
-            $table->foreignId('guide_id');
+            // $table->foreignId('tour_id');
+            // $table->foreignId('guest_id');
+            // $table->foreignId('driver_id');
+            // $table->foreignId('guide_id');
             $table->integer('number_of_adults');
             $table->integer('number_of_children');
             $table->text('special_requests');

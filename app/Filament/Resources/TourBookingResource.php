@@ -9,6 +9,7 @@ use Filament\Tables\Table;
 use App\Models\TourBooking;
 use Filament\Infolists\Infolist;
 use Filament\Resources\Resource;
+use Filament\Tables\Columns\TextColumn;
 use Illuminate\Database\Eloquent\Builder;
 use Filament\Infolists\Components\Section;
 use Filament\Infolists\Components\TextEntry;
@@ -28,27 +29,29 @@ class TourBookingResource extends Resource
     {
         return $form
             ->schema([
-                Forms\Components\Select::make('tour_id')
-                    ->relationship(name: 'tour', titleAttribute: 'title')
-                    ->preload()
+                Forms\Components\Select::make('tours')
+                    ->relationship('tours','title')
+                    ->multiple()
                     ->searchable()
-                    ->required(),
+                    ->preload()
+                    ->required(),   
+               
                     
-                Forms\Components\Select::make('guest_id')
-                        ->relationship(name: 'guest', titleAttribute: 'full_name')
-                        ->preload()
-                        ->searchable()
-                        ->required(),
-                Forms\Components\Select::make('driver_id')
-                        ->relationship(name: 'driver', titleAttribute: 'full_name')
-                        ->preload()
-                        ->searchable()
-                        ->required(),
-                Forms\Components\Select::make('guide_id')
-                        ->relationship(name: 'guide', titleAttribute: 'full_name')
-                        ->preload()
-                        ->searchable()
-                        ->required(),
+                // Forms\Components\Select::make('guest_id')
+                //         ->relationship(name: 'guest', titleAttribute: 'full_name')
+                //         ->preload()
+                //         ->searchable()
+                //         ->required(),
+                // Forms\Components\Select::make('driver_id')
+                //         ->relationship(name: 'driver', titleAttribute: 'full_name')
+                //         ->preload()
+                //         ->searchable()
+                //         ->required(),
+                // Forms\Components\Select::make('guide_id')
+                //         ->relationship(name: 'guide', titleAttribute: 'full_name')
+                //         ->preload()
+                //         ->searchable()
+                //         ->required(),
                 Forms\Components\TextInput::make('number_of_adults')
                     ->required()
                     ->numeric(),
@@ -83,18 +86,19 @@ class TourBookingResource extends Resource
                     ->dateTime()
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
-                Tables\Columns\TextColumn::make('tour.title')
+                TextColumn::make('tours.title'),    
+                // Tables\Columns\TextColumn::make('tour.title')
                    
-                    ->sortable(),
-                Tables\Columns\TextColumn::make('guest.full_name')
+                //     ->sortable(),
+                // Tables\Columns\TextColumn::make('guest.full_name')
                     
-                    ->sortable(),
-                Tables\Columns\TextColumn::make('driver.full_name')
+                //     ->sortable(),
+                // Tables\Columns\TextColumn::make('driver.full_name')
                     
-                    ->sortable(),
-                Tables\Columns\TextColumn::make('guide.full_name')
-                    ->numeric()
-                    ->sortable(),
+                //     ->sortable(),
+                // Tables\Columns\TextColumn::make('guide.full_name')
+                //     ->numeric()
+                //     ->sortable(),
                 Tables\Columns\TextColumn::make('number_of_adults')
                     ->numeric()
                     ->toggleable(isToggledHiddenByDefault: true)
@@ -130,72 +134,72 @@ class TourBookingResource extends Resource
         
         ->schema([
 
-            Section::make('Booked Tour Info')
-               // ->description('Prevent abuse by limiting the number of requests per period')
-                ->schema([
-                    TextEntry::make('tour.title')
-                    ->label('Tour Title'),
-                    TextEntry::make('tour.tour_duration')
-                    ->label('Tour Duration'),
+            // Section::make('Booked Tour Info')
+            //    // ->description('Prevent abuse by limiting the number of requests per period')
+            //     ->schema([
+            //         TextEntry::make('tour.title')
+            //         ->label('Tour Title'),
+            //         TextEntry::make('tour.tour_duration')
+            //         ->label('Tour Duration'),
                    
-                ])->columns(2),
+            //     ])->columns(2),
            
-            Section::make('Tour Booking Info')
-                // ->description('Prevent abuse by limiting the number of requests per period')
-                 ->schema([
-                     TextEntry::make('number_of_adults'),
-                     TextEntry::make('number_of_children'),
-                     TextEntry::make('pickup_location'),
-                     TextEntry::make('dropoff_location'),
+            // Section::make('Tour Booking Info')
+            //     // ->description('Prevent abuse by limiting the number of requests per period')
+            //      ->schema([
+            //          TextEntry::make('number_of_adults'),
+            //          TextEntry::make('number_of_children'),
+            //          TextEntry::make('pickup_location'),
+            //          TextEntry::make('dropoff_location'),
                     
-                 ])->columns(2),
+            //      ])->columns(2),
 
-            Section::make('Guide Info')
-                 // ->description('Prevent abuse by limiting the number of requests per period')
-                  ->schema([
-                      TextEntry::make('guide.full_name')
-                      ->label('Guide Name'),
-                      TextEntry::make('guide.email')
-                      ->label('Guide email'),
-                      TextEntry::make('guide.phone01')
-                      ->label('Guide phone #1'),
-                      TextEntry::make('guide.phone02')
-                      ->label('Guide phone #2'),
-                      TextEntry::make('guide.lang_spoken')
-                      ->label('Guide Languages spoken'),
-                      ImageEntry::make('guide.guide_image')
-                      ->label('Guide Image'),
+            // Section::make('Guide Info')
+            //      // ->description('Prevent abuse by limiting the number of requests per period')
+            //       ->schema([
+            //           TextEntry::make('guide.full_name')
+            //           ->label('Guide Name'),
+            //           TextEntry::make('guide.email')
+            //           ->label('Guide email'),
+            //           TextEntry::make('guide.phone01')
+            //           ->label('Guide phone #1'),
+            //           TextEntry::make('guide.phone02')
+            //           ->label('Guide phone #2'),
+            //           TextEntry::make('guide.lang_spoken')
+            //           ->label('Guide Languages spoken'),
+            //           ImageEntry::make('guide.guide_image')
+            //           ->label('Guide Image'),
                      
-                  ])->columns(2),    
-            Section::make('Driver Info')
-                  // ->description('Prevent abuse by limiting the number of requests per period')
-                   ->schema([
-                       TextEntry::make('driver.full_name')
-                       ->label('Driver Name'),
-                       TextEntry::make('driver.email')
-                       ->label('Driver email'),
-                       TextEntry::make('driver.phone01')
-                       ->label('Driver phone #1'),
-                       TextEntry::make('driver.phone02')
-                       ->label('Driver phone #2'),
-                       TextEntry::make('driver.fuel_type')
-                       ->label('Driver car fuel type'),
-                       ImageEntry::make('driver.driver_image')
-                       ->label('Driver Image'),
+            //       ])->columns(2),    
+            // Section::make('Driver Info')
+            //       // ->description('Prevent abuse by limiting the number of requests per period')
+            //        ->schema([
+            //            TextEntry::make('driver.full_name')
+            //            ->label('Driver Name'),
+            //            TextEntry::make('driver.email')
+            //            ->label('Driver email'),
+            //            TextEntry::make('driver.phone01')
+            //            ->label('Driver phone #1'),
+            //            TextEntry::make('driver.phone02')
+            //            ->label('Driver phone #2'),
+            //            TextEntry::make('driver.fuel_type')
+            //            ->label('Driver car fuel type'),
+            //            ImageEntry::make('driver.driver_image')
+            //            ->label('Driver Image'),
                       
-                   ])->columns(2),   
-            Section::make('Car Info')
-                   // ->description('Prevent abuse by limiting the number of requests per period')
-                    ->schema([
-                        TextEntry::make('driver.car.model')
-                        ->label('Car Model'),
-                        TextEntry::make('driver.car.number_seats')
-                        ->label('Number of Seats'),
-                        TextEntry::make('driver.car.number_luggage')
-                        ->label('Number of Luggage'),
-                        ImageEntry::make('driver.car.image')
-                        ->label('Car Image'), 
-                    ])->columns(2)                    
+            //        ])->columns(2),   
+            // Section::make('Car Info')
+            //        // ->description('Prevent abuse by limiting the number of requests per period')
+            //         ->schema([
+            //             TextEntry::make('driver.car.model')
+            //             ->label('Car Model'),
+            //             TextEntry::make('driver.car.number_seats')
+            //             ->label('Number of Seats'),
+            //             TextEntry::make('driver.car.number_luggage')
+            //             ->label('Number of Luggage'),
+            //             ImageEntry::make('driver.car.image')
+            //             ->label('Car Image'), 
+            //         ])->columns(2)                    
 
              
 
@@ -204,7 +208,7 @@ class TourBookingResource extends Resource
     public static function getRelations(): array
     {
         return [
-            DriverRelationManager::class
+           // DriverRelationManager::class
         ];
     }
 

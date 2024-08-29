@@ -41,14 +41,17 @@ class DriverResource extends Resource
                     ->required()
                     ->maxLength(255),
                 Forms\Components\TextInput::make('email')
+                    ->label('Email address')
                     ->email()
                     ->required()
                     ->maxLength(255),
                 Forms\Components\TextInput::make('phone01')
+                    ->label('Phone number #1')
                     ->tel()
                     ->required()
                     ->maxLength(255),
                 Forms\Components\TextInput::make('phone02')
+                    ->label('Phone number #2')
                     ->tel()
                     ->required()
                     ->maxLength(255),
@@ -63,9 +66,12 @@ class DriverResource extends Resource
                 Forms\Components\FileUpload::make('driver_image')
                     ->image()
                     ->required(),
-                Forms\Components\Select::make('car_id')
-                    ->relationship(name: 'car', titleAttribute: 'model')
-                    ->required()
+                Forms\Components\Select::make('cars')
+                        ->relationship('cars','model')
+                        ->multiple()
+                        ->searchable()
+                        ->preload()
+                        ->required()
                     
             ]);
     }
@@ -94,6 +100,8 @@ class DriverResource extends Resource
                     ->searchable(),
                 Tables\Columns\TextColumn::make('fuel_type')
                     ->searchable(),
+                Tables\Columns\TextColumn::make('cars.model'),
+                
                 Tables\Columns\ImageColumn::make('driver_image')
                     ->circular(),
                
@@ -138,13 +146,13 @@ class DriverResource extends Resource
             // ->description('Prevent abuse by limiting the number of requests per period')
              ->schema([
                  
-                 TextEntry::make('car.model')
+                 TextEntry::make('cars.model')
                  ->label('Car Model'),
-                 TextEntry::make('car.number_seats')
+                 TextEntry::make('cars.number_seats')
                  ->label('Number of Seats'),
-                 TextEntry::make('car.number_luggage')
+                 TextEntry::make('cars.number_luggage')
                  ->label('Number of Luggage'),
-                 ImageEntry::make('car.image')
+                 ImageEntry::make('cars.image')
                  ->label('Car Image'), 
              ])->columns(2),
             
@@ -157,8 +165,8 @@ class DriverResource extends Resource
     public static function getRelations(): array
     {
         return [
-           CarRelationManager::class,
-           SupplierPaymentsRelationManager::class
+        //    CarRelationManager::class,
+        //    SupplierPaymentsRelationManager::class
 
         ];
 
