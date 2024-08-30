@@ -54,7 +54,6 @@ class DriverResource extends Resource
                 Forms\Components\TextInput::make('phone02')
                     ->label('Phone number #2')
                     ->tel()
-                    ->required()
                     ->maxLength(255),
                 Forms\Components\Select::make('fuel_type')
                     ->options([
