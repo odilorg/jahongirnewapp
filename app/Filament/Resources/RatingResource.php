@@ -41,7 +41,12 @@ class RatingResource extends Resource
                     ->relationship('driver','full_name')
                     ->searchable()
                     ->preload()
-                    ->required()
+                    ->required(),
+                Forms\Components\Select::make('tour_booking_id')
+                    ->relationship('tour_booking','group_number')
+                    ->searchable()
+                    ->preload()
+                    ->required()   
             ]);
     }
 
