@@ -64,13 +64,13 @@ class TourPaymentResource extends Resource
                 Tables\Columns\TextColumn::make('tour_booking.group_number')
                     ->numeric()
                     ->sortable(),
-                Tables\Columns\TextColumn::make('tour_booking.guest.full_name')
+                Tables\Columns\TextColumn::make('tour_booking.guests.full_name')
                     ->numeric()
                     ->sortable(),    
                 Tables\Columns\TextColumn::make('amount_paid')
                     ->money('USD')
                     ->sortable(),
-                Tables\Columns\TextColumn::make('tour_booking.tour.title')
+                Tables\Columns\TextColumn::make('tour_booking.tours.title')
                     ->numeric()
                     ->sortable(),    
             ])

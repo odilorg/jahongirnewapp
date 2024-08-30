@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class TourBooking extends Model
 {
@@ -16,6 +17,11 @@ class TourBooking extends Model
     public function tours(): BelongsToMany
     {
         return $this->belongsToMany(Tour::class, 'tour_tour_booking');
+    }
+
+    public function tour_payments(): HasMany
+    {
+        return $this->Hasmany(TourPayment::class);
     }
     
     
