@@ -45,14 +45,12 @@ class GuideResource extends Resource
                     ->maxLength(255),
                 Forms\Components\TextInput::make('phone02')
                     ->tel()
-                    ->required()
                     ->maxLength(255),
-                Forms\Components\CheckboxList::make('lang_spoken')
-                    ->options([
-                        'en' => 'English',
-                        'ru' => 'Russian',
-                        'fr' => 'French',
-                    ])
+                Forms\Components\Select::make('languages')
+                    ->relationship('languages','language')
+                    ->multiple()
+                    ->searchable()
+                    ->preload()
                     ->required(),    
                
                 Forms\Components\FileUpload::make('guide_image')
@@ -84,7 +82,7 @@ class GuideResource extends Resource
                     ->searchable(),
                 Tables\Columns\TextColumn::make('phone02')
                     ->searchable(),
-                Tables\Columns\TextColumn::make('lang_spoken')
+                Tables\Columns\TextColumn::make('languages.language')
                     ->searchable(),
                 Tables\Columns\ImageColumn::make('guide_image'),
                 Tables\Columns\TextColumn::make('full_name')
