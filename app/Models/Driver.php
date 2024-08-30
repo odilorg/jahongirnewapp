@@ -19,6 +19,11 @@ class Driver extends Model
         return $this->belongsToMany(Car::class, 'car_driver');
     }
 
+    public function ratings(): HasMany
+    {
+        return $this->hasMany(Rating::class);
+    }
+
     public function supplier_payments(): HasMany
     {
         return $this->hasMany(SupplierPayment::class);

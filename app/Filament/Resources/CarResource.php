@@ -64,7 +64,8 @@ class CarResource extends Resource
                 Tables\Columns\TextColumn::make('number_luggage')
                     ->numeric()
                     ->sortable(),
-                Tables\Columns\ImageColumn::make('image'),
+                Tables\Columns\ImageColumn::make('image')
+                    ->circular(),
             ])
             ->filters([
                 //
