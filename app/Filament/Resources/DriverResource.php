@@ -19,6 +19,7 @@ use Filament\Infolists\Components\RepeatableEntry;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
 use App\Filament\Resources\DriverResource\RelationManagers;
 use App\Filament\Resources\DriverResource\RelationManagers\CarRelationManager;
+use App\Filament\Resources\DriverResource\RelationManagers\CarsRelationManager;
 use App\Filament\Resources\DriverResource\RelationManagers\SupplierPaymentsRelationManager;
 
 
@@ -165,7 +166,7 @@ class DriverResource extends Resource
     public static function getRelations(): array
     {
         return [
-        //    CarRelationManager::class,
+          CarsRelationManager::class,
         //    SupplierPaymentsRelationManager::class
 
         ];
