@@ -9,6 +9,9 @@ use Filament\Forms\Form;
 use Filament\Tables\Table;
 use Filament\Infolists\Infolist;
 use Filament\Resources\Resource;
+use Filament\Forms\Components\Select;
+use Filament\Forms\Components\Repeater;
+use Filament\Forms\Components\TextInput;
 use Illuminate\Database\Eloquent\Builder;
 use Filament\Infolists\Components\Section;
 use Filament\Infolists\Components\Fieldset;
@@ -66,6 +69,19 @@ class DriverResource extends Resource
                 Forms\Components\FileUpload::make('driver_image')
                     ->image()
                     ->required(),
+                Repeater::make('members')
+                    ->schema([
+                        TextInput::make('name')->required(),
+                        Select::make('role')
+                            ->options([
+                                'member' => 'Member',
+                                'administrator' => 'Administrator',
+                                'owner' => 'Owner',
+                            ])
+                            ->required(),
+                    ])
+                    ->columns(2),
+
                 Forms\Components\Select::make('cars')
                         ->relationship('cars','model')
                         ->multiple()

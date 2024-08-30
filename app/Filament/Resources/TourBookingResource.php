@@ -88,6 +88,7 @@ class TourBookingResource extends Resource
                     ->required()
                     ->maxLength(255),
                 Forms\Components\TextInput::make('group_number')
+                    ->default('2024-' .  random_int(100000, 999999))
                     ->required()
                     ->maxLength(255),    
             ]);
