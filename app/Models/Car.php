@@ -18,6 +18,12 @@ class Car extends Model
     // }
 
 
+    public function drivers()
+{
+    return $this->belongsToMany(Driver::class, 'car_driver', 'car_id', 'driver_id')
+                ->withPivot('car_plate'); // Assuming 'car_plate' is in the pivot table
+}
+
 
 
 

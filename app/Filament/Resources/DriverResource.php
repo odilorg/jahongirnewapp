@@ -85,10 +85,12 @@ class DriverResource extends Resource
                     ->collapsible()
                     ->schema([
                         Repeater::make('carsplates')
+                        ->label('Car Plates')
                 ->relationship()
                     ->schema([
                         
                         Forms\Components\Select::make('car_id')
+                            ->label('Car')
                             ->options(Car::all()->pluck('model', 'id')),
                         Forms\Components\TextInput::make('car_plate'),
                         // Forms\Components\TextInput::make('model'),
@@ -177,18 +179,35 @@ class DriverResource extends Resource
 
            
 
-            Section::make('Relationship Info')
+           
+
+             Section::make('Relationship Info')
             // ->description('Prevent abuse by limiting the number of requests per period')
              ->schema([
                  
-                 TextEntry::make('cars.model')
-                 ->label('Car Model'),
-                 TextEntry::make('cars.number_seats')
-                 ->label('Number of Seats'),
-                 TextEntry::make('cars.number_luggage')
-                 ->label('Number of Luggage'),
-                 ImageEntry::make('cars.image')
-                 ->label('Car Image'), 
+                //  TextEntry::make('cars.model')
+                //  ->label('Car Model'),
+                //  TextEntry::make('cars.number_seats')
+                //  ->label('Number of Seats'),
+                //  TextEntry::make('cars.number_luggage')
+                //  ->label('Number of Luggage'),
+                //  ImageEntry::make('cars.image')
+                //  ->label('Car Image'), 
+
+                RepeatableEntry::make('cars')
+    ->schema([
+        TextEntry::make('model'),
+        TextEntry::make('number_seats'),
+        TextEntry::make('number_luggage'),
+        ImageEntry::make('image'),
+        TextEntry::make('pivot.car_plate') // Accessing car_plate from the pivot table
+            ->label('Car Plate')
+            ->getStateUsing(fn ($record) => $record->pivot?->car_plate) // Fetch car_plate from the pivot table
+            ->columnSpan(2),
+    ])
+    ->columns(2)
+
+
              ])->columns(2),
             
             
