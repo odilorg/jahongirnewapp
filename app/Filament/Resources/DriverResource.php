@@ -2,10 +2,12 @@
 
 namespace App\Filament\Resources;
 
+use App\Models\Car;
 use Filament\Forms;
 use Filament\Tables;
 use App\Models\Driver;
 use Filament\Forms\Form;
+use App\Models\CarDriver;
 use Filament\Tables\Table;
 use Filament\Infolists\Infolist;
 use Filament\Resources\Resource;
@@ -38,7 +40,12 @@ class DriverResource extends Resource
     {
         return $form
             ->schema([
-                Forms\Components\TextInput::make('first_name')
+
+             Forms\Components\Section::make('Driver Personal Info')
+                    ->description('Add information about Driver')
+                    ->collapsible()
+                    ->schema([
+                         Forms\Components\TextInput::make('first_name')
                     ->required()
                     ->maxLength(255),
                 Forms\Components\TextInput::make('last_name')
@@ -69,25 +76,37 @@ class DriverResource extends Resource
                 Forms\Components\FileUpload::make('driver_image')
                     ->image()
                     ->required(),
-                Repeater::make('members')
+                    ])->columns(2),
+
+               
+            
+                Forms\Components\Section::make('Car Plates')
+                    ->description('Add Car plates that belong to Driver')
+                    ->collapsible()
                     ->schema([
-                        TextInput::make('name')->required(),
-                        Select::make('role')
-                            ->options([
-                                'member' => 'Member',
-                                'administrator' => 'Administrator',
-                                'owner' => 'Owner',
-                            ])
-                            ->required(),
+                        Repeater::make('carsplates')
+                ->relationship()
+                    ->schema([
+                        
+                        Forms\Components\Select::make('car_id')
+                            ->options(Car::all()->pluck('model', 'id')),
+                        Forms\Components\TextInput::make('car_plate'),
+                        // Forms\Components\TextInput::make('model'),
+                        // Forms\Components\TextInput::make('number_seats'),
+                        // Forms\Components\TextInput::make('number_luggage'),
+                        // Forms\Components\FileUpload::make('image'),
+                            
                     ])
                     ->columns(2),
+                    ]),
+                
 
-                Forms\Components\Select::make('cars')
-                        ->relationship('cars','model')
-                        ->multiple()
-                        ->searchable()
-                        ->preload()
-                        ->required()
+                // Forms\Components\Select::make('cars')
+                //         ->relationship('cars','model')
+                //         ->multiple()
+                //         ->searchable()
+                //         ->preload()
+                //         ->required()
                     
             ]);
     }
@@ -181,7 +200,7 @@ class DriverResource extends Resource
     public static function getRelations(): array
     {
         return [
-          CarsRelationManager::class,
+         CarsRelationManager::class,
         //    SupplierPaymentsRelationManager::class
 
         ];

@@ -12,10 +12,10 @@ class Car extends Model
     use HasFactory;
     protected $fillable = [ 'model', 'number_seats', 'number_luggage', 'image'];
 
-    public function drivers(): BelongsToMany
-    {
-        return $this->belongsToMany(Driver::class, 'car_driver');
-    }
+    // public function drivers(): BelongsToMany
+    // {
+    //     return $this->belongsToMany(Driver::class, 'car_driver');
+    // }
 
 
 
@@ -23,3 +23,4 @@ class Car extends Model
 
 
 }
+ 

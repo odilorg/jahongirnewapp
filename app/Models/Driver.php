@@ -14,9 +14,14 @@ class Driver extends Model
     protected $fillable = ['car_id', 'first_name', 'last_name', 'email', 'phone01', 'phone02', 'fuel_type', 'driver_image'];
 
     
+    public function carsplates(): HasMany
+    {
+        return $this->hasMany(CarDriver::class);
+    }
+
     public function cars(): BelongsToMany
     {
-        return $this->belongsToMany(Car::class, 'car_driver');
+        return $this->belongsToMany(Car::class);
     }
 
     public function ratings(): HasMany
