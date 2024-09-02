@@ -41,75 +41,69 @@ class DriverResource extends Resource
         return $form
             ->schema([
 
-             Forms\Components\Section::make('Driver Personal Info')
+                Forms\Components\Section::make('Driver Personal Info')
                     ->description('Add information about Driver')
                     ->collapsible()
                     ->schema([
-                         Forms\Components\TextInput::make('first_name')
-                    ->required()
-                    ->maxLength(255),
-                Forms\Components\TextInput::make('last_name')
-                    ->required()
-                    ->maxLength(255),
-                Forms\Components\TextInput::make('email')
-                    ->label('Email address')
-                    ->email()
-                    ->required()
-                    ->maxLength(255),
-                Forms\Components\TextInput::make('phone01')
-                    ->label('Phone number #1')
-                    ->tel()
-                    ->required()
-                    ->maxLength(255),
-                Forms\Components\TextInput::make('phone02')
-                    ->label('Phone number #2')
-                    ->tel()
-                    ->maxLength(255),
-                Forms\Components\Select::make('fuel_type')
-                    ->options([
-                        'propane' => 'Propane',
-                        'methane' => 'Methane',
-                        'benzin' => 'Benzin',
-                    ])
-                    ->required(),
-                   
-                Forms\Components\FileUpload::make('driver_image')
-                    ->image()
-                    ->required(),
+                        Forms\Components\TextInput::make('first_name')
+                            ->required()
+                            ->maxLength(255),
+                        Forms\Components\TextInput::make('last_name')
+                            ->required()
+                            ->maxLength(255),
+                        Forms\Components\TextInput::make('email')
+                            ->label('Email address')
+                            ->email()
+                            ->required()
+                            ->maxLength(255),
+                        Forms\Components\TextInput::make('phone01')
+                            ->label('Phone number #1')
+                            ->tel()
+                            ->required()
+                            ->maxLength(255),
+                        Forms\Components\TextInput::make('phone02')
+                            ->label('Phone number #2')
+                            ->tel()
+                            ->maxLength(255),
+                        Forms\Components\Select::make('fuel_type')
+                            ->options([
+                                'propane' => 'Propane',
+                                'methane' => 'Methane',
+                                'benzin' => 'Benzin',
+                            ])
+                            ->required(),
+
+                        Forms\Components\FileUpload::make('driver_image')
+                            ->image()
+                            ->required(),
+                        Forms\Components\Textarea::make('extra_details')
+                            ->label('Extra Details, comments'),
+                        Forms\Components\TextInput::make('address_city')
+                            ->label('Where the driver From')
+                            ->required()
+                            ->maxLength(255),    
                     ])->columns(2),
 
-               
-            
+
+
                 Forms\Components\Section::make('Car Plates')
                     ->description('Add Car plates that belong to Driver')
                     ->collapsible()
                     ->schema([
                         Repeater::make('carsplates')
-                        ->label('Car Plates')
-                ->relationship()
-                    ->schema([
-                        
-                        Forms\Components\Select::make('car_id')
-                            ->label('Car')
-                            ->options(Car::all()->pluck('model', 'id')),
-                        Forms\Components\TextInput::make('car_plate'),
-                        // Forms\Components\TextInput::make('model'),
-                        // Forms\Components\TextInput::make('number_seats'),
-                        // Forms\Components\TextInput::make('number_luggage'),
-                        // Forms\Components\FileUpload::make('image'),
-                            
-                    ])
-                    ->columns(2),
-                    ]),
-                
+                            ->label('Car Plates')
+                            ->relationship()
+                            ->schema([
 
-                // Forms\Components\Select::make('cars')
-                //         ->relationship('cars','model')
-                //         ->multiple()
-                //         ->searchable()
-                //         ->preload()
-                //         ->required()
-                    
+                                Forms\Components\Select::make('car_id')
+                                    ->label('Car')
+                                    ->options(Car::all()->pluck('model', 'id')),
+                                Forms\Components\TextInput::make('car_plate'),
+
+                            ])
+                            ->columns(2),
+                    ]),
+
             ]);
     }
 
@@ -125,6 +119,12 @@ class DriverResource extends Resource
                     ->dateTime()
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
+                Tables\Columns\TextColumn::make('extra_details')
+                    ->sortable()
+                    ->toggleable(isToggledHiddenByDefault: true),
+                Tables\Columns\TextColumn::make('address_city')
+                    ->sortable()
+                    ->toggleable(isToggledHiddenByDefault: true),        
                 Tables\Columns\TextColumn::make('first_name')
                     ->searchable(),
                 Tables\Columns\TextColumn::make('last_name')
@@ -138,10 +138,10 @@ class DriverResource extends Resource
                 Tables\Columns\TextColumn::make('fuel_type')
                     ->searchable(),
                 Tables\Columns\TextColumn::make('cars.model'),
-                
+
                 Tables\Columns\ImageColumn::make('driver_image')
                     ->circular(),
-               
+
             ])
             ->filters([
                 //
@@ -149,7 +149,7 @@ class DriverResource extends Resource
             ->actions([
                 Tables\Actions\ViewAction::make(),
                 Tables\Actions\EditAction::make(),
-                
+
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
@@ -157,73 +157,72 @@ class DriverResource extends Resource
                 ]),
             ]);
     }
-    
+
     public static function infolist(Infolist $infolist): Infolist
     {
         return $infolist
-            
-        
-        ->schema([
-
-            Section::make('Driver Info')
-               // ->description('Prevent abuse by limiting the number of requests per period')
-                ->schema([
-                    TextEntry::make('full_name'),
-                    TextEntry::make('email'),
-                    TextEntry::make('phone01'),
-                    TextEntry::make('phone02'),
-                    TextEntry::make('fuel_type'),
-                    ImageEntry::make('driver_image') 
-                ])->columns(2),
-                
-
-           
-
-           
-
-             Section::make('Relationship Info')
-            // ->description('Prevent abuse by limiting the number of requests per period')
-             ->schema([
-                 
-                //  TextEntry::make('cars.model')
-                //  ->label('Car Model'),
-                //  TextEntry::make('cars.number_seats')
-                //  ->label('Number of Seats'),
-                //  TextEntry::make('cars.number_luggage')
-                //  ->label('Number of Luggage'),
-                //  ImageEntry::make('cars.image')
-                //  ->label('Car Image'), 
-
-                RepeatableEntry::make('cars')
-    ->schema([
-        TextEntry::make('model'),
-        TextEntry::make('number_seats'),
-        TextEntry::make('number_luggage'),
-        ImageEntry::make('image'),
-        TextEntry::make('pivot.car_plate') // Accessing car_plate from the pivot table
-            ->label('Car Plate')
-            ->getStateUsing(fn ($record) => $record->pivot?->car_plate) // Fetch car_plate from the pivot table
-            ->columnSpan(2),
-    ])
-    ->columns(2)
 
 
-             ])->columns(2),
-            
-            
-                    
+            ->schema([
 
-         ]);
+                Section::make('Driver Info')
+                    // ->description('Prevent abuse by limiting the number of requests per period')
+                    ->schema([
+                        TextEntry::make('full_name'),
+                        TextEntry::make('email'),
+                        TextEntry::make('phone01'),
+                        TextEntry::make('phone02'),
+                        TextEntry::make('fuel_type'),
+                        ImageEntry::make('driver_image')
+                    ])->columns(2),
+
+
+
+
+
+
+                Section::make('Relationship Info')
+                    // ->description('Prevent abuse by limiting the number of requests per period')
+                    ->schema([
+
+                        //  TextEntry::make('cars.model')
+                        //  ->label('Car Model'),
+                        //  TextEntry::make('cars.number_seats')
+                        //  ->label('Number of Seats'),
+                        //  TextEntry::make('cars.number_luggage')
+                        //  ->label('Number of Luggage'),
+                        //  ImageEntry::make('cars.image')
+                        //  ->label('Car Image'), 
+
+                        RepeatableEntry::make('cars')
+                            ->schema([
+                                TextEntry::make('model'),
+                                TextEntry::make('number_seats'),
+                                TextEntry::make('number_luggage'),
+                                ImageEntry::make('image'),
+                                TextEntry::make('pivot.car_plate') // Accessing car_plate from the pivot table
+                                    ->label('Car Plate')
+                                    ->getStateUsing(fn($record) => $record->pivot?->car_plate) // Fetch car_plate from the pivot table
+                                    ->columnSpan(2),
+                            ])
+                            ->columns(2)
+
+
+                    ])->columns(2),
+
+
+
+
+            ]);
     }
 
     public static function getRelations(): array
     {
         return [
-         CarsRelationManager::class,
-        //    SupplierPaymentsRelationManager::class
+            CarsRelationManager::class,
+            //    SupplierPaymentsRelationManager::class
 
         ];
-
     }
 
     public static function getPages(): array
@@ -231,7 +230,7 @@ class DriverResource extends Resource
         return [
             'index' => Pages\ListDrivers::route('/'),
             'create' => Pages\CreateDriver::route('/create'),
-          //  'view' => Pages\ViewDriver::route('/{record}'),
+            //  'view' => Pages\ViewDriver::route('/{record}'),
             'edit' => Pages\EditDriver::route('/{record}/edit'),
         ];
     }
