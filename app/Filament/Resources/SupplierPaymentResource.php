@@ -89,6 +89,8 @@ class SupplierPaymentResource extends Resource
                 Tables\Columns\TextColumn::make('payment_date')
                     ->date()
                     ->sortable(),
+                    Tables\Columns\ImageColumn::make('receipt_image')
+                    ->circular(),
             ])
             ->filters([
                 //

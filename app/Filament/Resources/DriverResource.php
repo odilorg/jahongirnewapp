@@ -223,7 +223,7 @@ class DriverResource extends Resource
     {
         return [
             CarsRelationManager::class,
-            //    SupplierPaymentsRelationManager::class
+            SupplierPaymentsRelationManager::class
 
         ];
     }

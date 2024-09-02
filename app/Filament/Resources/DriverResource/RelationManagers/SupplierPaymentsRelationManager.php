@@ -18,20 +18,70 @@ class SupplierPaymentsRelationManager extends RelationManager
     {
         return $form
             ->schema([
-                Forms\Components\TextInput::make('amount_paid')
-                    ->required()
-                    ->maxLength(255),
+                Forms\Components\Select::make('tour_booking_id')
+                ->relationship(name: 'tour_booking', titleAttribute: 'group_number')
+                ->preload()
+                ->searchable()
+                ->required(),
+
+            Forms\Components\Select::make('driver_id')
+                ->relationship(name: 'driver', titleAttribute: 'full_name')
+                ->preload()
+                ->searchable(),
+
+            Forms\Components\Select::make('guide_id')
+                ->relationship(name: 'guide', titleAttribute: 'full_name')
+                ->preload()
+                ->searchable(),
+
+            Forms\Components\TextInput::make('amount_paid')
+                ->required()
+                ->numeric(),
+            Forms\Components\DatePicker::make('payment_date')
+                ->native(false)
+                ->displayFormat('d/m/Y'),
+            //    ->maxLength(255),
+            Forms\Components\Select::make('payment_type')
+                ->options([
+                    'cash' => 'Cash',
+                    'Perevod' => 'Perevod',
+                    'card' => 'Card',
+
+                ]),
+            Forms\Components\FileUpload::make('receipt_image')
+                ->image(),
             ]);
     }
 
     public function table(Table $table): Table
     {
         return $table
-            ->recordTitleAttribute('amount_paid')
+            ->recordTitleAttribute('payment_type')
             ->columns([
-                Tables\Columns\TextColumn::make('amount_paid'),
-                Tables\Columns\TextColumn::make('payment_date')
-                ->date() ,
+                Tables\Columns\TextColumn::make('created_at')
+                ->dateTime()
+                ->sortable()
+                ->toggleable(isToggledHiddenByDefault: true),
+            Tables\Columns\TextColumn::make('updated_at')
+                ->dateTime()
+                ->sortable()
+                ->toggleable(isToggledHiddenByDefault: true),
+            Tables\Columns\TextColumn::make('tour_booking.group_number')
+                ->numeric()
+                ->sortable(),
+           
+           
+            Tables\Columns\TextColumn::make('amount_paid')
+                ->numeric()
+                ->money('USD')
+                ->sortable(),
+            Tables\Columns\TextColumn::make('payment_date')
+                ->date()
+                ->sortable(),
+             Tables\Columns\TextColumn::make('payment_type')
+                ->sortable(),  
+                Tables\Columns\ImageColumn::make('receipt_image')
+                ->circular(),     
             ])
             ->filters([
                 //
