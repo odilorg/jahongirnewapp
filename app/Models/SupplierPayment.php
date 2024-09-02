@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class SupplierPayment extends Model
 {
     use HasFactory;
-    protected $fillable = ['payment_date', 'amount_paid', 'tour_booking_id', 'driver_id', 'guide_id'];
+    protected $fillable = ['receipt_image', 'payment_type', 'payment_date', 'amount_paid', 'tour_booking_id', 'driver_id', 'guide_id'];
 
     public function tour_booking(): BelongsTo
     {

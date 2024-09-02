@@ -173,7 +173,10 @@ class DriverResource extends Resource
                         TextEntry::make('phone01'),
                         TextEntry::make('phone02'),
                         TextEntry::make('fuel_type'),
+                        TextEntry::make('address_city'),
+                        TextEntry::make('extra_details'),
                         ImageEntry::make('driver_image')
+                        ->circular()
                     ])->columns(2),
 
 

@@ -28,23 +28,34 @@ class SupplierPaymentResource extends Resource
                     ->preload()
                     ->searchable()
                     ->required(),
-               
+
                 Forms\Components\Select::make('driver_id')
                     ->relationship(name: 'driver', titleAttribute: 'full_name')
                     ->preload()
                     ->searchable(),
-                    
+
                 Forms\Components\Select::make('guide_id')
                     ->relationship(name: 'guide', titleAttribute: 'full_name')
                     ->preload()
                     ->searchable(),
-                   
+
                 Forms\Components\TextInput::make('amount_paid')
                     ->required()
                     ->numeric(),
                 Forms\Components\DatePicker::make('payment_date')
-                    ->native(false) 
-                   ->displayFormat('d/m/Y') 
+                    ->native(false)
+                    ->displayFormat('d/m/Y'),
+                //    ->maxLength(255),
+                Forms\Components\Select::make('payment_type')
+                    ->options([
+                        'cash' => 'Cash',
+                        'Perevod' => 'Perevod',
+                        'card' => 'Card',
+
+                    ]),
+                Forms\Components\FileUpload::make('receipt_image')
+                    ->image(),
+                   
             ]);
     }
 
