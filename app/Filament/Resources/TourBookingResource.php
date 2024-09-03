@@ -12,6 +12,7 @@ use Filament\Resources\Resource;
 use Filament\Tables\Columns\TextColumn;
 use Illuminate\Database\Eloquent\Builder;
 use Filament\Infolists\Components\Section;
+use Filament\Forms\Components\ToggleButtons;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Infolists\Components\ImageEntry;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
@@ -39,8 +40,8 @@ class TourBookingResource extends Resource
                     ->relationship('drivers','full_name')
                     ->multiple()
                     ->searchable()
-                    ->preload()
-                    ->required(), 
+                    ->preload(),
+                    
                    
                 Forms\Components\Select::make('guests')
                         ->relationship('guests','full_name')
@@ -52,25 +53,10 @@ class TourBookingResource extends Resource
                         ->relationship('guides','full_name')
                         ->multiple()
                         ->searchable()
-                        ->preload()
-                        ->required(),           
+                        ->preload(),
+                            
                
-                    
-                // Forms\Components\Select::make('guest_id')
-                //         ->relationship(name: 'guest', titleAttribute: 'full_name')
-                //         ->preload()
-                //         ->searchable()
-                //         ->required(),
-                // Forms\Components\Select::make('driver_id')
-                //         ->relationship(name: 'driver', titleAttribute: 'full_name')
-                //         ->preload()
-                //         ->searchable()
-                //         ->required(),
-                // Forms\Components\Select::make('guide_id')
-                //         ->relationship(name: 'guide', titleAttribute: 'full_name')
-                //         ->preload()
-                //         ->searchable()
-                //         ->required(),
+              
                 Forms\Components\TextInput::make('number_of_adults')
                     ->required()
                     ->numeric(),
@@ -91,6 +77,19 @@ class TourBookingResource extends Resource
                     ->default('2024-' .  random_int(100000, 999999))
                     ->required()
                     ->maxLength(255),    
+                Forms\Components\Select::make('status')
+                    ->options([
+                        'in progress' => 'In progress',
+                        'finished' => 'Finished',
+                        'just booked' => 'Just Booked',
+                    ])
+                    ->required(),    
+                    ToggleButtons::make('payment_status')
+                    ->options([
+                        'paid' => 'Paid',
+                        'not_paid' => 'Not Paid',
+                        'partially' => 'Partially'
+                    ])   
             ]);
     }
 
