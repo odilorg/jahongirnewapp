@@ -16,7 +16,7 @@ return new class extends Migration
             $table->timestamps();
             $table->string('review_source');
             $table->integer('review_score');
-            $table->text('comments');
+            $table->text('comments')->nullable();
         
         });
     }

@@ -18,7 +18,7 @@ return new class extends Migration
             $table->string('last_name');
             $table->string('email');            
             $table->string('phone01');
-            $table->string('phone02');
+            $table->string('phone02')->nullable();
             $table->longText('lang_spoken');
             $table->string('guide_image');
             $table->string('full_name')->virtualAs('concat(first_name, \' \', last_name)');
