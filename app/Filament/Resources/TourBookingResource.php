@@ -30,7 +30,12 @@ class TourBookingResource extends Resource
     {
         return $form
             ->schema([
-                Forms\Components\Select::make('tours')
+
+                Forms\Components\Section::make('Pick Info')
+                ->description('Add information about Tour Details')
+                ->collapsible()
+                ->schema([
+                    Forms\Components\Select::make('tours')
                     ->relationship('tours','title')
                     ->multiple()
                     ->searchable()
@@ -55,42 +60,80 @@ class TourBookingResource extends Resource
                         ->searchable()
                         ->preload(),
                             
-               
-              
-                Forms\Components\TextInput::make('number_of_adults')
+                ])->columnSpan(1)->columns(2),
+
+
+            
+                Forms\Components\Section::make('Pick Info')
+                ->description('Add information about Tour Details')
+                ->collapsible()
+                ->schema([
+                    Forms\Components\TextInput::make('number_of_adults')
                     ->required()
                     ->numeric(),
                 Forms\Components\TextInput::make('number_of_children')
                     ->required()
                     ->numeric(),
-                Forms\Components\Textarea::make('special_requests')
+              
+                Forms\Components\TextInput::make('group_number')
+                    ->default('2024-' .  random_int(100000, 999999))
+                    ->required()
+                    ->maxLength(255), 
+                    Forms\Components\Textarea::make('special_requests')
                     ->required()
                     ->maxLength(65535)
                     ->columnSpanFull(),
-                Forms\Components\TextInput::make('pickup_location')
+                ])->columnSpan(1)->columns(3),
+               
+                Forms\Components\Section::make('Pick Info')
+                ->description('Add information about Tour Details')
+                ->collapsible()
+                ->schema([
+ 
+                    Forms\Components\TextInput::make('pickup_location')
                     ->required()
                     ->maxLength(255),
                 Forms\Components\TextInput::make('dropoff_location')
                     ->required()
                     ->maxLength(255),
-                Forms\Components\TextInput::make('group_number')
-                    ->default('2024-' .  random_int(100000, 999999))
-                    ->required()
-                    ->maxLength(255),    
-                Forms\Components\Select::make('status')
+                ])->columnSpan(1)->columns(2),
+                  
+                Forms\Components\Section::make('Pick Info')
+                ->description('Add information about Tour Details')
+                ->collapsible()
+                ->schema([
+                    ToggleButtons::make('status')
                     ->options([
-                        'in progress' => 'In progress',
+                        'in_progress' => 'In Progress',
                         'finished' => 'Finished',
-                        'just booked' => 'Just Booked',
+                        
                     ])
+                    ->label('Tour Status')
+                    ->colors([
+                        'finished' => 'success',
+                        'in_progress' => 'danger',
+                        
+                        
+                    ])
+                   ->columns(2)
                     ->required(),    
                     ToggleButtons::make('payment_status')
                     ->options([
                         'paid' => 'Paid',
-                        'not_paid' => 'Not Paid',
+                        'not_paid' => 'NotPaid',
                         'partially' => 'Partially'
-                    ])   
-            ]);
+                    ])
+                    ->colors([
+                        'paid' => 'success',
+                        'not_paid' => 'warning',
+                        'partially' => 'info',
+                        
+                    ])
+                    ->columns(3)
+                ])->columnSpan(1)->columns(2),
+
+                
+            ])->columns(2);
     }
 
     public static function table(Table $table): Table
