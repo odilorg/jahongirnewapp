@@ -31,7 +31,7 @@ class TourBookingResource extends Resource
         return $form
             ->schema([
 
-                Forms\Components\Section::make('Pick Info')
+                Forms\Components\Section::make('Tour Booking Info')
                 ->description('Add information about Tour Details')
                 ->collapsible()
                 ->schema([
@@ -64,7 +64,7 @@ class TourBookingResource extends Resource
 
 
             
-                Forms\Components\Section::make('Pick Info')
+                Forms\Components\Section::make('Tour Group Info')
                 ->description('Add information about Tour Details')
                 ->collapsible()
                 ->schema([
@@ -85,7 +85,7 @@ class TourBookingResource extends Resource
                     ->columnSpanFull(),
                 ])->columnSpan(1)->columns(3),
                
-                Forms\Components\Section::make('Pick Info')
+                Forms\Components\Section::make('Pick Up Info')
                 ->description('Add information about Tour Details')
                 ->collapsible()
                 ->schema([
@@ -98,11 +98,11 @@ class TourBookingResource extends Resource
                     ->maxLength(255),
                 ])->columnSpan(1)->columns(2),
                   
-                Forms\Components\Section::make('Pick Info')
+                Forms\Components\Section::make('Status Info')
                 ->description('Add information about Tour Details')
                 ->collapsible()
                 ->schema([
-                    ToggleButtons::make('status')
+                    Forms\Components\ToggleButtons::make('status')
                     ->options([
                         'in_progress' => 'In Progress',
                         'finished' => 'Finished',
@@ -117,7 +117,7 @@ class TourBookingResource extends Resource
                     ])
                    ->columns(2)
                     ->required(),    
-                    ToggleButtons::make('payment_status')
+                    Forms\Components\ToggleButtons::make('payment_status')
                     ->options([
                         'paid' => 'Paid',
                         'not_paid' => 'NotPaid',
@@ -140,6 +140,7 @@ class TourBookingResource extends Resource
     {
         return $table
             ->columns([
+               
                 Tables\Columns\TextColumn::make('created_at')
                     ->dateTime()
                     ->sortable()
@@ -149,6 +150,20 @@ class TourBookingResource extends Resource
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
                 TextColumn::make('tours.title'),
+                Tables\Columns\TextColumn::make('status')
+                ->badge()
+                ->color(fn (string $state): string => match ($state) {
+                    'finished' => 'success',
+                    'in_progress' => 'danger',
+                }),
+                Tables\Columns\TextColumn::make('payment_status')
+                ->badge()
+                ->color(fn (string $state): string => match ($state) {
+                    'paid' => 'success',
+                    'not_paid' => 'warning',
+                    'partially' => 'info',
+                }),
+
                 TextColumn::make('drivers.full_name'),
                 TextColumn::make('guests.full_name'), 
                 TextColumn::make('guides.full_name'),    

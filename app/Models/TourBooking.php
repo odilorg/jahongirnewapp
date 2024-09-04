@@ -11,7 +11,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class TourBooking extends Model
 {
     use HasFactory;
-    protected $fillable = ['group_number', 'tour_id', 'guest_id', 'driver_id', 'guide_id', 'number_of_adults', 'number_of_children', 'special_requests', 'pickup_location', 'dropoff_location'];
+    protected $fillable = ['status', 'payment_status', 'group_number', 'tour_id', 'guest_id', 'driver_id', 'guide_id', 'number_of_adults', 'number_of_children', 'special_requests', 'pickup_location', 'dropoff_location'];
 
     
     public function tours(): BelongsToMany
@@ -26,9 +26,9 @@ class TourBooking extends Model
     
     
 
-    public function guests(): BelongsToMany
+    public function guests(): BelongsTo
     {
-        return $this->belongsToMany(Guest::class, 'guest_tour_booking');
+        return $this->belongsTo(Guest::class, 'guest_tour_booking');
     }
 
     public function drivers(): BelongsToMany

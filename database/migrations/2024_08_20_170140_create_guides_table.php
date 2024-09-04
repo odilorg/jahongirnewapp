@@ -19,7 +19,7 @@ return new class extends Migration
             $table->string('email');            
             $table->string('phone01');
             $table->string('phone02')->nullable();
-            $table->longText('lang_spoken');
+            
             $table->string('guide_image');
             $table->string('full_name')->virtualAs('concat(first_name, \' \', last_name)');
         });
