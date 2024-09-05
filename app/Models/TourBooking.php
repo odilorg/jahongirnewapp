@@ -26,9 +26,9 @@ class TourBooking extends Model
     
     
 
-    public function guests(): BelongsTo
+    public function guest(): BelongsTo
     {
-        return $this->belongsTo(Guest::class, 'guest_tour_booking');
+        return $this->belongsTo(Guest::class);
     }
 
     public function drivers(): BelongsToMany

@@ -19,6 +19,7 @@ use Illuminate\Database\Eloquent\SoftDeletingScope;
 use App\Filament\Resources\TourBookingResource\Pages;
 use App\Filament\Resources\TourBookingResource\RelationManagers;
 use App\Filament\Resources\TourBookingResource\RelationManagers\DriverRelationManager;
+use App\Filament\Resources\TourBookingResource\RelationManagers\GuestTourBookingRelationManager;
 
 class TourBookingResource extends Resource
 {
@@ -35,39 +36,6 @@ class TourBookingResource extends Resource
                 ->description('Add information about Tour Details')
                 ->collapsible()
                 ->schema([
-                    Forms\Components\Select::make('tours')
-                    ->relationship('tours','title')
-                    ->multiple()
-                    ->searchable()
-                    ->preload()
-                    ->required(), 
-                Forms\Components\Select::make('drivers')
-                    ->relationship('drivers','full_name')
-                    ->multiple()
-                    ->searchable()
-                    ->preload(),
-                    
-                   
-                Forms\Components\Select::make('guests')
-                        ->relationship('guests','full_name')
-                        ->multiple()
-                        ->searchable()
-                        ->preload()
-                        ->required(),   
-                Forms\Components\Select::make('guides')
-                        ->relationship('guides','full_name')
-                        ->multiple()
-                        ->searchable()
-                        ->preload(),
-                            
-                ])->columnSpan(1)->columns(2),
-
-
-            
-                Forms\Components\Section::make('Tour Group Info')
-                ->description('Add information about Tour Details')
-                ->collapsible()
-                ->schema([
                     Forms\Components\TextInput::make('number_of_adults')
                     ->required()
                     ->numeric(),
@@ -78,7 +46,40 @@ class TourBookingResource extends Resource
                 Forms\Components\TextInput::make('group_number')
                     ->default('2024-' .  random_int(100000, 999999))
                     ->required()
-                    ->maxLength(255), 
+                    ->maxLength(255),
+                //     Forms\Components\Select::make('tours')
+                //     ->relationship('tours','title')
+                //     ->multiple()
+                //     ->searchable()
+                //     ->preload()
+                //     ->required(), 
+                // Forms\Components\Select::make('drivers')
+                //     ->relationship('drivers','full_name')
+                //     ->multiple()
+                //     ->searchable()
+                //     ->preload(),
+                    
+                   
+                Forms\Components\Select::make('guest_id')
+                        ->relationship('guest','full_name')
+                        ->searchable()
+                        ->preload()
+                        ->required(),   
+                // Forms\Components\Select::make('guides')
+                //         ->relationship('guides','full_name')
+                //         ->multiple()
+                //         ->searchable()
+                //         ->preload(),
+                            
+                ])->columnSpan(1)->columns(2),
+
+
+            
+                Forms\Components\Section::make('Tour Group Info')
+                ->description('Add information about Tour Details')
+                ->collapsible()
+                ->schema([
+                    
                     Forms\Components\Textarea::make('special_requests')
                     ->required()
                     ->maxLength(65535)
@@ -165,8 +166,8 @@ class TourBookingResource extends Resource
                 }),
 
                 TextColumn::make('drivers.full_name'),
-                TextColumn::make('guests.full_name'), 
-                TextColumn::make('guides.full_name'),    
+                TextColumn::make('guest.full_name'), 
+                TextColumn::make('guide.full_name'),    
                 // Tables\Columns\TextColumn::make('tour.title')
                    
                 //     ->sortable(),
@@ -288,6 +289,7 @@ class TourBookingResource extends Resource
     public static function getRelations(): array
     {
         return [
+            GuestTourBookingRelationManager::class
            // DriverRelationManager::class
         ];
     }
