@@ -2,26 +2,27 @@
 
 namespace App\Models;
 
+use App\Models\Member;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
-use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class TourBooking extends Model
 {
     use HasFactory;
     protected $fillable = ['status', 'payment_status', 'group_number', 'tour_id', 'guest_id', 'driver_id', 'guide_id', 'number_of_adults', 'number_of_children', 'special_requests', 'pickup_location', 'dropoff_location'];
 
-    
-    
+
+
 
 
     public function tour_payments(): HasMany
     {
         return $this->Hasmany(TourPayment::class);
     }
-    
+
     public function driver(): BelongsTo
     {
         return $this->belongsTo(Driver::class);
@@ -54,5 +55,9 @@ class TourBooking extends Model
         return $this->hasMany(TourBookingRepeater::class);
     }
 
-    
+
+    public function members(): HasMany
+    {
+        return $this->hasMany(Member::class);
+    }
 }
