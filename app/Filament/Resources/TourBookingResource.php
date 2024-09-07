@@ -10,6 +10,8 @@ use Filament\Tables\Table;
 use App\Models\TourBooking;
 use Filament\Infolists\Infolist;
 use Filament\Resources\Resource;
+use Filament\Support\Enums\FontFamily;
+use Filament\Support\Enums\FontWeight;
 use Filament\Forms\Components\Repeater;
 use Filament\Tables\Columns\TextColumn;
 use Illuminate\Database\Eloquent\Builder;
@@ -57,7 +59,27 @@ class TourBookingResource extends Resource
                             ->default('2024-' .  random_int(100000, 999999))
                             ->required()
                             ->maxLength(255),
-                    ])->columnSpan(1)->columns(2),
+                    ])->columns(2),
+                Forms\Components\Section::make('Tour Members')
+                    ->description('Add Tour Memebers')
+                    ->collapsible()
+                    ->schema([
+                        Repeater::make('members')
+                            ->label('Tour Members')
+                            ->relationship('members')  // Make sure this points to the correct relationship method in the TourBooking model
+                            ->schema([
+
+                                Forms\Components\TextInput::make('first_name')
+                                    ->required()
+                                    ->maxLength(255),
+                                Forms\Components\TextInput::make('last_name')
+                                    ->required()
+                                    ->maxLength(255),
+
+
+
+                            ])->columnSpan(1),
+                    ]),
                 Forms\Components\Section::make('Tour Details')
                     ->description('Add Tour Related Details')
                     ->collapsible()
@@ -125,7 +147,7 @@ class TourBookingResource extends Resource
 
 
                             ])->columns(2),
-                    ])->columnSpan(1),
+                    ]),
 
 
 
@@ -137,24 +159,24 @@ class TourBookingResource extends Resource
         return $table
             ->columns([
                 Tables\Columns\TextColumn::make('group_number')
-                ->label('Group')
+                    ->label('Group')
                     ->searchable(),
                 TextColumn::make('guest.full_name')
-                ->label('Main Guest'),
+                    ->label('Main Guest'),
                 Tables\Columns\TextColumn::make('tourBookingRepeaters.tour.title')
-                ->numeric()
-                ->sortable(),
+                    ->numeric()
+                    ->sortable(),
                 Tables\Columns\TextColumn::make('tourBookingRepeaters.status')
                     ->label('Tour Status')
                     ->badge()
-                    ->color(fn (string $state): string => match ($state) {
+                    ->color(fn(string $state): string => match ($state) {
                         'finished' => 'success',
                         'in_progress' => 'danger',
                     }),
                 Tables\Columns\TextColumn::make('tourBookingRepeaters.payment_status')
                     ->label('Payment Status')
                     ->badge()
-                    ->color(fn (string $state): string => match ($state) {
+                    ->color(fn(string $state): string => match ($state) {
                         'paid' => 'success',
                         'not_paid' => 'warning',
                         'partially' => 'info',
@@ -168,37 +190,17 @@ class TourBookingResource extends Resource
                     ->dateTime()
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
-                // TextColumn::make('tour.title'),
 
-                // TextColumn::make('drivers.full_name'),
-                // TextColumn::make('guest.full_name'), 
-                // TextColumn::make('guide.full_name'),    
-                // Tables\Columns\TextColumn::make('tour.title')
-
-                //     ->sortable(),
-                // Tables\Columns\TextColumn::make('guest.full_name')
-
-                //     ->sortable(),
-                // Tables\Columns\TextColumn::make('driver.full_name')
-
-                //     ->sortable(),
-                // Tables\Columns\TextColumn::make('guide.full_name')
-                //     ->numeric()
-                //     ->sortable(),
                 Tables\Columns\TextColumn::make('number_of_adults')
+                    ->label('Adults')
                     ->numeric()
                     // ->toggleable(isToggledHiddenByDefault: true)
                     ->sortable(),
                 Tables\Columns\TextColumn::make('number_of_children')
+                    ->label('Kids')
                     ->numeric()
                     //   ->toggleable(isToggledHiddenByDefault: true)
                     ->sortable(),
-              
-
-                // Tables\Columns\TextColumn::make('pickup_location')
-                //     ->searchable(),
-                // Tables\Columns\TextColumn::make('dropoff_location')
-                //     ->searchable(),
 
             ])
             ->filters([
@@ -221,32 +223,94 @@ class TourBookingResource extends Resource
 
             ->schema([
 
-                Section::make('Relationship Info')
+                Section::make('Guest Info')
                     // ->description('Prevent abuse by limiting the number of requests per period')
                     ->schema([
 
-                        //  TextEntry::make('cars.model')
-                        //  ->label('Car Model'),
-                        //  TextEntry::make('cars.number_seats')
-                        //  ->label('Number of Seats'),
-                        //  TextEntry::make('cars.number_luggage')
-                        //  ->label('Number of Luggage'),
+                        TextEntry::make('guest.full_name')
+                             ->label('Guest Name')
+                             ->size(TextEntry\TextEntrySize::Large)
+                            //  ->fontFamily(FontFamily::Mono)
+                             ->weight(FontWeight::ExtraBold)
+                             ->color('info')
+                             ,
+                            
+                        TextEntry::make('number_of_adults')
+                        ->size(TextEntry\TextEntrySize::Large)
+                            //  ->fontFamily(FontFamily::Mono)
+                             ->weight(FontWeight::ExtraBold)
+                             ->color('info')
+                            ->label('Number of Adults'),
+                        TextEntry::make('number_of_children')
+                        ->size(TextEntry\TextEntrySize::Large)
+                            //  ->fontFamily(FontFamily::Mono)
+                             ->weight(FontWeight::ExtraBold)
+                             ->color('info')
+                            ->label('Number of Children'),
+                        TextEntry::make('group_number')
+                        ->size(TextEntry\TextEntrySize::Large)
+                            //  ->fontFamily(FontFamily::Mono)
+                             ->weight(FontWeight::ExtraBold)
+                             ->color('info')
+                            ->label('Group #'),
                         //  ImageEntry::make('cars.image')
                         //  ->label('Car Image'), 
 
-                        RepeatableEntry::make('tourBookingRepeaters')
-                            ->schema([
 
-                                TextEntry::make('payment_status') // Accessing car_plate from the pivot table
-                                    ->label('Tour Details')
-                                    // ->getStateUsing(fn($record) => $record->pivot?->payment_status) // Fetch car_plate from the pivot table
-                                    ->columnSpan(2),
-                            ])
-                            ->columns(2)
 
 
                     ])->columns(2),
+                Section::make('Tour Info')
+                    // ->description('Prevent abuse by limiting the number of requests per period')
+                    ->schema([
+                        RepeatableEntry::make('tourBookingRepeaters')
+                        ->label('')
+                            ->schema([
+                                TextEntry::make('tour.title') // Accessing car_plate from the pivot table
+                                    ->label('Tour Title'),
+                                TextEntry::make('payment_status') // Accessing car_plate from the pivot table
+                                    ->label('Payment Status')
+                                    ->badge()
+                                    ->color(fn(string $state): string => match ($state) {
+                                        'paid' => 'success',
+                                        'not_paid' => 'warning',
+                                        'partially' => 'info',
+                                    }),
+                                TextEntry::make('status') // Accessing car_plate from the pivot table
+                                    ->label('Tour Status')
+                                    ->badge()
+                                    ->color(fn(string $state): string => match ($state) {
+                                        'finished' => 'success',
+                                        'in_progress' => 'danger',
+                                    }),
+                                TextEntry::make('driver.full_name') // Accessing car_plate from the pivot table
+                                    ->label('Tour Driver'),
+                                TextEntry::make('guide.full_name') // Accessing car_plate from the pivot table
+                                    ->label('Tour Guide'),
+                                TextEntry::make('special_requests') // Accessing car_plate from the pivot table
+                                    ->label('Tour Special Requests'),
+                                TextEntry::make('pickup_location') // Accessing car_plate from the pivot table
+                                    ->label('Tour Pickup'),
+                                TextEntry::make('dropoff_location') // Accessing car_plate from the pivot table
+                                    ->label('Tour Dropoff'),
+                                // ->getStateUsing(fn($record) => $record->pivot?->payment_status) // Fetch car_plate from the pivot table
+                                //->columnSpan(2),
 
+                            ])
+                            ->columns(3)
+                    ]),
+                Section::make('Tour Members')
+                    // ->description('Prevent abuse by limiting the number of requests per period')
+                    ->schema([
+                        RepeatableEntry::make('members')
+                        ->label('')
+                            ->schema([
+                                TextEntry::make('first_name') // Accessing car_plate from the pivot table
+                                ->label('Tour Member First Name'),
+                                TextEntry::make('last_name') // Accessing car_plate from the pivot table
+                                ->label('Tour Member Last Name'),
+                            ])->columns(2)
+                    ])
 
 
             ]);
