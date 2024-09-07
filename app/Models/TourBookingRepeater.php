@@ -15,7 +15,7 @@ class TourBookingRepeater extends Model
 
     protected $table = 'tour_booking_repeaters';
 
-    protected $fillable = ['status', 'payment_status', 'group_number', 'tour_id', 'guest_id', 'driver_id', 'guide_id', 'number_of_adults', 'number_of_children', 'special_requests', 'pickup_location', 'dropoff_location'];
+    protected $fillable = ['amount_paid', 'payment_date', 'status', 'payment_status', 'group_number', 'tour_id', 'guest_id', 'driver_id', 'guide_id', 'number_of_adults', 'number_of_children', 'special_requests', 'pickup_location', 'dropoff_location'];
     public function tourBooking(): BelongsTo
     {
         return $this->belongsTo(TourBooking::class);

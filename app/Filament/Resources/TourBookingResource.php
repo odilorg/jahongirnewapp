@@ -143,12 +143,19 @@ class TourBookingResource extends Resource
                                         'partially' => 'info',
 
                                     ])
-                                    ->columns(3)
-
+                                    ->columns(3),
+   
+                                    Forms\Components\TextInput::make('amount_paid')
+                                    ->required()
+                                    ->numeric(),
+                                Forms\Components\DatePicker::make('payment_date')
+                                   ->native(false) 
+                                  ->displayFormat('d/m/Y') 
 
                             ])->columns(2),
+                           
                     ]),
-
+                   
 
 
             ])->columns(2);
@@ -293,6 +300,10 @@ class TourBookingResource extends Resource
                                     ->label('Tour Pickup'),
                                 TextEntry::make('dropoff_location') // Accessing car_plate from the pivot table
                                     ->label('Tour Dropoff'),
+                                TextEntry::make('payment_date') // Accessing car_plate from the pivot table
+                                    ->label('Tour Payment Date'),    
+                                TextEntry::make('amount_paid') // Accessing car_plate from the pivot table
+                                    ->label('Tour Payment'),   
                                 // ->getStateUsing(fn($record) => $record->pivot?->payment_status) // Fetch car_plate from the pivot table
                                 //->columnSpan(2),
 

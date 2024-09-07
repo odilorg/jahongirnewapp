@@ -20,7 +20,7 @@ class TourBooking extends Model
 
     public function tour_payments(): HasMany
     {
-        return $this->Hasmany(TourPayment::class);
+        return $this->hasMany(TourPayment::class);
     }
 
     public function driver(): BelongsTo
