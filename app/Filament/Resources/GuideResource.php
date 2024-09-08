@@ -56,13 +56,13 @@ class GuideResource extends Resource
 
 
                     
-                // Forms\Components\Select::make('languages')
-                //     ->relationship('languages', 'language')
-                //     ->multiple()
-                //     ->searchable()
-                //     ->preload()
-                //     ->required()
-                //     ->reactive() ,
+                Forms\Components\Select::make('languages')
+                    ->relationship('languages', 'language')
+                    ->multiple()
+                    ->searchable()
+                    ->preload()
+                    ->required(),
+                   
                 // Forms\Components\TextInput::make('custom_attribute')
                 //     ->label('Custom Attribute')
                 //     ->visible(fn ($get) => $get('attribute') === 'custom')  // Show only if 'Custom' is selected
