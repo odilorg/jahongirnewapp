@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Casts\MoneyCast;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -14,6 +15,9 @@ class TourBookingRepeater extends Model
     use HasFactory;
 
     protected $table = 'tour_booking_repeaters';
+    protected $casts = [
+        'amount_paid' => MoneyCast::class,
+    ];
 
     protected $fillable = ['amount_paid', 'payment_date', 'status', 'payment_status', 'group_number', 'tour_id', 'guest_id', 'driver_id', 'guide_id', 'number_of_adults', 'number_of_children', 'special_requests', 'pickup_location', 'dropoff_location'];
     public function tourBooking(): BelongsTo

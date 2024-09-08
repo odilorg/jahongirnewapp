@@ -108,6 +108,7 @@ class TourBookingResource extends Resource
                                     ->preload()
                                     ->required(),
                                 Forms\Components\Textarea::make('special_requests')
+                                    ->maxLength(65535)
                                     ->required()
                                     ->maxLength(255),
                                 Forms\Components\TextInput::make('pickup_location')
@@ -146,11 +147,13 @@ class TourBookingResource extends Resource
                                     ->columns(3),
    
                                     Forms\Components\TextInput::make('amount_paid')
+                                    ->prefix('$')
                                     ->required()
                                     ->numeric(),
                                 Forms\Components\DatePicker::make('payment_date')
                                    ->native(false) 
                                   ->displayFormat('d/m/Y') 
+                                //  ->maxDate(now()),
 
                             ])->columns(2),
                            
@@ -171,24 +174,30 @@ class TourBookingResource extends Resource
                 TextColumn::make('guest.full_name')
                     ->label('Main Guest'),
                 Tables\Columns\TextColumn::make('tourBookingRepeaters.tour.title')
+                    ->listWithLineBreaks()
                     ->numeric()
                     ->sortable(),
                 Tables\Columns\TextColumn::make('tourBookingRepeaters.status')
-                    ->label('Tour Status')
+                    ->listWithLineBreaks()
+                    ->label('Tour St.')
                     ->badge()
                     ->color(fn(string $state): string => match ($state) {
                         'finished' => 'success',
                         'in_progress' => 'danger',
                     }),
                 Tables\Columns\TextColumn::make('tourBookingRepeaters.payment_status')
-                    ->label('Payment Status')
+                    ->listWithLineBreaks()
+                    ->label('Payment St.')
                     ->badge()
                     ->color(fn(string $state): string => match ($state) {
                         'paid' => 'success',
                         'not_paid' => 'warning',
                         'partially' => 'info',
                     }),
-
+                Tables\Columns\TextColumn::make('tourBookingRepeaters.amount_paid')
+                    ->listWithLineBreaks()
+                    ->label('Paid')
+                    ->money('USD'),
                 Tables\Columns\TextColumn::make('created_at')
                     ->dateTime()
                     ->sortable()
@@ -199,11 +208,13 @@ class TourBookingResource extends Resource
                     ->toggleable(isToggledHiddenByDefault: true),
 
                 Tables\Columns\TextColumn::make('number_of_adults')
+                    ->toggleable(isToggledHiddenByDefault: true)
                     ->label('Adults')
                     ->numeric()
                     // ->toggleable(isToggledHiddenByDefault: true)
                     ->sortable(),
                 Tables\Columns\TextColumn::make('number_of_children')
+                    ->toggleable(isToggledHiddenByDefault: true)
                     ->label('Kids')
                     ->numeric()
                     //   ->toggleable(isToggledHiddenByDefault: true)

@@ -9,6 +9,7 @@ use Filament\Forms\Form;
 use Filament\Tables\Table;
 use Filament\Infolists\Infolist;
 use Filament\Resources\Resource;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Database\Eloquent\Builder;
 use Filament\Infolists\Components\Section;
 use Filament\Infolists\Components\TextEntry;
@@ -16,6 +17,7 @@ use Filament\Infolists\Components\ImageEntry;
 use App\Filament\Resources\GuideResource\Pages;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
 use App\Filament\Resources\GuideResource\RelationManagers;
+use App\Filament\Resources\GuideResource\RelationManagers\LanguagesRelationManager;
 
 class GuideResource extends Resource
 {
@@ -29,7 +31,11 @@ class GuideResource extends Resource
     {
         return $form
             ->schema([
-                Forms\Components\TextInput::make('first_name')
+                Forms\Components\Section::make('Guide Personal Info')
+                ->description('Add information about Guide')
+                ->collapsible()
+                ->schema([
+                    Forms\Components\TextInput::make('first_name')
                     ->required()
                     ->maxLength(255),
                 Forms\Components\TextInput::make('last_name')
@@ -46,17 +52,49 @@ class GuideResource extends Resource
                 Forms\Components\TextInput::make('phone02')
                     ->tel()
                     ->maxLength(255),
-                Forms\Components\Select::make('languages')
-                    ->relationship('languages','language')
-                    ->multiple()
-                    ->searchable()
-                    ->preload()
-                    ->required(),    
-               
+
+
+
+                    
+                // Forms\Components\Select::make('languages')
+                //     ->relationship('languages', 'language')
+                //     ->multiple()
+                //     ->searchable()
+                //     ->preload()
+                //     ->required()
+                //     ->reactive() ,
+                // Forms\Components\TextInput::make('custom_attribute')
+                //     ->label('Custom Attribute')
+                //     ->visible(fn ($get) => $get('attribute') === 'custom')  // Show only if 'Custom' is selected
+                //     ->required(fn ($get) => $get('attribute') === 'custom'),
+
+                // Forms\Components\Select::make('languages')
+                // ->label('Choose an Attribute')
+                // ->options(function () {
+                //     // Fetch the attributes from the 'language_guide' pivot table dynamically
+                //     return DB::table('language_guide')
+                //         ->pluck('attribute_name', 'attribute_key') // Adjust 'attribute_name' and 'attribute_key' as per your table structure
+                //         ->toArray() 
+                //         + ['custom' => 'Custom']; // Add the 'Custom' option
+                // })
+                // ->reactive() // Makes the select field reactive
+                // ->required(),
+
+                // Forms\Components\TextInput::make('custom_attribute')
+                // ->label('Custom Attribute')
+                // ->visible(fn ($get) => $get('attribute') === 'custom') // Show only if 'Custom' is selected
+                // ->required(fn ($get) => $get('attribute') === 'custom'),
+
+
+
+
                 Forms\Components\FileUpload::make('guide_image')
                     ->image()
                     ->required(),
-                
+                ])->columns(2)
+
+               
+
             ]);
     }
 
@@ -83,6 +121,7 @@ class GuideResource extends Resource
                 Tables\Columns\TextColumn::make('phone02')
                     ->searchable(),
                 Tables\Columns\TextColumn::make('languages.language')
+                    ->listWithLineBreaks()
                     ->searchable(),
                 Tables\Columns\ImageColumn::make('guide_image'),
                 Tables\Columns\TextColumn::make('full_name')
@@ -94,7 +133,7 @@ class GuideResource extends Resource
             ->actions([
                 Tables\Actions\ViewAction::make(),
                 Tables\Actions\EditAction::make(),
-                
+
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
@@ -105,21 +144,21 @@ class GuideResource extends Resource
     public static function infolist(Infolist $infolist): Infolist
     {
         return $infolist
-            
-        
-        ->schema([
 
-            Section::make('Guide Info')
-               // ->description('Prevent abuse by limiting the number of requests per period')
-                ->schema([
-                    TextEntry::make('full_name'),
-                    TextEntry::make('email'),
-                    TextEntry::make('phone01'),
-                    TextEntry::make('phone02'),
-                    TextEntry::make('lang_spoken'),
-                    ImageEntry::make('guide_image') 
-                ])->columns(2)   
-                
+
+            ->schema([
+
+                Section::make('Guide Info')
+                    // ->description('Prevent abuse by limiting the number of requests per period')
+                    ->schema([
+                        TextEntry::make('full_name'),
+                        TextEntry::make('email'),
+                        TextEntry::make('phone01'),
+                        TextEntry::make('phone02'),
+                        TextEntry::make('languages.language'),
+                        ImageEntry::make('guide_image')
+                    ])->columns(2)
+
 
             ]);
     }
@@ -127,7 +166,7 @@ class GuideResource extends Resource
     public static function getRelations(): array
     {
         return [
-            //
+            LanguagesRelationManager::class
         ];
     }
 
