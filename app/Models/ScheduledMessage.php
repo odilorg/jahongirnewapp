@@ -8,4 +8,6 @@ use Illuminate\Database\Eloquent\Model;
 class ScheduledMessage extends Model
 {
     use HasFactory;
+
+    protected $fillable = ['message'];
 }
