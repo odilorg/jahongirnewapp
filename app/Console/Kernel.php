@@ -19,7 +19,8 @@ class Kernel extends ConsoleKernel
 
          foreach ($scheduledMessages as $message) {
              // Convert scheduled_at to Carbon instance
-             $runAt = Carbon::parse($message->scheduled_at)->subDay(); // 24 hours before the scheduled time
+ //            $runAt = Carbon::parse($message->scheduled_at)->subDay(); // 24 hours before the scheduled time
+            $runAt = Carbon::parse($message->scheduled_at);
  
              // Schedule the job to run 24 hours before the actual scheduled time
              $schedule->call(function () use ($message) {
