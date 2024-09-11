@@ -18,7 +18,7 @@ Route::get('/', function () {
 });
 
 Route::get('/dispatch-job', function () {
-    $message = \App\Models\ScheduledMessage::first(); // Adjust as needed
+    $message = \App\Models\ScheduledMessage::last(); // Adjust as needed
     \App\Jobs\SendTelegramMessageJob::dispatch($message);
 
     return 'Job dispatched!';
