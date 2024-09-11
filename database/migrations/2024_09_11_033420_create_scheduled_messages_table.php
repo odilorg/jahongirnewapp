@@ -11,8 +11,11 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('tour_bookings', function (Blueprint $table) {
-            $table->string('status');
+        Schema::create('scheduled_messages', function (Blueprint $table) {
+        $table->id();
+        $table->string('message');
+        $table->timestamp('scheduled_at');
+        $table->timestamps();
         });
     }
 
@@ -21,8 +24,6 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::table('tour_bookings', function (Blueprint $table) {
-            //
-        });
+        Schema::dropIfExists('scheduled_messages');
     }
 };
