@@ -9,5 +9,5 @@ class ScheduledMessage extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['message', 'scheduled_at'];
+    protected $fillable = ['message', 'scheduled_at', 'chat_id'];
 }

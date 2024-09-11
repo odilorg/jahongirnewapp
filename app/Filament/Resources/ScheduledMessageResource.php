@@ -2,16 +2,18 @@
 
 namespace App\Filament\Resources;
 
+use Filament\Forms;
+use Filament\Tables;
+use Filament\Forms\Form;
+use Filament\Tables\Table;
+use App\Models\ScheduledMessage;
+use Filament\Resources\Resource;
+use Filament\Forms\Components\TextInput;
+use Illuminate\Database\Eloquent\Builder;
+use Filament\Forms\Components\DateTimePicker;
+use Illuminate\Database\Eloquent\SoftDeletingScope;
 use App\Filament\Resources\ScheduledMessageResource\Pages;
 use App\Filament\Resources\ScheduledMessageResource\RelationManagers;
-use App\Models\ScheduledMessage;
-use Filament\Forms;
-use Filament\Forms\Form;
-use Filament\Resources\Resource;
-use Filament\Tables;
-use Filament\Tables\Table;
-use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Database\Eloquent\SoftDeletingScope;
 
 class ScheduledMessageResource extends Resource
 {
@@ -29,6 +31,8 @@ class ScheduledMessageResource extends Resource
             Forms\Components\DateTimePicker::make('scheduled_at')
                 ->required()
                 ->label('Schedule Date and Time'),
+            Forms\Components\TextInput::make('chat_id')
+                ->required(),
             ]);
     }
 

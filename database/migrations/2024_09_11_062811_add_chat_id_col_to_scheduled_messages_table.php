@@ -11,11 +11,8 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('scheduled_messages', function (Blueprint $table) {
-        $table->id();
-        $table->string('message');
-        $table->timestamp('scheduled_at');
-        $table->timestamps();
+        Schema::table('scheduled_messages', function (Blueprint $table) {
+            $table->string('chat_id');
         });
     }
 
@@ -24,6 +21,8 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::dropIfExists('scheduled_messages');
+        Schema::table('scheduled_messages', function (Blueprint $table) {
+            //
+        });
     }
 };
