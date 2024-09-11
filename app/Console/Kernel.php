@@ -14,17 +14,26 @@ class Kernel extends ConsoleKernel
     protected function schedule(Schedule $schedule): void
     {
         // $schedule->command('inspire')->hourly();
-        // Fetch scheduled messages from the database
-    $scheduledMessages = \App\Models\ScheduledMessage::where('scheduled_at', '>=', now())->get();
+         // Fetch all scheduled messages from the database
+         $scheduledMessages = ScheduledMessage::where('scheduled_at', '>=', now())->get();
 
-    foreach ($scheduledMessages as $message) {
-        $schedule->call(function () use ($message) {
-            // Your logic to send the Telegram message
-            SendTelegramMessageJob::dispatch($message);
-        })->timezone('Asia/Samarkand')->at($message->scheduled_at->format('H:i'))->when(function () use ($message) {
-            return now()->isSameDay($message->scheduled_at);
-        });
-    }
+         foreach ($scheduledMessages as $message) {
+             // Convert scheduled_at to Carbon instance
+             $runAt = Carbon::parse($message->scheduled_at)->subDay(); // 24 hours before the scheduled time
+ 
+             // Schedule the job to run 24 hours before the actual scheduled time
+             $schedule->call(function () use ($message) {
+                 // Dispatch the job to send the Telegram message
+                 \App\Jobs\SendTelegramMessageJob::dispatch($message);
+             })
+             ->timezone('Asia/Samarkand')
+             ->at($runAt->format('H:i')) // Use Carbon instance to format the time
+             ->when(function () use ($runAt) {
+                 // Check if the current time is the same day and time as 24 hours before
+                 return now()->isSameDay($runAt);
+             });
+         }
+     }
     }
 
     /**
