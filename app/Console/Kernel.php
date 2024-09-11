@@ -21,7 +21,7 @@ class Kernel extends ConsoleKernel
         $schedule->call(function () use ($message) {
             // Your logic to send the Telegram message
             SendTelegramMessageJob::dispatch($message);
-        })->timezone('Your/Timezone')->at($message->scheduled_at->format('H:i'))->when(function () use ($message) {
+        })->timezone('Asia/Samarkand')->at($message->scheduled_at->format('H:i'))->when(function () use ($message) {
             return now()->isSameDay($message->scheduled_at);
         });
     }
