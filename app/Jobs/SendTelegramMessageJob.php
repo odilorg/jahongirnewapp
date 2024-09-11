@@ -3,21 +3,23 @@
 namespace App\Jobs;
 
 use Illuminate\Bus\Queueable;
+use App\Models\ScheduledMessage;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Queue\SerializesModels;
+use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
-use Illuminate\Queue\InteractsWithQueue;
-use Illuminate\Queue\SerializesModels;
 
 class SendTelegramMessageJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
-
+    protected $message;
     /**
      * Create a new job instance.
      */
-    public function __construct()
+    public function __construct(ScheduledMessage $message)
     {
-        //
+        $this->message = $message;
     }
 
     /**
@@ -33,5 +35,5 @@ class SendTelegramMessageJob implements ShouldQueue
             'text' => $this->message->message,
         ]);
     }
-    }
+    
 }
