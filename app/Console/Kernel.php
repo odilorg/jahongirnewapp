@@ -1,50 +1,48 @@
 <?php
 
+// app/Console/Kernel.php
+
 namespace App\Console;
 
-use App\Jobs\SendTelegramMessageJob;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\Console\Kernel as ConsoleKernel;
-use Carbon\Carbon; // Correct Carbon import
-use App\Models\ScheduledMessage; // Import your ScheduledMessage model
+use Carbon\Carbon;
+use App\Models\ScheduledMessage;
+use App\Models\Chat;
 
 class Kernel extends ConsoleKernel
 {
-    /**
-     * Define the application's command schedule.
-     */
     protected function schedule(Schedule $schedule): void
     {
-        // Fetch all scheduled messages that are due to be scheduled soon
         $scheduledMessages = ScheduledMessage::where('scheduled_at', '>=', now())->get();
 
         foreach ($scheduledMessages as $message) {
-            // Convert scheduled_at to a Carbon instance 
+            // Convert scheduled_at to Carbon instance
             $runAt = Carbon::parse($message->scheduled_at);
 
             // Determine the frequency method
             $frequencyMethod = $this->mapFrequencyToMethod($message->frequency);
 
-            // Schedule the job according to the frequency and calculated time
-            $schedule->call(function () use ($message) {
-                SendTelegramMessageJob::dispatch($message);
-            })
-                ->timezone('Asia/Samarkand');
-            // Use the correct frequency method with proper arguments
-            // if ($frequencyMethod === 'dailyAt') {
-            //     $schedule->dailyAt($runAt->format('H:i'));
-            // } elseif ($frequencyMethod === 'weeklyOn') {
-            //     $schedule->weeklyOn($runAt->dayOfWeek, $runAt->format('H:i'));
-            // } elseif ($frequencyMethod === 'monthlyOn') {
-            //     $schedule->monthlyOn($runAt->day, $runAt->format('H:i'));
-            // } elseif ($frequencyMethod === 'yearlyOn') {
-            //     $schedule->yearlyOn($runAt->month, $runAt->day, $runAt->format('H:i'));
-            // }
+            // Get the related chat from the Chat model
+            $chat = $message->chat;
+
+            if ($chat) {
+                // Schedule the job dynamically based on frequency and chat_id
+                $schedule->call(function () use ($message, $chat) {
+                    // Dispatch the job to send the Telegram message with dynamic chat ID
+                    \App\Jobs\SendTelegramMessageJob::dispatch($message, $chat->chat_id);
+                })
+                ->timezone('Asia/Samarkand') // Set your timezone
+                ->{$frequencyMethod}($runAt->day, $runAt->format('H:i'));
+            }
         }
     }
 
     /**
-     * Map frequency to Laravel scheduler methods.
+     * Map frequency to the appropriate Laravel Scheduler method.
+     *
+     * @param string $frequency
+     * @return string
      */
     protected function mapFrequencyToMethod($frequency)
     {
@@ -62,13 +60,9 @@ class Kernel extends ConsoleKernel
         }
     }
 
-    /**
-     * Register the commands for the application.
-     */
     protected function commands(): void
     {
-        $this->load(__DIR__ . '/Commands');
-
+        $this->load(__DIR__.'/Commands');
         require base_path('routes/console.php');
     }
 }

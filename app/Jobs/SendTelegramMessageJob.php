@@ -1,58 +1,53 @@
 <?php
 
+// app/Jobs/SendTelegramMessageJob.php
+
 namespace App\Jobs;
 
-
-use App\Models\Chatid;
 use Illuminate\Bus\Queueable;
-use App\Models\ScheduledMessage;
-use Illuminate\Support\Facades\Http;
-use Illuminate\Queue\SerializesModels;
-use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
-use Illuminate\Support\Facades\Log;
-
+use Illuminate\Queue\InteractsWithQueue;
+use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\Http;
 
 class SendTelegramMessageJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    protected $message;
+    public $message;
+    public $chatId;
 
     /**
      * Create a new job instance.
+     *
+     * @return void
      */
-    public function __construct(ScheduledMessage $message)
+    public function __construct($message, $chatId)
     {
         $this->message = $message;
+        $this->chatId = $chatId;
     }
 
     /**
      * Execute the job.
+     *
+     * @return void
      */
-    public function handle(): void
+    public function handle()
     {
-        $botToken = env('JAHONGIRCLEANINGBOT');
-        
-        // Retrieve the Chat ID from the database
-        $chatIdModel = Chatid::find($this->message->chat_id);
-        if (!$chatIdModel) {
-            // Handle error (e.g., log it, throw an exception, or return)
-            Log::error('Chat ID not found: ' . $this->message->chat_id);
-            return;
-        }
-        
-        $chatIdd = $chatIdModel->chatid;
+        // Telegram bot token
+        $botToken = 'YOUR_TELEGRAM_BOT_TOKEN';
 
-        try {
-            Http::post("https://api.telegram.org/bot{$botToken}/sendMessage", [
-                'chat_id' => $chatIdd,
-                'text' => $this->message->message,
-            ]);
-        } catch (\Exception $e) {
-            // Handle the exception (e.g., log it or retry the job)
-            Log::error('Failed to send message: ' . $e->getMessage());
+        // Send the request to Telegram API
+        $response = Http::get("https://api.telegram.org/bot{$botToken}/sendMessage", [
+            'chat_id' => $this->chatId,
+            'text' => $this->message->message,
+        ]);
+
+        // Handle the response if needed
+        if ($response->failed()) {
+            // Log or handle failure
         }
     }
 }

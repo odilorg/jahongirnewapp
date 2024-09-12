@@ -11,9 +11,11 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('scheduled_messages', function (Blueprint $table) {
-            $table->string('frequency')->default('daily'); // Options: daily, weekly, monthly, yearly
-
+        Schema::create('chats', function (Blueprint $table) {
+            $table->id();
+            $table->string('name'); // The friendly name of the chat
+            $table->string('chat_id'); // The actual Telegram chat ID
+            $table->timestamps();
         });
     }
 
@@ -22,8 +24,6 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::table('scheduled_messages', function (Blueprint $table) {
-            //
-        });
+        Schema::dropIfExists('chats');
     }
 };

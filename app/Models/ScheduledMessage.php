@@ -13,9 +13,9 @@ class ScheduledMessage extends Model
 
     protected $fillable = ['message', 'scheduled_at', 'chat_id', ];
 
-    public function chatid(): HasOne
+    public function chat()
     {
-        return $this->hasOne(Chatid::class);
+        return $this->belongsTo(Chat::class);
     }
 
 

@@ -33,9 +33,8 @@ class ScheduledMessageResource extends Resource
                     ->required()
                     ->label('Schedule Date and Time'),
                 Forms\Components\Select::make('chat_id')
-                    ->label('Chat Id')
-                    ->options(Chatid::all()->pluck('name', 'id'))
-                    ->searchable()
+                    ->label('Chat')
+                    ->options(\App\Models\Chat::pluck('name', 'id'))
                     ->required(),
                 Forms\Components\Select::make('frequency')
                     ->label('Frequency')
