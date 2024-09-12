@@ -24,14 +24,14 @@ class Kernel extends ConsoleKernel
 
             // Get the related chat from the Chat model
             $chat = $message->chat;
-//dd($chat);
+
             if ($chat) {
                 $schedule->call(function () use ($message, $chat) {
                     // Pass both $message and $chat->chat_id to the job
-                //    dd($message, $chat->chat_id);
+                   dd($message, $chat->chat_id);
                     SendTelegramMessageJob::dispatch($message, $chat->chat_id);
                 })
-                ->timezone('Asia/Samarkand')
+                ->timezone('Asia/Samarkand');
                // ->{$frequencyMethod}($runAt->day, $runAt->format('H:i'));
             }
         }
