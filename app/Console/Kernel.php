@@ -20,7 +20,7 @@ class Kernel extends ConsoleKernel
         foreach ($scheduledMessages as $message) {
             $runAt = Carbon::parse($message->scheduled_at);
 
-            $frequencyMethod = $this->mapFrequencyToMethod($message->frequency);
+          //  $frequencyMethod = $this->mapFrequencyToMethod($message->frequency);
 
             // Get the related chat from the Chat model
             $chat = $message->chat->chat_id;
@@ -31,7 +31,11 @@ class Kernel extends ConsoleKernel
                    
                     SendTelegramMessageJob::dispatch($message, $chat);
                 })
-                ->timezone('Asia/Samarkand');
+                ->timezone('Asia/Samarkand')
+                ->at($message->scheduled_at->format('H:i'))
+                ->when(function () use ($message) {
+                    return now()->isSameDay($message->scheduled_at);
+                });
              //   ->{$frequencyMethod}($runAt->day, $runAt->format('H:i'));
             }
         }
