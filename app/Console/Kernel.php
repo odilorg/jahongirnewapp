@@ -19,7 +19,7 @@ class Kernel extends ConsoleKernel
         $scheduledMessages = ScheduledMessage::where('scheduled_at', '>=', now())->get();
 
         foreach ($scheduledMessages as $message) {
-            // Convert scheduled_at to a Carbon instance and calculate 24 hours before
+            // Convert scheduled_at to a Carbon instance 
             $runAt = Carbon::parse($message->scheduled_at);
 
             // Determine the frequency method
@@ -30,7 +30,7 @@ class Kernel extends ConsoleKernel
                 SendTelegramMessageJob::dispatch($message);
             })
             ->timezone('Asia/Samarkand')
-            ->{$frequencyMethod}($runAt->day, $runAt->format('H:i'));
+            //->{$frequencyMethod}($runAt->day, $runAt->format('H:i'));
         }
     }
 
