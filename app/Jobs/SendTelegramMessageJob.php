@@ -47,7 +47,7 @@ class SendTelegramMessageJob implements ShouldQueue
             'chat_id' => $this->chatId,
             'text' => $this->message->message,
         ]);
-dd($response);
+//dd($response);
         if ($response->failed()) {
             // Log or handle failure
         }

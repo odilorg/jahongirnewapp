@@ -31,7 +31,7 @@ class Kernel extends ConsoleKernel
                    
                     SendTelegramMessageJob::dispatch($message, $chat);
                 })
-                ->timezone('Asia/Samarkand')
+                ->timezone('Asia/Samarkand');
              //   ->{$frequencyMethod}($runAt->day, $runAt->format('H:i'));
             }
         }
