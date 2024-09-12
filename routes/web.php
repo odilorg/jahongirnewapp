@@ -32,11 +32,11 @@ Route::get('/dispatch-job', function () {
     $message = ScheduledMessage::first(); // Adjust as needed
     
     // Fetch or create a chat
-    $chat = $message->chat_id; // Adjust as needed
-// /dd($message->chat_id);
+    $chat = $message->chat->chat_id; // Adjust as needed
+ //dd($chat);
     if ($message && $chat) {
         // Dispatch the job with both arguments
-        SendTelegramMessageJob::dispatch($message, $message->chat_id);
+        SendTelegramMessageJob::dispatch($message, $chat);
 
         return 'Job dispatched!';
     }
