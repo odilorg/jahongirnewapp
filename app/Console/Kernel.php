@@ -23,16 +23,16 @@ class Kernel extends ConsoleKernel
             $frequencyMethod = $this->mapFrequencyToMethod($message->frequency);
 
             // Get the related chat from the Chat model
-            $chat = $message->chat;
+            $chat = $message->chat->chat_id;
 
             if ($chat) {
                 $schedule->call(function () use ($message, $chat) {
                     // Pass both $message and $chat->chat_id to the job
-                   dd($message, $chat->chat_id);
-                    SendTelegramMessageJob::dispatch($message, $chat->chat_id);
+                   
+                    SendTelegramMessageJob::dispatch($message, $chat);
                 })
-                ->timezone('Asia/Samarkand');
-               // ->{$frequencyMethod}($runAt->day, $runAt->format('H:i'));
+                ->timezone('Asia/Samarkand')
+                ->{$frequencyMethod}($runAt->day, $runAt->format('H:i'));
             }
         }
     }
