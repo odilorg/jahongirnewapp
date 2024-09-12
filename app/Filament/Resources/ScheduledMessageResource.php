@@ -37,6 +37,16 @@ class ScheduledMessageResource extends Resource
                     ->options(Chatid::all()->pluck('name', 'id'))
                     ->searchable()
                     ->required(),
+                Forms\Components\Select::make('frequency')
+                    ->label('Frequency')
+                    ->options([
+                        'daily' => 'Daily',
+                        'weekly' => 'Weekly',
+                        'monthly' => 'Monthly',
+                        'yearly' => 'Yearly',
+                    ])
+                    ->default('daily')
+                    ->required()
             ]);
     }
 
