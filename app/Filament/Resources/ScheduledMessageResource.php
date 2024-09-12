@@ -33,7 +33,7 @@ class ScheduledMessageResource extends Resource
                 ->required()
                 ->label('Schedule Date and Time'),
                 Forms\Components\Select::make('chat_id')
-                    ->label('Driver')
+                    ->label('Chat Id')
                     ->options(Chatid::all()->pluck('name', 'id'))
                     ->searchable()
                     ->required(),
