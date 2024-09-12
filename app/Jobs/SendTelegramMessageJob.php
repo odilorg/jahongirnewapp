@@ -1,7 +1,4 @@
 <?php
-
-// app/Jobs/SendTelegramMessageJob.php
-
 // app/Jobs/SendTelegramMessageJob.php
 
 namespace App\Jobs;
@@ -23,8 +20,8 @@ class SendTelegramMessageJob implements ShouldQueue
     /**
      * Create a new job instance.
      *
-     * @param $message
-     * @param $chatId
+     * @param mixed $message
+     * @param string $chatId
      * @return void
      */
     public function __construct($message, $chatId)
@@ -40,8 +37,8 @@ class SendTelegramMessageJob implements ShouldQueue
      */
     public function handle()
     {
-        // Telegram bot token
-        $botToken = 'YOUR_TELEGRAM_BOT_TOKEN';
+        // Retrieve the bot token from environment variables
+        $botToken = env('JAHONGIRCLEANINGBOT');
 
         // Send the request to the Telegram API
         $response = Http::get("https://api.telegram.org/bot{$botToken}/sendMessage", [
