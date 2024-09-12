@@ -34,11 +34,12 @@ class Kernel extends ConsoleKernel
                 ->timezone('Asia/Samarkand')
                 //->at($runAt->format('H:i'))
                // ->dailyAt($runAt->format('H:i')) // Schedule the job daily at the specified time
-                 ->{$frequencyMethod}($runAt->format('H:i')) // Use the initialized $frequencyMethod
+                 //->{$frequencyMethod}($runAt->format('H:i')) // Use the initialized $frequencyMethod
+                 
                 ->when(function () use ($message) {
                     return now()->isSameDay($message->scheduled_at);
                 });
-              
+                $schedule->dailyAt($runAt->format('H:i'));
             }
         }
     }
