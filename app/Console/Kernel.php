@@ -32,7 +32,7 @@ class Kernel extends ConsoleKernel
                     SendTelegramMessageJob::dispatch($message, $chat);
                 })
                 ->timezone('Asia/Samarkand')
-                ->at($message->scheduled_at->format('H:i'))
+                ->at($runAt->format('H:i'))
                 ->when(function () use ($message) {
                     return now()->isSameDay($message->scheduled_at);
                 });
