@@ -26,13 +26,21 @@ class Kernel extends ConsoleKernel
             $chat = $message->chat;
 //dd($chat);
             if ($chat) {
-                $schedule->call(function () use ($message, $chat) {
-                    // Pass both $message and $chat->chat_id to the job
-                //    dd($message, $chat->chat_id);
-                    SendTelegramMessageJob::dispatch($message, $chat->chat_id);
+                $schedule->call(function () use ($message) {
+                    SendTelegramMessageJob::dispatch($message);
                 })
-                ->timezone('Asia/Samarkand')
-                ->{$frequencyMethod}($runAt->day, $runAt->format('H:i'));
+                ->timezone('Asia/Samarkand');
+                
+                // Use the correct frequency method with proper arguments
+                if ($frequencyMethod === 'dailyAt') {
+                    $schedule->dailyAt($runAt->format('H:i'));
+                } elseif ($frequencyMethod === 'weeklyOn') {
+                    $schedule->weeklyOn($runAt->dayOfWeek, $runAt->format('H:i'));
+                } elseif ($frequencyMethod === 'monthlyOn') {
+                    $schedule->monthlyOn($runAt->day, $runAt->format('H:i'));
+                } elseif ($frequencyMethod === 'yearlyOn') {
+                    $schedule->yearlyOn($runAt->month, $runAt->day, $runAt->format('H:i'));
+                }
             }
         }
     }
