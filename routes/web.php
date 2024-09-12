@@ -1,5 +1,8 @@
 <?php
 
+use App\Models\Chat;
+use App\Models\ScheduledMessage;
+use App\Jobs\SendTelegramMessageJob;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -17,9 +20,26 @@ Route::get('/', function () {
     return redirect()->route('filament.admin.auth.login');
 });
 
-Route::get('/dispatch-job', function () {
-    $message = \App\Models\ScheduledMessage::first(); // Adjust as needed
-    \App\Jobs\SendTelegramMessageJob::dispatch($message);
+// Route::get('/dispatch-job', function () {
+//     $message = \App\Models\ScheduledMessage::first(); // Adjust as needed
+//     \App\Jobs\SendTelegramMessageJob::dispatch($message);
 
-    return 'Job dispatched!';
+//     return 'Job dispatched!';
+// });
+
+Route::get('/dispatch-job', function () {
+    // Fetch or create a message
+    $message = ScheduledMessage::first(); // Adjust as needed
+    
+    // Fetch or create a chat
+    $chat = Chat::first(); // Adjust as needed
+
+    if ($message && $chat) {
+        // Dispatch the job with both arguments
+        SendTelegramMessageJob::dispatch($message, $chat->chat_id);
+
+        return 'Job dispatched!';
+    }
+
+    return 'Failed to dispatch job.';
 });
