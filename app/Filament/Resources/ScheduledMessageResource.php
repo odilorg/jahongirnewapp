@@ -27,11 +27,11 @@ class ScheduledMessageResource extends Resource
         return $form
             ->schema([
                 Forms\Components\TextInput::make('message')
-                ->required()
-                ->label('Message'),
-            Forms\Components\DateTimePicker::make('scheduled_at')
-                ->required()
-                ->label('Schedule Date and Time'),
+                    ->required()
+                    ->label('Message'),
+                Forms\Components\DateTimePicker::make('scheduled_at')
+                    ->required()
+                    ->label('Schedule Date and Time'),
                 Forms\Components\Select::make('chat_id')
                     ->label('Chat Id')
                     ->options(Chatid::all()->pluck('name', 'id'))

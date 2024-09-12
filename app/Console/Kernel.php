@@ -30,13 +30,13 @@ class Kernel extends ConsoleKernel
                 // Dispatch the job to send the Telegram message
                 SendTelegramMessageJob::dispatch($message);
             })
-            ->timezone('Asia/Samarkand')
-            ->at($runAt->format('H:i')) // Use Carbon instance to format the time
-            ->when(function () use ($runAt) {
-                // Check if the current time is the same day and time as 24 hours before
-                return now()->isSameDay($runAt);
-            })
-            ->{$frequencyMethod}($runAt->day, $runAt->format('H:i'));
+                ->timezone('Asia/Samarkand')
+                ->at($runAt->format('H:i')) // Use Carbon instance to format the time
+                ->when(function () use ($runAt) {
+                    // Check if the current time is the same day and time as 24 hours before
+                    return now()->isSameDay($runAt);
+                })
+                ->{$frequencyMethod}($runAt->day, $runAt->format('H:i'));
         }
     }
 
@@ -61,7 +61,7 @@ class Kernel extends ConsoleKernel
      */
     protected function commands(): void
     {
-        $this->load(__DIR__.'/Commands');
+        $this->load(__DIR__ . '/Commands');
 
         require base_path('routes/console.php');
     }
