@@ -28,7 +28,7 @@ class SendTelegramMessageJob implements ShouldQueue
     {
         $this->message = $message;
         $this->chatId = $chatId;
-dd($this->message);
+//dd($this->chatId);
         
     }
 
@@ -41,13 +41,13 @@ dd($this->message);
     {
         // Retrieve the bot token from environment variables
         $botToken = env('JAHONGIRCLEANINGBOT');
-      //  dd($this->chatId);
+    //    dd($botToken);
         // Send the request to the Telegram API
-        $response = Http::get("https://api.telegram.org/bot{$botToken}/sendMessage", [
+        $response = Http::post("https://api.telegram.org/bot{$botToken}/sendMessage", [
             'chat_id' => $this->chatId,
             'text' => $this->message->message,
         ]);
-
+dd($response);
         if ($response->failed()) {
             // Log or handle failure
         }
