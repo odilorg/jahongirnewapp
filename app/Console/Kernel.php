@@ -32,28 +32,11 @@ class Kernel extends ConsoleKernel
                     SendTelegramMessageJob::dispatch($message, $chat);
                 })
                 ->timezone('Asia/Samarkand')
+                ->at($runAt->format('H:i'))
                 ->when(function () use ($message) {
                     return now()->isSameDay($message->scheduled_at);
-                });
-
-                // Dynamically call the appropriate frequency method with the correct parameters
-                switch ($frequencyMethod) {
-                    case 'dailyAt':
-                        $schedule->dailyAt($runAt->format('H:i'));
-                        break;
-                    case 'weeklyOn':
-                        $schedule->weeklyOn($runAt->dayOfWeek, $runAt->format('H:i'));
-                        break;
-                    case 'monthlyOn':
-                        $schedule->monthlyOn($runAt->day, $runAt->format('H:i'));
-                        break;
-                    case 'yearlyOn':
-                        $schedule->yearlyOn($runAt->month, $runAt->day, $runAt->format('H:i'));
-                        break;
-                    default:
-                        $schedule->dailyAt($runAt->format('H:i'));
-                        break;
-                }
+                })
+                ->{$frequencyMethod}($runAt->day, $runAt->format('H:i')); // Use the initialized $frequencyMethod
             }
         }
     }
