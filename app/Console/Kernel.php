@@ -30,6 +30,7 @@ class Kernel extends ConsoleKernel
                 $schedule->call(function () use ($message, $chat) {
                     // Pass both $message and $chat->chat_id to the job
                     SendTelegramMessageJob::dispatch($message, $chat);
+                
                 })
                 ->timezone('Asia/Samarkand')
                 ->when(function () use ($message) {
