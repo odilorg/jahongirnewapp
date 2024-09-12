@@ -29,8 +29,8 @@ class Kernel extends ConsoleKernel
             $schedule->call(function () use ($message) {
                 SendTelegramMessageJob::dispatch($message);
             })
-            ->timezone('Asia/Samarkand')
-            //->{$frequencyMethod}($runAt->day, $runAt->format('H:i'));
+            ->timezone('Asia/Samarkand');
+          //  ->{$frequencyMethod}($runAt->day, $runAt->format('H:i'));
         }
     }
 
