@@ -36,7 +36,7 @@ class Kernel extends ConsoleKernel
                 ->when(function () use ($message) {
                     return now()->isSameDay($message->scheduled_at);
                 })
-                ->{$frequencyMethod}($runAt->day, $runAt->format('H:i')); // Use the initialized $frequencyMethod
+               // ->{$frequencyMethod}($runAt->day, $runAt->format('H:i')); // Use the initialized $frequencyMethod
             }
         }
     }
