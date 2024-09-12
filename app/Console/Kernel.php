@@ -32,11 +32,12 @@ class Kernel extends ConsoleKernel
                     SendTelegramMessageJob::dispatch($message, $chat);
                 })
                 ->timezone('Asia/Samarkand')
-                ->at($runAt->format('H:i'))
+                //->at($runAt->format('H:i'))
+                ->dailyAt($runAt->format('H:i')) // Schedule the job daily at the specified time
                 ->when(function () use ($message) {
                     return now()->isSameDay($message->scheduled_at);
-                })
-                ->{$frequencyMethod}($runAt->day, $runAt->format('H:i')); // Use the initialized $frequencyMethod
+                });
+              //  ->{$frequencyMethod}($runAt->day, $runAt->format('H:i')); // Use the initialized $frequencyMethod
             }
         }
     }
