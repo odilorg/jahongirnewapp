@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Models\Chatid;
 use Illuminate\Bus\Queueable;
 use App\Models\ScheduledMessage;
 use Illuminate\Support\Facades\Http;
@@ -27,11 +28,28 @@ class SendTelegramMessageJob implements ShouldQueue
      */
     public function handle(): void
     {
+        // $chatId = $this->argument('chatId');
+
+        // // Retrieve the Car and its associated Driver
+        // $car = Chatid::with('')->find($carId);
+
+        // if (!$car || !$car->driver) {
+        //     $this->error('Car or Driver not found.');
+        //     return;
+        // }
+
+        // // Retrieve the license number
+        // $licenseNumber = $car->driver->license_number;
+        // $driverName = $car->driver->name;
+        
         $botToken = $_ENV['JAHONGIRCLEANINGBOT'];
-        $chatId = $_ENV['CHAT_ID_JAHONGIR'];
+        $chatId = $this->message->chat_id;
+        $chatId = Chatid::find($chatId);
+        $chatIdd = $chatId->chatid;
+       // dd($chatIdd);
 
         Http::post("https://api.telegram.org/bot{$botToken}/sendMessage", [
-            'chat_id' => $chatId,
+            'chat_id' => $chatIdd,
             'text' => $this->message->message,
         ]);
     }

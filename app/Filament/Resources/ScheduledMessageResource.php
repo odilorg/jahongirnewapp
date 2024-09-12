@@ -14,6 +14,7 @@ use Filament\Forms\Components\DateTimePicker;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
 use App\Filament\Resources\ScheduledMessageResource\Pages;
 use App\Filament\Resources\ScheduledMessageResource\RelationManagers;
+use App\Models\Chatid;
 
 class ScheduledMessageResource extends Resource
 {
@@ -31,8 +32,11 @@ class ScheduledMessageResource extends Resource
             Forms\Components\DateTimePicker::make('scheduled_at')
                 ->required()
                 ->label('Schedule Date and Time'),
-            Forms\Components\TextInput::make('chat_id')
-                ->required(),
+                Forms\Components\Select::make('chat_id')
+                    ->label('Driver')
+                    ->options(Chatid::all()->pluck('name', 'id'))
+                    ->searchable()
+                    ->required(),
             ]);
     }
 
