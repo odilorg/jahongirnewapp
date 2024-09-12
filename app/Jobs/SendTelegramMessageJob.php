@@ -2,6 +2,8 @@
 
 // app/Jobs/SendTelegramMessageJob.php
 
+// app/Jobs/SendTelegramMessageJob.php
+
 namespace App\Jobs;
 
 use Illuminate\Bus\Queueable;
@@ -21,6 +23,8 @@ class SendTelegramMessageJob implements ShouldQueue
     /**
      * Create a new job instance.
      *
+     * @param $message
+     * @param $chatId
      * @return void
      */
     public function __construct($message, $chatId)
@@ -39,13 +43,12 @@ class SendTelegramMessageJob implements ShouldQueue
         // Telegram bot token
         $botToken = 'YOUR_TELEGRAM_BOT_TOKEN';
 
-        // Send the request to Telegram API
+        // Send the request to the Telegram API
         $response = Http::get("https://api.telegram.org/bot{$botToken}/sendMessage", [
             'chat_id' => $this->chatId,
             'text' => $this->message->message,
         ]);
 
-        // Handle the response if needed
         if ($response->failed()) {
             // Log or handle failure
         }
