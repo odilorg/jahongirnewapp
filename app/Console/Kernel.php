@@ -31,15 +31,15 @@ class Kernel extends ConsoleKernel
             })
                 ->timezone('Asia/Samarkand');
             // Use the correct frequency method with proper arguments
-            if ($frequencyMethod === 'dailyAt') {
-                $schedule->dailyAt($runAt->format('H:i'));
-            } elseif ($frequencyMethod === 'weeklyOn') {
-                $schedule->weeklyOn($runAt->dayOfWeek, $runAt->format('H:i'));
-            } elseif ($frequencyMethod === 'monthlyOn') {
-                $schedule->monthlyOn($runAt->day, $runAt->format('H:i'));
-            } elseif ($frequencyMethod === 'yearlyOn') {
-                $schedule->yearlyOn($runAt->month, $runAt->day, $runAt->format('H:i'));
-            }
+            // if ($frequencyMethod === 'dailyAt') {
+            //     $schedule->dailyAt($runAt->format('H:i'));
+            // } elseif ($frequencyMethod === 'weeklyOn') {
+            //     $schedule->weeklyOn($runAt->dayOfWeek, $runAt->format('H:i'));
+            // } elseif ($frequencyMethod === 'monthlyOn') {
+            //     $schedule->monthlyOn($runAt->day, $runAt->format('H:i'));
+            // } elseif ($frequencyMethod === 'yearlyOn') {
+            //     $schedule->yearlyOn($runAt->month, $runAt->day, $runAt->format('H:i'));
+            // }
         }
     }
 
