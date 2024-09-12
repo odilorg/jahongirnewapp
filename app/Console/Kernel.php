@@ -20,7 +20,7 @@ class Kernel extends ConsoleKernel
 
         foreach ($scheduledMessages as $message) {
             // Convert scheduled_at to a Carbon instance and calculate 24 hours before
-            $runAt = Carbon::parse($message->scheduled_at)->subHours(24);
+            $runAt = Carbon::parse($message->scheduled_at);
 
             // Determine the frequency method
             $frequencyMethod = $this->mapFrequencyToMethod($message->frequency);
