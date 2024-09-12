@@ -28,6 +28,8 @@ class SendTelegramMessageJob implements ShouldQueue
     {
         $this->message = $message;
         $this->chatId = $chatId;
+
+        dd($this->message = $message);
     }
 
     /**
