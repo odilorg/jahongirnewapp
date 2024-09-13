@@ -33,6 +33,7 @@ class Kernel extends ConsoleKernel
                 
                 })
                 ->timezone('Asia/Samarkand')
+                ->at($runAt->format('H:i'))
                 ->when(function () use ($message) {
                     return now()->isSameDay($message->scheduled_at);
                 });
