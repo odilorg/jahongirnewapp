@@ -27,19 +27,19 @@ Route::get('/', function () {
 //     return 'Job dispatched!';
 // });
 
-Route::get('/dispatch-job', function () {
-    // Fetch or create a message
-    $message = ScheduledMessage::first(); // Adjust as needed
+// Route::get('/dispatch-job', function () {
+//     // Fetch or create a message
+//     $message = ScheduledMessage::first(); // Adjust as needed
     
-    // Fetch or create a chat
-    $chat = $message->chat->chat_id; // Adjust as needed
- //dd($chat);
-    if ($message && $chat) {
-        // Dispatch the job with both arguments
-        SendTelegramMessageJob::dispatch($message, $chat);
+//     // Fetch or create a chat
+//     $chat = $message->chat->chat_id; // Adjust as needed
+//  //dd($chat);
+//     if ($message && $chat) {
+//         // Dispatch the job with both arguments
+//         SendTelegramMessageJob::dispatch($message, $chat);
 
-        return 'Job dispatched!';
-    }
+//         return 'Job dispatched!';
+//     }
 
-    return 'Failed to dispatch job.';
-});
+//     return 'Failed to dispatch job.';
+// });
