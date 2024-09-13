@@ -36,16 +36,16 @@ class ScheduledMessageResource extends Resource
                     ->label('Chat')
                     ->options(\App\Models\Chat::pluck('name', 'id'))
                     ->required(),
-                Forms\Components\Select::make('frequency')
-                    ->label('Frequency')
-                    ->options([
-                        'daily' => 'Daily',
-                        'weekly' => 'Weekly',
-                        'monthly' => 'Monthly',
-                        'yearly' => 'Yearly',
-                    ])
-                    ->default('daily')
-                    ->required()
+                // Forms\Components\Select::make('frequency')
+                //     ->label('Frequency')
+                //     ->options([
+                //         'daily' => 'Daily',
+                //         'weekly' => 'Weekly',
+                //         'monthly' => 'Monthly',
+                //         'yearly' => 'Yearly',
+                //     ])
+                //     ->default('daily')
+                //     ->required()
             ]);
     }
 
