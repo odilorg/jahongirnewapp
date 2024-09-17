@@ -14,6 +14,7 @@ return new class extends Migration
         Schema::create('expenses', function (Blueprint $table) {
             $table->id();
             $table->timestamps();
+            $table->foreignId('expense_category_id')->constrained('expense_category')->onDelete('cascade');
         });
     }
 

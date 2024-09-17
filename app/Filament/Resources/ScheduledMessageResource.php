@@ -26,7 +26,7 @@ class ScheduledMessageResource extends Resource
     {
         return $form
             ->schema([
-                Forms\Components\TextInput::make('message')
+                Forms\Components\Textarea::make('message')
                     ->required()
                     ->label('Message'),
                 Forms\Components\DateTimePicker::make('scheduled_at')
