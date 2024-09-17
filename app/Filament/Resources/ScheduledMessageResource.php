@@ -56,7 +56,9 @@ class ScheduledMessageResource extends Resource
                 Tables\Columns\TextColumn::make('message')
                     ->limit(30),
                 Tables\Columns\TextColumn::make('chat.name')
-                    ->badge(),   
+                    ->badge(),
+                Tables\Columns\TextColumn::make('status')
+                    ->badge(),       
                 Tables\Columns\TextColumn::make('scheduled_at')->dateTime(),
             ])
             ->filters([
