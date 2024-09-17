@@ -11,10 +11,9 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('expenses', function (Blueprint $table) {
-            $table->id();
-            $table->timestamps();
-            $table->foreignId('expense_category_id');
+        Schema::table('scheduled_messages', function (Blueprint $table) {
+            $table->string('status')->default('pending'); // Add a 'status' column with default 'pending'
+
         });
     }
 
@@ -23,6 +22,8 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::dropIfExists('expenses');
+        Schema::table('scheduled_messages', function (Blueprint $table) {
+            //
+        });
     }
 };
