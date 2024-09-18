@@ -181,6 +181,7 @@ class SoldTourResource extends Resource
                                             'email' => $data['email'],
                                             'phone01' => $data['phone01'],
                                             'phone02' => $data['phone02'],
+                                            'guide_image' => $data['guide_image'],
                                             // Add other guide fields here as necessary
                                         ]);
                         
