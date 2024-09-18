@@ -24,6 +24,11 @@ class SoldTour extends Model
         return $this->hasMany(TourRepeaterDriver::class);
     }
 
+    public function tourRepeaterGuides(): HasMany
+    {
+        return $this->hasMany(TourRepeaterGuide::class);
+    }
+
     public function tour(): BelongsTo
     {
         return $this->belongsTo(Tour::class);

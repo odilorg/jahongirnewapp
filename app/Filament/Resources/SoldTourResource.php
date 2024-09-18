@@ -16,6 +16,7 @@ use Illuminate\Database\Eloquent\Builder;
 use App\Filament\Resources\SoldTourResource\Pages;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
 use App\Filament\Resources\SoldTourResource\RelationManagers;
+use App\Models\Guide;
 
 class SoldTourResource extends Resource
 {
@@ -33,7 +34,7 @@ class SoldTourResource extends Resource
                     ->collapsible()
                     ->schema([
                         Forms\Components\Select::make(name: 'tour_id')
-                           // ->live()
+                            // ->live()
                             ->label('Choose Tour')
                             //->dehydrated()
                             ->options(Tour::pluck('title', 'id'))
@@ -42,48 +43,82 @@ class SoldTourResource extends Resource
                             ->required(),
                         Forms\Components\TextInput::make('pickup_location')
                             ->required()
-                            ->maxLength(255), 
+                            ->maxLength(255),
                         Forms\Components\TextInput::make('dropoff_location')
                             ->required()
-                            ->maxLength(255), 
-                            Forms\Components\Textarea::make('special_request')
-                         //   ->required()
-                            ->maxLength(1000),             
+                            ->maxLength(255),
+                        Forms\Components\Textarea::make('special_request')
+                            //   ->required()
+                            ->maxLength(1000),
                     ]),
 
 
-
-                Repeater::make('drivers')
-                    ->relationship('tourRepeaterDrivers')
+                Forms\Components\Section::make('Tour Drivers, Guides')
+                  //  ->description('Add Tour Related Details')
+                    ->collapsible()
                     ->schema([
-                        Forms\Components\Select::make('driver_id')
-                           // ->live()
-                            ->label('Driver')
-                          //  ->dehydrated()
-                            ->options(Driver::pluck('full_name', 'id'))
-                            ->searchable()
-                            ->preload()
-                            ->required(),
+                        Repeater::make('drivers')
+                            ->relationship('tourRepeaterDrivers')
+                            ->schema([
+                                Forms\Components\Select::make('driver_id')
+                                    // ->live()
+                                    ->label('Driver')
+                                    //  ->dehydrated()
+                                    ->options(Driver::pluck('full_name', 'id'))
+                                    ->searchable()
+                                    ->preload()
+                                    ->required(),
 
-                        Forms\Components\TextInput::make('amount_paid')
-                            ->prefix('$')
-                           // ->required()
-                            ->numeric(),
-                        Forms\Components\DatePicker::make('payment_date'),
-                         //   ->required()
-                            //->maxDate(now()),
-                            Forms\Components\FileUpload::make('payment_document_image'),
-                        Forms\Components\Select::make('payment_method')
-                            ->options([
-                                'cash' => 'Cash',
-                                'transfer' => 'Transfer',
-                                'banktransfer' => 'Bank Transfer',
+                                Forms\Components\TextInput::make('amount_paid')
+                                    ->prefix('$')
+                                    // ->required()
+                                    ->numeric(),
+                                Forms\Components\DatePicker::make('payment_date'),
+                                //   ->required()
+                                //->maxDate(now()),
+                                Forms\Components\FileUpload::make('payment_document_image'),
+                                Forms\Components\Select::make('payment_method')
+                                    ->options([
+                                        'cash' => 'Cash',
+                                        'transfer' => 'Transfer',
+                                        'banktransfer' => 'Bank Transfer',
+                                    ])
+                            ]),
+
+                        Repeater::make('guides')
+                            ->relationship('tourRepeaterGuides')
+                            ->schema([
+                                Forms\Components\Select::make('guide_id')
+                                    // ->live()
+                                    ->label('Guide')
+                                    //  ->dehydrated()
+                                    ->options(Guide::pluck('full_name', 'id'))
+                                    ->searchable()
+                                    ->preload()
+                                    ->required(),
+
+                                Forms\Components\TextInput::make('amount_paid')
+                                    ->prefix('$')
+                                    // ->required()
+                                    ->numeric(),
+                                Forms\Components\DatePicker::make('payment_date'),
+                                //   ->required()
+                                //->maxDate(now()),
+                                Forms\Components\FileUpload::make('payment_document_image'),
+                                Forms\Components\Select::make('payment_method')
+                                    ->options([
+                                        'cash' => 'Cash',
+                                        'transfer' => 'Transfer',
+                                        'banktransfer' => 'Bank Transfer',
+                                    ])
                             ])
-                         //   ->required(),
+
+
+                        //   ->required(),
 
 
 
-                    ])
+                    ])->columns(2)
             ]);
     }
 
@@ -101,9 +136,10 @@ class SoldTourResource extends Resource
                     ->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\TextColumn::make('tour.title'),
                 Tables\Columns\TextColumn::make('special_request'),
-               // Tables\Columns\TextColumn::make('tourRepeaterDrivers.amount_paid'),
+                // Tables\Columns\TextColumn::make('tourRepeaterDrivers.amount_paid'),
                 Tables\Columns\TextColumn::make('tourRepeaterDrivers.driver.first_name'),
-    
+                Tables\Columns\TextColumn::make('tourRepeaterGuides.guide.first_name'),
+
             ])
             ->filters([
                 //
