@@ -32,68 +32,38 @@ class GuideResource extends Resource
         return $form
             ->schema([
                 Forms\Components\Section::make('Guide Personal Info')
-                ->description('Add information about Guide')
-                ->collapsible()
-                ->schema([
-                    Forms\Components\TextInput::make('first_name')
-                    ->required()
-                    ->maxLength(255),
-                Forms\Components\TextInput::make('last_name')
-                    ->required()
-                    ->maxLength(255),
-                Forms\Components\TextInput::make('email')
-                    ->email()
-                    ->required()
-                    ->maxLength(255),
-                Forms\Components\TextInput::make('phone01')
-                    ->tel()
-                    ->required()
-                    ->maxLength(255),
-                Forms\Components\TextInput::make('phone02')
-                    ->tel()
-                    ->maxLength(255),
+                    ->description('Add information about Guide')
+                    ->collapsible()
+                    ->schema([
+                        Forms\Components\TextInput::make('first_name')
+                            ->required()
+                            ->maxLength(255),
+                        Forms\Components\TextInput::make('last_name')
+                            ->required()
+                            ->maxLength(255),
+                        Forms\Components\TextInput::make('email')
+                            ->email()
+                            ->required()
+                            ->maxLength(255),
+                        Forms\Components\TextInput::make('phone01')
+                            ->tel()
+                            ->required()
+                            ->maxLength(255),
+                        Forms\Components\TextInput::make('phone02')
+                            ->tel()
+                            ->maxLength(255),
+                        Forms\Components\Select::make('languages')
+                            ->relationship('languages', 'language')
+                            ->multiple()
+                            ->searchable()
+                            ->preload()
+                            ->required(),
+                        Forms\Components\FileUpload::make('guide_image')
+                            ->image()
+                            ->required(),
+                    ])->columns(2)
 
 
-
-                    
-                Forms\Components\Select::make('languages')
-                    ->relationship('languages', 'language')
-                    ->multiple()
-                    ->searchable()
-                    ->preload()
-                    ->required(),
-                   
-                // Forms\Components\TextInput::make('custom_attribute')
-                //     ->label('Custom Attribute')
-                //     ->visible(fn ($get) => $get('attribute') === 'custom')  // Show only if 'Custom' is selected
-                //     ->required(fn ($get) => $get('attribute') === 'custom'),
-
-                // Forms\Components\Select::make('languages')
-                // ->label('Choose an Attribute')
-                // ->options(function () {
-                //     // Fetch the attributes from the 'language_guide' pivot table dynamically
-                //     return DB::table('language_guide')
-                //         ->pluck('attribute_name', 'attribute_key') // Adjust 'attribute_name' and 'attribute_key' as per your table structure
-                //         ->toArray() 
-                //         + ['custom' => 'Custom']; // Add the 'Custom' option
-                // })
-                // ->reactive() // Makes the select field reactive
-                // ->required(),
-
-                // Forms\Components\TextInput::make('custom_attribute')
-                // ->label('Custom Attribute')
-                // ->visible(fn ($get) => $get('attribute') === 'custom') // Show only if 'Custom' is selected
-                // ->required(fn ($get) => $get('attribute') === 'custom'),
-
-
-
-
-                Forms\Components\FileUpload::make('guide_image')
-                    ->image()
-                    ->required(),
-                ])->columns(2)
-
-               
 
             ]);
     }

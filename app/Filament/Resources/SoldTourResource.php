@@ -17,6 +17,7 @@ use App\Filament\Resources\SoldTourResource\Pages;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
 use App\Filament\Resources\SoldTourResource\RelationManagers;
 use App\Models\Guide;
+use App\Models\SpokenLanguage;
 
 class SoldTourResource extends Resource
 {
@@ -50,25 +51,6 @@ class SoldTourResource extends Resource
                         Forms\Components\Textarea::make('special_request')
                             //   ->required()
                             ->maxLength(1000),
-                        // Forms\Components\TextInput::make('group_number')
-                        //     ->default('2024-' .  random_int(100000, 999999))
-                        //     ->required()
-                        //     ->maxLength(255),
-
-                        // Forms\Components\TextInput::make('group_number')
-                        //     ->default(function (callable $get) {
-                        //         // Retrieve the first_name and tour_title from the form
-                        //         $firstName = $get('first_name'); // Adjust the field name as per your form schema
-                        //         $tourTitle = $get('tour_title'); // Adjust the field name as per your form schema
-
-                        //         // Generate a random number between 100000 and 999999
-                        //         $randomNumber = random_int(100000, 999999);
-
-                        //         // Format the default value
-                        //         return "{$firstName}-{$tourTitle}-{$randomNumber}";
-                        //     })
-                        //     ->required()
-                        //     ->maxLength(255),
 
                     ]),
 
@@ -80,15 +62,59 @@ class SoldTourResource extends Resource
                         Repeater::make('drivers')
                             ->relationship('tourRepeaterDrivers')
                             ->schema([
+
                                 Forms\Components\Select::make('driver_id')
-                                    // ->live()
                                     ->label('Driver')
-                                    //  ->dehydrated()
                                     ->options(Driver::pluck('full_name', 'id'))
                                     ->searchable()
                                     ->preload()
-                                    ->required(),
+                                    ->required()
+                                    ->createOptionForm([
+                                        Forms\Components\TextInput::make('first_name')
+                                            ->required()
+                                            ->maxLength(255),
+                                        Forms\Components\TextInput::make('last_name')
+                                            ->required()
+                                            ->maxLength(255),
+                                        Forms\Components\TextInput::make('email')
+                                            ->label('Email address')
+                                            ->email()
+                                            ->required()
+                                            ->maxLength(255),
+                                        Forms\Components\TextInput::make('phone01')
+                                            ->label('Phone number #1')
+                                            ->tel()
+                                            ->required()
+                                            ->maxLength(255),
+                                        Forms\Components\TextInput::make('phone02')
+                                            ->label('Phone number #2')
+                                            ->tel()
+                                            ->maxLength(255),
+                                        Forms\Components\Select::make('fuel_type')
+                                            ->options([
+                                                'propane' => 'Propane',
+                                                'methane' => 'Methane',
+                                                'benzin' => 'Benzin',
+                                            ])
+                                            ->required(),
+                                        Forms\Components\FileUpload::make('driver_image')
+                                            ->image()
+                                            ->required(),
+                                        Forms\Components\Textarea::make('extra_details')
+                                            ->label('Extra Details, comments'),
+                                        Forms\Components\TextInput::make('address_city')
+                                            ->label('Where the driver From')
+                                            ->required()
+                                            ->maxLength(255),
+                                    ])
+                                    ->createOptionUsing(function (array $data) {
+                                        // Here we define how to save the new driver
+                                        return Driver::create($data)->id;
+                                    }),
 
+
+                                    // ->live()
+                                  
                                 Forms\Components\TextInput::make('amount_paid')
                                     ->prefix('$')
                                     // ->required()
@@ -109,14 +135,64 @@ class SoldTourResource extends Resource
                             ->relationship('tourRepeaterGuides')
                             ->schema([
                                 Forms\Components\Select::make('guide_id')
-                                    // ->live()
                                     ->label('Guide')
-                                    //  ->dehydrated()
                                     ->options(Guide::pluck('full_name', 'id'))
                                     ->searchable()
                                     ->preload()
-                                    ->required(),
+                                    ->required()
+                                    ->createOptionForm([
+                                        Forms\Components\TextInput::make('first_name')
+                                            ->required()
+                                            ->maxLength(255),
+                                        Forms\Components\TextInput::make('last_name')
+                                            ->required()
+                                            ->maxLength(255),
+                                        Forms\Components\TextInput::make('email')
+                                            ->label('Email address')
+                                            ->email()
+                                            ->required()
+                                            ->maxLength(255),
+                                        Forms\Components\TextInput::make('phone01')
+                                            ->label('Phone number #1')
+                                            ->tel()
+                                            ->required()
+                                            ->maxLength(255),
+                                        Forms\Components\TextInput::make('phone02')
+                                            ->label('Phone number #2')
+                                            ->tel(),
+                                        Forms\Components\Select::make('languages')
+                                            ->label('Languages')
+                                            ->options(SpokenLanguage::pluck('language', 'id')) // Load languages from SpokenLanguage model
+                                            ->multiple() // Allow multiple selections
+                                            ->searchable()
+                                            ->preload()
+                                            ->required(),
+                                            Forms\Components\FileUpload::make('guide_image')
+                                            ->image()
+                                            //->required()
 
+                                           
+                                    ])
+                                    ->createOptionUsing(function (array $data) {
+                                        // First, create the guide
+                                        $guide = Guide::create([
+                                            'first_name' => $data['first_name'],
+                                            'last_name' => $data['last_name'],
+                                            'email' => $data['email'],
+                                            'phone01' => $data['phone01'],
+                                            'phone02' => $data['phone02'],
+                                            // Add other guide fields here as necessary
+                                        ]);
+                        
+                                        // If languages were selected, sync them with the guide's languages relationship
+                                        if (isset($data['languages'])) {
+                                            $guide->languages()->sync($data['languages']); // Sync the pivot table (language_guide)
+                                        }
+                        
+                                        return $guide->id; // Return the guide ID to be used in the form
+                                    }),
+
+                                 
                                 Forms\Components\TextInput::make('amount_paid')
                                     ->prefix('$')
                                     // ->required()

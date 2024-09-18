@@ -19,14 +19,24 @@ class SoldTour extends Model
     ];
 
 
-    public function tourRepeaterDrivers(): HasMany
+    // public function tourRepeaterDrivers(): HasMany
+    // {
+    //     return $this->hasMany(TourRepeaterDriver::class);
+    // }
+    public function tourRepeaterDrivers()
     {
-        return $this->hasMany(TourRepeaterDriver::class);
+        return $this->belongsToMany(Driver::class, 'tour_repeater_drivers')
+            ->withPivot('amount_paid', 'payment_date', 'payment_method', 'payment_document_image');
     }
+    // public function tourRepeaterGuides(): HasMany
+    // {
+    //     return $this->hasMany(TourRepeaterGuide::class);
+    // }
 
-    public function tourRepeaterGuides(): HasMany
+    public function tourRepeaterGuides()
     {
-        return $this->hasMany(TourRepeaterGuide::class);
+        return $this->belongsToMany(Guide::class, 'tour_repeater_guides')
+            ->withPivot('amount_paid', 'payment_date', 'payment_method', 'payment_document_image');
     }
 
     public function tour(): BelongsTo
