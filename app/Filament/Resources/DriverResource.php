@@ -4,6 +4,7 @@ namespace App\Filament\Resources;
 
 use App\Models\Car;
 use Filament\Forms;
+use App\Models\Tour;
 use Filament\Tables;
 use App\Models\Driver;
 use Filament\Forms\Form;
@@ -13,11 +14,13 @@ use Filament\Infolists\Infolist;
 use Filament\Resources\Resource;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Repeater;
+use Filament\Tables\Columns\TextColumn;
 use Filament\Forms\Components\TextInput;
 use Illuminate\Database\Eloquent\Builder;
 use Filament\Infolists\Components\Section;
 use Filament\Infolists\Components\Fieldset;
 use Filament\Infolists\Components\TextEntry;
+use Filament\Tables\Columns\Summarizers\Sum;
 use Filament\Infolists\Components\ImageEntry;
 use App\Filament\Resources\DriverResource\Pages;
 use Filament\Infolists\Components\RepeatableEntry;
@@ -26,6 +29,7 @@ use App\Filament\Resources\DriverResource\RelationManagers;
 use App\Filament\Resources\DriverResource\RelationManagers\CarRelationManager;
 use App\Filament\Resources\DriverResource\RelationManagers\CarsRelationManager;
 use App\Filament\Resources\DriverResource\RelationManagers\SupplierPaymentsRelationManager;
+use App\Filament\Resources\TourRepeaterDriversRelationManagerResource\RelationManagers\SoldToursRelationManager;
 
 
 class DriverResource extends Resource
@@ -81,7 +85,7 @@ class DriverResource extends Resource
                         Forms\Components\TextInput::make('address_city')
                             ->label('Where the driver From')
                             ->required()
-                            ->maxLength(255),    
+                            ->maxLength(255),
                     ])->columns(2),
 
 
@@ -124,7 +128,7 @@ class DriverResource extends Resource
                     ->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\TextColumn::make('address_city')
                     ->sortable()
-                    ->toggleable(isToggledHiddenByDefault: true),        
+                    ->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\TextColumn::make('first_name')
                     ->searchable(),
                 Tables\Columns\TextColumn::make('last_name')
@@ -139,6 +143,23 @@ class DriverResource extends Resource
                     ->searchable(),
                 Tables\Columns\TextColumn::make('cars.model'),
 
+                Tables\Columns\TextColumn::make('total_amount_paid')
+                ->label('Total Amount Paid')
+                ->formatStateUsing(fn($state) => number_format($state , 2)) // Convert to dollars and format
+                ->money('USD', divideBy: 100)
+                ->getStateUsing(fn($record) => $record->total_amount_paid), // Use the accessor method
+
+                TextColumn::make('soldTours.tour.title')
+                    ->label('Tour Title')
+                    ->formatStateUsing(function ($state, $record) {
+                        // Get the first associated SoldTour
+                        $soldTour = $record->soldTours->first();
+
+                        // Check if soldTour and its tour are available
+                        return $soldTour ? $soldTour->tour->title : 'Unknown Title';
+                    })
+                    ->sortable()
+                    ->searchable(),
                 Tables\Columns\ImageColumn::make('driver_image')
                     ->circular(),
 
@@ -176,7 +197,7 @@ class DriverResource extends Resource
                         TextEntry::make('address_city'),
                         TextEntry::make('extra_details'),
                         ImageEntry::make('driver_image')
-                        ->circular()
+                            ->circular()
                     ])->columns(2),
 
 
@@ -223,7 +244,9 @@ class DriverResource extends Resource
     {
         return [
             CarsRelationManager::class,
-            SupplierPaymentsRelationManager::class
+            SupplierPaymentsRelationManager::class,
+            SoldToursRelationManager::class
+
 
         ];
     }

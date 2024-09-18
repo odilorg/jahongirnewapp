@@ -50,11 +50,31 @@ class SoldTourResource extends Resource
                         Forms\Components\Textarea::make('special_request')
                             //   ->required()
                             ->maxLength(1000),
+                        // Forms\Components\TextInput::make('group_number')
+                        //     ->default('2024-' .  random_int(100000, 999999))
+                        //     ->required()
+                        //     ->maxLength(255),
+
+                        // Forms\Components\TextInput::make('group_number')
+                        //     ->default(function (callable $get) {
+                        //         // Retrieve the first_name and tour_title from the form
+                        //         $firstName = $get('first_name'); // Adjust the field name as per your form schema
+                        //         $tourTitle = $get('tour_title'); // Adjust the field name as per your form schema
+
+                        //         // Generate a random number between 100000 and 999999
+                        //         $randomNumber = random_int(100000, 999999);
+
+                        //         // Format the default value
+                        //         return "{$firstName}-{$tourTitle}-{$randomNumber}";
+                        //     })
+                        //     ->required()
+                        //     ->maxLength(255),
+
                     ]),
 
 
                 Forms\Components\Section::make('Tour Drivers, Guides')
-                  //  ->description('Add Tour Related Details')
+                    //  ->description('Add Tour Related Details')
                     ->collapsible()
                     ->schema([
                         Repeater::make('drivers')
