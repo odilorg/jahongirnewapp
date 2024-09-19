@@ -43,7 +43,10 @@ class SoldTour extends Model
     {
         return $this->belongsTo(Tour::class);
     }
-
+    public function guest(): BelongsTo
+    {
+        return $this->belongsTo(Guest::class);
+    }
     
 }
 

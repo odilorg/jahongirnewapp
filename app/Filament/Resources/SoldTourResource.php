@@ -16,6 +16,7 @@ use Illuminate\Database\Eloquent\Builder;
 use App\Filament\Resources\SoldTourResource\Pages;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
 use App\Filament\Resources\SoldTourResource\RelationManagers;
+use App\Models\Guest;
 use App\Models\Guide;
 use App\Models\SpokenLanguage;
 
@@ -52,7 +53,57 @@ class SoldTourResource extends Resource
                             //   ->required()
                             ->maxLength(1000),
 
-                    ]),
+                    ])->columns(2),
+
+                Forms\Components\Section::make('Guest Details')
+                    ->description('Add Tour Related Guest Details')
+                    ->collapsible()
+                    ->schema([
+                        Forms\Components\Select::make(name: 'guest_id')
+                        ->relationship(name: 'guest', titleAttribute: 'full_name')
+                        ->createOptionForm([
+                            Forms\Components\TextInput::make('first_name')
+                            ->required()
+                            ->maxLength(255),
+                        Forms\Components\TextInput::make('last_name')
+                            ->required()
+                            ->maxLength(255),
+                        Forms\Components\TextInput::make('email')
+                            ->email()
+                            ->required()
+                            ->maxLength(255),
+                        Forms\Components\TextInput::make('country')
+                            ->required()
+                            ->maxLength(255),
+                        Forms\Components\TextInput::make('phone')
+                            ->tel()
+                            ->required()
+                            ->maxLength(255),
+                        ])
+                            // ->live()
+                            ->label('Choose Guest')
+                            //->dehydrated()
+                            ->options(Guest::pluck('full_name', 'id'))
+                            ->searchable()
+                            ->preload()
+                            ->required(),
+                        Forms\Components\TextInput::make('amount_paid')
+                            ->prefix('$')
+                            // ->required()
+                            ->numeric(),
+                        Forms\Components\DatePicker::make('payment_date'),
+                        //   ->required()
+                        //->maxDate(now()),
+
+                        Forms\Components\Select::make('payment_method')
+                            ->options([
+                                'cash' => 'Cash',
+                                'transfer' => 'Transfer',
+                                'banktransfer' => 'Bank Transfer',
+                            ]),
+                        Forms\Components\FileUpload::make('payment_document_image'),
+
+                    ])->columns(2),
 
 
                 Forms\Components\Section::make('Tour Drivers, Guides')
@@ -113,8 +164,8 @@ class SoldTourResource extends Resource
                                     }),
 
 
-                                    // ->live()
-                                  
+                                // ->live()
+
                                 Forms\Components\TextInput::make('amount_paid')
                                     ->prefix('$')
                                     // ->required()
@@ -167,11 +218,11 @@ class SoldTourResource extends Resource
                                             ->searchable()
                                             ->preload()
                                             ->required(),
-                                            Forms\Components\FileUpload::make('guide_image')
+                                        Forms\Components\FileUpload::make('guide_image')
                                             ->image()
-                                            //->required()
+                                        //->required()
 
-                                           
+
                                     ])
                                     ->createOptionUsing(function (array $data) {
                                         // First, create the guide
@@ -184,16 +235,16 @@ class SoldTourResource extends Resource
                                             'guide_image' => $data['guide_image'],
                                             // Add other guide fields here as necessary
                                         ]);
-                        
+
                                         // If languages were selected, sync them with the guide's languages relationship
                                         if (isset($data['languages'])) {
                                             $guide->languages()->sync($data['languages']); // Sync the pivot table (language_guide)
                                         }
-                        
+
                                         return $guide->id; // Return the guide ID to be used in the form
                                     }),
 
-                                 
+
                                 Forms\Components\TextInput::make('amount_paid')
                                     ->prefix('$')
                                     // ->required()
