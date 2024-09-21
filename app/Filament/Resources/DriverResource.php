@@ -78,8 +78,8 @@ class DriverResource extends Resource
                             ->required(),
 
                         Forms\Components\FileUpload::make('driver_image')
-                            ->image()
-                            ->required(),
+                            ->image(),
+                          //  ->required(),
                         Forms\Components\Textarea::make('extra_details')
                             ->label('Extra Details, comments'),
                         Forms\Components\TextInput::make('address_city')
