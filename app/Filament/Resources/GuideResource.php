@@ -60,7 +60,7 @@ class GuideResource extends Resource
                             ->required(),
                         Forms\Components\FileUpload::make('guide_image')
                             ->image()
-                            ->required(),
+                           // ->required(),
                     ])->columns(2)
 
 

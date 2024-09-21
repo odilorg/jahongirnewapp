@@ -5,20 +5,21 @@ namespace App\Filament\Resources;
 use Filament\Forms;
 use App\Models\Tour;
 use Filament\Tables;
-use App\Models\Driver;
+use App\Models\Guest;
+use App\Models\Guide;
+use App\Modx 77777777777\Driver;
 use App\Models\SoldTour;
 use Filament\Forms\Form;
 use Filament\Tables\Table;
+use App\Models\SpokenLanguage;
 use Filament\Resources\Resource;
+use Filament\Forms\Components\Grid;
 use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\FileUpload;
 use Illuminate\Database\Eloquent\Builder;
 use App\Filament\Resources\SoldTourResource\Pages;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
 use App\Filament\Resources\SoldTourResource\RelationManagers;
-use App\Models\Guest;
-use App\Models\Guide;
-use App\Models\SpokenLanguage;
 
 class SoldTourResource extends Resource
 {
@@ -60,26 +61,26 @@ class SoldTourResource extends Resource
                     ->collapsible()
                     ->schema([
                         Forms\Components\Select::make(name: 'guest_id')
-                        ->relationship(name: 'guest', titleAttribute: 'full_name')
-                        ->createOptionForm([
-                            Forms\Components\TextInput::make('first_name')
-                            ->required()
-                            ->maxLength(255),
-                        Forms\Components\TextInput::make('last_name')
-                            ->required()
-                            ->maxLength(255),
-                        Forms\Components\TextInput::make('email')
-                            ->email()
-                            ->required()
-                            ->maxLength(255),
-                        Forms\Components\TextInput::make('country')
-                            ->required()
-                            ->maxLength(255),
-                        Forms\Components\TextInput::make('phone')
-                            ->tel()
-                            ->required()
-                            ->maxLength(255),
-                        ])
+                            ->relationship(name: 'guest', titleAttribute: 'full_name')
+                            ->createOptionForm([
+                                Forms\Components\TextInput::make('first_name')
+                                    ->required()
+                                    ->maxLength(255),
+                                Forms\Components\TextInput::make('last_name')
+                                    ->required()
+                                    ->maxLength(255),
+                                Forms\Components\TextInput::make('email')
+                                    ->email()
+                                    ->required()
+                                    ->maxLength(255),
+                                Forms\Components\TextInput::make('country')
+                                    ->required()
+                                    ->maxLength(255),
+                                Forms\Components\TextInput::make('phone')
+                                    ->tel()
+                                    ->required()
+                                    ->maxLength(255),
+                            ])
                             // ->live()
                             ->label('Choose Guest')
                             //->dehydrated()
@@ -105,18 +106,15 @@ class SoldTourResource extends Resource
 
                     ])->columns(2),
 
-
-                Forms\Components\Section::make('Tour Drivers, Guides')
-                    //  ->description('Add Tour Related Details')
-                    ->collapsible()
+                Grid::make(2)
                     ->schema([
-                        Repeater::make('drivers')
-                            ->relationship('tourRepeaterDrivers')
+                        Forms\Components\Section::make('Tour Drivers, Guides')
+                            //  ->description('Add Tour Related Details')
+                            ->collapsible()
                             ->schema([
-
                                 Forms\Components\Select::make('driver_id')
                                     ->label('Driver')
-                                    ->options(Driver::pluck('full_name', 'id'))
+                                    ->relationship(name: 'driver', titleAttribute: 'full_name')
                                     ->searchable()
                                     ->preload()
                                     ->required()
@@ -179,94 +177,88 @@ class SoldTourResource extends Resource
                                         'cash' => 'Cash',
                                         'transfer' => 'Transfer',
                                         'banktransfer' => 'Bank Transfer',
-                                    ])
-                            ]),
-
-                        Repeater::make('guides')
-                            ->relationship('tourRepeaterGuides')
-                            ->schema([
-                                Forms\Components\Select::make('guide_id')
-                                    ->label('Guide')
-                                    ->options(Guide::pluck('full_name', 'id'))
-                                    ->searchable()
-                                    ->preload()
-                                    ->required()
-                                    ->createOptionForm([
-                                        Forms\Components\TextInput::make('first_name')
-                                            ->required()
-                                            ->maxLength(255),
-                                        Forms\Components\TextInput::make('last_name')
-                                            ->required()
-                                            ->maxLength(255),
-                                        Forms\Components\TextInput::make('email')
-                                            ->label('Email address')
-                                            ->email()
-                                            ->required()
-                                            ->maxLength(255),
-                                        Forms\Components\TextInput::make('phone01')
-                                            ->label('Phone number #1')
-                                            ->tel()
-                                            ->required()
-                                            ->maxLength(255),
-                                        Forms\Components\TextInput::make('phone02')
-                                            ->label('Phone number #2')
-                                            ->tel(),
-                                        Forms\Components\Select::make('languages')
-                                            ->label('Languages')
-                                            ->options(SpokenLanguage::pluck('language', 'id')) // Load languages from SpokenLanguage model
-                                            ->multiple() // Allow multiple selections
+                                    ]),
+                                Forms\Components\Section::make('Tour Drivers, Guides')
+                                    //  ->description('Add Tour Related Details')
+                                    ->collapsible()
+                                    ->schema([
+                                        Forms\Components\Select::make('guide_id')
+                                            ->label('Guide')
+                                            ->relationship(name: 'guide', titleAttribute: 'full_name')
                                             ->searchable()
                                             ->preload()
-                                            ->required(),
-                                        Forms\Components\FileUpload::make('guide_image')
-                                            ->image()
-                                        //->required()
+                                            ->required()
+                                            ->createOptionForm([
+                                                Forms\Components\TextInput::make('first_name')
+                                                    ->required()
+                                                    ->maxLength(255),
+                                                Forms\Components\TextInput::make('last_name')
+                                                    ->required()
+                                                    ->maxLength(255),
+                                                Forms\Components\TextInput::make('email')
+                                                    ->label('Email address')
+                                                    ->email()
+                                                    ->required()
+                                                    ->maxLength(255),
+                                                Forms\Components\TextInput::make('phone01')
+                                                    ->label('Phone number #1')
+                                                    ->tel()
+                                                    ->required()
+                                                    ->maxLength(255),
+                                                Forms\Components\TextInput::make('phone02')
+                                                    ->label('Phone number #2')
+                                                    ->tel(),
+                                                Forms\Components\Select::make('languages')
+                                                    ->label('Languages')
+                                                    ->options(SpokenLanguage::pluck('language', 'id')) // Load languages from SpokenLanguage model
+                                                    ->multiple() // Allow multiple selections
+                                                    ->searchable()
+                                                    ->preload()
+                                                    ->required(),
+                                                Forms\Components\FileUpload::make('guide_image')
+                                                    ->image()
+                                                //->required()
 
 
-                                    ])
-                                    ->createOptionUsing(function (array $data) {
-                                        // First, create the guide
-                                        $guide = Guide::create([
-                                            'first_name' => $data['first_name'],
-                                            'last_name' => $data['last_name'],
-                                            'email' => $data['email'],
-                                            'phone01' => $data['phone01'],
-                                            'phone02' => $data['phone02'],
-                                            'guide_image' => $data['guide_image'],
-                                            // Add other guide fields here as necessary
-                                        ]);
+                                            ])
+                                            ->createOptionUsing(function (array $data) {
+                                                // First, create the guide
+                                                $guide = Guide::create([
+                                                    'first_name' => $data['first_name'],
+                                                    'last_name' => $data['last_name'],
+                                                    'email' => $data['email'],
+                                                    'phone01' => $data['phone01'],
+                                                    'phone02' => $data['phone02'],
+                                                    'guide_image' => $data['guide_image'],
+                                                    // Add other guide fields here as necessary
+                                                ]);
 
-                                        // If languages were selected, sync them with the guide's languages relationship
-                                        if (isset($data['languages'])) {
-                                            $guide->languages()->sync($data['languages']); // Sync the pivot table (language_guide)
-                                        }
+                                                // If languages were selected, sync them with the guide's languages relationship
+                                                if (isset($data['languages'])) {
+                                                    $guide->languages()->sync($data['languages']); // Sync the pivot table (language_guide)
+                                                }
 
-                                        return $guide->id; // Return the guide ID to be used in the form
-                                    }),
-
-
-                                Forms\Components\TextInput::make('amount_paid')
-                                    ->prefix('$')
-                                    // ->required()
-                                    ->numeric(),
-                                Forms\Components\DatePicker::make('payment_date'),
-                                //   ->required()
-                                //->maxDate(now()),
-                                Forms\Components\FileUpload::make('payment_document_image'),
-                                Forms\Components\Select::make('payment_method')
-                                    ->options([
-                                        'cash' => 'Cash',
-                                        'transfer' => 'Transfer',
-                                        'banktransfer' => 'Bank Transfer',
-                                    ])
-                            ])
+                                                return $guide->id; // Return the guide ID to be used in the form
+                                            }),
 
 
-                        //   ->required(),
-
-
-
-                    ])->columns(2)
+                                        Forms\Components\TextInput::make('amount_paid')
+                                            ->prefix('$')
+                                            // ->required()
+                                            ->numeric(),
+                                        Forms\Components\DatePicker::make('payment_date'),
+                                        //   ->required()
+                                        //->maxDate(now()),
+                                        Forms\Components\FileUpload::make('payment_document_image'),
+                                        Forms\Components\Select::make('payment_method')
+                                            ->options([
+                                                'cash' => 'Cash',
+                                                'transfer' => 'Transfer',
+                                                'banktransfer' => 'Bank Transfer',
+                                            ])
+                                    ])->columns(2)
+                            ])->columns(2)
+                    ])
             ]);
     }
 
@@ -285,8 +277,8 @@ class SoldTourResource extends Resource
                 Tables\Columns\TextColumn::make('tour.title'),
                 Tables\Columns\TextColumn::make('special_request'),
                 // Tables\Columns\TextColumn::make('tourRepeaterDrivers.amount_paid'),
-                Tables\Columns\TextColumn::make('tourRepeaterDrivers.driver.first_name'),
-                Tables\Columns\TextColumn::make('tourRepeaterGuides.guide.first_name'),
+                Tables\Columns\TextColumn::make('driver.full_name'),
+                Tables\Columns\TextColumn::make('guide.full_name'),
 
             ])
             ->filters([

@@ -15,7 +15,10 @@ class SoldTour extends Model
         'tour_id',
         'pickup_location',
         'dropoff_location',
-        'special_request'
+        'special_request',
+        'driver_id',
+        'guide_id'
+
     ];
 
 
@@ -43,6 +46,17 @@ class SoldTour extends Model
     {
         return $this->belongsTo(Tour::class);
     }
+    public function driver(): BelongsTo
+    {
+        return $this->belongsTo(Driver::class);
+    }
+
+    public function guide(): BelongsTo
+    {
+        return $this->belongsTo(related: Guide::class);
+    }
+
+
     public function guest(): BelongsTo
     {
         return $this->belongsTo(Guest::class);
