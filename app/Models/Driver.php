@@ -52,31 +52,31 @@ class Driver extends Model
     //     return $this->hasOne(TourRepeaterDriver::class);
     // }
 
-    public function soldTours()
-    {
-        return $this->belongsToMany(SoldTour::class, 'sold_tour_driver')
-                    ->withPivot('amount_paid', 'payment_date', 'payment_method')
-                    ->withTimestamps();
-    }
-    public function tourRepeaterDrivers()
-    {
-        return $this->hasMany(TourRepeaterDriver::class);
-    }
-    public function tours()
-    {
-        return $this->hasManyThrough(
-            Tour::class,
-            SoldTour::class,
-            'id', // Foreign key on the SoldTour table
-            'id', // Foreign key on the Tour table
-            'id', // Local key on the Driver table
-            'tour_id' // Local key on the SoldTour table
-        );
-    }
+//     public function soldTours()
+//     {
+//         return $this->belongsToMany(SoldTour::class, 'sold_tour_driver')
+//                     ->withPivot('amount_paid', 'payment_date', 'payment_method')
+//                     ->withTimestamps();
+//     }
+//     public function tourRepeaterDrivers()
+//     {
+//         return $this->hasMany(TourRepeaterDriver::class);
+//     }
+//     public function tours()
+//     {
+//         return $this->hasManyThrough(
+//             Tour::class,
+//             SoldTour::class,
+//             'id', // Foreign key on the SoldTour table
+//             'id', // Foreign key on the Tour table
+//             'id', // Local key on the Driver table
+//             'tour_id' // Local key on the SoldTour table
+//         );
+//     }
 
-    public function getTotalAmountPaidAttribute()
-{
-    return $this->soldTours()->sum('amount_paid');
-}
+//     public function getTotalAmountPaidAttribute()
+// {
+//     return $this->soldTours()->sum('amount_paid');
+// }
     
 }
