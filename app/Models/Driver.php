@@ -54,8 +54,9 @@ class Driver extends Model
 
     public function soldTours()
     {
-        return $this->belongsToMany(SoldTour::class, 'tour_repeater_drivers', 'driver_id', 'sold_tour_id')
-                    ->withPivot('amount_paid', 'payment_date', 'payment_method', 'payment_document_image');
+        return $this->belongsToMany(SoldTour::class, 'sold_tour_driver')
+                    ->withPivot('amount_paid', 'payment_date', 'payment_method')
+                    ->withTimestamps();
     }
     public function tourRepeaterDrivers()
     {

@@ -20,4 +20,11 @@ class Guide extends Model
     {
         return $this->belongsToMany(SpokenLanguage::class, 'language_guide');
     }
+
+    public function soldTours()
+    {
+        return $this->belongsToMany(SoldTour::class, 'sold_tour_guide')
+                    ->withPivot('amount_paid', 'payment_date', 'payment_method')
+                    ->withTimestamps();
+    }
 }

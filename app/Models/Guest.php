@@ -21,5 +21,10 @@ class Guest extends Model
          'payment_method'
         ];
 
-   
+        public function soldTours()
+        {
+            return $this->belongsToMany(SoldTour::class, 'sold_tour_guest')
+                        ->withPivot('amount_paid', 'payment_date', 'payment_method')
+                        ->withTimestamps();
+        }
 }

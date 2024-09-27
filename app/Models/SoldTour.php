@@ -17,7 +17,9 @@ class SoldTour extends Model
         'dropoff_location',
         'special_request',
         'driver_id',
-        'guide_id'
+        'guide_id',
+        'group_name',
+        
 
     ];
 
@@ -46,21 +48,41 @@ class SoldTour extends Model
     {
         return $this->belongsTo(Tour::class);
     }
-    public function driver(): BelongsTo
-    {
-        return $this->belongsTo(Driver::class);
-    }
 
-    public function guide(): BelongsTo
-    {
-        return $this->belongsTo(related: Guide::class);
-    }
+    // public function driver(): BelongsTo
+    // {
+    //     return $this->belongsTo(Driver::class);
+    // }
+
+    // public function guide(): BelongsTo
+    // {
+    //     return $this->belongsTo(related: Guide::class);
+    // }
 
 
     public function guest(): BelongsTo
     {
         return $this->belongsTo(Guest::class);
     }
-    
+    public function drivers()
+    {
+        return $this->belongsToMany(Driver::class, 'sold_tour_driver')
+                    ->withPivot('amount_paid', 'payment_date', 'payment_method')
+                    ->withTimestamps();
+    }
+
+    public function guides()
+    {
+        return $this->belongsToMany(Guide::class, 'sold_tour_guide')
+                    ->withPivot('amount_paid', 'payment_date', 'payment_method')
+                    ->withTimestamps();
+    }
+
+    // public function guests()
+    // {
+    //     return $this->belongsToMany(Guest::class, 'sold_tour_guest')
+    //                 ->withPivot('amount_paid', 'payment_date', 'payment_method')
+    //                 ->withTimestamps();
+    // }
 }
 

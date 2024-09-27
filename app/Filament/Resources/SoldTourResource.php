@@ -36,14 +36,51 @@ class SoldTourResource extends Resource
                     ->description('Add Tour Related Details')
                     ->collapsible()
                     ->schema([
-                        Forms\Components\Select::make(name: 'tour_id')
-                            // ->live()
-                            ->label('Choose Tour')
-                            //->dehydrated()
-                            ->options(Tour::pluck('title', 'id'))
-                            ->searchable()
-                            ->preload()
-                            ->required(),
+                        // Guest select field
+        Forms\Components\Select::make('guest_id')
+        ->options(Guest::pluck('full_name', 'id')) // Fetching guest full names
+        ->label('Choose Guest')
+        ->searchable()
+        ->preload()
+        ->required()
+        ->reactive() // Makes the field reactive to changes
+        ->afterStateUpdated(function (callable $set, callable $get, $state) {
+            // Get the selected guest and update the group_name field
+            $guest = Guest::find($state);
+            $tourTitle = $get('tour_id') ? Tour::find($get('tour_id'))->title : '';
+            
+            // Concatenate guest full name with tour title if both are available
+            if ($guest) {
+                $set('group_name', $guest->full_name . ($tourTitle ? ' - ' . $tourTitle : ''));
+            }
+        }),
+
+    // Tour select field
+    Forms\Components\Select::make('tour_id')
+        ->label('Choose Tour')
+        ->options(Tour::pluck('title', 'id')) // Fetching tour titles
+        ->searchable()
+        ->preload()
+        ->required()
+        ->reactive() // Makes the field reactive to changes
+        ->afterStateUpdated(function (callable $set, callable $get, $state) {
+            // Get the selected tour and update the group_name field
+            $tour = Tour::find($state);
+            $guestName = $get('guest_id') ? Guest::find($get('guest_id'))->full_name : '';
+            
+            // Concatenate guest full name with tour title if both are available
+            if ($tour) {
+                $set('group_name', ($guestName ? $guestName . ' - ' : '') . $tour->title);
+            }
+        }),
+
+                        // Hidden text field to store the tour name based on the selected tour_id
+                        Forms\Components\Hidden::make('group_name')
+                            ->label('Group Name')
+                        //   / ->disabled() // Make it read-only so users cannot edit it
+                        // /->hiddenOnForm() // Hide this field from the user interface
+                            ->required()
+                            ->default('No Title Available'),
                         Forms\Components\TextInput::make('pickup_location')
                             ->required()
                             ->maxLength(255),
@@ -56,209 +93,131 @@ class SoldTourResource extends Resource
 
                     ])->columns(2),
 
-                Forms\Components\Section::make('Guest Details')
-                    ->description('Add Tour Related Guest Details')
-                    ->collapsible()
-                    ->schema([
-                        Forms\Components\Select::make(name: 'guest_id')
-                            ->relationship(name: 'guest', titleAttribute: 'full_name')
-                            ->createOptionForm([
-                                Forms\Components\TextInput::make('first_name')
-                                    ->required()
-                                    ->maxLength(255),
-                                Forms\Components\TextInput::make('last_name')
-                                    ->required()
-                                    ->maxLength(255),
-                                Forms\Components\TextInput::make('email')
-                                    ->email()
-                                    ->required()
-                                    ->maxLength(255),
-                                Forms\Components\TextInput::make('country')
-                                    ->required()
-                                    ->maxLength(255),
-                                Forms\Components\TextInput::make('phone')
-                                    ->tel()
-                                    ->required()
-                                    ->maxLength(255),
-                            ])
-                            // ->live()
-                            ->label('Choose Guest')
-                            //->dehydrated()
-                            ->options(Guest::pluck('full_name', 'id'))
-                            ->searchable()
-                            ->preload()
-                            ->required(),
-                        Forms\Components\TextInput::make('amount_paid')
-                            ->prefix('$')
-                            // ->required()
-                            ->numeric(),
-                        Forms\Components\DatePicker::make('payment_date'),
-                        //   ->required()
-                        //->maxDate(now()),
+                // Forms\Components\Section::make('Guest Details')
+                //     ->description('Add Tour Related Guest Details')
+                //     ->collapsible()
+                //     ->schema([
+                //         Forms\Components\Select::make(name: 'guest_id')
+                //             ->relationship(name: 'guest', titleAttribute: 'full_name')
+                //             ->createOptionForm([
+                //                 Forms\Components\TextInput::make('first_name')
+                //                     ->required()
+                //                     ->maxLength(255),
+                //                 Forms\Components\TextInput::make('last_name')
+                //                     ->required()
+                //                     ->maxLength(255),
+                //                 Forms\Components\TextInput::make('email')
+                //                     ->email()
+                //                     ->required()
+                //                     ->maxLength(255),
+                //                 Forms\Components\TextInput::make('country')
+                //                     ->required()
+                //                     ->maxLength(255),
+                //                 Forms\Components\TextInput::make('phone')
+                //                     ->tel()
+                //                     ->required()
+                //                     ->maxLength(255),
+                //             ])
+                //             // ->live()
+                //             ->label('Choose Guest')
+                //             //->dehydrated()
+                //             ->options(Guest::pluck('full_name', 'id'))
+                //             ->searchable()
+                //             ->preload()
+                //             ->required(),
+                //         Forms\Components\TextInput::make('amount_paid')
+                //             ->prefix('$')
+                //             // ->required()
+                //             ->numeric(),
+                //         Forms\Components\DatePicker::make('payment_date'),
+                //         //   ->required()
+                //         //->maxDate(now()),
 
-                        Forms\Components\Select::make('payment_method')
-                            ->options([
-                                'cash' => 'Cash',
-                                'transfer' => 'Transfer',
-                                'banktransfer' => 'Bank Transfer',
-                            ]),
-                        Forms\Components\FileUpload::make('payment_document_image'),
+                //         Forms\Components\Select::make('payment_method')
+                //             ->options([
+                //                 'cash' => 'Cash',
+                //                 'transfer' => 'Transfer',
+                //                 'banktransfer' => 'Bank Transfer',
+                //             ]),
+                //         Forms\Components\FileUpload::make('payment_document_image'),
 
-                    ])->columns(2),
-
-                Grid::make(2)
-                    ->schema([
-                        Forms\Components\Section::make('Tour Drivers, Guides')
-                            //  ->description('Add Tour Related Details')
-                            ->collapsible()
-                            ->schema([
-                                Forms\Components\Select::make('driver_id')
-                                    ->label('Driver')
-                                    ->relationship(name: 'driver', titleAttribute: 'full_name')
-                                    ->searchable()
-                                    ->preload()
-                                    ->required()
-                                    ->createOptionForm([
-                                        Forms\Components\TextInput::make('first_name')
-                                            ->required()
-                                            ->maxLength(255),
-                                        Forms\Components\TextInput::make('last_name')
-                                            ->required()
-                                            ->maxLength(255),
-                                        Forms\Components\TextInput::make('email')
-                                            ->label('Email address')
-                                            ->email()
-                                            ->required()
-                                            ->maxLength(255),
-                                        Forms\Components\TextInput::make('phone01')
-                                            ->label('Phone number #1')
-                                            ->tel()
-                                            ->required()
-                                            ->maxLength(255),
-                                        Forms\Components\TextInput::make('phone02')
-                                            ->label('Phone number #2')
-                                            ->tel()
-                                            ->maxLength(255),
-                                        Forms\Components\Select::make('fuel_type')
-                                            ->options([
-                                                'propane' => 'Propane',
-                                                'methane' => 'Methane',
-                                                'benzin' => 'Benzin',
-                                            ])
-                                            ->required(),
-                                        Forms\Components\FileUpload::make('driver_image')
-                                            ->image()
-                                            ->required(),
-                                        Forms\Components\Textarea::make('extra_details')
-                                            ->label('Extra Details, comments'),
-                                        Forms\Components\TextInput::make('address_city')
-                                            ->label('Where the driver From')
-                                            ->required()
-                                            ->maxLength(255),
-                                    ])
-                                    ->createOptionUsing(function (array $data) {
-                                        // Here we define how to save the new driver
-                                        return Driver::create($data)->id;
-                                    }),
+                //     ])->columns(2),
 
 
-                                // ->live()
-
-                                Forms\Components\TextInput::make('amount_paid')
-                                    ->prefix('$')
-                                    // ->required()
-                                    ->numeric(),
-                                Forms\Components\DatePicker::make('payment_date'),
-                                //   ->required()
-                                //->maxDate(now()),
-                                Forms\Components\FileUpload::make('payment_document_image'),
-                                Forms\Components\Select::make('payment_method')
-                                    ->options([
-                                        'cash' => 'Cash',
-                                        'transfer' => 'Transfer',
-                                        'banktransfer' => 'Bank Transfer',
-                                    ]),
-                                Forms\Components\Section::make('Tour Drivers, Guides')
-                                    //  ->description('Add Tour Related Details')
-                                    ->collapsible()
-                                    ->schema([
-                                        Forms\Components\Select::make('guide_id')
-                                            ->label('Guide')
-                                            ->relationship(name: 'guide', titleAttribute: 'full_name')
-                                            ->searchable()
-                                            ->preload()
-                                            ->required()
-                                            ->createOptionForm([
-                                                Forms\Components\TextInput::make('first_name')
-                                                    ->required()
-                                                    ->maxLength(255),
-                                                Forms\Components\TextInput::make('last_name')
-                                                    ->required()
-                                                    ->maxLength(255),
-                                                Forms\Components\TextInput::make('email')
-                                                    ->label('Email address')
-                                                    ->email()
-                                                    ->required()
-                                                    ->maxLength(255),
-                                                Forms\Components\TextInput::make('phone01')
-                                                    ->label('Phone number #1')
-                                                    ->tel()
-                                                    ->required()
-                                                    ->maxLength(255),
-                                                Forms\Components\TextInput::make('phone02')
-                                                    ->label('Phone number #2')
-                                                    ->tel(),
-                                                Forms\Components\Select::make('languages')
-                                                    ->label('Languages')
-                                                    ->options(SpokenLanguage::pluck('language', 'id')) // Load languages from SpokenLanguage model
-                                                    ->multiple() // Allow multiple selections
-                                                    ->searchable()
-                                                    ->preload()
-                                                    ->required(),
-                                                Forms\Components\FileUpload::make('guide_image')
-                                                    ->image()
-                                                //->required()
+                // Forms\Components\Section::make('Tour Driver')
+                //     //  ->description('Add Tour Related Details')
+                //     ->collapsible()
+                //     ->schema([
+                //         Forms\Components\Select::make('drivers')
+                //             ->label('Driver')
+                //             ->relationship(name: 'drivers', titleAttribute: 'full_name')
+                //             ->searchable()
+                //             ->preload()
+                //             ->required()
+                //             ->createOptionForm([
+                //                 Forms\Components\TextInput::make('first_name')
+                //                     ->required()
+                //                     ->maxLength(255),
+                //                 Forms\Components\TextInput::make('last_name')
+                //                     ->required()
+                //                     ->maxLength(255),
+                //                 Forms\Components\TextInput::make('email')
+                //                     ->label('Email address')
+                //                     ->email()
+                //                     ->required()
+                //                     ->maxLength(255),
+                //                 Forms\Components\TextInput::make('phone01')
+                //                     ->label('Phone number #1')
+                //                     ->tel()
+                //                     ->required()
+                //                     ->maxLength(255),
+                //                 Forms\Components\TextInput::make('phone02')
+                //                     ->label('Phone number #2')
+                //                     ->tel()
+                //                     ->maxLength(255),
+                //                 Forms\Components\Select::make('fuel_type')
+                //                     ->options([
+                //                         'propane' => 'Propane',
+                //                         'methane' => 'Methane',
+                //                         'benzin' => 'Benzin',
+                //                     ])
+                //                     ->required(),
+                //                 Forms\Components\FileUpload::make('driver_image')
+                //                     ->image()
+                //                     ->required(),
+                //                 Forms\Components\Textarea::make('extra_details')
+                //                     ->label('Extra Details, comments'),
+                //                 Forms\Components\TextInput::make('address_city')
+                //                     ->label('Where the driver From')
+                //                     ->required()
+                //                     ->maxLength(255),
+                //             ])
+                //             ->createOptionUsing(function (array $data) {
+                //                 // Here we define how to save the new driver
+                //                 return Driver::create($data)->id;
+                //             }),
 
 
-                                            ])
-                                            ->createOptionUsing(function (array $data) {
-                                                // First, create the guide
-                                                $guide = Guide::create([
-                                                    'first_name' => $data['first_name'],
-                                                    'last_name' => $data['last_name'],
-                                                    'email' => $data['email'],
-                                                    'phone01' => $data['phone01'],
-                                                    'phone02' => $data['phone02'],
-                                                    'guide_image' => $data['guide_image'],
-                                                    // Add other guide fields here as necessary
-                                                ]);
+                //         // ->live()
 
-                                                // If languages were selected, sync them with the guide's languages relationship
-                                                if (isset($data['languages'])) {
-                                                    $guide->languages()->sync($data['languages']); // Sync the pivot table (language_guide)
-                                                }
+                //         Forms\Components\TextInput::make('amount_paid')
+                //             ->prefix('$')
+                //             // ->required()
+                //             ->numeric(),
+                //         Forms\Components\DatePicker::make('payment_date'),
+                //         //   ->required()
+                //         //->maxDate(now()),make a 
+                //         Forms\Components\FileUpload::make('payment_document_image'),
+                //         Forms\Components\Select::make('payment_method')
+                //             ->options([
+                //                 'cash' => 'Cash',
+                //                 'transfer' => 'Transfer',
+                //                 'banktransfer' => 'Bank Transfer',
+                //             ]),
 
-                                                return $guide->id; // Return the guide ID to be used in the form
-                                            }),
+                //     ])->columns(2),
 
 
-                                        Forms\Components\TextInput::make('amount_paid')
-                                            ->prefix('$')
-                                            // ->required()
-                                            ->numeric(),
-                                        Forms\Components\DatePicker::make('payment_date'),
-                                        //   ->required()
-                                        //->maxDate(now()),
-                                        Forms\Components\FileUpload::make('payment_document_image'),
-                                        Forms\Components\Select::make('payment_method')
-                                            ->options([
-                                                'cash' => 'Cash',
-                                                'transfer' => 'Transfer',
-                                                'banktransfer' => 'Bank Transfer',
-                                            ])
-                                    ])->columns(2)
-                            ])->columns(2)
-                    ])
             ]);
     }
 
@@ -277,8 +236,8 @@ class SoldTourResource extends Resource
                 Tables\Columns\TextColumn::make('tour.title'),
                 Tables\Columns\TextColumn::make('special_request'),
                 // Tables\Columns\TextColumn::make('tourRepeaterDrivers.amount_paid'),
-                Tables\Columns\TextColumn::make('driver.full_name'),
-                Tables\Columns\TextColumn::make('guide.full_name'),
+                // Tables\Columns\TextColumn::make('driver.full_name'),
+                // Tables\Columns\TextColumn::make('guide.full_name'),
 
             ])
             ->filters([
