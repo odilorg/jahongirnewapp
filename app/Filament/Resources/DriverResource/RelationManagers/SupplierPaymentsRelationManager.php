@@ -18,8 +18,8 @@ class SupplierPaymentsRelationManager extends RelationManager
     {
         return $form
             ->schema([
-                Forms\Components\Select::make('tour_booking_id')
-                ->relationship(name: 'tour_booking', titleAttribute: 'group_number')
+                Forms\Components\Select::make('sold_tour_id')
+                ->relationship(name: 'sold_tour', titleAttribute: 'group_name')
                 ->preload()
                 ->searchable()
                 ->required(),
@@ -66,7 +66,7 @@ class SupplierPaymentsRelationManager extends RelationManager
                 ->dateTime()
                 ->sortable()
                 ->toggleable(isToggledHiddenByDefault: true),
-            Tables\Columns\TextColumn::make('tour_booking.group_number')
+            Tables\Columns\TextColumn::make('sold_tour.group_name')
                 ->numeric()
                 ->sortable(),
            

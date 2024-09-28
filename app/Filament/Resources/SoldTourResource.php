@@ -39,7 +39,27 @@ class SoldTourResource extends Resource
                     ->schema([
                         // Guest select field
                         Forms\Components\Select::make('guest_id')
-                            ->options(Guest::pluck('full_name', 'id')) // Fetching guest full names
+                            ->relationship(name: 'guest', titleAttribute: 'full_name')
+                            ->createOptionForm([
+                                Forms\Components\TextInput::make('first_name')
+                                    ->required()
+                                    ->maxLength(255),
+                                Forms\Components\TextInput::make('last_name')
+                                    ->required()
+                                    ->maxLength(255),
+                                Forms\Components\TextInput::make('email')
+                                    ->email()
+                                    ->required()
+                                    ->maxLength(255),
+                                Forms\Components\TextInput::make('country')
+                                    ->required()
+                                    ->maxLength(255),
+                                Forms\Components\TextInput::make('phone')
+                                    ->tel()
+                                    ->required()
+                                    ->maxLength(255),
+                            ])
+                            // ->options(Guest::pluck('full_name', 'id')) // Fetching guest full names
                             ->label('Choose Guest')
                             ->searchable()
                             ->preload()
@@ -59,7 +79,21 @@ class SoldTourResource extends Resource
                         // Tour select field
                         Forms\Components\Select::make('tour_id')
                             ->label('Choose Tour')
-                            ->options(Tour::pluck('title', 'id')) // Fetching tour titles
+                            //  ->options(Tour::pluck('title', 'id')) // Fetching tour titles
+                            ->relationship(name: 'tour', titleAttribute: 'title')
+                            ->createOptionForm([
+                                Forms\Components\TextInput::make('title')
+                                    ->required()
+                                    ->maxLength(255),
+
+                                Forms\Components\TextInput::make('tour_duration')
+                                    ->required()
+                                    ->maxLength(255),
+                                Forms\Components\Textarea::make('tour_description')
+                                    ->required()
+                                    ->maxLength(65535)
+                                    ->columnSpanFull(),
+                            ])
                             ->searchable()
                             ->preload()
                             ->required()
@@ -74,18 +108,84 @@ class SoldTourResource extends Resource
                                     $set('group_name', ($guestName ? $guestName . ' - ' : '') . $tour->title);
                                 }
                             }),
-                            Forms\Components\Select::make('driver_id')
+                        Forms\Components\Select::make('driver_id')
                             ->label('Choose Driver')
-                            ->options(Driver::pluck('full_name', 'id')) // Fetching tour titles
+                            ->relationship(name: 'driver', titleAttribute: 'full_name')
+                            ->createOptionForm([
+                                Forms\Components\TextInput::make('first_name')
+                                    ->required()
+                                    ->maxLength(255),
+                                Forms\Components\TextInput::make('last_name')
+                                    ->required()
+                                    ->maxLength(255),
+                                Forms\Components\TextInput::make('email')
+                                    ->label('Email address')
+                                    ->email()
+                                    ->required()
+                                    ->maxLength(255),
+                                Forms\Components\TextInput::make('phone01')
+                                    ->label('Phone number #1')
+                                    ->tel()
+                                    ->required()
+                                    ->maxLength(255),
+                                Forms\Components\TextInput::make('phone02')
+                                    ->label('Phone number #2')
+                                    ->tel()
+                                    ->maxLength(255),
+                                Forms\Components\Select::make('fuel_type')
+                                    ->options([
+                                        'propane' => 'Propane',
+                                        'methane' => 'Methane',
+                                        'benzin' => 'Benzin',
+                                    ])
+                                    ->required(),
+
+                                Forms\Components\FileUpload::make('driver_image')
+                                    ->image(),
+                                //  ->required(),
+                                Forms\Components\Textarea::make('extra_details')
+                                    ->label('Extra Details, comments'),
+                                Forms\Components\TextInput::make('address_city')
+                                    ->label('Where the driver From')
+                                    ->required()
+                                    ->maxLength(255),
+                            ])
                             ->searchable()
-                            ->preload()
-                            ->required(),
-                            Forms\Components\Select::make('guide_id')
+                            ->preload(),
+                           // ->required(),
+                        Forms\Components\Select::make('guide_id')
                             ->label('Choose Guide')
-                            ->options(Guide::pluck('full_name', 'id')) // Fetching tour titles
+                            ->relationship(name: 'guide', titleAttribute: 'full_name')
+                            ->createOptionForm([
+                                Forms\Components\TextInput::make('first_name')
+                            ->required()
+                            ->maxLength(255),
+                        Forms\Components\TextInput::make('last_name')
+                            ->required()
+                            ->maxLength(255),
+                        Forms\Components\TextInput::make('email')
+                            ->email()
+                            ->required()
+                            ->maxLength(255),
+                        Forms\Components\TextInput::make('phone01')
+                            ->tel()
+                            ->required()
+                            ->maxLength(255),
+                        Forms\Components\TextInput::make('phone02')
+                            ->tel()
+                            ->maxLength(255),
+                        Forms\Components\Select::make('languages')
+                            ->relationship('languages', 'language')
+                            ->multiple()
                             ->searchable()
                             ->preload()
                             ->required(),
+                        Forms\Components\FileUpload::make('guide_image')
+                            ->image()
+                            ])
+                            ->searchable()
+                            ->preload(),
+                            //->required(),
                         // Hidden text field to store the tour name based on the selected tour_id
                         Forms\Components\Hidden::make('group_name')
                             ->label('Group Name')
@@ -94,10 +194,11 @@ class SoldTourResource extends Resource
                             ->required()
                             ->default('No Title Available'),
                         Forms\Components\DatePicker::make('booked_date')
-                           ->required()
-                           ->native(0),
-                           Forms\Components\TextInput::make('amount_paid')
-                             ->prefix('$')
+                            ->label('Tour Start Date')
+                            ->required()
+                            ->native(0),
+                        Forms\Components\TextInput::make('amount_paid')
+                            ->prefix('$')
                             ->mask(RawJs::make('$money($input)'))
                             ->stripCharacters(',')
                             ->numeric(),

@@ -29,7 +29,7 @@ use App\Filament\Resources\DriverResource\RelationManagers;
 use App\Filament\Resources\DriverResource\RelationManagers\CarRelationManager;
 use App\Filament\Resources\DriverResource\RelationManagers\CarsRelationManager;
 use App\Filament\Resources\DriverResource\RelationManagers\SupplierPaymentsRelationManager;
-use App\Filament\Resources\TourRepeaterDriversRelationManagerResource\RelationManagers\SoldToursRelationManager;
+//use App\Filament\Resources\TourRepeaterDriversRelationManagerResource\RelationManagers\SoldToursRelationManager;
 
 
 class DriverResource extends Resource
@@ -79,7 +79,7 @@ class DriverResource extends Resource
 
                         Forms\Components\FileUpload::make('driver_image')
                             ->image(),
-                          //  ->required(),
+                        //  ->required(),
                         Forms\Components\Textarea::make('extra_details')
                             ->label('Extra Details, comments'),
                         Forms\Components\TextInput::make('address_city')
@@ -144,22 +144,22 @@ class DriverResource extends Resource
                 Tables\Columns\TextColumn::make('cars.model'),
 
                 Tables\Columns\TextColumn::make('total_amount_paid')
-                ->label('Total Amount Paid')
-                ->formatStateUsing(fn($state) => number_format($state , 2)) // Convert to dollars and format
-                ->money('USD', divideBy: 100)
-                ->getStateUsing(fn($record) => $record->total_amount_paid), // Use the accessor method
+                    ->label('Total Amount Paid')
+                    ->formatStateUsing(fn ($state) => number_format($state, 2)) // Convert to dollars and format
+                    ->money('USD', divideBy: 100)
+                    ->getStateUsing(fn ($record) => $record->total_amount_paid), // Use the accessor method
 
-                TextColumn::make('soldTours.tour.title')
-                    ->label('Tour Title')
-                    ->formatStateUsing(function ($state, $record) {
-                        // Get the first associated SoldTour
-                        $soldTour = $record->soldTours->first();
+                // TextColumn::make('soldTours.tour.title')
+                //     ->label('Tour Title')
+                //     ->formatStateUsing(function ($state, $record) {
+                //         // Get the first associated SoldTour
+                //         $soldTour = $record->soldTours->first();
 
-                        // Check if soldTour and its tour are available
-                        return $soldTour ? $soldTour->tour->title : 'Unknown Title';
-                    })
-                    ->sortable()
-                    ->searchable(),
+                //         // Check if soldTour and its tour are available
+                //         return $soldTour ? $soldTour->tour->title : 'Unknown Title';
+                //     })
+                //     ->sortable()
+                //     ->searchable(),
                 Tables\Columns\ImageColumn::make('driver_image')
                     ->circular(),
 
@@ -226,7 +226,7 @@ class DriverResource extends Resource
                                 ImageEntry::make('image'),
                                 TextEntry::make('pivot.car_plate') // Accessing car_plate from the pivot table
                                     ->label('Car Plate')
-                                    ->getStateUsing(fn($record) => $record->pivot?->car_plate) // Fetch car_plate from the pivot table
+                                    ->getStateUsing(fn ($record) => $record->pivot?->car_plate) // Fetch car_plate from the pivot table
                                     ->columnSpan(2),
                             ])
                             ->columns(2)
@@ -245,7 +245,7 @@ class DriverResource extends Resource
         return [
             CarsRelationManager::class,
             SupplierPaymentsRelationManager::class,
-            SoldToursRelationManager::class
+          //  SoldToursRelationManager::class
 
 
         ];

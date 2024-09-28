@@ -23,11 +23,23 @@ class SupplierPaymentResource extends Resource
     {
         return $form
             ->schema([
-                Forms\Components\Select::make('tour_booking_id')
-                    ->relationship(name: 'tour_booking', titleAttribute: 'group_number')
+                Forms\Components\Select::make('sold_tour_id')
+                    ->relationship(name: 'sold_tour', titleAttribute: 'group_name')
                     ->preload()
                     ->searchable()
-                    ->required(),
+                    ->required()
+                    ->reactive() // Make the field reactive to trigger updates
+                    ->afterStateUpdated(function (callable $set, $state) {
+                        // When the sold_tour_id is updated, fetch driver and guide details
+                        if ($state) {
+                            $soldTour = \App\Models\SoldTour::find($state);
+
+                            if ($soldTour) {
+                                $set('driver_id', $soldTour->driver_id);
+                                $set('guide_id', $soldTour->guide_id);
+                            }
+                        }
+                    }),
 
                 Forms\Components\Select::make('driver_id')
                     ->relationship(name: 'driver', titleAttribute: 'full_name')
@@ -42,20 +54,21 @@ class SupplierPaymentResource extends Resource
                 Forms\Components\TextInput::make('amount_paid')
                     ->required()
                     ->numeric(),
+
                 Forms\Components\DatePicker::make('payment_date')
                     ->native(false)
                     ->displayFormat('d/m/Y'),
-                //    ->maxLength(255),
+
                 Forms\Components\Select::make('payment_type')
                     ->options([
                         'cash' => 'Cash',
                         'Perevod' => 'Perevod',
                         'card' => 'Card',
-
                     ]),
+
                 Forms\Components\FileUpload::make('receipt_image')
                     ->image(),
-                   
+
             ]);
     }
 
@@ -71,7 +84,7 @@ class SupplierPaymentResource extends Resource
                     ->dateTime()
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
-                Tables\Columns\TextColumn::make('tour_booking.group_number')
+                Tables\Columns\TextColumn::make('sold_tour.group_name')
                     ->numeric()
                     ->sortable(),
                 Tables\Columns\TextColumn::make('driver.full_name')
@@ -89,7 +102,7 @@ class SupplierPaymentResource extends Resource
                 Tables\Columns\TextColumn::make('payment_date')
                     ->date()
                     ->sortable(),
-                    Tables\Columns\ImageColumn::make('receipt_image')
+                Tables\Columns\ImageColumn::make('receipt_image')
                     ->circular(),
             ])
             ->filters([
