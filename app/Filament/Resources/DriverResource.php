@@ -46,11 +46,12 @@ class DriverResource extends Resource
     {
         return $form
             ->schema([
-
+                
                 Forms\Components\Section::make('Driver Personal Info')
                     ->description('Add information about Driver')
                     ->collapsible()
                     ->schema([
+
                         Forms\Components\TextInput::make('first_name')
                             ->required()
                             ->maxLength(255),
@@ -76,9 +77,8 @@ class DriverResource extends Resource
                                 'propane' => 'Propane',
                                 'methane' => 'Methane',
                                 'benzin' => 'Benzin',
-                            ])
-                            ->required(),
-
+                            ]),
+                            
                         Forms\Components\FileUpload::make('driver_image')
                             ->image(),
                         //  ->required(),
@@ -112,31 +112,41 @@ class DriverResource extends Resource
 
 
                 Forms\Components\Section::make('Payments')
-                    ->description('Add Payments that Dricer received')
+                    ->description('Add Payments that Driver received')
                     ->collapsible()
                     ->schema([
-                        Repeater::make('driverpayments')
+                        Repeater::make('driverPayments')
                             ->label('Driver Payments')
-                            ->relationship('driverpayments')
+                            ->relationship()
                             ->schema([
 
                                 Forms\Components\Select::make('sold_tour_id')
-                                ->label('Tour')
-                                ->relationship('sold_tours', 'group_name', function (Builder $query) {
-                                    // Fetch the current driver's ID
-                                    $driverId = $this->getRecord() ? $this->getRecord()->id : null; 
-            
-                                    // Only filter if the driver ID exists
-                                    if ($driverId) {
-                                        return $query->where('driver_id', $driverId); // Filter SoldTours by driver ID
-                                    }
-            
-                                    return $query; // Return all if no driver ID (e.g., when creating a new driver)
-                                })
-                                ->preload()
-                                ->searchable()
-                                ->required(),
-                                
+                                    ->label('Tour')
+                                    // ->options(SoldTour::all()->pluck('group_name','id'))
+                                    ->options(function ($get) {
+                                        // Get the driver ID from the hidden field
+                                        $driverId = $get('id'); 
+    dd($driverId);
+                                        if ($driverId) {
+                                            // Find the driver using the driver ID
+                                            $driver = Driver::find($driverId);
+    
+                                            // Check if the driver exists and has sold tours
+                                            if ($driver && $driver->sold_tours()->exists()) {
+                                                return $driver->sold_tours()->pluck('group_name', 'id');
+                                            } else {
+                                                // Return a placeholder option if no sold tours are found
+                                                return ['' => 'No tour belongs to this driver found'];
+                                            }
+                                        }
+    
+                                        // Return a fallback when no driver is selected
+                                        return ['' => 'Please select a driver first'];
+                                    })
+                                    ->preload()
+                                    ->searchable()
+                                    ->required(),
+
                                 Forms\Components\TextInput::make('amount_paid')
                                     ->required()
                                     ->numeric(),
@@ -196,9 +206,9 @@ class DriverResource extends Resource
 
                 Tables\Columns\TextColumn::make('total_amount_paid')
                     ->label('Total Amount Paid')
-                    ->formatStateUsing(fn ($state) => number_format($state, 2)) // Convert to dollars and format
+                    ->formatStateUsing(fn($state) => number_format($state, 2)) // Convert to dollars and format
                     ->money('USD', divideBy: 100)
-                    ->getStateUsing(fn ($record) => $record->total_amount_paid), // Use the accessor method
+                    ->getStateUsing(fn($record) => $record->total_amount_paid), // Use the accessor method
 
                 // TextColumn::make('soldTours.tour.title')
                 //     ->label('Tour Title')
@@ -277,7 +287,7 @@ class DriverResource extends Resource
                                 ImageEntry::make('image'),
                                 TextEntry::make('pivot.car_plate') // Accessing car_plate from the pivot table
                                     ->label('Car Plate')
-                                    ->getStateUsing(fn ($record) => $record->pivot?->car_plate) // Fetch car_plate from the pivot table
+                                    ->getStateUsing(fn($record) => $record->pivot?->car_plate) // Fetch car_plate from the pivot table
                                     ->columnSpan(2),
                             ])
                             ->columns(2)

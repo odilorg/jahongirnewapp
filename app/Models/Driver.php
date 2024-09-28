@@ -26,7 +26,7 @@ class Driver extends Model
         return $this->hasMany(CarDriver::class);
     }
 
-    public function driverpayments(): HasMany
+    public function driverPayments(): HasMany
     {
         return $this->hasMany(DriverPayment::class);
     }
