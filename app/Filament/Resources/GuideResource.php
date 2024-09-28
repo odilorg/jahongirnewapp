@@ -18,6 +18,7 @@ use App\Filament\Resources\GuideResource\Pages;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
 use App\Filament\Resources\GuideResource\RelationManagers;
 use App\Filament\Resources\GuideResource\RelationManagers\LanguagesRelationManager;
+use App\Filament\Resources\GuideResource\RelationManagers\SupplierPaymentsRelationManager;
 
 class GuideResource extends Resource
 {
@@ -136,7 +137,8 @@ class GuideResource extends Resource
     public static function getRelations(): array
     {
         return [
-            LanguagesRelationManager::class
+            LanguagesRelationManager::class,
+            SupplierPaymentsRelationManager::class
         ];
     }
 

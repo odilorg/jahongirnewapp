@@ -19,20 +19,26 @@ class SupplierPaymentsRelationManager extends RelationManager
         return $form
             ->schema([
                 Forms\Components\Select::make('sold_tour_id')
-                ->relationship(name: 'sold_tour', titleAttribute: 'group_name')
+              //  ->relationship('sold_tour', 'group_name')
                 ->preload()
                 ->searchable()
-                ->required(),
+                ->required()
+                ->relationship('sold_tour', 'group_name', function (Builder $query) {
+                    $driverId = $this->ownerRecord->id; // Get the current driver_id from the driver record
+                    $query->whereHas('driver', function ($query) use ($driverId) {
+                        $query->where('driver.id', $driverId); // Filter sold tours by driver_id
+                    });
+                }),
 
-            Forms\Components\Select::make('driver_id')
-                ->relationship(name: 'driver', titleAttribute: 'full_name')
-                ->preload()
-                ->searchable(),
+            // Forms\Components\Select::make('driver_id')
+            //     ->relationship(name: 'driver', titleAttribute: 'full_name')
+            //     ->preload()
+            //     ->searchable(),
 
-            Forms\Components\Select::make('guide_id')
-                ->relationship(name: 'guide', titleAttribute: 'full_name')
-                ->preload()
-                ->searchable(),
+            // Forms\Components\Select::make('guide_id')
+            //     ->relationship(name: 'guide', titleAttribute: 'full_name')
+            //     ->preload()
+            //     ->searchable(),
 
             Forms\Components\TextInput::make('amount_paid')
                 ->required()

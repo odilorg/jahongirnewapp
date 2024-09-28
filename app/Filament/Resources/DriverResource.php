@@ -29,6 +29,8 @@ use App\Filament\Resources\DriverResource\RelationManagers;
 use App\Filament\Resources\DriverResource\RelationManagers\CarRelationManager;
 use App\Filament\Resources\DriverResource\RelationManagers\CarsRelationManager;
 use App\Filament\Resources\DriverResource\RelationManagers\SupplierPaymentsRelationManager;
+use App\Models\SoldTour;
+
 //use App\Filament\Resources\TourRepeaterDriversRelationManagerResource\RelationManagers\SoldToursRelationManager;
 
 
@@ -103,6 +105,55 @@ class DriverResource extends Resource
                                     ->label('Car')
                                     ->options(Car::all()->pluck('model', 'id')),
                                 Forms\Components\TextInput::make('car_plate'),
+
+                            ])
+                            ->columns(2),
+                    ]),
+
+
+                Forms\Components\Section::make('Payments')
+                    ->description('Add Payments that Dricer received')
+                    ->collapsible()
+                    ->schema([
+                        Repeater::make('driverpayments')
+                            ->label('Driver Payments')
+                            ->relationship('driverpayments')
+                            ->schema([
+
+                                Forms\Components\Select::make('sold_tour_id')
+                                ->label('Tour')
+                                ->relationship('sold_tours', 'group_name', function (Builder $query) {
+                                    // Fetch the current driver's ID
+                                    $driverId = $this->getRecord() ? $this->getRecord()->id : null; 
+            
+                                    // Only filter if the driver ID exists
+                                    if ($driverId) {
+                                        return $query->where('driver_id', $driverId); // Filter SoldTours by driver ID
+                                    }
+            
+                                    return $query; // Return all if no driver ID (e.g., when creating a new driver)
+                                })
+                                ->preload()
+                                ->searchable()
+                                ->required(),
+                                
+                                Forms\Components\TextInput::make('amount_paid')
+                                    ->required()
+                                    ->numeric(),
+
+                                Forms\Components\DatePicker::make('payment_date')
+                                    ->native(false)
+                                    ->displayFormat('d/m/Y'),
+
+                                Forms\Components\Select::make('payment_type')
+                                    ->options([
+                                        'cash' => 'Cash',
+                                        'Perevod' => 'Perevod',
+                                        'card' => 'Card',
+                                    ]),
+
+                                Forms\Components\FileUpload::make('receipt_image')
+                                    ->image(),
 
                             ])
                             ->columns(2),
@@ -245,7 +296,7 @@ class DriverResource extends Resource
         return [
             CarsRelationManager::class,
             SupplierPaymentsRelationManager::class,
-          //  SoldToursRelationManager::class
+            //  SoldToursRelationManager::class
 
 
         ];
