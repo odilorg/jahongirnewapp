@@ -7,12 +7,15 @@ use App\Models\Tour;
 use Filament\Tables;
 use Filament\Forms\Form;
 use Filament\Tables\Table;
+use Filament\Support\RawJs;
 use Filament\Infolists\Infolist;
 use Filament\Resources\Resource;
+use Filament\Forms\Components\Repeater;
 use Illuminate\Database\Eloquent\Builder;
 use Filament\Infolists\Components\Section;
 use Filament\Infolists\Components\TextEntry;
 use App\Filament\Resources\TourResource\Pages;
+use Filament\Infolists\Components\RepeatableEntry;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
 use App\Filament\Resources\TourResource\RelationManagers;
 
@@ -28,17 +31,53 @@ class TourResource extends Resource
     {
         return $form
             ->schema([
-                Forms\Components\TextInput::make('title')
-                    ->required()
-                    ->maxLength(255),
-                
-                Forms\Components\TextInput::make('tour_duration')
-                    ->required()
-                    ->maxLength(255),
-                Forms\Components\Textarea::make('tour_description')
-                    ->required()
-                    ->maxLength(65535)
-                    ->columnSpanFull(),
+
+                Forms\Components\Section::make('Tour Prices')
+                    ->description('Add Tour Prices')
+                    ->collapsible()
+                    ->schema([
+                        Forms\Components\TextInput::make('title')
+                            ->required()
+                            ->maxLength(255),
+
+                        Forms\Components\TextInput::make('tour_duration')
+                            ->required()
+                            ->maxLength(255),
+                        Forms\Components\Textarea::make('tour_description')
+                            ->required()
+                            ->maxLength(65535)
+                            ->columnSpanFull(),
+                    ]),
+
+
+
+
+                Forms\Components\Section::make('Tour Prices')
+                    ->description('Add Tour Prices')
+                    ->collapsible()
+                    ->schema([
+                        Repeater::make(name: 'tourPrices')
+                            ->label('Tour Prices')
+                            ->relationship()  // Make sure this points to the correct relationship method in the TourBooking model
+                            ->schema([
+
+                                // Forms\Components\TextInput::make('tour_id')
+                                //     ->required()
+                                //     ->maxLength(255),
+                                Forms\Components\TextInput::make('number_people')
+                                    ->required()
+                                    ->maxLength(255),
+
+                                Forms\Components\TextInput::make('tour_price')
+                                    ->prefix('$')
+                                    ->mask(RawJs::make('$money($input)'))
+                                    ->stripCharacters(',')
+                                    ->numeric(),
+
+
+                            ])->columnSpan(1),
+                    ]),
+
             ]);
     }
 
@@ -56,9 +95,10 @@ class TourResource extends Resource
                     ->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\TextColumn::make('title')
                     ->searchable(),
-               
                 Tables\Columns\TextColumn::make('tour_duration')
                     ->searchable(),
+
+
             ])
             ->filters([
                 //
@@ -76,17 +116,30 @@ class TourResource extends Resource
     public static function infolist(Infolist $infolist): Infolist
     {
         return $infolist
-            
-        
-        ->schema([
 
-            Section::make('Tour Info')
-               // ->description('Prevent abuse by limiting the number of requests per period')
-                ->schema([
-                    TextEntry::make('title'),
-                    TextEntry::make('tour_duration'),
-                ])->columns(2)   
-                
+
+            ->schema([
+
+                Section::make('Tour Info')
+                    // ->description('Prevent abuse by limiting the number of requests per period')
+                    ->schema([
+                        TextEntry::make('title'),
+                        TextEntry::make('tour_duration'),
+                    ])->columns(2),
+
+                Section::make(heading: 'Tour Prices')
+                    // ->description('Prevent abuse by limiting the number of requests per period')
+                    ->schema([
+
+                        RepeatableEntry::make('tourPrices')
+                            ->schema([
+                                TextEntry::make('number_people'),
+                                TextEntry::make('tour_price')
+                               
+                                    //->columnSpan(2),
+                            ])->columns(2)
+                    ])->columns(2)
+
 
             ]);
     }
@@ -102,7 +155,7 @@ class TourResource extends Resource
         return [
             'index' => Pages\ListTours::route('/'),
             'create' => Pages\CreateTour::route('/create'),
-       //     'view' => Pages\ViewTour::route('/{record}'),
+            //     'view' => Pages\ViewTour::route('/{record}'),
             'edit' => Pages\EditTour::route('/{record}/edit'),
         ];
     }
