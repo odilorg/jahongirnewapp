@@ -16,6 +16,7 @@ use App\Filament\Resources\CarResource\Pages;
 use Filament\Infolists\Components\ImageEntry;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
 use App\Filament\Resources\CarResource\RelationManagers;
+use App\Filament\Resources\DriverResource\RelationManagers\DriversRelationManager;
 
 class CarResource extends Resource
 {
@@ -104,7 +105,7 @@ class CarResource extends Resource
     public static function getRelations(): array
     {
         return [
-            //
+            DriversRelationManager::class
         ];
     }
 
