@@ -19,8 +19,7 @@ class CarsRelationManager extends RelationManager
     {
         return $form
             ->schema([
-                TextInput::make('plate_number')
-                    ->required(),
+
                 Forms\Components\Select::make('car_brand_id')
                     ->required()
                     //  ->maxLength(255)
@@ -29,16 +28,17 @@ class CarsRelationManager extends RelationManager
                     ->relationship('carBrand', 'brand_name')
                     ->createOptionForm([
                         Forms\Components\TextInput::make('brand_name')
-                        ->required()
-                        ->maxLength(255),
-                         Forms\Components\TextInput::make('number_seats')
-                        ->required()
-                        ->numeric(),
-                    Forms\Components\TextInput::make('number_luggage')
-                        ->required()
-                        ->numeric(),
+                            ->required()
+                            ->maxLength(255),
+                        Forms\Components\TextInput::make('number_seats')
+                            ->required()
+                            ->numeric(),
+                        Forms\Components\TextInput::make('number_luggage')
+                            ->required()
+                            ->numeric(),
                     ]),
-
+                TextInput::make('plate_number')
+                    ->required(),
                 Forms\Components\FileUpload::make('image')
                     ->image()
                     ->required(),
