@@ -9,6 +9,7 @@ use Filament\Forms\Form;
 use Filament\Tables\Table;
 use Filament\Infolists\Infolist;
 use Filament\Resources\Resource;
+use Filament\Forms\Components\TextInput;
 use Illuminate\Database\Eloquent\Builder;
 use Filament\Infolists\Components\Section;
 use Filament\Infolists\Components\TextEntry;
@@ -17,6 +18,7 @@ use Filament\Infolists\Components\ImageEntry;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
 use App\Filament\Resources\CarResource\RelationManagers;
 use App\Filament\Resources\DriverResource\RelationManagers\DriversRelationManager;
+use App\Filament\Resources\CarBrandResource\RelationManagers\CarBrandRelationManager;
 
 class CarResource extends Resource
 {
@@ -30,15 +32,17 @@ class CarResource extends Resource
     {
         return $form
             ->schema([
-                Forms\Components\TextInput::make('model')
+                TextInput::make('plate_number')
+                    ->required(),
+
+
+                Forms\Components\Select::make('car_brand_id')
                     ->required()
-                    ->maxLength(255),
-                Forms\Components\TextInput::make('number_seats')
-                    ->required()
-                    ->numeric(),
-                Forms\Components\TextInput::make('number_luggage')
-                    ->required()
-                    ->numeric(),
+                    //  ->maxLength(255)
+                    ->searchable()
+                    ->preload()
+                    ->relationship('carBrand', 'brand_name'),
+
                 Forms\Components\FileUpload::make('image')
                     ->image()
                     ->required(),
@@ -57,12 +61,12 @@ class CarResource extends Resource
                     ->dateTime()
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
-                Tables\Columns\TextColumn::make('model')
+                Tables\Columns\TextColumn::make('plate_number')
                     ->searchable(),
-                Tables\Columns\TextColumn::make('number_seats')
+                Tables\Columns\TextColumn::make('carBrand.number_seats')
                     ->numeric()
                     ->sortable(),
-                Tables\Columns\TextColumn::make('number_luggage')
+                Tables\Columns\TextColumn::make('carBrand.number_luggage')
                     ->numeric()
                     ->sortable(),
                 Tables\Columns\ImageColumn::make('image')
@@ -85,19 +89,23 @@ class CarResource extends Resource
     public static function infolist(Infolist $infolist): Infolist
     {
         return $infolist
-            
-        
-        ->schema([
 
-            Section::make('Car Info')
-               // ->description('Prevent abuse by limiting the number of requests per period')
-                ->schema([
-                    TextEntry::make('model'),
-                    TextEntry::make('number_seats'),
-                    TextEntry::make('number_luggage'),
-                    ImageEntry::make('image') 
-                ])->columns(2)   
-                
+
+            ->schema([
+
+                Section::make('Car Info')
+                    // ->description('Prevent abuse by limiting the number of requests per period')
+                    ->schema([
+                        TextEntry::make('plate_number'),
+                        TextEntry::make('carBrand.brand_name'),
+
+                        TextEntry::make('carBrand.number_seats')
+                            ->label('Number of seats'),
+                        TextEntry::make('carBrand.number_luggage')
+                            ->label('Number of luggage'),
+                        ImageEntry::make('image')
+                    ])->columns(2)
+
 
             ]);
     }
@@ -105,7 +113,9 @@ class CarResource extends Resource
     public static function getRelations(): array
     {
         return [
-            DriversRelationManager::class
+            DriversRelationManager::class,
+            
+
         ];
     }
 
@@ -114,7 +124,7 @@ class CarResource extends Resource
         return [
             'index' => Pages\ListCars::route('/'),
             'create' => Pages\CreateCar::route('/create'),
-        //    'view' => Pages\ViewCar::route('/{record}'),
+            //    'view' => Pages\ViewCar::route('/{record}'),
             'edit' => Pages\EditCar::route('/{record}/edit'),
         ];
     }
