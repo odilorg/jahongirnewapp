@@ -55,6 +55,11 @@ class GuideResource extends Resource
                             ->maxLength(255),
                         Forms\Components\Select::make('languages')
                             ->relationship('languages', 'language')
+                            ->createOptionForm([
+                                Forms\Components\TextInput::make('language')
+                    ->required()
+                    ->maxLength(255),
+                            ])
                             ->multiple()
                             ->searchable()
                             ->preload()
