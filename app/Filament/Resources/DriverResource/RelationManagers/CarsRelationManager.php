@@ -29,10 +29,14 @@ class CarsRelationManager extends RelationManager
                     ->relationship('carBrand', 'brand_name')
                     ->createOptionForm([
                         Forms\Components\TextInput::make('brand_name')
-                            ->required()
-                            ->maxLength(255)
-
-                            ->numeric(),
+                        ->required()
+                        ->maxLength(255),
+                         Forms\Components\TextInput::make('number_seats')
+                        ->required()
+                        ->numeric(),
+                    Forms\Components\TextInput::make('number_luggage')
+                        ->required()
+                        ->numeric(),
                     ]),
 
                 Forms\Components\FileUpload::make('image')
