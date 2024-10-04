@@ -26,7 +26,7 @@ class GuideResource extends Resource
 
     protected static ?string $navigationIcon = 'heroicon-o-document-currency-bangladeshi';
 
-    protected static ?string $navigationGroup = 'Tour Details';
+    protected static ?string $navigationGroup = 'Driver and Guide Details';
 
     public static function form(Form $form): Form
     {
