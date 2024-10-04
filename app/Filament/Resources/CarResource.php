@@ -26,7 +26,7 @@ class CarResource extends Resource
 
     protected static ?string $navigationIcon = 'heroicon-o-truck';
 
-    protected static ?string $navigationGroup = 'Tour Details';
+    protected static ?string $navigationGroup = 'Car and Driver Details';
 
     public static function form(Form $form): Form
     {
@@ -41,7 +41,26 @@ class CarResource extends Resource
                     //  ->maxLength(255)
                     ->searchable()
                     ->preload()
-                    ->relationship('carBrand', 'brand_name'),
+                    ->relationship('carBrand', 'brand_name')
+                    ->createOptionForm([
+                        Forms\Components\TextInput::make('brand_name')
+                    ->required()
+                    ->maxLength(255),
+                     Forms\Components\TextInput::make('number_seats')
+                    ->required()
+                    ->numeric(),
+                Forms\Components\TextInput::make('number_luggage')
+                    ->required()
+                    ->numeric(),
+                    ]),
+
+                    Forms\Components\Select::make('driver_id')
+                    ->required()
+                    //  ->maxLength(255)
+                    ->searchable()
+                    ->preload()
+                    ->relationship('driver', 'full_name'),
+
 
                 Forms\Components\FileUpload::make('image')
                     ->image()
@@ -113,7 +132,7 @@ class CarResource extends Resource
     public static function getRelations(): array
     {
         return [
-            DriversRelationManager::class,
+            //DriversRelationManager::class,
             
 
         ];

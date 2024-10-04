@@ -17,7 +17,9 @@ class CarBrandResource extends Resource
 {
     protected static ?string $model = CarBrand::class;
 
-    protected static ?string $navigationIcon = 'heroicon-o-rectangle-stack';
+    protected static ?string $navigationIcon = 'heroicon-o-wrench';
+
+    protected static ?string $navigationGroup = 'Car and Driver Details';
 
     public static function form(Form $form): Form
     {

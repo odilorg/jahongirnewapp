@@ -26,6 +26,11 @@ class Driver extends Model
         return $this->hasMany(CarDriver::class);
     }
 
+    public function cars(): HasMany
+    {
+        return $this->hasMany(Car::class);
+    }
+
     public function driverPayments(): HasMany
     {
         return $this->hasMany(DriverPayment::class);
@@ -41,11 +46,11 @@ class Driver extends Model
     // {
     //     return $this->belongsToMany(Car::class);
     // }
-    public function cars()
-    {
-        return $this->belongsToMany(Car::class, 'car_driver', 'driver_id', 'car_id')
-                    ->withPivot('car_plate'); // Assume 'car_plate' is stored in the pivot table
-    }
+    // public function cars()
+    // {
+    //     return $this->belongsToMany(Car::class, 'car_driver', 'driver_id', 'car_id')
+    //                 ->withPivot('car_plate'); // Assume 'car_plate' is stored in the pivot table
+    // }
 
     public function payments()
     {

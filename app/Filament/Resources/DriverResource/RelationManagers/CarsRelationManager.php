@@ -3,12 +3,13 @@
 namespace App\Filament\Resources\DriverResource\RelationManagers;
 
 use Filament\Forms;
-use Filament\Forms\Form;
-use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Tables;
+use Filament\Forms\Form;
 use Filament\Tables\Table;
+use Filament\Forms\Components\TextInput;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
+use Filament\Resources\RelationManagers\RelationManager;
 
 class CarsRelationManager extends RelationManager
 {
@@ -18,15 +19,22 @@ class CarsRelationManager extends RelationManager
     {
         return $form
             ->schema([
-                Forms\Components\TextInput::make('model')
+                TextInput::make('plate_number')
+                    ->required(),
+                Forms\Components\Select::make('car_brand_id')
                     ->required()
-                    ->maxLength(255),
-                Forms\Components\TextInput::make('number_seats')
-                    ->required()
-                    ->numeric(),
-                Forms\Components\TextInput::make('number_luggage')
-                    ->required()
-                    ->numeric(),
+                    //  ->maxLength(255)
+                    ->searchable()
+                    ->preload()
+                    ->relationship('carBrand', 'brand_name')
+                    ->createOptionForm([
+                        Forms\Components\TextInput::make('brand_name')
+                            ->required()
+                            ->maxLength(255)
+
+                            ->numeric(),
+                    ]),
+
                 Forms\Components\FileUpload::make('image')
                     ->image()
                     ->required(),
@@ -38,7 +46,7 @@ class CarsRelationManager extends RelationManager
         return $table
             ->recordTitleAttribute('model')
             ->columns([
-                Tables\Columns\TextColumn::make('model'),
+                Tables\Columns\TextColumn::make('carBrand.brand_name'),
                 Tables\Columns\TextColumn::make('created_at')
                     ->dateTime()
                     ->sortable()
@@ -47,12 +55,11 @@ class CarsRelationManager extends RelationManager
                     ->dateTime()
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
-                Tables\Columns\TextColumn::make('model')
-                    ->searchable(),
-                Tables\Columns\TextColumn::make('number_seats')
+
+                Tables\Columns\TextColumn::make('carBrand.number_seats')
                     ->numeric()
                     ->sortable(),
-                Tables\Columns\TextColumn::make('number_luggage')
+                Tables\Columns\TextColumn::make('carBrand.number_luggage')
                     ->numeric()
                     ->sortable(),
                 Tables\Columns\ImageColumn::make('image')

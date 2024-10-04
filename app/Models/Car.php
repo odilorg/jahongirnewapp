@@ -11,7 +11,13 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 class Car extends Model
 {
     use HasFactory;
-    protected $fillable = [ 'plate_number', 'brand_name', 'image', 'car_brand_id'];
+    protected $fillable = [ 
+        'plate_number',
+         'brand_name',
+          'image',
+           'car_brand_id',
+           'driver_id'
+    ];
 
     // public function drivers(): BelongsToMany
     // {
@@ -19,16 +25,18 @@ class Car extends Model
     // }
 
 
-    public function drivers()
-{
-    return $this->belongsToMany(Driver::class, 'car_driver', 'car_id', 'driver_id')
-                ->withPivot('car_plate'); // Assuming 'car_plate' is in the pivot table
-}
+//     public function drivers()
+// {
+//     return $this->belongsToMany(Driver::class, 'car_driver', 'car_id', 'driver_id')
+//                 ->withPivot('car_plate'); // Assuming 'car_plate' is in the pivot table
+// }
  public function carBrand(): BelongsTo {
     return $this->belongsTo(CarBrand::class);
  }
 
-
+ public function driver(): BelongsTo {
+    return $this->belongsTo(Driver::class);
+ }
 
 
 }
