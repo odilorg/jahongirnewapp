@@ -12,10 +12,13 @@ use Filament\Tables\Table;
 use Filament\Resources\Resource;
 use Filament\Forms\Components\Group;
 use Filament\Forms\Components\Section;
+use Filament\Forms\Components\Repeater;
 use Illuminate\Database\Eloquent\Builder;
 use App\Filament\Resources\BookingResource\Pages;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
 use App\Filament\Resources\BookingResource\RelationManagers;
+use App\Filament\Resources\BookingResource\RelationManagers\DriverRelationManager;
+use App\Filament\Resources\BookingResource\RelationManagers\DriversRelationManager;
 
 class BookingResource extends Resource
 {
@@ -42,30 +45,52 @@ class BookingResource extends Resource
                                         $guest = Guest::find($state);
                                         // Concatenate guest full name with tour title if both are available
                                         if ($guest) {
-                                            $set('group_name', $guest->full_name );
+                                            $set('group_name', $guest->full_name);
                                         }
                                     }),
                                 Forms\Components\Hidden::make('group_name')
                                     ->label('Group Name')
-                                     ->disabled() // Make it read-only so users cannot edit it
-                                     ->dehydrated()
+                                    ->disabled() // Make it read-only so users cannot edit it
+                                    ->dehydrated()
                                     // /->hiddenOnForm() // Hide this field from the user interface
+                                    ->required(),
+                                // ->default(function () {
+                                //     // Generate a random 6-digit number and append "UZ"
+                                //     return rand(100000, 999999) . 'UZ';
+                                // }),  
+                                Forms\Components\DateTimePicker::make('booking_start_date_time')
                                     ->required()
-                                    ->default('No Title Available'),    
-                                Forms\Components\TextInput::make('grand_total')
+                                    ->native(false),
+                                Forms\Components\Select::make('guide_id')
                                     ->required()
-                                    ->numeric(),
-                                Forms\Components\TextInput::make('payment_method')
+                                    ->searchable()
+                                    ->preload()
+                                    ->relationship('guide', 'full_name'),
+                                    Forms\Components\Select::make('tour_id')
+                                    ->required()
+                                    ->searchable()
+                                    ->preload()
+                                    ->relationship('tour', 'title'),
+                                Forms\Components\Select::make('driver_id')
+                                    ->required()
+                                    ->searchable()
+                                    ->preload()
+                                    ->relationship('driver', 'full_name'),
+                                Forms\Components\TextInput::make('pickup_location')
                                     ->required()
                                     ->maxLength(255),
-                                Forms\Components\TextInput::make('payment_status')
+                                Forms\Components\TextInput::make('dropoff_location')
                                     ->required()
                                     ->maxLength(255),
-                                Forms\Components\Textarea::make('notes')
+                                Forms\Components\Textarea::make('special_requests')
                                     ->maxLength(65535)
                                     ->columnSpanFull(),
-                               
-                            ])->columns(2)
+
+                            ])->columns(2),
+
+
+
+
                     ])->columnSpan(2)
 
             ])->columns(3);
@@ -75,8 +100,10 @@ class BookingResource extends Resource
     {
         return $table
             ->columns([
-                Tables\Columns\TextColumn::make('guest_id')
-                    ->numeric()
+                Tables\Columns\TextColumn::make('group_name')
+                ->searchable(),
+                Tables\Columns\TextColumn::make('booking_start_date_time')
+                    ->dateTime()
                     ->sortable(),
                 Tables\Columns\TextColumn::make('created_at')
                     ->dateTime()
@@ -86,15 +113,16 @@ class BookingResource extends Resource
                     ->dateTime()
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
-                Tables\Columns\TextColumn::make('grand_total')
+                Tables\Columns\TextColumn::make('pickup_location')
                     ->numeric()
                     ->sortable(),
-                Tables\Columns\TextColumn::make('payment_method')
+                Tables\Columns\TextColumn::make('dropoff_location')
                     ->searchable(),
-                Tables\Columns\TextColumn::make('payment_status')
-                    ->searchable(),
-                Tables\Columns\TextColumn::make('group_name')
-                    ->searchable(),
+               
+              
+                    Tables\Columns\TextColumn::make('special_requests')
+                    ->searchable()
+                    ->limit(20),
             ])
             ->filters([
                 //
@@ -112,7 +140,7 @@ class BookingResource extends Resource
     public static function getRelations(): array
     {
         return [
-            //
+            //   DriversRelationManager::class
         ];
     }
 

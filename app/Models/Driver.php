@@ -21,25 +21,28 @@ class Driver extends Model
     protected $fillable = ['address_city', 'extra_details', 'car_id', 'first_name', 'last_name', 'email', 'phone01', 'phone02', 'fuel_type', 'driver_image'];
 
     
-    public function carsplates(): HasMany
+    // public function carsplates(): HasMany
+    // {
+    //     return $this->hasMany(CarDriver::class);
+    // }
+    public function bookings(): HasMany
     {
-        return $this->hasMany(CarDriver::class);
+        return $this->hasMany(Booking::class);
     }
-
     public function cars(): HasMany
     {
         return $this->hasMany(Car::class);
     }
 
-    public function driverPayments(): HasMany
-    {
-        return $this->hasMany(DriverPayment::class);
-    }
+    // public function driverPayments(): HasMany
+    // {
+    //     return $this->hasMany(DriverPayment::class);
+    // }
 
-    public function sold_tours(): HasMany
-    {
-        return $this->hasMany(SoldTour::class);
-    }
+    // public function sold_tours(): HasMany
+    // {
+    //     return $this->hasMany(SoldTour::class);
+    // }
 
 
     // public function cars(): BelongsToMany
@@ -52,11 +55,11 @@ class Driver extends Model
     //                 ->withPivot('car_plate'); // Assume 'car_plate' is stored in the pivot table
     // }
 
-    public function payments()
-    {
-        return $this->belongsToMany(SoldTour::class, 'driver_payment', 'driver_id', 'sold_tour_id')
-                    ->withPivot('amount_paid', 'payment_date', 'receipt_image', 'payment_type'); // Assume 'car_plate' is stored in the pivot table
-    }
+    // public function payments()
+    // {
+    //     return $this->belongsToMany(SoldTour::class, 'driver_payment', 'driver_id', 'sold_tour_id')
+    //                 ->withPivot('amount_paid', 'payment_date', 'receipt_image', 'payment_type'); // Assume 'car_plate' is stored in the pivot table
+    // }
     
 
     public function ratings(): HasMany
@@ -64,10 +67,7 @@ class Driver extends Model
         return $this->hasMany(Rating::class);
     }
 
-    public function supplier_payments(): HasMany
-    {
-        return $this->hasMany(SupplierPayment::class);
-    }
+   
 
     // public function tour_repeater_driver(): HasOne
     // {
