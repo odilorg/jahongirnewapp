@@ -12,8 +12,8 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('bookings', function (Blueprint $table) {
-            $table->string('payment_status')->default('not paid');
-            $table->string('payment_method');
+           // $table->string('payment_status')->default('not paid');
+        //   /  $table->string('payment_method');
             $table->integer('amount');
         });
     }

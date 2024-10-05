@@ -7,21 +7,23 @@ use App\Models\Tour;
 use Filament\Tables;
 use App\Models\Guest;
 use App\Models\Booking;
+use Filament\Infolists;
 use Filament\Forms\Form;
 use Filament\Tables\Table;
+use Filament\Infolists\Infolist;
 use Filament\Resources\Resource;
 use Filament\Forms\Components\Group;
 use Filament\Forms\Components\Section;
 use Filament\Forms\Components\Repeater;
 use Filament\Tables\Columns\TextColumn;
 use Illuminate\Database\Eloquent\Builder;
+use Filament\Infolists\Components\TextEntry;
 use App\Filament\Resources\BookingResource\Pages;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
 use App\Filament\Resources\BookingResource\RelationManagers;
 use App\Filament\Resources\BookingResource\RelationManagers\DriverRelationManager;
 use App\Filament\Resources\BookingResource\RelationManagers\DriversRelationManager;
-use Filament\Infolists;
-use Filament\Infolists\Infolist;
+
 
 class BookingResource extends Resource
 {
@@ -133,18 +135,25 @@ class BookingResource extends Resource
                     ->searchable()
                     ->limit(20),
                 Tables\Columns\TextColumn::make('group_name')
+                    ->label('Group')
                     ->searchable(),
                 Tables\Columns\TextColumn::make('booking_start_date_time')
+                    ->label('Start DT')
                     ->dateTime()
                     ->sortable(),
 
                 TextColumn::make('payment_status')
+                    ->label('Paym St')
                     ->badge()
                     ->color(fn(string $state): string => match ($state) {
                         'paid' => 'success',
 
                         'not_paid' => 'danger',
                     }),
+                Tables\Columns\TextColumn::make('amount')
+                    ->label('Amount')
+                    ->money('USD')
+                    ->sortable(),    
                 Tables\Columns\TextColumn::make('created_at')
                     ->dateTime()
                     ->sortable()
@@ -154,11 +163,14 @@ class BookingResource extends Resource
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\TextColumn::make('pickup_location')
+                    ->label('Pickup')
                     ->numeric()
                     ->sortable(),
                 Tables\Columns\TextColumn::make('dropoff_location')
+                     ->label('Dropoff')
                     ->searchable(),
                 Tables\Columns\TextColumn::make('special_requests')
+                    ->label('Note')
                     ->searchable()
                     ->limit(20),
             ])
@@ -181,10 +193,18 @@ class BookingResource extends Resource
     {
         return $infolist
             ->schema([
-                Infolists\Components\TextEntry::make('tour.title'),
+                Infolists\Components\Section::make('Booking details')
+   // ->description('Prevent abuse by limiting the number of requests per period')
+    ->schema([
+        Infolists\Components\TextEntry::make('tour.title'),
                 Infolists\Components\TextEntry::make('booking_start_date_time'),
-                Infolists\Components\TextEntry::make('pickup_location')
-                    ->columnSpanFull(),
+                Infolists\Components\TextEntry::make('pickup_location'),
+                TextEntry::make('dropoff_location'),
+                TextEntry::make('special_requests')
+
+                    
+    ])->columns(2)
+               
             ]);
     } 
 
@@ -202,7 +222,7 @@ class BookingResource extends Resource
             'index' => Pages\ListBookings::route('/'),
             'create' => Pages\CreateBooking::route('/create'),
             'edit' => Pages\EditBooking::route('/{record}/edit'),
-            'view' => Pages\ViewBooking::route('/{record}'),
+           // 'view' => Pages\ViewBooking::route('/{record}'),
         ];
     }
     

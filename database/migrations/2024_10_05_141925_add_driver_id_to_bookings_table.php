@@ -12,10 +12,9 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('bookings', function (Blueprint $table) {
-            $table->date('booking_start_date_time')->nullable();
-            $table->string('pickup_location');
-            $table->string('dropoff_location');
-            $table->text('special_requests')->nullable();
+            $table->foreignId('driver_id');
+            $table->foreignId('guide_id');
+            $table->foreignId('tour_id');
         });
     }
 
