@@ -33,7 +33,8 @@ class CarResource extends Resource
         return $form
             ->schema([
                 TextInput::make('plate_number')
-                    ->required(),
+                    ->required()
+                    ->maxLength(255),
 
 
                 Forms\Components\Select::make('car_brand_id')
@@ -44,17 +45,17 @@ class CarResource extends Resource
                     ->relationship('carBrand', 'brand_name')
                     ->createOptionForm([
                         Forms\Components\TextInput::make('brand_name')
-                    ->required()
-                    ->maxLength(255),
-                     Forms\Components\TextInput::make('number_seats')
-                    ->required()
-                    ->numeric(),
-                Forms\Components\TextInput::make('number_luggage')
-                    ->required()
-                    ->numeric(),
+                            ->required()
+                            ->maxLength(255),
+                        Forms\Components\TextInput::make('number_seats')
+                            ->required()
+                            ->numeric(),
+                        Forms\Components\TextInput::make('number_luggage')
+                            ->required()
+                            ->numeric(),
                     ]),
 
-                    Forms\Components\Select::make('driver_id')
+                Forms\Components\Select::make('driver_id')
                     ->required()
                     //  ->maxLength(255)
                     ->searchable()
@@ -133,7 +134,7 @@ class CarResource extends Resource
     {
         return [
             //DriversRelationManager::class,
-            
+
 
         ];
     }

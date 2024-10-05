@@ -20,12 +20,17 @@ class Booking extends Model
         'group_name',
     ] ;
 
-    public function bookingTours(): HasMany
-    {
-        return $this->hasMany(BookingTour::class);
-    }
+    // public function bookingTours(): HasMany
+    // {
+    //     return $this->hasMany(BookingTour::class);
+    // }
     public function guest() : BelongsTo {
         
         return $this->belongsTo(Guest::class);
+    }
+
+    public function drivers(): HasMany
+    {
+        return $this->hasMany(Driver::class);
     }
 }

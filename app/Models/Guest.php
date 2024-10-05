@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 
 class Guest extends Model
@@ -20,11 +21,9 @@ class Guest extends Model
          'payment_document_image',
          'payment_method'
         ];
-
-        // public function soldTours()
-        // {
-        //     return $this->belongsToMany(SoldTour::class, 'sold_tour_guest')
-        //                 ->withPivot('amount_paid', 'payment_date', 'payment_method')
-        //                 ->withTimestamps();
-        // }
+        public function bookings(): HasMany
+        {
+            return $this->hasMany(Booking::class);
+        }
+       
 }
