@@ -15,6 +15,8 @@ use Filament\Infolists\Components\TextEntry;
 use App\Filament\Resources\GuestResource\Pages;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
 use App\Filament\Resources\GuestResource\RelationManagers;
+use App\Filament\Resources\GuestResource\RelationManagers\DriverRelationManager;
+use App\Filament\Resources\GuestResource\RelationManagers\BookingsRelationManager;
 
 class GuestResource extends Resource
 {
@@ -109,7 +111,7 @@ class GuestResource extends Resource
     public static function getRelations(): array
     {
         return [
-            //
+            BookingsRelationManager::class
         ];
     }
 

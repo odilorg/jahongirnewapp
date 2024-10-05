@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Filament\Resources\DriverResource\RelationManagers;
+namespace App\Filament\Resources\GuestResource\RelationManagers;
 
 use Filament\Forms;
 use Filament\Forms\Form;
@@ -10,39 +10,26 @@ use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
 
-class CarRelationManager extends RelationManager
+class DriverRelationManager extends RelationManager
 {
-    protected static string $relationship = 'car';
+    protected static string $relationship = 'driver';
 
     public function form(Form $form): Form
     {
         return $form
             ->schema([
-                Forms\Components\TextInput::make('model')
+                Forms\Components\TextInput::make('full_name')
                     ->required()
                     ->maxLength(255),
-                Forms\Components\TextInput::make('number_seats')
-                    ->required()
-                    ->numeric(),
-                Forms\Components\TextInput::make('number_luggage')
-                    ->required()
-                    ->numeric(),
-                Forms\Components\FileUpload::make('image')
-                    ->image()
-                    ->required(),
             ]);
     }
 
     public function table(Table $table): Table
     {
         return $table
-            ->recordTitleAttribute('model')
+            ->recordTitleAttribute('full_name')
             ->columns([
-                Tables\Columns\TextColumn::make('model'),
-                Tables\Columns\TextColumn::make('number_seats'),
-                Tables\Columns\TextColumn::make('number_luggage'),
-                Tables\Columns\ImageColumn::make('image'),
-
+                Tables\Columns\TextColumn::make('full_name'),
             ])
             ->filters([
                 //

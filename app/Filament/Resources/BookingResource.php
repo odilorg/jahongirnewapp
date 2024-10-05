@@ -26,6 +26,8 @@ class BookingResource extends Resource
 
     protected static ?string $navigationIcon = 'heroicon-o-rectangle-stack';
 
+    protected static ?string $navigationGroup = 'Tour Details';
+
     public static function form(Form $form): Form
     {
         return $form
@@ -66,7 +68,7 @@ class BookingResource extends Resource
                                     ->searchable()
                                     ->preload()
                                     ->relationship('guide', 'full_name'),
-                                    Forms\Components\Select::make('tour_id')
+                                Forms\Components\Select::make('tour_id')
                                     ->required()
                                     ->searchable()
                                     ->preload()
@@ -100,8 +102,10 @@ class BookingResource extends Resource
     {
         return $table
             ->columns([
+                Tables\Columns\TextColumn::make('tour.title')
+                    ->searchable(),
                 Tables\Columns\TextColumn::make('group_name')
-                ->searchable(),
+                    ->searchable(),
                 Tables\Columns\TextColumn::make('booking_start_date_time')
                     ->dateTime()
                     ->sortable(),
@@ -118,9 +122,7 @@ class BookingResource extends Resource
                     ->sortable(),
                 Tables\Columns\TextColumn::make('dropoff_location')
                     ->searchable(),
-               
-              
-                    Tables\Columns\TextColumn::make('special_requests')
+                Tables\Columns\TextColumn::make('special_requests')
                     ->searchable()
                     ->limit(20),
             ])

@@ -143,7 +143,7 @@ class GuideResource extends Resource
     {
         return [
             LanguagesRelationManager::class,
-            SupplierPaymentsRelationManager::class
+           // SupplierPaymentsRelationManager::class
         ];
     }
 

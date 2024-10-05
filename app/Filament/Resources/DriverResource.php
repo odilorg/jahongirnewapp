@@ -7,6 +7,7 @@ use Filament\Forms;
 use App\Models\Tour;
 use Filament\Tables;
 use App\Models\Driver;
+use App\Models\SoldTour;
 use Filament\Forms\Form;
 use App\Models\CarDriver;
 use Filament\Tables\Table;
@@ -28,8 +29,8 @@ use Illuminate\Database\Eloquent\SoftDeletingScope;
 use App\Filament\Resources\DriverResource\RelationManagers;
 use App\Filament\Resources\DriverResource\RelationManagers\CarRelationManager;
 use App\Filament\Resources\DriverResource\RelationManagers\CarsRelationManager;
+use App\Filament\Resources\DriverResource\RelationManagers\BookingsRelationManager;
 use App\Filament\Resources\DriverResource\RelationManagers\SupplierPaymentsRelationManager;
-use App\Models\SoldTour;
 
 //use App\Filament\Resources\TourRepeaterDriversRelationManagerResource\RelationManagers\SoldToursRelationManager;
 
@@ -97,84 +98,6 @@ class DriverResource extends Resource
 
 
 
-                // Forms\Components\Section::make('Cars')
-                //     ->description('Add Cars that belong to Driver')
-                //     ->collapsible()
-                //     ->schema([
-                //         Repeater::make('cars')
-                //             ->label('Car Plates')
-                //             ->relationship()
-                //             ->schema([
-
-                //                 Forms\Components\Select::make('car_id')
-                //                     ->label('Car')
-                //                     ->relationship('cars', 'plate_number')
-                //                     ->searchable()
-                //                     ->preload(),
-                //                 Forms\Components\TextInput::make('car_plate'),
-
-                //             ])
-                //             ->columns(2),
-                //     ]),
-
-
-    //             Forms\Components\Section::make('Payments')
-    //                 ->description('Add Payments that Driver received')
-    //                 ->collapsible()
-    //                 ->schema([
-    //                     Repeater::make('driverPayments')
-    //                         ->label('Driver Payments')
-    //                         ->relationship()
-    //                         ->schema([
-
-    //                             Forms\Components\Select::make('sold_tour_id')
-    //                                 ->label('Tour')
-    //                                 // ->options(SoldTour::all()->pluck('group_name','id'))
-    //                                 ->options(function ($get) {
-    //                                     // Get the driver ID from the hidden field
-    //                                     $driverId = $get('id'); 
-    // // /dd($driverId);
-    //                                     if ($driverId) {
-    //                                         // Find the driver using the driver ID
-    //                                         $driver = Driver::find($driverId);
-    
-    //                                         // Check if the driver exists and has sold tours
-    //                                         if ($driver && $driver->sold_tours()->exists()) {
-    //                                             return $driver->sold_tours()->pluck('group_name', 'id');
-    //                                         } else {
-    //                                             // Return a placeholder option if no sold tours are found
-    //                                             return ['' => 'No tour belongs to this driver found'];
-    //                                         }
-    //                                     }
-    
-    //                                     // Return a fallback when no driver is selected
-    //                                     return ['' => 'Please select a driver first'];
-    //                                 })
-    //                                 ->preload()
-    //                                 ->searchable()
-    //                                 ->required(),
-
-    //                             Forms\Components\TextInput::make('amount_paid')
-    //                                 ->required()
-    //                                 ->numeric(),
-
-    //                             Forms\Components\DatePicker::make('payment_date')
-    //                                 ->native(false)
-    //                                 ->displayFormat('d/m/Y'),
-
-    //                             Forms\Components\Select::make('payment_type')
-    //                                 ->options([
-    //                                     'cash' => 'Cash',
-    //                                     'Perevod' => 'Perevod',
-    //                                     'card' => 'Card',
-    //                                 ]),
-
-    //                             Forms\Components\FileUpload::make('receipt_image')
-    //                                 ->image(),
-
-    //                         ])
-    //                         ->columns(2),
-    //                 ]),
 
             ]);
     }
@@ -312,9 +235,7 @@ class DriverResource extends Resource
     {
         return [
             CarsRelationManager::class,
-            SupplierPaymentsRelationManager::class,
-            //  SoldToursRelationManager::class
-
+            BookingsRelationManager::class
 
         ];
     }
