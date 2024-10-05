@@ -13,12 +13,15 @@ use Filament\Resources\Resource;
 use Filament\Forms\Components\Group;
 use Filament\Forms\Components\Section;
 use Filament\Forms\Components\Repeater;
+use Filament\Tables\Columns\TextColumn;
 use Illuminate\Database\Eloquent\Builder;
 use App\Filament\Resources\BookingResource\Pages;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
 use App\Filament\Resources\BookingResource\RelationManagers;
 use App\Filament\Resources\BookingResource\RelationManagers\DriverRelationManager;
 use App\Filament\Resources\BookingResource\RelationManagers\DriversRelationManager;
+use Filament\Infolists;
+use Filament\Infolists\Infolist;
 
 class BookingResource extends Resource
 {
@@ -78,6 +81,29 @@ class BookingResource extends Resource
                                     ->searchable()
                                     ->preload()
                                     ->relationship('driver', 'full_name'),
+                                Forms\Components\Select::make('payment_status')
+                                    ->required()
+                                    ->options([
+                                        'paid' => 'Paid',
+                                        'not_paid' => 'Not Paid',
+                                    ])
+                                    ->default('not paid')  // Set the default option to 'Not Paid'
+                                    ->label('Payment Status'),
+                                Forms\Components\Select::make('payment_method')
+                                    ->required()
+                                    ->options([
+                                        'cash' => 'Cash',
+                                        'card' => 'Card',
+                                        'paypal' => 'PayPal',
+                                        'bank' => 'Bank Transfer',
+                                        'stripe' => 'Stripe',
+                                    ])
+                                    ->default('not paid')  // Set the default option to 'Not Paid'
+                                    ->label('Payment Status'),
+                                Forms\Components\TextInput::make('amount')
+                                    ->numeric()
+                                    ->prefix('$')
+                                    ->maxValue(42949672.95),
                                 Forms\Components\TextInput::make('pickup_location')
                                     ->required()
                                     ->maxLength(255),
@@ -87,6 +113,7 @@ class BookingResource extends Resource
                                 Forms\Components\Textarea::make('special_requests')
                                     ->maxLength(65535)
                                     ->columnSpanFull(),
+
 
                             ])->columns(2),
 
@@ -103,12 +130,21 @@ class BookingResource extends Resource
         return $table
             ->columns([
                 Tables\Columns\TextColumn::make('tour.title')
-                    ->searchable(),
+                    ->searchable()
+                    ->limit(20),
                 Tables\Columns\TextColumn::make('group_name')
                     ->searchable(),
                 Tables\Columns\TextColumn::make('booking_start_date_time')
                     ->dateTime()
                     ->sortable(),
+
+                TextColumn::make('payment_status')
+                    ->badge()
+                    ->color(fn(string $state): string => match ($state) {
+                        'paid' => 'success',
+
+                        'not_paid' => 'danger',
+                    }),
                 Tables\Columns\TextColumn::make('created_at')
                     ->dateTime()
                     ->sortable()
@@ -126,11 +162,13 @@ class BookingResource extends Resource
                     ->searchable()
                     ->limit(20),
             ])
+            
             ->filters([
                 //
             ])
             ->actions([
                 Tables\Actions\EditAction::make(),
+                Tables\Actions\ViewAction::make(),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
@@ -138,6 +176,18 @@ class BookingResource extends Resource
                 ]),
             ]);
     }
+
+    public static function infolist(Infolist $infolist): Infolist
+    {
+        return $infolist
+            ->schema([
+                Infolists\Components\TextEntry::make('tour.title'),
+                Infolists\Components\TextEntry::make('booking_start_date_time'),
+                Infolists\Components\TextEntry::make('pickup_location')
+                    ->columnSpanFull(),
+            ]);
+    } 
+
 
     public static function getRelations(): array
     {
@@ -152,6 +202,8 @@ class BookingResource extends Resource
             'index' => Pages\ListBookings::route('/'),
             'create' => Pages\CreateBooking::route('/create'),
             'edit' => Pages\EditBooking::route('/{record}/edit'),
+            'view' => Pages\ViewBooking::route('/{record}'),
         ];
     }
+    
 }

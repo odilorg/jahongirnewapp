@@ -245,7 +245,7 @@ class DriverResource extends Resource
         return [
             'index' => Pages\ListDrivers::route('/'),
             'create' => Pages\CreateDriver::route('/create'),
-            //  'view' => Pages\ViewDriver::route('/{record}'),
+            'view' => Pages\ViewDriver::route('/{record}'),
             'edit' => Pages\EditDriver::route('/{record}/edit'),
         ];
     }

@@ -2,11 +2,12 @@
 
 namespace App\Models;
 
+use App\Casts\MoneyCast;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 
 class Booking extends Model
 {
@@ -21,14 +22,14 @@ class Booking extends Model
         'group_name',
         'driver_id',
         'guide_id',
-        'tour_id'
+        'tour_id',
+        'payment_status',
+        'payment_method',
+        'amount'
     ] ;
-
-    // public function bookingTours(): HasMany
-    // {
-    //     return $this->hasMany(BookingTour::class);
-    // }
-    public function guest() : BelongsTo {
+    protected $casts = [
+        'amount' => MoneyCast::class,
+    ];    public function guest() : BelongsTo {
         
         return $this->belongsTo(Guest::class);
     }
