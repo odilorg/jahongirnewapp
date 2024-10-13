@@ -54,7 +54,8 @@ class CarResource extends Resource
                             ->required()
                             ->numeric(),
                     ]),
-
+                    Forms\Components\TextInput::make('color')
+                    ->required(),
                 Forms\Components\Select::make('driver_id')
                     ->required()
                     //  ->maxLength(255)
@@ -66,6 +67,7 @@ class CarResource extends Resource
                 Forms\Components\FileUpload::make('image')
                     ->image()
                     ->required(),
+               
             ]);
     }
 
@@ -82,15 +84,22 @@ class CarResource extends Resource
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\TextColumn::make('plate_number')
+                    ->label('Plate')
                     ->searchable(),
                 Tables\Columns\TextColumn::make('carBrand.number_seats')
+                    ->label('Seats')
                     ->numeric()
                     ->sortable(),
                 Tables\Columns\TextColumn::make('carBrand.number_luggage')
+                    ->label('luggage')
                     ->numeric()
                     ->sortable(),
                 Tables\Columns\ImageColumn::make('image')
                     ->circular(),
+                   // ->sortable(),
+                    Tables\Columns\TextColumn::make('color')
+                        ->label('Color')
+//                        ->sortable(),    
             ])
             ->filters([
                 //
