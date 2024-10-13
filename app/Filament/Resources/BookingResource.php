@@ -1,4 +1,4 @@
- mn mn mn<?php
+<?php
 
 namespace App\Filament\Resources;
 
