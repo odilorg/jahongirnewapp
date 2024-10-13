@@ -25,7 +25,8 @@ class Booking extends Model
         'tour_id',
         'payment_status',
         'payment_method',
-        'amount'
+        'amount',
+        'booking_status'
     ] ;
     protected $casts = [
         'amount' => MoneyCast::class,

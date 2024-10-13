@@ -1,4 +1,4 @@
-<?php
+ mn mn mn<?php
 
 namespace App\Filament\Resources;
 
@@ -13,9 +13,11 @@ use Filament\Tables\Table;
 use Filament\Infolists\Infolist;
 use Filament\Resources\Resource;
 use Filament\Forms\Components\Group;
+use Filament\Forms\Components\Radio;
 use Filament\Forms\Components\Section;
 use Filament\Forms\Components\Repeater;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Columns\SelectColumn;
 use Illuminate\Database\Eloquent\Builder;
 use Filament\Infolists\Components\TextEntry;
 use App\Filament\Resources\BookingResource\Pages;
@@ -112,9 +114,18 @@ class BookingResource extends Resource
                                 Forms\Components\TextInput::make('dropoff_location')
                                     ->required()
                                     ->maxLength(255),
+
+                                Radio::make('booking_status')
+                                    ->label('Booking Status')
+                                    ->options([
+                                        'pending' => 'Pending',
+                                        'in_progress' => 'in Progress',
+                                        'finished' => 'Finished'
+                                    ]),
+
                                 Forms\Components\Textarea::make('special_requests')
                                     ->maxLength(65535)
-                                    ->columnSpanFull(),
+                                //->columnSpanFull(),
 
 
                             ])->columns(2),
@@ -131,6 +142,21 @@ class BookingResource extends Resource
     {
         return $table
             ->columns([
+                // TextColumn::make('booking_status')
+                //     ->label('Status')
+                //     ->badge()
+                //     ->color(fn (string $state): string => match ($state) {
+
+                //         'in_progress' => 'warning',
+                //         'finished' => 'success',
+                //         'pending' => 'danger',
+                //     }),
+                SelectColumn::make('booking_status')
+                    ->options([
+                        'pending' => 'Pending',
+                        'in_progress' => 'in Progress',
+                        'finished' => 'Finished'
+                    ]),
                 Tables\Columns\TextColumn::make('tour.title')
                     ->searchable()
                     ->limit(20),
@@ -139,7 +165,7 @@ class BookingResource extends Resource
                     ->searchable(),
                 Tables\Columns\TextColumn::make('booking_start_date_time')
                     ->label('Start DT')
-                    ->dateTime()
+                    ->dateTime('M d, Y H:i')
                     ->sortable(),
 
                 TextColumn::make('payment_status')
@@ -153,7 +179,7 @@ class BookingResource extends Resource
                 Tables\Columns\TextColumn::make('amount')
                     ->label('Amount')
                     ->money('USD')
-                    ->sortable(),    
+                    ->sortable(),
                 Tables\Columns\TextColumn::make('created_at')
                     ->dateTime()
                     ->sortable()
@@ -167,14 +193,14 @@ class BookingResource extends Resource
                     ->numeric()
                     ->sortable(),
                 Tables\Columns\TextColumn::make('dropoff_location')
-                     ->label('Dropoff')
+                    ->label('Dropoff')
                     ->searchable(),
                 Tables\Columns\TextColumn::make('special_requests')
                     ->label('Note')
                     ->searchable()
                     ->limit(20),
             ])
-            
+
             ->filters([
                 //
             ])
@@ -194,19 +220,19 @@ class BookingResource extends Resource
         return $infolist
             ->schema([
                 Infolists\Components\Section::make('Booking details')
-   // ->description('Prevent abuse by limiting the number of requests per period')
-    ->schema([
-        Infolists\Components\TextEntry::make('tour.title'),
-                Infolists\Components\TextEntry::make('booking_start_date_time'),
-                Infolists\Components\TextEntry::make('pickup_location'),
-                TextEntry::make('dropoff_location'),
-                TextEntry::make('special_requests')
+                    // ->description('Prevent abuse by limiting the number of requests per period')
+                    ->schema([
+                        Infolists\Components\TextEntry::make('tour.title'),
+                        Infolists\Components\TextEntry::make('booking_start_date_time'),
+                        Infolists\Components\TextEntry::make('pickup_location'),
+                        TextEntry::make('dropoff_location'),
+                        TextEntry::make('special_requests')
 
-                    
-    ])->columns(2)
-               
+
+                    ])->columns(2)
+
             ]);
-    } 
+    }
 
 
     public static function getRelations(): array
@@ -222,8 +248,7 @@ class BookingResource extends Resource
             'index' => Pages\ListBookings::route('/'),
             'create' => Pages\CreateBooking::route('/create'),
             'edit' => Pages\EditBooking::route('/{record}/edit'),
-           // 'view' => Pages\ViewBooking::route('/{record}'),
+            // 'view' => Pages\ViewBooking::route('/{record}'),
         ];
     }
-    
 }
