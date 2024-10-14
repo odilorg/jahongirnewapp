@@ -122,6 +122,15 @@ class BookingResource extends Resource
                                         'in_progress' => 'in Progress',
                                         'finished' => 'Finished'
                                     ]),
+                                    
+                                Radio::make('booking_source')
+                                ->label('Booking Source')
+                                ->options([
+                                    'viatour' => 'Viatour',
+                                    'geturguide' => 'GetUrGuide',
+                                    'website' => 'Website',
+                                    'walkin' => 'Walk In',
+                                ])->columns(2),
 
                                 Forms\Components\Textarea::make('special_requests')
                                     ->maxLength(65535)
@@ -199,6 +208,9 @@ class BookingResource extends Resource
                     ->label('Note')
                     ->searchable()
                     ->limit(20),
+                Tables\Columns\TextColumn::make('booking_source')
+                    ->label('Source')
+                    ->searchable(),
             ])
 
             ->filters([
