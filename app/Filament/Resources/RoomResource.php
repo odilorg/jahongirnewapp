@@ -48,6 +48,10 @@ class RoomResource extends Resource
                 Forms\Components\TextInput::make('notes')
                     //->required()
                     ->maxLength(255),
+                Forms\Components\TextInput::make('price')
+                    ->numeric()
+                    ->prefix('UZ'),
+                    //->maxValue(42949672.95),    
                 // CheckboxList::make('amenities')
                 //     ->relationship()
                 //     ->options(Amenity::all()->pluck('name', 'id'))

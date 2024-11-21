@@ -2,9 +2,10 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Factories\HasFactory;
+use App\Casts\MoneyCast;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 
 class Room extends Model
 {
@@ -18,6 +19,10 @@ class Room extends Model
         'room_floor',
         'notes',
         'hotel_id'
+    ];
+
+    protected $casts = [
+        'price' => MoneyCast::class,
     ];
 
     public function amenities()
