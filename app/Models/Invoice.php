@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Casts\MoneyCast;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -17,7 +18,12 @@ class Invoice extends Model
         'turfirma_id',
         'zayavka_id',
         'contract_id',
-        'status'
+        'status',
+        'amount'
+    ];
+
+    protected $casts = [
+        'amount' => MoneyCast::class,
     ];
 
     public function hotel(): BelongsTo

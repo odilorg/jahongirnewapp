@@ -53,7 +53,11 @@ class InvoiceResource extends Resource
                         'paid' => 'Paid',
                         'not_paid' => 'Not Paid',
                         'partially' => 'Partially',
-                    ]),    
+                    ]), 
+                Forms\Components\TextInput::make('amount')
+                    ->required()
+                    ->numeric()
+                    ->prefix('$'),       
             ]);
     }
 
@@ -86,6 +90,9 @@ class InvoiceResource extends Resource
                 Tables\Columns\TextColumn::make('invoice_date')
                     ->date()
                     ->sortable(),
+                Tables\Columns\TextColumn::make('amount')
+                    ->money()
+                    ->sortable(),    
             ])
             ->filters([
                 //

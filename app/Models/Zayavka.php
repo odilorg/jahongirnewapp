@@ -29,6 +29,8 @@ class Zayavka extends Model
         'accepted_by',
         'description',
         'hotel_id',
-        'name'
+        'name',
+        'rooming',
+        'notes'
     ];
 }

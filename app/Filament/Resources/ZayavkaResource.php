@@ -9,6 +9,7 @@ use Filament\Forms\Form;
 use Filament\Tables\Table;
 use Filament\Resources\Resource;
 use Filament\Forms\Components\Select;
+use Filament\Forms\Components\Toggle;
 use Illuminate\Database\Eloquent\Builder;
 use App\Filament\Resources\ZayavkaResource\Pages;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
@@ -27,6 +28,7 @@ class ZayavkaResource extends Resource
         return $form
             ->schema([
                 Forms\Components\TextInput::make('name')
+                    ->label('Guest Name and Group Number')
                     ->required()
                     ->maxLength(255),
                 Forms\Components\Select::make('turfirma_id')
@@ -46,6 +48,7 @@ class ZayavkaResource extends Resource
                         'waiting' => 'Waiting List',
                     ]),
                 Forms\Components\TextInput::make('source')
+                    ->label('Booking source, phone, email, name')
                     ->required()
                     ->maxLength(255),
                 Select::make('accepted_by')
@@ -55,7 +58,7 @@ class ZayavkaResource extends Resource
                         'javohir' => 'Javohir',
                         'asror' => 'Asror',
                     ]),
-                Forms\Components\TextInput::make('description')
+                Forms\Components\Textarea::make('description')
                     ->required()
                     ->maxLength(255),
                 Forms\Components\Select::make('hotel_id')
@@ -63,6 +66,13 @@ class ZayavkaResource extends Resource
                     ->required()
                     ->preload()
                     ->searchable(),
+               
+                Forms\Components\TextInput::make('notes')
+                    //->required()
+                    ->maxLength(255),
+                    Toggle::make('rooming'),
+
+
             ]);
     }
 
