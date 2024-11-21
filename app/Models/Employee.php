@@ -15,11 +15,13 @@ class Employee extends Model
     ];
 
     protected $fillable = [
-        'first_name', 'last_name', 'email', 'phone01', 'phone02', 'lang_spoken', 'guide_image',
+        'first_name', 'last_name', 'email', 'phone01', 'phone02', 'lang_spoken', 'image',
         'extra_info',
         'school',
         'passport_image',
-        'fathers_name'
+        'fathers_name',
+        'pinfl',
+        'address'
     ];
 
     public function languages(): BelongsToMany
