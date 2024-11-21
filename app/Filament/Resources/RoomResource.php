@@ -59,7 +59,22 @@ class RoomResource extends Resource
                     ->relationship(titleAttribute: 'name')
                     ->bulkToggleable(),
                 Select::make('hotel_id')
-                    ->relationship(name: 'hotel', titleAttribute: 'name')    
+                    ->relationship(name: 'hotel', titleAttribute: 'name'),
+                Select::make('room_type')
+                    ->options([
+                        'single' => 'Single',
+                        'double' => 'Double',
+                        'twin' => 'Twin',
+                        'double/twin' => 'Double/Twin',
+                        'junior_suite' => 'Junior Suite',
+                        'family_room' => 'Quad/Family',
+                        'superior_double' => 'Superior Double',
+                        'deluxe_dbl_twin' => 'Deluxe Double/Twin',
+                        'queen' => 'Queen',
+                        'deluxe_triple' => 'Deluxe Triple',
+                        'deluxe_single' => 'Deluxe Single',
+                        'superior_double_twin' => 'Superior Double/Twin',
+                    ])        
 
             ]);
     }
