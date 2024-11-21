@@ -26,6 +26,9 @@ class ZayavkaResource extends Resource
     {
         return $form
             ->schema([
+                Forms\Components\TextInput::make('name')
+                    ->required()
+                    ->maxLength(255),
                 Forms\Components\Select::make('turfirma_id')
                     ->relationship(name: 'turfirma', titleAttribute: 'name')
                     ->required()
