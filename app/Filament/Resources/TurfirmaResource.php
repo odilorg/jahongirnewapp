@@ -32,19 +32,19 @@ class TurfirmaResource extends Resource
                     ->required()
                     ->maxLength(255),
                 Forms\Components\TextInput::make('address_street')
-                    ->required()
-                    ->maxLength(255),
+                    ->required(),
+                    //->maxLength(255),
                 Forms\Components\TextInput::make('address_city')
-                    ->required()
-                    ->maxLength(255),
+                    ->required(),
+                   // ->maxLength(255),
                 Forms\Components\TextInput::make('phone')
                     ->tel()
                     ->required()
                     ->maxLength(255),
                 Forms\Components\TextInput::make('email')
                     ->email()
-                    ->required()
-                    ->maxLength(255),
+                    ->required(),
+                    //->maxLength(255),
                 Forms\Components\TextInput::make('inn')
                     ->required()
                     ->numeric(),
