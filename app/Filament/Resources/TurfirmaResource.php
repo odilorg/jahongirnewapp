@@ -46,8 +46,8 @@ class TurfirmaResource extends Resource
                     ->required(),
                     //->maxLength(255),
                 Forms\Components\TextInput::make('inn')
-                    ->required()
-                    ->numeric(),
+                    ->required(),
+                    //->numeric(),
                 Forms\Components\TextInput::make('account_number')
                     ->required()
                     ->numeric(),
