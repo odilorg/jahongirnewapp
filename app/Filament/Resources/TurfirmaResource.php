@@ -52,7 +52,7 @@ class TurfirmaResource extends Resource
                     ->required()
                     ->numeric(),
                 Forms\Components\TextInput::make('bank_name')
-                    ->required()
+                    //->required()
                     ->maxLength(255),
                 Forms\Components\TextInput::make('bank_mfo')
                     ->required()
