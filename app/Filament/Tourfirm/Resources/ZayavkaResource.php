@@ -15,9 +15,17 @@ use Illuminate\Database\Eloquent\SoftDeletingScope;
 
 class ZayavkaResource extends Resource
 {
+    protected static ?string $title = 'Мои Заявки';
     protected static ?string $model = Zayavka::class;
 
     protected static ?string $navigationIcon = 'heroicon-o-rectangle-stack';
+    protected static ?string $navigationLabel = 'Мои Заявки';
+    
+    public static function getBreadcrumb(): string
+    {
+        return 'Заявки'; // Custom breadcrumb label
+    }
+   
 
     public static function form(Form $form): Form
     {
