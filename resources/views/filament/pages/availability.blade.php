@@ -10,43 +10,47 @@
         </form>
 
         @if (count($available_rooms) > 0)
-            <div class="overflow-x-auto bg-gray-100 shadow rounded-lg">
-                <table class="min-w-full divide-y divide-gray-300">
+            <div class="overflow-x-auto bg-gray-900 shadow rounded-lg">
+                <table class="min-w-full divide-y divide-gray-700">
                     <thead>
-                        <tr>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                        <tr class="bg-gray-800">
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
                                 Room Name
                             </th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
                                 Available Units
                             </th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
                                 Total Units
                             </th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
                                 Price
                             </th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
                                 Switching Required
                             </th>
                         </tr>
                     </thead>
-                    <tbody class="bg-white divide-y divide-gray-200">
+                    <tbody class="bg-gray-900 divide-y divide-gray-700">
                         @foreach ($available_rooms as $room)
                             <tr>
-                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-100">
                                     {{ $room['name'] }}
                                 </td>
-                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-100">
                                     {{ $room['available_qty'] }}
                                 </td>
-                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                    {{ $room['total_qty'] }}
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-100">
+                                    <select class="bg-gray-800 text-gray-100 rounded p-2 focus:outline-none focus:ring">
+                                        @for ($i = 0; $i <= $room['total_qty']; $i++)
+                                            <option value="{{ $i }}">{{ $i }}</option>
+                                        @endfor
+                                    </select>
                                 </td>
-                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-100">
                                     ${{ number_format($room['price'], 2) }}
                                 </td>
-                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-100">
                                     {{ $room['switching_required'] ? 'Yes' : 'No' }}
                                 </td>
                             </tr>
@@ -55,8 +59,8 @@
                 </table>
             </div>
         @else
-            <div class="p-4 bg-gray-100 rounded-lg shadow">
-                <p class="text-gray-700 text-sm">No available rooms for the selected dates.</p>
+            <div class="p-4 bg-gray-900 rounded-lg shadow">
+                <p class="text-gray-100 text-sm">No available rooms for the selected dates.</p>
             </div>
         @endif
     </div>
