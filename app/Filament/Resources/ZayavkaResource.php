@@ -28,7 +28,7 @@ class ZayavkaResource extends Resource
         return $form
             ->schema([
                 Forms\Components\TextInput::make('name')
-                    ->label('Guest Name and Group Number')
+                    ->label('Group Number')
                     ->required()
                     ->maxLength(255),
                 Forms\Components\Select::make('turfirma_id')
