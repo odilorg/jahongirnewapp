@@ -75,7 +75,7 @@ class Availability extends Page implements Forms\Contracts\HasForms
 
                     // Extract relevant dates (excluding departure date)
                     $dates = array_keys($unitBookings);
-                    $relevantDates = array_slice($dates, 0, -1); // All dates except the last one
+                    $relevantDates = array_slice($dates, 0, -1);
 
                     // Check fully available units
                     $fullyAvailableUnits = 0;
@@ -96,6 +96,8 @@ class Availability extends Page implements Forms\Contracts\HasForms
                         return [
                             'name' => $roomName,
                             'available_qty' => $fullyAvailableUnits,
+                            'total_qty' => $qty,
+                            'price' => mt_rand(50, 100), // Placeholder price
                             'switching_required' => false,
                         ];
                     }
@@ -119,6 +121,8 @@ class Availability extends Page implements Forms\Contracts\HasForms
                         return [
                             'name' => $roomName,
                             'available_qty' => $qty,
+                            'total_qty' => $qty,
+                            'price' => mt_rand(50, 100), // Placeholder price
                             'switching_required' => true,
                         ];
                     }
@@ -134,6 +138,7 @@ class Availability extends Page implements Forms\Contracts\HasForms
                 Notification::make()->title('Failed to fetch room availability!')->danger()->send();
             }
         } catch (\Exception $e) {
+            Log::error('Error fetching room availability: ' . $e->getMessage());
             Notification::make()->title('An error occurred while fetching room availability!')->danger()->send();
         }
     }
