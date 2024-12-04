@@ -7,6 +7,7 @@ use Filament\Forms;
 use Filament\Pages\Page;
 use Illuminate\Support\Facades\Http;
 use Filament\Notifications\Notification;
+use Carbon\Carbon;
 
 class Availability extends Page implements Forms\Contracts\HasForms
 {
@@ -45,7 +46,7 @@ class Availability extends Page implements Forms\Contracts\HasForms
     {
         $this->validate([
             'arrival_date' => 'required|date',
-            'departure_date' => 'required|date',
+            'departure_date' => 'required|date|after:arrival_date', // Ensures departure_date is after arrival_date
             'hotel' => 'required',
         ]);
 
@@ -57,13 +58,33 @@ class Availability extends Page implements Forms\Contracts\HasForms
                 return;
             }
 
-            $response = Http::withHeaders([
-                'token' => $token,
-            ])->get('https://beds24.com/api/v2/inventory/rooms/unitBookings', [
+            // Format dates to match API requirements (YYYY-MM-DD)
+            $formattedArrivalDate = Carbon::createFromFormat('Y-m-d', $this->arrival_date)->format('Y-m-d');
+            $formattedDepartureDate = Carbon::createFromFormat('Y-m-d', $this->departure_date)->format('Y-m-d');
+
+            // Prepare request parameters
+            $requestParams = [
                 'propertyId' => $this->hotel,
-                'startDate' => $this->arrival_date,
-                'endDate' => $this->departure_date,
-            ]);
+                'startDate' => $formattedArrivalDate,
+                'endDate' => $formattedDepartureDate,
+            ];
+
+            $requestHeaders = [
+                'token' => $token,
+            ];
+
+            // Log API request details for debugging
+            Log::info('API Request Parameters', $requestParams);
+            Log::info('API Request Headers', $requestHeaders);
+
+            // Make the API request
+            $response = Http::withHeaders($requestHeaders)->get('https://beds24.com/api/v2/inventory/rooms/unitBookings', $requestParams);
+
+            if ($response->failed()) {
+                Log::error('Failed API Response', ['response' => $response->body()]);
+                Notification::make()->title('Failed to fetch room availability!')->danger()->send();
+                return;
+            }
 
             $data = $response->json();
 
@@ -135,10 +156,15 @@ class Availability extends Page implements Forms\Contracts\HasForms
                     ->success()
                     ->send();
             } else {
+                Log::error('API Response Error', ['response' => $data]);
                 Notification::make()->title('Failed to fetch room availability!')->danger()->send();
             }
         } catch (\Exception $e) {
-            Log::error('Error fetching room availability: ' . $e->getMessage());
+            Log::error('Error fetching room availability: ' . $e->getMessage(), [
+                'trace' => $e->getTraceAsString(),
+                'arrival_date' => $this->arrival_date,
+                'departure_date' => $this->departure_date,
+            ]);
             Notification::make()->title('An error occurred while fetching room availability!')->danger()->send();
         }
     }
