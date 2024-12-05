@@ -85,130 +85,132 @@ class Availability extends Page implements Forms\Contracts\HasForms
 }
 
 
-    public function submit()
-    {
-        $this->validate([
-            'arrival_date' => 'required|date',
-            'departure_date' => 'required|date|after:arrival_date', // Ensures departure_date is after arrival_date
-            'hotel' => 'required',
-        ]);
+public function submit()
+{
+    $this->validate([
+        'arrival_date' => 'required|date',
+        'departure_date' => 'required|date|after:arrival_date', // Ensures departure_date is after arrival_date
+        'hotel' => 'required',
+    ]);
 
-        try {
-            $token = $this->getApiToken();
+    try {
+        $token = $this->getApiToken();
 
-            if (!$token) {
-                Notification::make()->title('Failed to authenticate!')->danger()->send();
-                return;
-            }
+        if (!$token) {
+            Notification::make()->title('Failed to authenticate!')->danger()->send();
+            return;
+        }
 
-            // Format dates to match API requirements (YYYY-MM-DD)
-            $formattedArrivalDate = Carbon::parse($this->arrival_date)->format('Y-m-d');
-            $formattedDepartureDate = Carbon::parse($this->departure_date)->format('Y-m-d');
+        // Format dates to match API requirements (YYYY-MM-DD)
+        $formattedArrivalDate = Carbon::parse($this->arrival_date)->format('Y-m-d');
+        $formattedDepartureDate = Carbon::parse($this->departure_date)->format('Y-m-d');
 
-            // Prepare request parameters
-            $requestParams = [
-                'propertyId' => $this->hotel,
-                'startDate' => $formattedArrivalDate,
-                'endDate' => $formattedDepartureDate,
-            ];
+        // Prepare request parameters
+        $requestParams = [
+            'propertyId' => $this->hotel,
+            'startDate' => $formattedArrivalDate,
+            'endDate' => $formattedDepartureDate,
+        ];
 
-            $requestHeaders = [
-                'token' => $token,
-            ];
+        $requestHeaders = [
+            'token' => $token,
+        ];
 
-            // Log API request details for debugging
-            Log::info('API Request Parameters', $requestParams);
-            Log::info('API Request Headers', $requestHeaders);
+        // Log API request details for debugging
+        Log::info('API Request Parameters', $requestParams);
+        Log::info('API Request Headers', $requestHeaders);
 
-            // Make the API request
-            $response = Http::withHeaders($requestHeaders)->get('https://beds24.com/api/v2/inventory/rooms/unitBookings', $requestParams);
+        // Make the API request
+        $response = Http::withHeaders($requestHeaders)->get('https://beds24.com/api/v2/inventory/rooms/unitBookings', $requestParams);
 
-            if ($response->failed()) {
-                Log::error('Failed API Response', ['response' => $response->body()]);
-                Notification::make()->title('Failed to fetch room availability!')->danger()->send();
-                return;
-            }
+        if ($response->failed()) {
+            Log::error('Failed API Response', ['response' => $response->body()]);
+            Notification::make()->title('Failed to fetch room availability!')->danger()->send();
+            return;
+        }
 
-            $data = $response->json();
+        $data = $response->json();
 
-            if (isset($data['success']) && $data['success']) {
-                $this->available_rooms = collect($data['data'])->map(function ($room) {
-                    $roomName = $room['name'];
-                    $qty = (int) $room['qty'];
-                    $unitBookings = $room['unitBookings'];
+        if (isset($data['success']) && $data['success']) {
+            $this->available_rooms = collect($data['data'])->map(function ($room) {
+                $roomName = $room['name'];
+                $qty = (int) $room['qty'];
+                $unitBookings = $room['unitBookings'];
 
-                    // Extract relevant dates (excluding departure date)
-                    $dates = array_keys($unitBookings);
-                    $relevantDates = array_slice($dates, 0, -1);
+                // Extract relevant dates (excluding departure date)
+                $dates = array_keys($unitBookings);
+                $relevantDates = array_slice($dates, 0, -1);
 
-                    // Check fully available units
-                    $fullyAvailableUnits = 0;
-                    foreach (range(1, $qty) as $unit) {
-                        $isFullyAvailable = true;
-                        foreach ($relevantDates as $date) {
-                            if (!isset($unitBookings[$date][$unit]) || $unitBookings[$date][$unit] !== 0) {
-                                $isFullyAvailable = false;
-                                break;
-                            }
-                        }
-                        if ($isFullyAvailable) {
-                            $fullyAvailableUnits++;
-                        }
-                    }
-
-                    if ($fullyAvailableUnits > 0) {
-                        return [
-                            'name' => $roomName,
-                            'available_qty' => $fullyAvailableUnits,
-                            'total_qty' => $qty,
-                            'price' => mt_rand(50, 100), // Placeholder price
-                            'switching_required' => false,
-                        ];
-                    }
-
-                    // Check switching availability
-                    $isSwitchingAvailable = true;
+                // Check fully available units
+                $fullyAvailableUnits = 0;
+                foreach (range(1, $qty) as $unit) {
+                    $isFullyAvailable = true;
                     foreach ($relevantDates as $date) {
-                        $availableUnits = 0;
-                        foreach (range(1, $qty) as $unit) {
-                            if (isset($unitBookings[$date][$unit]) && $unitBookings[$date][$unit] === 0) {
-                                $availableUnits++;
-                            }
-                        }
-                        if ($availableUnits < 1) {
-                            $isSwitchingAvailable = false;
+                        if (!isset($unitBookings[$date][$unit]) || $unitBookings[$date][$unit] !== 0) {
+                            $isFullyAvailable = false;
                             break;
                         }
                     }
-
-                    if ($isSwitchingAvailable) {
-                        return [
-                            'name' => $roomName,
-                            'available_qty' => $qty,
-                            'total_qty' => $qty,
-                            'price' => mt_rand(50, 100), // Placeholder price
-                            'switching_required' => true,
-                        ];
+                    if ($isFullyAvailable) {
+                        $fullyAvailableUnits++;
                     }
+                }
 
-                    return null;
-                })->filter()->values()->toArray();
+                if ($fullyAvailableUnits > 0) {
+                    return [
+                        'name' => $roomName,
+                        'available_qty' => $fullyAvailableUnits,
+                        'total_qty' => $qty,
+                        'price' => mt_rand(50, 100), // Placeholder price
+                        'switching_required' => false,
+                    ];
+                }
 
-                Notification::make()
-                    ->title(count($this->available_rooms) > 0 ? 'Rooms found successfully!' : 'No rooms available.')
-                    ->success()
-                    ->send();
-            } else {
-                Log::error('API Response Error', ['response' => $data]);
-                Notification::make()->title('Failed to fetch room availability!')->danger()->send();
-            }
-        } catch (\Exception $e) {
-            Log::error('Error fetching room availability: ' . $e->getMessage(), [
-                'trace' => $e->getTraceAsString(),
-                'arrival_date' => $this->arrival_date,
-                'departure_date' => $this->departure_date,
-            ]);
-            Notification::make()->title('An error occurred while fetching room availability!')->danger()->send();
+                // Check switching availability
+                $switchingAvailableUnits = 0;
+
+                foreach (range(1, $qty) as $unit) {
+                    $isUnitAvailable = true;
+                    foreach ($relevantDates as $date) {
+                        if (!isset($unitBookings[$date][$unit]) || $unitBookings[$date][$unit] !== 0) {
+                            $isUnitAvailable = false;
+                            break;
+                        }
+                    }
+                    if ($isUnitAvailable) {
+                        $switchingAvailableUnits++;
+                    }
+                }
+
+                if ($switchingAvailableUnits > 0) {
+                    return [
+                        'name' => $roomName,
+                        'available_qty' => $switchingAvailableUnits,
+                        'total_qty' => $qty,
+                        'price' => mt_rand(50, 100), // Placeholder price
+                        'switching_required' => true,
+                    ];
+                }
+
+                return null;
+            })->filter()->values()->toArray();
+
+            Notification::make()
+                ->title(count($this->available_rooms) > 0 ? 'Rooms found successfully!' : 'No rooms available.')
+                ->success()
+                ->send();
+        } else {
+            Log::error('API Response Error', ['response' => $data]);
+            Notification::make()->title('Failed to fetch room availability!')->danger()->send();
         }
+    } catch (\Exception $e) {
+        Log::error('Error fetching room availability: ' . $e->getMessage(), [
+            'trace' => $e->getTraceAsString(),
+            'arrival_date' => $this->arrival_date,
+            'departure_date' => $this->departure_date,
+        ]);
+        Notification::make()->title('An error occurred while fetching room availability!')->danger()->send();
     }
+}
+
 }
