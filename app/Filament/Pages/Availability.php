@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\Log;
 use Filament\Forms;
 use Filament\Pages\Page;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Cache;
 use Filament\Notifications\Notification;
 use Carbon\Carbon;
 
@@ -22,6 +23,9 @@ class Availability extends Page implements Forms\Contracts\HasForms
     public $departure_date;
     public $hotel;
     public $available_rooms = []; // Stores room names from the response
+
+    private const TOKEN_REFRESH_URL = 'https://beds24.com/api/v2/authentication/token';
+    private const REFRESH_TOKEN = 'cR6Piq23D9R2w88gjhMLR6wqlM+Wy4VaNtLDRuAjG0w2sEgnKG9mvyxsFvi+288DRWYVeUyuoxvV5O/guvf9fDwBX4ebFu+SyWnXXe8Dmh3gThoV2bC+uSBrxOrPZEKC1Fh7SDvUY+aI7rmESCZwylcpnV5QQome8OsF0hArA5A=';
 
     protected function getFormSchema(): array
     {
@@ -42,6 +46,45 @@ class Availability extends Page implements Forms\Contracts\HasForms
         ];
     }
 
+    private function getApiToken(): ?string
+{
+    $token = Cache::get('beds24_api_token'); // Check if the token exists in cache
+
+    if ($token) {
+        return $token; // Use cached token
+    }
+
+    // Fetch a new token using the refresh token
+    $response = Http::withHeaders(['refreshToken' => self::REFRESH_TOKEN])
+        ->get(self::TOKEN_REFRESH_URL);
+
+    if ($response->successful()) {
+        $data = $response->json();
+
+        // Check if the token exists in the response
+        if (isset($data['token']) && isset($data['expiresIn'])) {
+            $expiresInSeconds = (int) $data['expiresIn'];
+
+            // Cache the new token
+            Cache::put('beds24_api_token', $data['token'], now()->addSeconds($expiresInSeconds));
+
+            Log::info('API token refreshed successfully', [
+                'token' => $data['token'],
+                'expires_in' => $expiresInSeconds,
+            ]);
+
+            return $data['token'];
+        }
+
+        Log::error('Unexpected response format during token refresh', ['response' => $data]);
+        return null;
+    }
+
+    Log::error('Failed API token refresh response', ['response' => $response->body()]);
+    return null; // Return null if refreshing fails
+}
+
+
     public function submit()
     {
         $this->validate([
@@ -51,16 +94,16 @@ class Availability extends Page implements Forms\Contracts\HasForms
         ]);
 
         try {
-            $token = env('BEDS24_API_TOKEN');
+            $token = $this->getApiToken();
 
             if (!$token) {
-                Notification::make()->title('API token is missing!')->danger()->send();
+                Notification::make()->title('Failed to authenticate!')->danger()->send();
                 return;
             }
 
             // Format dates to match API requirements (YYYY-MM-DD)
-            $formattedArrivalDate = Carbon::createFromFormat('Y-m-d', $this->arrival_date)->format('Y-m-d');
-            $formattedDepartureDate = Carbon::createFromFormat('Y-m-d', $this->departure_date)->format('Y-m-d');
+            $formattedArrivalDate = Carbon::parse($this->arrival_date)->format('Y-m-d');
+            $formattedDepartureDate = Carbon::parse($this->departure_date)->format('Y-m-d');
 
             // Prepare request parameters
             $requestParams = [
