@@ -45,6 +45,8 @@ class SendTelegramMessageJob implements ShouldQueue
         // Retrieve the bot token from environment variables
         $botToken = config('services.telegram_bot');
 
+        Log::info('Bot token:', ['bot_token' => config('services.telegram_bot')]);
+
 
         // Log the bot token (caution: avoid logging sensitive tokens in production)
         Log::info('Using bot token for Telegram API.', [
