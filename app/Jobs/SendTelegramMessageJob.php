@@ -43,7 +43,8 @@ class SendTelegramMessageJob implements ShouldQueue
     public function handle()
     {
         // Retrieve the bot token from environment variables
-        $botToken = env('JAHONGIRCLEANINGBOT');
+        $botToken = config('services.telegram_bot');
+
 
         // Log the bot token (caution: avoid logging sensitive tokens in production)
         Log::info('Using bot token for Telegram API.', [
