@@ -59,12 +59,12 @@ class ScheduledMessageResource extends Resource
                     ->limit(30),
                 Tables\Columns\TextColumn::make('chat.name')
                     ->badge(),
-                Tables\Columns\TextColumn::make('status')
-                    ->badge()
-                    ->color(fn (string $state): string => match ($state) {
-                        'pending' => 'gray',
-                        'sent' => 'success',
-                    }),
+                Tables\Columns\TextColumn::make('status'),
+                    // ->badge()
+                    // ->color(fn (string $state): string => match ($state) {
+                    //     'pending' => 'gray',
+                    //     'sent' => 'success',
+                    // }),
                 Tables\Columns\TextColumn::make('scheduled_at')->dateTime(),
             ])
             ->filters([
