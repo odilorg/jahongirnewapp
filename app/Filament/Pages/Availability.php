@@ -129,86 +129,85 @@ class Availability extends Page implements Forms\Contracts\HasForms
 
             $data = $response->json();
             // Log the decoded JSON response
-Log::info('Decoded API JSON Response', ['decoded_response' => $data]);
+            Log::info('Decoded API JSON Response', ['decoded_response' => $data]);
 
-if (isset($data['success']) && $data['success']) {
-    $this->available_rooms = collect($data['data'])->map(function ($room) {
-        // Skip the room if it is permanently closed (roomId: 152726)
-        if ($room['roomId'] === 152726) {
-            Log::info('Skipping permanently closed room', ['roomId' => $room['roomId']]);
-            return null; // Skip this room
-        }
+            if (isset($data['success']) && $data['success']) {
+                $this->available_rooms = collect($data['data'])->map(function ($room) {
+                    // Skip the room if it is permanently closed (roomId: 152726)
+                    if ($room['roomId'] === 152726) {
+                        Log::info('Skipping permanently closed room', ['roomId' => $room['roomId']]);
+                        return null; // Skip this room
+                    }
 
-        $roomName = $room['name'];
-        $qty = (int) $room['qty'];
-        $unitBookings = $room['unitBookings'];
+                    $roomName = $room['name'];
+                    $qty = (int) $room['qty'];
+                    $unitBookings = $room['unitBookings'];
 
-        // Extract relevant dates (excluding departure date)
-        $dates = array_keys($unitBookings);
-        $relevantDates = array_slice($dates, 0, -1);
+                    // Extract relevant dates (excluding departure date)
+                    $dates = array_keys($unitBookings);
+                    $relevantDates = array_slice($dates, 0, -1);
 
-        // Check fully available units
-        $fullyAvailableUnits = 0;
-        foreach (range(1, $qty) as $unit) {
-            $isFullyAvailable = true;
-            foreach ($relevantDates as $date) {
-                if (!isset($unitBookings[$date][$unit]) || $unitBookings[$date][$unit] !== 0) {
-                    $isFullyAvailable = false;
-                    break;
-                }
+                    // Check fully available units
+                    $fullyAvailableUnits = 0;
+                    foreach (range(1, $qty) as $unit) {
+                        $isFullyAvailable = true;
+                        foreach ($relevantDates as $date) {
+                            if (!isset($unitBookings[$date][$unit]) || $unitBookings[$date][$unit] !== 0) {
+                                $isFullyAvailable = false;
+                                break;
+                            }
+                        }
+                        if ($isFullyAvailable) {
+                            $fullyAvailableUnits++;
+                        }
+                    }
+
+                    if ($fullyAvailableUnits > 0) {
+                        return [
+                            'name' => $roomName,
+                            'available_qty' => $fullyAvailableUnits,
+                            'total_qty' => $qty,
+                            'price' => mt_rand(50, 100), // Placeholder price
+                            'switching_required' => false,
+                        ];
+                    }
+
+                    // Check switching availability
+                    $isSwitchingAvailable = true;
+                    foreach ($relevantDates as $date) {
+                        $availableUnits = 0;
+                        foreach (range(1, $qty) as $unit) {
+                            if (isset($unitBookings[$date][$unit]) && $unitBookings[$date][$unit] === 0) {
+                                $availableUnits++;
+                            }
+                        }
+                        if ($availableUnits < 1) {
+                            $isSwitchingAvailable = false;
+                            break;
+                        }
+                    }
+
+                    if ($isSwitchingAvailable) {
+                        return [
+                            'name' => $roomName,
+                            'available_qty' => 0, // At least one unit is available (adjusted for your requirement)
+                            'total_qty' => $qty,
+                            'price' => mt_rand(50, 100), // Placeholder price
+                            'switching_required' => true,
+                        ];
+                    }
+
+                    return null;
+                })->filter()->values()->toArray();
+
+                Notification::make()
+                    ->title(count($this->available_rooms) > 0 ? 'Rooms found successfully!' : 'No rooms available.')
+                    ->success()
+                    ->send();
+            } else {
+                Log::error('API Response Error', ['response' => $data]);
+                Notification::make()->title('Failed to fetch room availability!')->danger()->send();
             }
-            if ($isFullyAvailable) {
-                $fullyAvailableUnits++;
-            }
-        }
-
-        if ($fullyAvailableUnits > 0) {
-            return [
-                'name' => $roomName,
-                'available_qty' => $fullyAvailableUnits,
-                'total_qty' => $qty,
-                'price' => mt_rand(50, 100), // Placeholder price
-                'switching_required' => false,
-            ];
-        }
-
-        // Check switching availability
-        $isSwitchingAvailable = true;
-        foreach ($relevantDates as $date) {
-            $availableUnits = 0;
-            foreach (range(1, $qty) as $unit) {
-                if (isset($unitBookings[$date][$unit]) && $unitBookings[$date][$unit] === 0) {
-                    $availableUnits++;
-                }
-            }
-            if ($availableUnits < 1) {
-                $isSwitchingAvailable = false;
-                break;
-            }
-        }
-
-        if ($isSwitchingAvailable) {
-            return [
-                'name' => $roomName,
-                'available_qty' => 1, // At least one unit is available (adjusted for your requirement)
-                'total_qty' => $qty,
-                'price' => mt_rand(50, 100), // Placeholder price
-                'switching_required' => true,
-            ];
-        }
-
-        return null;
-    })->filter()->values()->toArray();
-
-    Notification::make()
-        ->title(count($this->available_rooms) > 0 ? 'Rooms found successfully!' : 'No rooms available.')
-        ->success()
-        ->send();
-} else {
-    Log::error('API Response Error', ['response' => $data]);
-    Notification::make()->title('Failed to fetch room availability!')->danger()->send();
-}
-
         } catch (\Exception $e) {
             Log::error('Error fetching room availability: ' . $e->getMessage(), [
                 'trace' => $e->getTraceAsString(),

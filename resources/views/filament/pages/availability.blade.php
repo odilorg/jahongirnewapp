@@ -61,11 +61,6 @@
                                             @endfor
                                         </select>
                                     </td>
-                                    
-                                    
-                                    
-                                    
-                                    
                                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-100">
                                         ${{ number_format($room['price'], 2) }}
                                     </td>
@@ -77,6 +72,79 @@
                         </tbody>
                     </table>
                 </div>
+
+                {{-- Additional Form Fields --}}
+                <div class="space-y-4 mt-4 p-4 bg-gray-900 rounded-lg">
+                    <h3 class="text-gray-100 text-lg font-semibold">Guest Details</h3>
+                    
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <x-filament::input
+                            wire:model.defer="form.roomId"
+                            label="Room ID"
+                            placeholder="Enter Room ID"
+                            required
+                        />
+                        <x-filament::input
+                            wire:model.defer="form.status"
+                            label="Status"
+                            placeholder="Enter Status"
+                            required
+                        />
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <x-filament::input
+                            wire:model.defer="form.arrival"
+                            label="Arrival Date"
+                            type="date"
+                            required
+                        />
+                        <x-filament::input
+                            wire:model.defer="form.departure"
+                            label="Departure Date"
+                            type="date"
+                            required
+                        />
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <x-filament::input
+                            wire:model.defer="form.numAdult"
+                            label="Number of Adults"
+                            type="number"
+                            placeholder="Enter number of adults"
+                            required
+                        />
+                        <x-filament::input
+                            wire:model.defer="form.firstName"
+                            label="First Name"
+                            placeholder="Enter First Name"
+                            required
+                        />
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <x-filament::input
+                            wire:model.defer="form.lastName"
+                            label="Last Name"
+                            placeholder="Enter Last Name"
+                            required
+                        />
+                        <x-filament::input
+                            wire:model.defer="form.email"
+                            label="Email"
+                            type="email"
+                            placeholder="Enter Email Address"
+                            required
+                        />
+                    </div>
+                    <x-filament::input
+                        wire:model.defer="form.mobile"
+                        label="Mobile"
+                        type="tel"
+                        placeholder="Enter Mobile Number"
+                        required
+                    />
+                </div>
+
+                {{-- Save Button --}}
                 <div class="flex justify-end mt-4">
                     <x-filament::button type="submit">
                         Save Bookings
