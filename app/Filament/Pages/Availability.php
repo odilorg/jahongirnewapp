@@ -47,41 +47,43 @@ class Availability extends Page implements Forms\Contracts\HasForms
     }
 
     private function getApiToken(): ?string
-    {
-        // Check if token exists in cache
-        $token = Cache::get('beds24_api_token');
+{
+    $token = Cache::get('beds24_api_token'); // Check if the token exists in cache
 
-        if ($token) {
-            return $token;
+    if ($token) {
+        return $token; // Use cached token
+    }
+
+    // Fetch a new token using the refresh token
+    $response = Http::withHeaders(['refreshToken' => self::REFRESH_TOKEN])
+        ->get(self::TOKEN_REFRESH_URL);
+
+    if ($response->successful()) {
+        $data = $response->json();
+
+        // Check if the token exists in the response
+        if (isset($data['token']) && isset($data['expiresIn'])) {
+            $expiresInSeconds = (int) $data['expiresIn'];
+
+            // Cache the new token
+            Cache::put('beds24_api_token', $data['token'], now()->addSeconds($expiresInSeconds));
+
+            Log::info('API token refreshed successfully', [
+                'token' => $data['token'],
+                'expires_in' => $expiresInSeconds,
+            ]);
+
+            return $data['token'];
         }
 
-        // Fetch a new token using the refresh token
-        try {
-            $response = Http::withHeaders([
-                'refreshToken' => self::REFRESH_TOKEN,
-            ])->get(self::TOKEN_REFRESH_URL);
-
-            if ($response->successful()) {
-                $data = $response->json();
-
-                if (isset($data['token'], $data['expires'])) {
-                    $token = $data['token'];
-                    $expiresIn = Carbon::now()->addSeconds($data['expires']);
-
-                    // Store the token in the cache with an expiration time
-                    Cache::put('beds24_api_token', $token, $expiresIn);
-
-                    return $token;
-                }
-            }
-
-            Log::error('Failed to refresh API token', ['response' => $response->body()]);
-        } catch (\Exception $e) {
-            Log::error('Error refreshing API token: ' . $e->getMessage(), ['trace' => $e->getTraceAsString()]);
-        }
-
+        Log::error('Unexpected response format during token refresh', ['response' => $data]);
         return null;
     }
+
+    Log::error('Failed API token refresh response', ['response' => $response->body()]);
+    return null; // Return null if refreshing fails
+}
+
 
     public function submit()
     {
@@ -128,17 +130,9 @@ class Availability extends Page implements Forms\Contracts\HasForms
             }
 
             $data = $response->json();
-            // Log the decoded JSON response
-            Log::info('Decoded API JSON Response', ['decoded_response' => $data]);
 
             if (isset($data['success']) && $data['success']) {
                 $this->available_rooms = collect($data['data'])->map(function ($room) {
-                    // Skip the room if it is permanently closed (roomId: 152726)
-                    if ($room['roomId'] === 152726) {
-                        Log::info('Skipping permanently closed room', ['roomId' => $room['roomId']]);
-                        return null; // Skip this room
-                    }
-
                     $roomName = $room['name'];
                     $qty = (int) $room['qty'];
                     $unitBookings = $room['unitBookings'];
@@ -190,7 +184,7 @@ class Availability extends Page implements Forms\Contracts\HasForms
                     if ($isSwitchingAvailable) {
                         return [
                             'name' => $roomName,
-                            'available_qty' => 0, // At least one unit is available (adjusted for your requirement)
+                            'available_qty' => 0,
                             'total_qty' => $qty,
                             'price' => mt_rand(50, 100), // Placeholder price
                             'switching_required' => true,
