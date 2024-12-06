@@ -27,7 +27,7 @@ class ScheduledMessageResource extends Resource
     public static function form(Form $form): Form
     {
 
-        dd(env('JAHONGIRCLEANINGBOT'));
+      //  dd(env('JAHONGIRCLEANINGBOT'));
 
         return $form
             ->schema([
