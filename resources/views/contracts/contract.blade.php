@@ -18,7 +18,7 @@
         }
         .header {
             text-align: center;
-            margin-bottom: 10px;
+            margin-bottom: 7px;
         }
         .header .contract-number,
         .header .date {
@@ -30,13 +30,13 @@
             float: right;
         }
         .section {
-            margin-top: 10px;
+            margin-top: 7px;
         }
         .section-title {
             font-weight: bold;
-            font-size: 16px;
+            font-size: 14px;
             text-align: center; /* Centered title */
-            margin-bottom: 10px;
+            margin-bottom: 7px;
         }
     </style>
 </head>
@@ -163,16 +163,17 @@
                         ИНН 300965341 ОКОНХ 91620<br>
                         г. Самарканд, ул. Чироки №4<br>
                         Тел: (+998 91) 555 08 08<br>
+                        Директор: {{ $contract->hotel->director_name }}<br>
                     </td>
                     <td style="width: 50%; vertical-align: top; padding: 10px;">
                         <strong>Турфирма:</strong><br>
-                        Название организации: {{ $contract->turfirma->official_name }}<br>
+                        {{ $contract->turfirma->official_name }}<br>
                         р/с: {{ $contract->turfirma->account_number }}<br>
                         ИНН: {{ $contract->turfirma->inn }}<br>
                         {{ $contract->turfirma->bank_name }}<br>
                         МФО: {{ $contract->turfirma->bank_mfo }}<br>
-                        Адрес: {{ $contract->turfirma->address_street }}, {{ $contract->turfirma->address_city }}<br>
-                        Телефон: {{ $contract->turfirma->phone }}<br>
+                        {{ $contract->turfirma->address_street }}, {{ $contract->turfirma->address_city }}<br>
+                        Тел.: {{ $contract->turfirma->phone }}<br>
                         Директор: {{ $contract->turfirma->director_name }}<br>
                     </td>
                 </tr>
