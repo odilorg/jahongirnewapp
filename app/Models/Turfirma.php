@@ -19,6 +19,7 @@ class Turfirma extends Model
         'account_number',
         'bank_name',
         'bank_mfo',
+        'director_name'
     ];
 
     

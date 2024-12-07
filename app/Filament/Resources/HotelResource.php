@@ -45,6 +45,9 @@ class HotelResource extends Resource
                 Forms\Components\TextInput::make('address')
                     ->required()
                     ->maxLength(255),
+                Forms\Components\TextInput::make('director_name')
+                    ->required()
+                    ->maxLength(255),    
                 Forms\Components\TextInput::make('phone')
                     ->tel()
                     ->required()

@@ -65,7 +65,7 @@ return [
          * using the PDFLib back end.
          */
         'temp_dir' => sys_get_temp_dir(),
-
+        
         /**
          * ==== IMPORTANT ====
          *
@@ -178,7 +178,7 @@ return [
          *
          * @var string
          */
-        'default_font' => 'serif',
+        'default_font' => 'DejaVu Sans',
 
         /**
          * Image DPI setting

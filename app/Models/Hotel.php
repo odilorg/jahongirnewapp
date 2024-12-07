@@ -23,7 +23,8 @@ protected $fillable = [
      'address',
      'phone',
      'email',
-     'website'
+     'website',
+     'director_name'
     ];
 
 }

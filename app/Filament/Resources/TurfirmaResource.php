@@ -58,6 +58,9 @@ class TurfirmaResource extends Resource
                 Forms\Components\TextInput::make('bank_mfo')
                     ->required()
                     ->numeric(),
+                Forms\Components\TextInput::make('director_name')
+                    ->required()
+                    ->maxLength(255), 
             ]);
     }
 
