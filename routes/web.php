@@ -1,7 +1,9 @@
 <?php
 
 use App\Models\Chat;
+use App\Jobs\TestJob;
 use App\Models\ScheduledMessage;
+use Illuminate\Support\Facades\Log;
 use App\Jobs\SendTelegramMessageJob;
 use Illuminate\Support\Facades\Route;
 
@@ -15,6 +17,11 @@ use Illuminate\Support\Facades\Route;
 | be assigned to the "web" middleware group. Make something great!
 |
 */
+
+Route::get('/test-job', function () {
+    TestJob::dispatch();
+    return 'Test job dispatched!';
+});
 
 Route::get('/', function () {
     return redirect()->route('filament.admin.auth.login');
