@@ -21,7 +21,7 @@ class Room extends Model
         'hotel_id',
         'price',
         'price_as_single',
-        'room_type'
+        'room_type_id'
     ];
 
     protected $casts = [

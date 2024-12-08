@@ -36,9 +36,7 @@ class RoomResource extends Resource
                     ->required()
                     ->maxLength(65535)
                     ->columnSpanFull(),
-                Forms\Components\TextInput::make('quantity')
-                    ->required()
-                    ->numeric(),
+               
                 Forms\Components\TextInput::make('room_number')
                     ->required()
                     ->numeric(),
@@ -48,12 +46,7 @@ class RoomResource extends Resource
                 Forms\Components\TextInput::make('notes')
                     //->required()
                     ->maxLength(255),
-                Forms\Components\TextInput::make('price')
-                    ->numeric()
-                    ->prefix('UZ'),
-                Forms\Components\TextInput::make('price_as_single')
-                    ->numeric()
-                    ->prefix('UZ'),    
+                  
                     //->maxValue(42949672.95),    
                 // CheckboxList::make('amenities')
                 //     ->relationship()
@@ -63,21 +56,11 @@ class RoomResource extends Resource
                     ->bulkToggleable(),
                 Select::make('hotel_id')
                     ->relationship(name: 'hotel', titleAttribute: 'name'),
-                Select::make('room_type')
-                    ->options([
-                        'single' => 'Single',
-                        'double' => 'Double',
-                        'twin' => 'Twin',
-                        'double/twin' => 'Double/Twin',
-                        'junior_suite' => 'Junior Suite',
-                        'family_room' => 'Quad/Family',
-                        'superior_double' => 'Superior Double',
-                        'deluxe_dbl_twin' => 'Deluxe Double/Twin',
-                        'queen' => 'Queen',
-                        'deluxe_triple' => 'Deluxe Triple',
-                        'deluxe_single' => 'Deluxe Single',
-                        'superior_double_twin' => 'Superior Double/Twin',
-                    ])        
+               
+                    Select::make('room_type_id') // Use the foreign key field name
+    ->relationship('roomType', 'name') // Reference the relationship and display field
+    ->label('Room Type')
+    ->required()
 
             ]);
     }
