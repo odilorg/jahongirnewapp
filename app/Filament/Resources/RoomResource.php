@@ -51,6 +51,9 @@ class RoomResource extends Resource
                 Forms\Components\TextInput::make('price')
                     ->numeric()
                     ->prefix('UZ'),
+                Forms\Components\TextInput::make('price_as_single')
+                    ->numeric()
+                    ->prefix('UZ'),    
                     //->maxValue(42949672.95),    
                 // CheckboxList::make('amenities')
                 //     ->relationship()

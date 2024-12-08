@@ -20,11 +20,13 @@ class Room extends Model
         'notes',
         'hotel_id',
         'price',
+        'price_as_single',
         'room_type'
     ];
 
     protected $casts = [
         'price' => MoneyCast::class,
+        'price_as_single' => MoneyCast::class,
     ];
 
     public function amenities()
@@ -36,4 +38,11 @@ public function hotel(): BelongsTo
 {
     return $this->belongsTo(Hotel::class);
 }
+
+public function roomType()
+    {
+        return $this->belongsTo(RoomType::class);
+    }
+
+
 }

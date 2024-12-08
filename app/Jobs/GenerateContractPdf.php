@@ -2,6 +2,7 @@
 namespace App\Jobs;
 
 use App\Models\Contract;
+use App\Models\Room; // Import the Room model
 use Barryvdh\DomPDF\Facade\PDF;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -35,15 +36,24 @@ class GenerateContractPdf implements ShouldQueue
      */
     public function handle()
     {
-
         Log::info('GenerateContractPdf Job handling started.');
         Log::info('Environment: ' . app()->environment());
         try {
             // Log the contract data
             Log::info('GenerateContractPdf Job started for Contract ID: ' . $this->contract->id);
 
+            // Fetch rooms belonging to hotel_id = 1
+           // Fetch and group rooms by room_type
+        $rooms = Room::where('hotel_id', 1)
+        ->get()
+        ->groupBy('room_type');
+            Log::info('Fetched ' . $rooms->count() . ' rooms for hotel_id = 1.');
+
             // Generate the PDF
-            $pdf = PDF::loadView('contracts.contract', ['contract' => $this->contract]);
+            $pdf = PDF::loadView('contracts.contract', [
+                'contract' => $this->contract,
+                'rooms' => $rooms, // Pass the rooms to the view
+            ]);
             Log::info('PDF generated successfully for Contract ID: ' . $this->contract->id);
 
             // Define file name and path

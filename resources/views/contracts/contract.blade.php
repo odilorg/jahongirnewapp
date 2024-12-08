@@ -187,6 +187,80 @@
             </table>
         </div>
 
+        <div class="pricing-table">
+            <style>
+                .pricing-table {
+                    font-family: Arial, sans-serif;
+                    background-color: #fff;
+                    padding: 20px;
+                    border-radius: 5px;
+                    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+                    margin: 20px 0;
+                    max-width: 100%;
+                    overflow-x: auto;
+                }
+        
+                .pricing-table table {
+                    width: 100%;
+                    border-collapse: collapse;
+                }
+        
+                .pricing-table th, .pricing-table td {
+                    border: 1px solid #000;
+                    text-align: center;
+                    padding: 8px;
+                    font-size: 14px;
+                }
+        
+                .pricing-table th {
+                    background-color: #f4f4f4;
+                    font-weight: bold;
+                }
+        
+                .pricing-table tr:nth-child(even) {
+                    background-color: #f9f9f9;
+                }
+        
+                .pricing-table tr:hover {
+                    background-color: #f1f1f1;
+                }
+            </style>
+        
+            <table>
+                <thead>
+                    <tr>
+                        <th rowspan="2">Тип размещения</th>
+                        <th colspan="2">Низкий сезон<br>(с 15.11 по 01.03.2024)</th>
+                        <th colspan="2">Сезон<br>(с 01.03 по 15.11.2024)</th>
+                        <th rowspan="2">Кол-во номеров<br>/ макс. вмест. (шт./чел)</th>
+                    </tr>
+                    <tr>
+                        <th>одномест. Разм.</th>
+                        <th>двум. Разм.</th>
+                        <th>одномест. Разм.</th>
+                        <th>двум. Разм.</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    
+                    <tr>
+                        <td>Single-J</td>
+                        <td>356 400</td>
+                        <td>356 400</td>
+                        <td>396 000</td>
+                        <td>356 400</td>
+                        <td>3 / 3</td>
+                    </tr>
+                    
+                    
+                   
+                </tbody>
+            </table>
+        </div>
+        
+        
+
+        
         <p>
             <strong>Директор:</strong> {{ $contract->director_signature }}
         </p>
