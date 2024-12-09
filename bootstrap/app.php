@@ -15,7 +15,7 @@ $app = new Illuminate\Foundation\Application(
     $_ENV['APP_BASE_PATH'] ?? dirname(__DIR__)
 );
 
-$app->register(\Barryvdh\DomPDF\ServiceProvider::class);
+//$app->register(\Barryvdh\DomPDF\ServiceProvider::class);
 /*
 |--------------------------------------------------------------------------
 | Bind Important Interfaces
