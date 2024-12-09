@@ -89,15 +89,15 @@ class TurfirmaResource extends Resource
                 Tables\Columns\TextColumn::make('email')
                     ->searchable(),
                 Tables\Columns\TextColumn::make('inn')
-                    ->numeric()
+                   // ->numeric()
                     ->sortable(),
                 Tables\Columns\TextColumn::make('account_number')
-                    ->numeric()
+                   // ->numeric()
                     ->sortable(),
                 Tables\Columns\TextColumn::make('bank_name')
                     ->searchable(),
                 Tables\Columns\TextColumn::make('bank_mfo')
-                    ->numeric()
+                   // ->numeric()
                     ->sortable(),
             ])
             ->filters([
