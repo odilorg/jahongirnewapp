@@ -40,16 +40,31 @@ class GenerateContractPdf implements ShouldQueue
         Log::info('GenerateContractPdf Job handling started.');
         Log::info('Environment: ' . app()->environment());
         try {
+
+            // Define the contract_end_date based on the condition
+        $contractDate = \Carbon\Carbon::parse($this->contract->date);
+        $contractMonth = $contractDate->month;
+
+        if ($contractMonth === 11 || $contractMonth === 12) { // November or December
+            $contract_end_date = $contractDate->year + 1; // Next year
+        } else {
+            $contract_end_date = $contractDate->year; // Current year
+        }
+
+            
             // Define the hotels to process
             $hotels = [
                 1 => 'Jahongir',
                 2 => 'JahongirPr'
             ];
 
+
+
+
             $hotelData = collect();
 
             foreach ($hotels as $hotelId => $hotelName) {
-                $roomData = RoomType::where('hotel_id', $hotelId)->get();
+                $roomData = RoomType::with('hotel')->where('hotel_id', $hotelId)->get();
                 $totalBeds = $roomData->sum('number_of_beds');
                 $totalNumber = $roomData->sum('quantity');
 
@@ -76,6 +91,7 @@ class GenerateContractPdf implements ShouldQueue
             $pdf = PDF::loadView('contracts.contract', [
                 'contract' => $this->contract,
                 'hotelData' => $hotelData,
+                'contract_end_date' => $contract_end_date, // Pass the contract_end_date to the view
             ]);
             Log::info('PDF generated successfully for Contract ID: ' . $this->contract->id);
 

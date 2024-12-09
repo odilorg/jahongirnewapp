@@ -145,7 +145,7 @@
         <div class="section">
             <div class="section-title">6. СРОК ДЕЙСТВИЯ ДОГОВОРА</div>
             <p>
-                6.1. Настоящий Договор вступает в силу с момента подписания и действует до «31» декабря {{ date('Y', strtotime($contract->date)) }} г.
+                6.1. Настоящий Договор вступает в силу с момента подписания и действует до «31» декабря {{ $contract_end_date }} г.
             </p>
             <p>
                 6.2. Настоящий Договор подлежит расторжению в одностороннем порядке в случаях грубого нарушения одной из сторон своих обязательств по настоящему Договору или ликвидации предприятия. Сторона, желающая расторгнуть Договор, должна уведомить другую сторону письменно не позднее, чем за одну неделю до предполагаемой даты расторжения.
@@ -178,9 +178,8 @@
                     </td>
                 </tr>
                 <tr>
-                    <td colspan="2" style="text-align: right; padding-top: 20px;">
-                        Приложение № 1 к договору № {{ $contract->number }}<br>
-                        {{ \Carbon\Carbon::parse($contract->date)->format('d.m.Y') }}<br>
+                    <td colspan="3" style="text-align: right; padding-top: 20px;">
+                        Приложение № 1 к договору № {{ $contract->number }} от {{ \Carbon\Carbon::parse($contract->date)->format('d/m/Y') }}<br>
                         (является неотъемлемой частью договора и без него не действительно)
                     </td>
                 </tr>
@@ -226,48 +225,56 @@
                 }
             </style>
         
-            <table>
-                <thead>
-                    <tr>
-                        <th rowspan="2">Тип размещения</th>
-                        <th colspan="2">Низкий сезон<br>(с 15.11 по 01.03.2024)</th>
-                        <th colspan="2">Сезон<br>(с 01.03 по 15.11.2024)</th>
-                        <th rowspan="2">Кол-во номеров<br>/ макс. вмест. (шт./чел)</th>
-                    </tr>
-                    <tr>
-                        <th>одномест. Разм.</th>
-                        <th>двум. Разм.</th>
-                        <th>одномест. Разм.</th>
-                        <th>двум. Разм.</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach ($hotelData as $hotelId => $data)
+        <table border="1" cellpadding="10" cellspacing="0" style="width: 100%; border-collapse: collapse; text-align: center;">
+            <thead>
+                <tr style="background-color: #f4f4f4;">
+                    <th rowspan="2" style="padding: 8px; vertical-align: middle;">Тип размещения</th>
+                    <th colspan="2" style="padding: 8px;">Несезон (С 15.11 по 01.03)</th>
+                    <th colspan="2" style="padding: 8px;">Сезон (С 01.03 по 15.11)</th>
+                    <th rowspan="2" style="padding: 8px; vertical-align: middle;">Кол-во номеров / макс. вмест. (шт/чел)</th>
+                </tr>
+                <tr style="background-color: #f4f4f4;">
+                    <th style="padding: 8px;">одномест. Разм.</th>
+                    <th style="padding: 8px;">двум. Разм.</th>
+                    <th style="padding: 8px;">одномест. Разм.</th>
+                    <th style="padding: 8px;  width: 90px;">двум. Разм.</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{-- Iterate over hotels --}}
+                @foreach ($hotelData as $hotelId => $data)
                     <!-- Hotel Header -->
-                    <tr>
-                        <td colspan="6">{{ $data['hotelName'] }}</td>
+                    <tr style="background-color: #dfe6e9; font-weight: bold;">
+                        <td colspan="6" style="padding: 8px;">{{ $data['hotelName'] }}</td>
                     </tr>
-                
-                    <!-- Room Data -->
+        
+                    <!-- Room Data Rows -->
                     @foreach ($data['rooms'] as $room)
                         <tr>
-                            <td>{{ $room->name }}</td>
-                            <td>{{ number_format($room->discounted_price_as_single_for_hotel[$hotelId] ?? $room->price_as_single, 0, '.', ' ') }} UZS</td>
-                            <td>{{ number_format($room->discounted_price_as_double_for_hotel[$hotelId] ?? $room->price_as_double, 0, '.', ' ') }} UZS</td>
-                            <td>{{ number_format($room->price_as_single, 0, '.', ' ') }} UZS</td>
-                            <td>{{ number_format($room->price_as_double, 0, '.', ' ') }} UZS</td>
-                            <td>{{ $room->quantity }} / {{ $room->number_of_beds }}</td>
+                            <td style="padding: 8px; font-size: 11px;">{{ $room->name }}</td>
+                            <td style="padding: 8px;">
+                                {{ number_format(ceil(($room->discounted_price_as_single_for_hotel['hotel_' . $hotelId] ?? $room->price_as_single) / 1000) * 1000, 0, '.', ' ') }}
+                            </td>
+                            <td style="padding: 8px;  width: 90px;">
+                                {{ number_format(ceil(($room->discounted_price_as_double_for_hotel['hotel_' . $hotelId] ?? $room->price_as_double) / 1000) * 1000, 0, '.', ' ') }}
+                            </td>
+                            <td style="padding: 8px;">
+                                {{ number_format($room->price_as_single, 0, '.', ' ') }}
+                            </td>
+                            <td style="padding: 8px;">
+                                {{ number_format($room->price_as_double, 0, '.', ' ') }}
+                            </td>
+                            <td style="padding: 8px;">
+                                {{ $room->quantity }} / {{ $room->number_of_beds }}
+                            </td>
                         </tr>
                     @endforeach
-                
-                    <!-- Totals for Hotel -->
-                    
                 @endforeach
-                
-                </tbody>
-                
-                
-            </table>
+            </tbody>
+        </table>
+         
+        
+        
         </div>
         
         
@@ -282,3 +289,7 @@
     </div>
 </body>
 </html>
+
+
+
+
