@@ -10,6 +10,7 @@ use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
+use FontLib\Table\Type\name;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
 
@@ -36,6 +37,16 @@ class RoomTypeResource extends Resource
                     ->required()
                     ->numeric()
                     ->prefix('UZ'), 
+                Forms\Components\TextInput::make('quantity')
+                    ->required()
+                    ->numeric(),     
+                Forms\Components\TextInput::make('number_of_beds')
+                    ->required()
+                    ->numeric(), 
+                Forms\Components\Select::make('hotel_id')
+                     ->relationship('hotel', 'name' )
+                    ->required()
+                    ->preload()          
             ]);
     }
 

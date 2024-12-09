@@ -17,7 +17,7 @@ return [
     */
 
     'name' => env('APP_NAME', 'Laravel'),
-
+    'winter_discount' => env('WINTER_DISCOUNT', 0),
     /*
     |--------------------------------------------------------------------------
     | Application Environment

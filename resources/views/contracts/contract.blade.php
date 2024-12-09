@@ -190,7 +190,7 @@
         <div class="pricing-table">
             <style>
                 .pricing-table {
-                    font-family: Arial, sans-serif;
+                    font-family: 'DejaVu Sans', sans-serif;
                     background-color: #fff;
                     padding: 20px;
                     border-radius: 5px;
@@ -242,19 +242,31 @@
                     </tr>
                 </thead>
                 <tbody>
-                    
+                    @foreach ($hotelData as $hotelId => $data)
+                    <!-- Hotel Header -->
                     <tr>
-                        <td>Single-J</td>
-                        <td>356 400</td>
-                        <td>356 400</td>
-                        <td>396 000</td>
-                        <td>356 400</td>
-                        <td>3 / 3</td>
+                        <td colspan="6">{{ $data['hotelName'] }}</td>
                     </tr>
+                
+                    <!-- Room Data -->
+                    @foreach ($data['rooms'] as $room)
+                        <tr>
+                            <td>{{ $room->name }}</td>
+                            <td>{{ number_format($room->discounted_price_as_single_for_hotel[$hotelId] ?? $room->price_as_single, 0, '.', ' ') }} UZS</td>
+                            <td>{{ number_format($room->discounted_price_as_double_for_hotel[$hotelId] ?? $room->price_as_double, 0, '.', ' ') }} UZS</td>
+                            <td>{{ number_format($room->price_as_single, 0, '.', ' ') }} UZS</td>
+                            <td>{{ number_format($room->price_as_double, 0, '.', ' ') }} UZS</td>
+                            <td>{{ $room->quantity }} / {{ $room->number_of_beds }}</td>
+                        </tr>
+                    @endforeach
+                
+                    <!-- Totals for Hotel -->
                     
-                    
-                   
+                @endforeach
+                
                 </tbody>
+                
+                
             </table>
         </div>
         
