@@ -43,33 +43,48 @@ class ListTurfirmas extends ListRecords
                         return;
                     }
 
-                    // Fetch data from the API
-                    $response = Http::get("https://gnk-api.didox.uz/api/v1/utils/info/{$data['tin']}");
+                    // Try the primary API endpoint
+                    $primaryResponse = Http::get("https://gnk-api.didox.uz/api/v1/utils/info/{$data['tin']}");
+                    $apiData = null;
 
-                    if (!$response->successful() || empty($response->json('shortName')) || empty($response->json('name'))) {
-                        // Show a notification if the API fetch fails
+                    if ($primaryResponse->successful() && !empty($primaryResponse->json('shortName')) && !empty($primaryResponse->json('name'))) {
+                        $apiData = $primaryResponse->json();
+                    } else {
+                        // If the primary API fails, try the first backup endpoint
+                        $backupResponse = Http::get("https://new.soliqservis.uz/api/np1/bytin/factura?tinOrPinfl={$data['tin']}");
+                        if ($backupResponse->successful() && !empty($backupResponse->json('shortName')) && !empty($backupResponse->json('name'))) {
+                            $apiData = $backupResponse->json();
+                        } else {
+                            // If the first backup API fails, try the second backup endpoint
+                            $secondBackupResponse = Http::get("https://stage.goodsign.biz/v1/utils/info/{$data['tin']}");
+                            if ($secondBackupResponse->successful() && !empty($secondBackupResponse->json('shortName')) && !empty($secondBackupResponse->json('name'))) {
+                                $apiData = $secondBackupResponse->json();
+                            }
+                        }
+                    }
+
+                    // If no API returned valid data
+                    if (!$apiData) {
                         Notification::make()
                             ->title('Error Fetching Data')
-                            ->body('The database is down, or the TIN is invalid. Please add the company details manually.')
+                            ->body('All APIs are down, or the TIN is invalid. Please add the company details manually.')
                             ->danger()
                             ->send();
 
                         throw ValidationException::withMessages([
-                            'tin' => 'Failed to fetch data. Please verify the TIN or add the data manually.',
+                            'tin' => 'Failed to fetch data from all APIs. Please verify the TIN or add the data manually.',
                         ]);
                     }
 
-                    $companyData = $response->json();
-
                     // Insert the new company data into the database
                     Turfirma::create([
-                        'name' => $companyData['shortName'] ?? null,
-                        'official_name' => $companyData['name'] ?? null,
-                        'address_street' => $companyData['address'] ?? null,
-                        'inn' => $companyData['tin'] ?? $data['tin'],
-                        'account_number' => $companyData['account'] ?? null,
-                        'bank_mfo' => $companyData['bankCode'] ?? null,
-                        'director_name' => $companyData['director'] ?? null,
+                        'name' => $apiData['shortName'] ?? null,
+                        'official_name' => $apiData['name'] ?? null,
+                        'address_street' => $apiData['address'] ?? null,
+                        'inn' => $apiData['tin'] ?? $data['tin'],
+                        'account_number' => $apiData['account'] ?? null,
+                        'mfo' => $apiData['mfo'] ?? null,
+                        'director_name' => $apiData['director'] ?? null,
                     ]);
 
                     // Notify the user of success
