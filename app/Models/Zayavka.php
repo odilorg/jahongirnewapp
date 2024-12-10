@@ -31,12 +31,13 @@ class Zayavka extends Model
         'hotel_id',
         'name',
         'rooming',
-        'notes'
+        'notes',
+        'user_id'
     ];
 
     public function acceptedBy()
 {
-    return $this->belongsTo(User::class, 'accepted_by');
+    return $this->belongsTo(User::class, 'user_id');
 }
 
 }

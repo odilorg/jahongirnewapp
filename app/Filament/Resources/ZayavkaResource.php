@@ -142,7 +142,7 @@ class ZayavkaResource extends Resource
                     ->label('Booking source, phone, email, name')
                     ->required()
                     ->maxLength(255),
-                Forms\Components\Hidden::make('accepted_by')
+                Forms\Components\Hidden::make('user_id')
                     ->default(fn () => auth()->id()) // Automatically set the authenticated user's ID
                     ->dehydrated(), // Ensure the value is saved to the database
                 Forms\Components\Textarea::make('description')
@@ -191,7 +191,9 @@ class ZayavkaResource extends Resource
                     ->searchable(),
                 Tables\Columns\TextColumn::make('source')
                     ->searchable(),
-                Tables\Columns\TextColumn::make('accepted_by')
+                Tables\Columns\TextColumn::make('acceptedBy.name')
+                    ->label('Accepted By')
+                    ->sortable()
                     ->searchable(),
                 Tables\Columns\TextColumn::make('description')
                     ->searchable(),
