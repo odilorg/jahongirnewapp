@@ -178,7 +178,7 @@
                     </td>
                 </tr>
                 <tr>
-                    <td colspan="3" style="text-align: right; padding-top: 60px;">
+                    <td colspan="3" style="text-align: right; padding-top: 100px;">
                         Приложение № 1 к договору № {{ $contract->number }} от {{ \Carbon\Carbon::parse($contract->date)->format('d/m/Y') }}<br>
                         (является неотъемлемой частью договора и без него не действительно)
                     </td>
