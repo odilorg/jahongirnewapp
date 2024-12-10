@@ -164,10 +164,11 @@ class ZayavkaResource extends Resource
                     ->acceptedFileTypes([
                         'application/pdf',
                         'application/msword',
-                        'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+                        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                        'image/jpeg'
 
                         ])
-                    ->image()
+                    //->image()
 
 
             ]);
