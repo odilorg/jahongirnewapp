@@ -187,7 +187,9 @@ class ZayavkaResource extends Resource
                     ->dateTime()
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
-                Tables\Columns\TextColumn::make('turfirma.name')
+                Tables\Columns\TextColumn::make('name')
+                    ->searchable(),
+                    Tables\Columns\TextColumn::make('turfirma.name')
                     ->numeric()
                     ->sortable(),
                 Tables\Columns\TextColumn::make('submitted_date')
