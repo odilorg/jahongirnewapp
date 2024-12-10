@@ -39,7 +39,7 @@ class GenerateContractPdf implements ShouldQueue
     {
 
         // Check if the Barryvdh\DomPDF\Facade class exists
-    dd(class_exists(PDF::class));
+    //dd(class_exists(PDF::class));
         Log::info('GenerateContractPdf Job handling started.');
         Log::info('Environment: ' . app()->environment());
         try {
