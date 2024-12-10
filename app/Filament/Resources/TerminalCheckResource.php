@@ -2,6 +2,9 @@
 
 namespace App\Filament\Resources;
 
+
+
+use Illuminate\Foundation\Auth\User as Authenticatable;
 use Filament\Forms;
 use Filament\Tables;
 use Filament\Forms\Form;
@@ -29,7 +32,14 @@ class TerminalCheckResource extends Resource
 
     protected static ?string $navigationGroup = 'Hotel Related';
 
+    
+    
+
     public static function form(Form $form): Form
+
+    
+
+
     {
         return $form
             ->schema([
@@ -187,6 +197,12 @@ class TerminalCheckResource extends Resource
         ];
     }
 
-
+    public static function canViewAny(): bool
+    {
+        /** @var \App\Models\User $user */
+        $user = auth()->user();
+        
+        return $user && $user->hasRole('super_admin');
+    }
 
 }

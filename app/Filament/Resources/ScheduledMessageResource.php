@@ -100,4 +100,12 @@ class ScheduledMessageResource extends Resource
             'edit' => Pages\EditScheduledMessage::route('/{record}/edit'),
         ];
     }
+
+    public static function canViewAny(): bool
+    {
+        /** @var \App\Models\User $user */
+        $user = auth()->user();
+        
+        return $user && $user->hasRole('super_admin');
+    }
 }

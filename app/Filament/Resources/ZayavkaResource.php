@@ -35,7 +35,7 @@ class ZayavkaResource extends Resource
                     ->label('Group Number')
                     ->required()
                     ->maxLength(255),
-                    Forms\Components\Select::make('turfirma_id')
+                Forms\Components\Select::make('turfirma_id')
                     ->relationship('turfirma', 'name')
                     ->required()
                     ->preload()
@@ -62,7 +62,7 @@ class ZayavkaResource extends Resource
                     ->createOptionUsing(function (array $data): int {
                         // Check if the company already exists in the database
                         $existingTurfirma = \App\Models\Turfirma::where('inn', $data['tin'])->first();
-                
+
                         if ($existingTurfirma) {
                             // Show a notification if the company already exists
                             Notification::make()
@@ -70,14 +70,14 @@ class ZayavkaResource extends Resource
                                 ->body('A company with this TIN already exists.')
                                 ->success()
                                 ->send();
-                
+
                             // Return the ID of the existing company
                             return $existingTurfirma->id;
                         }
-                
+
                         // Initialize variable for the API data
                         $apiData = null;
-                
+
                         // Try the primary API endpoint
                         $primaryResponse = Http::get("https://gnk-api.didox.uz/api/v1/utils/info/{$data['tin']}");
                         if ($primaryResponse->successful() && !empty($primaryResponse->json('shortName')) && !empty($primaryResponse->json('name'))) {
@@ -95,7 +95,7 @@ class ZayavkaResource extends Resource
                                 }
                             }
                         }
-                
+
                         // If no API returned valid data
                         if (!$apiData) {
                             Notification::make()
@@ -103,12 +103,12 @@ class ZayavkaResource extends Resource
                                 ->body('All APIs are down, or the TIN is invalid. Please add the company details manually.')
                                 ->danger()
                                 ->send();
-                
+
                             throw ValidationException::withMessages([
                                 'tin' => 'Failed to fetch data from all APIs. Please verify the TIN or add the data manually.',
                             ]);
                         }
-                
+
                         // Create a new Turfirma record in the database
                         $newTurfirma = \App\Models\Turfirma::create([
                             'name' => $apiData['shortName'] ?? null,
@@ -122,11 +122,11 @@ class ZayavkaResource extends Resource
                             'email' => $data['email'], // Save the email from the form
                             'api_data' => json_encode($apiData), // Save the JSON data
                         ]);
-                
+
                         // Return the primary key of the newly created Turfirma
                         return $newTurfirma->id;
                     }),
-                
+
                 Forms\Components\DatePicker::make('submitted_date')
                     //->format('d/m/Y')
                     ->native(false)
@@ -142,13 +142,9 @@ class ZayavkaResource extends Resource
                     ->label('Booking source, phone, email, name')
                     ->required()
                     ->maxLength(255),
-                Select::make('accepted_by')
-                    ->options([
-                        'odil' => 'Odil',
-                        'zafar' => 'Zafar',
-                        'javohir' => 'Javohir',
-                        'asror' => 'Asror',
-                    ]),
+                Forms\Components\Hidden::make('accepted_by')
+                    ->default(fn () => auth()->id()) // Automatically set the authenticated user's ID
+                    ->dehydrated(), // Ensure the value is saved to the database
                 Forms\Components\Textarea::make('description')
                     ->required()
                     ->maxLength(255),

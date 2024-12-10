@@ -10,6 +10,13 @@ use Filament\Models\Contracts\FilamentUser;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 
+
+/**
+ * @property string $role
+ * @method bool hasRole(string $role)
+ * @method bool hasAnyRole(array $roles)
+ */
+
 class User extends Authenticatable implements FilamentUser
 {
     use HasApiTokens, HasFactory, Notifiable;
@@ -17,7 +24,7 @@ class User extends Authenticatable implements FilamentUser
 
     public function canAccessPanel(Panel $panel): bool
     {
-        return $this->email === 'odilorg@gmail.com'; 
+        return self::where('email', $this->email)->exists(); 
         }
     /**
      * The attributes that are mass assignable.
@@ -28,6 +35,7 @@ class User extends Authenticatable implements FilamentUser
         'name',
         'email',
         'password',
+        'role'
     ];
 
     /**
@@ -38,6 +46,7 @@ class User extends Authenticatable implements FilamentUser
     protected $hidden = [
         'password',
         'remember_token',
+        
     ];
 
     /**
@@ -49,4 +58,18 @@ class User extends Authenticatable implements FilamentUser
         'email_verified_at' => 'datetime',
         'password' => 'hashed',
     ];
+
+    // Check if the user has a specific role
+    public function hasRole(string $role): bool
+    {
+        return $this->role === $role;
+    }
+
+    // Check if the user has any role in a list
+    public function hasAnyRole(array $roles): bool
+    {
+        return in_array($this->role, $roles);
+    }
+
+
 }

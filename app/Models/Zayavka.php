@@ -33,4 +33,10 @@ class Zayavka extends Model
         'rooming',
         'notes'
     ];
+
+    public function acceptedBy()
+{
+    return $this->belongsTo(User::class, 'accepted_by');
+}
+
 }
