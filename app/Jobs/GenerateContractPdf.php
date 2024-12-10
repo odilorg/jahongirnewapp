@@ -4,7 +4,7 @@ namespace App\Jobs;
 use App\Models\Contract;
 use App\Models\Room; // Import the Room model
 use App\Models\RoomType;
-use Barryvdh\DomPDF\Facade\PDF;
+use Barryvdh\DomPDF\Facade\Pdf as PDF;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
