@@ -7,7 +7,7 @@
     <style>
         body {
             font-family: 'DejaVu Sans', sans-serif;
-            font-size: 14px; /* Updated font size */
+            font-size: 13px; /* Updated font size */
             line-height: 1;
             margin: 5px; /* Increased margins */
         }
@@ -18,11 +18,11 @@
         }
         .header {
             text-align: center;
-            margin-bottom: 7px;
+            margin-bottom: 5px;
         }
         .header .contract-number,
         .header .date {
-            font-size: 14px; /* Consistent font size */
+            font-size: 13px; /* Consistent font size */
             font-weight: bold;
             display: inline-block;
         }
@@ -30,13 +30,13 @@
             float: right;
         }
         .section {
-            margin-top: 7px;
+            margin-top: 5px;
         }
         .section-title {
             font-weight: bold;
-            font-size: 14px;
+            font-size: 13px;
             text-align: center; /* Centered title */
-            margin-bottom: 7px;
+            margin-bottom: 5px;
         }
     </style>
 </head>

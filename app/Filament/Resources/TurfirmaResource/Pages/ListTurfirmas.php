@@ -83,7 +83,7 @@ class ListTurfirmas extends ListRecords
                         'address_street' => $apiData['address'] ?? null,
                         'inn' => $apiData['tin'] ?? $data['tin'],
                         'account_number' => $apiData['account'] ?? null,
-                        'mfo' => $apiData['mfo'] ?? null,
+                        'bank_mfo' => $apiData['mfo'] ?? null,
                         'director_name' => $apiData['director'] ?? null,
                     ]);
 
