@@ -10,6 +10,7 @@ use Filament\Tables\Table;
 use Filament\Resources\Resource;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Toggle;
+use Filament\Forms\Components\FileUpload;
 use Illuminate\Database\Eloquent\Builder;
 use App\Filament\Resources\ZayavkaResource\Pages;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
@@ -71,6 +72,12 @@ class ZayavkaResource extends Resource
                     //->required()
                     ->maxLength(255),
                     Toggle::make('rooming'),
+
+                FileUpload::make('image')
+                    ->maxSize(6024)
+                    ->acceptedFileTypes(['application/pdf', 'application/msword
+'])
+                    ->image()
 
 
             ]);
