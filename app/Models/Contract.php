@@ -7,17 +7,16 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Barryvdh\DomPDF\Facade\Pdf;
 use App\Jobs\GenerateContractPdf;
-
 use Illuminate\Support\Str;
 
 class Contract extends Model
 {
     use HasFactory;
+
     public function turfirma(): BelongsTo
     {
         return $this->belongsTo(Turfirma::class);
     }
-
 
     public function hotel(): BelongsTo
     {
@@ -40,19 +39,27 @@ class Contract extends Model
     protected static function booted()
     {
         static::creating(function ($contract) {
-            // Generate a unique contract number
-            $contract->number = 'CON' . Str::padLeft(
-                (Contract::max('id') ?? 0) + 1,
-                6,
-                '0'
-            );
+            // Handle contract year based on the month
+            $month = now()->month;
+            $year = $month >= 11 ? now()->year + 1 : now()->year; // Use next year if it's November or December
+
+            // Temporarily assign a placeholder number (needed for saving)
+            $contract->number = 'TEMP';
         });
 
         static::created(function ($contract) {
+            // Handle contract year based on the month
+            $month = now()->month;
+            $year = $month >= 11 ? now()->year + 1 : now()->year;
+
+            // Generate the contract number using the actual ID
+            $contract->number = "CON-$year-" . Str::padLeft($contract->id, 3, '0');
+
+            // Save the updated contract number
+            $contract->saveQuietly();
+
             // Dispatch the job to generate the contract PDF
             GenerateContractPdf::dispatch($contract);
         });
     }
-
-
 }
