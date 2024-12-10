@@ -205,6 +205,9 @@ class ZayavkaResource extends Resource
                 Tables\Columns\TextColumn::make('hotel.name')
                     ->numeric()
                     ->sortable(),
+                Tables\Columns\TextColumn::make('image')
+                   // ->numeric()
+                   // ->sortable(),    
             ])
             ->filters([
                 //
