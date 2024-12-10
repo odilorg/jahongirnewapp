@@ -24,7 +24,9 @@ class RoomType extends Model
         'price_as_single',
         'quantity',
         'number_of_beds',
-        'hotel_id'
+        'hotel_id',
+        'created_by',
+        'updated_by',
        
     ];
 
@@ -77,5 +79,20 @@ public function hotel(): BelongsTo
 {
     return $this->belongsTo(Hotel::class);
 }
+
+ // Automatically set `created_by` and `updated_by`
+ protected static function boot()
+ {
+     parent::boot();
+
+     static::creating(function ($model) {
+         $model->created_by = auth()->id();
+     });
+
+     static::updating(function ($model) {
+         $model->updated_by = auth()->id();
+     });
+ }
+
 
 }

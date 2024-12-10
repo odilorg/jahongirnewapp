@@ -18,7 +18,7 @@ class TurfirmaResource extends Resource
     protected static ?string $model = Turfirma::class;
 
     protected static ?string $navigationIcon = 'heroicon-o-rectangle-stack';
-    protected static ?string $navigationGroup = 'Hotel Related';
+    protected static ?string $navigationGroup = 'Hotel Management';
    
 
 
