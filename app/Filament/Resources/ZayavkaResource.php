@@ -8,6 +8,7 @@ use App\Models\Zayavka;
 use Filament\Forms\Form;
 use Filament\Tables\Table;
 use Filament\Resources\Resource;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Http;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Toggle;
@@ -205,11 +206,15 @@ class ZayavkaResource extends Resource
                 Tables\Columns\TextColumn::make('hotel.name')
                     ->numeric()
                     ->sortable(),
-                Tables\Columns\TextColumn::make('image')
-                    ->label('Image') // Column label
-                    ->url(fn ($record) => asset('storage/' . $record->image)) // Generate the full URL
-                    ->openUrlInNewTab() // Open the URL in a new tab (downloadable/viewable)
-                    ->formatStateUsing(fn ($state) => 'Download') // Optional: Change display text to "Download",
+                    Tables\Columns\TextColumn::make('image')
+                    ->label('Zayavka File')
+                    ->url(fn ($record) => asset('storage/' . $record->image)) // Construct the file URL
+                    ->openUrlInNewTab() // Open the file in a new tab
+                    ->formatStateUsing(fn ($state) => 'Download'), // Display the text "Download"
+                    
+                  
+                
+                
                     
             ])
             ->filters([
@@ -217,6 +222,15 @@ class ZayavkaResource extends Resource
             ])
             ->actions([
                 Tables\Actions\EditAction::make(),
+            // Tables\Actions\Action::make('download_contract')
+            //     ->label('Download')
+            //     ->icon('heroicon-s-cloud-arrow-down')
+            //     ->action(function ($record) {
+            //         Log::info('Image field value:', ['image' => $record->image]);
+            //         return redirect(asset('storage/' . $record->image));
+            //     })
+            //     ->color('success'),
+            
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
