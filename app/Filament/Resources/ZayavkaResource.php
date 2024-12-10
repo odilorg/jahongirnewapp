@@ -161,8 +161,12 @@ class ZayavkaResource extends Resource
 
                 FileUpload::make('image')
                     ->maxSize(6024)
-                    ->acceptedFileTypes(['application/pdf', 'application/msword
-'])
+                    ->acceptedFileTypes([
+                        'application/pdf',
+                        'application/msword',
+                        'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+
+                        ])
                     ->image()
 
 
