@@ -34,7 +34,7 @@ class ContractResource extends Resource
                 Forms\Components\Select::make('hotel_id')
                     ->relationship('hotel', 'name')
                     ->required(),
-                Forms\Components\Select::make('turfirma_id')
+                    Forms\Components\Select::make('turfirma_id')
                     ->relationship('turfirma', 'name')
                     ->required()
                     ->preload()
@@ -47,11 +47,21 @@ class ContractResource extends Resource
                             ->minLength(9)
                             ->maxLength(9)
                             ->hint('Enter the 9-digit TIN to fetch data'),
+                        Forms\Components\TextInput::make('phone')
+                            ->label('Phone')
+                            ->required()
+                            ->tel()
+                            ->hint('Enter the phone number'),
+                        Forms\Components\TextInput::make('email')
+                            ->label('Email')
+                            ->required()
+                            ->email()
+                            ->hint('Enter a valid email address'),
                     ])
                     ->createOptionUsing(function (array $data): int {
                         // Check if the company already exists in the database
                         $existingTurfirma = \App\Models\Turfirma::where('inn', $data['tin'])->first();
-
+                
                         if ($existingTurfirma) {
                             // Show a notification if the company already exists
                             Notification::make()
@@ -59,14 +69,14 @@ class ContractResource extends Resource
                                 ->body('A company with this TIN already exists.')
                                 ->success()
                                 ->send();
-
+                
                             // Return the ID of the existing company
                             return $existingTurfirma->id;
                         }
-
+                
                         // Initialize variable for the API data
                         $apiData = null;
-
+                
                         // Try the primary API endpoint
                         $primaryResponse = Http::get("https://gnk-api.didox.uz/api/v1/utils/info/{$data['tin']}");
                         if ($primaryResponse->successful() && !empty($primaryResponse->json('shortName')) && !empty($primaryResponse->json('name'))) {
@@ -84,7 +94,7 @@ class ContractResource extends Resource
                                 }
                             }
                         }
-
+                
                         // If no API returned valid data
                         if (!$apiData) {
                             Notification::make()
@@ -92,12 +102,12 @@ class ContractResource extends Resource
                                 ->body('All APIs are down, or the TIN is invalid. Please add the company details manually.')
                                 ->danger()
                                 ->send();
-
+                
                             throw ValidationException::withMessages([
                                 'tin' => 'Failed to fetch data from all APIs. Please verify the TIN or add the data manually.',
                             ]);
                         }
-
+                
                         // Create a new Turfirma record in the database
                         $newTurfirma = \App\Models\Turfirma::create([
                             'name' => $apiData['shortName'] ?? null,
@@ -107,11 +117,15 @@ class ContractResource extends Resource
                             'account_number' => $apiData['account'] ?? null,
                             'bank_mfo' => $apiData['bankCode'] ?? $apiData['mfo'] ?? null, // Handles both bankCode (primary API) and mfo (backup APIs)
                             'director_name' => $apiData['director'] ?? null,
+                            'phone' => $data['phone'], // Save the phone from the form
+                            'email' => $data['email'], // Save the email from the form
+                            'api_data' => json_encode($apiData), // Save the JSON data
                         ]);
-
+                
                         // Return the primary key of the newly created Turfirma
                         return $newTurfirma->id;
                     }),
+                
 
 
                 Forms\Components\DatePicker::make('date')
