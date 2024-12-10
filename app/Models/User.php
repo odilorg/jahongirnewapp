@@ -10,15 +10,15 @@ use Filament\Models\Contracts\FilamentUser;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 
-class User extends Authenticatable //implements FilamentUser
+class User extends Authenticatable implements FilamentUser
 {
     use HasApiTokens, HasFactory, Notifiable;
 
 
-    // public function canAccessPanel(Panel $panel): bool
-    // {
-    //     return $this->email === 'odilorg@gmail.com'; 
-    //     }
+    public function canAccessPanel(Panel $panel): bool
+    {
+        return $this->email === 'odilorg@gmail.com'; 
+        }
     /**
      * The attributes that are mass assignable.
      *
