@@ -206,8 +206,11 @@ class ZayavkaResource extends Resource
                     ->numeric()
                     ->sortable(),
                 Tables\Columns\TextColumn::make('image')
-                   // ->numeric()
-                   // ->sortable(),    
+                    ->label('Image') // Column label
+                    ->url(fn ($record) => asset('storage/' . $record->image)) // Generate the full URL
+                    ->openUrlInNewTab() // Open the URL in a new tab (downloadable/viewable)
+                    ->formatStateUsing(fn ($state) => 'Download') // Optional: Change display text to "Download",
+                    
             ])
             ->filters([
                 //
