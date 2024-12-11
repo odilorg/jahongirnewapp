@@ -13,4 +13,9 @@ class CreateTurfirma extends CreateRecord
     {
         return $this->getResource()::getUrl('index');
     }
+
+    protected function afterFill($resource): void
+    {
+       dd($resource); // Runs after the form fields are populated with their default values.
+    }
 }

@@ -38,16 +38,16 @@ class TurfirmaResource extends Resource
                 Forms\Components\TextInput::make('official_name')
                     ->required()
                     ->maxLength(255)
-                    ->hidden(fn ($get) => $get('type') === 'individual') // Hidden when Individual is selected
-                    ->dehydrated(fn ($get) => $get('type') !== 'individual'), // Not submitted when hidden
+                    ->hidden(fn($get) => $get('type') === 'individual') // Hidden when Individual is selected
+                    ->dehydrated(fn($get) => $get('type') !== 'individual'), // Not submitted when hidden
                 Forms\Components\TextInput::make('address_street')
                     ->required()
-                    ->hidden(fn ($get) => $get('type') === 'individual') // Hidden when Individual is selected
-                    ->dehydrated(fn ($get) => $get('type') !== 'individual'), // Not submitted when hidden
+                    ->hidden(fn($get) => $get('type') === 'individual') // Hidden when Individual is selected
+                    ->dehydrated(fn($get) => $get('type') !== 'individual'), // Not submitted when hidden
 
                 Forms\Components\TextInput::make('address_city')
-                    ->required()->hidden(fn ($get) => $get('type') === 'individual') // Hidden when Individual is selected
-                    ->dehydrated(fn ($get) => $get('type') !== 'individual'), // Not submitted when hidden
+                    ->required()->hidden(fn($get) => $get('type') === 'individual') // Hidden when Individual is selected
+                    ->dehydrated(fn($get) => $get('type') !== 'individual'), // Not submitted when hidden
                 Forms\Components\TextInput::make('phone')
                     ->tel()
                     ->required()
@@ -64,8 +64,8 @@ class TurfirmaResource extends Resource
                     ->maxLength(9)
                     ->label('Taxpayer Identification Number (TIN)')
                     ->placeholder('Enter 9-digit TIN')
-                    ->hidden(fn ($get) => $get('type') === 'individual') // Hidden when Individual is selected
-                    ->dehydrated(fn ($get) => $get('type') !== 'individual'), // Not submitted when hidden
+                    ->hidden(fn($get) => $get('type') === 'individual') // Hidden when Individual is selected
+                    ->dehydrated(fn($get) => $get('type') !== 'individual'), // Not submitted when hidden
 
                 Forms\Components\TextInput::make('account_number')
                     ->required()
@@ -74,12 +74,12 @@ class TurfirmaResource extends Resource
                     ->maxLength(20)
                     ->label('Account Number')
                     ->placeholder('Enter 20-digit account number')
-                    ->hidden(fn ($get) => $get('type') === 'individual') // Hidden when Individual is selected
-                    ->dehydrated(fn ($get) => $get('type') !== 'individual'), // Not submitted when hidden
+                    ->hidden(fn($get) => $get('type') === 'individual') // Hidden when Individual is selected
+                    ->dehydrated(fn($get) => $get('type') !== 'individual'), // Not submitted when hidden
 
                 Forms\Components\TextInput::make('bank_name')
                     ->maxLength(255)
-                    ->hidden(fn ($get) => $get('type') === 'individual'), // Hidden when Individual is selected,
+                    ->hidden(fn($get) => $get('type') === 'individual'), // Hidden when Individual is selected,
                 Forms\Components\TextInput::make('bank_mfo')
                     ->required()
                     ->numeric()
@@ -87,14 +87,14 @@ class TurfirmaResource extends Resource
                     ->maxLength(5)
                     ->label('Bank MFO Code')
                     ->placeholder('Enter 5-digit bank code')
-                    ->hidden(fn ($get) => $get('type') === 'individual') // Hidden when Individual is selected
-                    ->dehydrated(fn ($get) => $get('type') !== 'individual'), // Not submitted when hidden
+                    ->hidden(fn($get) => $get('type') === 'individual') // Hidden when Individual is selected
+                    ->dehydrated(fn($get) => $get('type') !== 'individual'), // Not submitted when hidden
 
                 Forms\Components\TextInput::make('director_name')
                     ->required()
                     ->maxLength(255)
-                    ->hidden(fn ($get) => $get('type') === 'individual') // Hidden when Individual is selected
-                    ->dehydrated(fn ($get) => $get('type') !== 'individual'), // Not submitted when hidden
+                    ->hidden(fn($get) => $get('type') === 'individual') // Hidden when Individual is selected
+                    ->dehydrated(fn($get) => $get('type') !== 'individual'), // Not submitted when hidden
 
                 // Forms\Components\TextInput::make('social_media')
                 //     ->label('Social Media')
@@ -164,5 +164,4 @@ class TurfirmaResource extends Resource
             'edit' => Pages\EditTurfirma::route('/{record}/edit'),
         ];
     }
-   
 }
