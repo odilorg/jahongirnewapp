@@ -9,4 +9,8 @@ use Filament\Resources\Pages\CreateRecord;
 class CreateGuide extends CreateRecord
 {
     protected static string $resource = GuideResource::class;
+    protected function getRedirectUrl(): string
+    {
+        return $this->getResource()::getUrl('index');
+    }
 }

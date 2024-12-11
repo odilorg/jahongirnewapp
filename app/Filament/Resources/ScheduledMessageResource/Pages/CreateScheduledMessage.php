@@ -9,4 +9,9 @@ use Filament\Resources\Pages\CreateRecord;
 class CreateScheduledMessage extends CreateRecord
 {
     protected static string $resource = ScheduledMessageResource::class;
+
+    protected function getRedirectUrl(): string
+    {
+        return $this->getResource()::getUrl('index');
+    }
 }

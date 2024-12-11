@@ -9,4 +9,8 @@ use Filament\Resources\Pages\CreateRecord;
 class CreateRating extends CreateRecord
 {
     protected static string $resource = RatingResource::class;
+    protected function getRedirectUrl(): string
+    {
+        return $this->getResource()::getUrl('index');
+    }
 }

@@ -9,4 +9,8 @@ use Filament\Resources\Pages\CreateRecord;
 class CreateChat extends CreateRecord
 {
     protected static string $resource = ChatResource::class;
+    protected function getRedirectUrl(): string
+    {
+        return $this->getResource()::getUrl('index');
+    }
 }

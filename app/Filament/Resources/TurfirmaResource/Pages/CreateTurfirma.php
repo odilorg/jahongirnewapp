@@ -9,4 +9,8 @@ use Filament\Resources\Pages\CreateRecord;
 class CreateTurfirma extends CreateRecord
 {
     protected static string $resource = TurfirmaResource::class;
+    protected function getRedirectUrl(): string
+    {
+        return $this->getResource()::getUrl('index');
+    }
 }

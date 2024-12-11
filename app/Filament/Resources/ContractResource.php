@@ -203,4 +203,6 @@ class ContractResource extends Resource
             'edit' => Pages\EditContract::route('/{record}/edit'),
         ];
     }
+
+    
 }

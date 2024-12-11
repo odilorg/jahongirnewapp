@@ -3,15 +3,12 @@
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\TurfirmaResource\Pages;
-use App\Filament\Resources\TurfirmaResource\RelationManagers;
 use App\Models\Turfirma;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
-use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Database\Eloquent\SoftDeletingScope;
 
 class TurfirmaResource extends Resource
 {
@@ -19,61 +16,90 @@ class TurfirmaResource extends Resource
 
     protected static ?string $navigationIcon = 'heroicon-o-rectangle-stack';
     protected static ?string $navigationGroup = 'Hotel Management';
-   
-
 
     public static function form(Form $form): Form
     {
         return $form
             ->schema([
+                Forms\Components\Select::make('type')
+                    ->label('Type')
+                    ->options([
+                        'tourfirm' => 'Tourfirm',
+                        'individual' => 'Individual',
+                    ])
+                    ->required()
+                    ->reactive() // Makes the form respond dynamically
+                    ->default('tourfirm'),
+
                 Forms\Components\TextInput::make('name')
                     ->required()
                     ->maxLength(255),
+
                 Forms\Components\TextInput::make('official_name')
                     ->required()
-                    ->maxLength(255),
+                    ->maxLength(255)
+                    ->hidden(fn ($get) => $get('type') === 'individual') // Hidden when Individual is selected
+                    ->dehydrated(fn ($get) => $get('type') !== 'individual'), // Not submitted when hidden
                 Forms\Components\TextInput::make('address_street')
-                    ->required(),
-                    //->maxLength(255),
+                    ->required()
+                    ->hidden(fn ($get) => $get('type') === 'individual') // Hidden when Individual is selected
+                    ->dehydrated(fn ($get) => $get('type') !== 'individual'), // Not submitted when hidden
+
                 Forms\Components\TextInput::make('address_city')
-                    ->required(),
-                   // ->maxLength(255),
+                    ->required()->hidden(fn ($get) => $get('type') === 'individual') // Hidden when Individual is selected
+                    ->dehydrated(fn ($get) => $get('type') !== 'individual'), // Not submitted when hidden
                 Forms\Components\TextInput::make('phone')
                     ->tel()
                     ->required()
                     ->maxLength(255),
+
                 Forms\Components\TextInput::make('email')
                     ->email()
                     ->required(),
-                    //->maxLength(255),
+
                 Forms\Components\TextInput::make('inn')
                     ->required()
                     ->numeric()
                     ->rule('regex:/^\d{9}$/')
                     ->maxLength(9)
                     ->label('Taxpayer Identification Number (TIN)')
-                    ->placeholder('Enter 9-digit TIN'),
+                    ->placeholder('Enter 9-digit TIN')
+                    ->hidden(fn ($get) => $get('type') === 'individual') // Hidden when Individual is selected
+                    ->dehydrated(fn ($get) => $get('type') !== 'individual'), // Not submitted when hidden
+
                 Forms\Components\TextInput::make('account_number')
                     ->required()
                     ->numeric()
                     ->rule('regex:/^\d{20}$/')
                     ->maxLength(20)
                     ->label('Account Number')
-                    ->placeholder('Enter 20-digit account number'),
+                    ->placeholder('Enter 20-digit account number')
+                    ->hidden(fn ($get) => $get('type') === 'individual') // Hidden when Individual is selected
+                    ->dehydrated(fn ($get) => $get('type') !== 'individual'), // Not submitted when hidden
+
                 Forms\Components\TextInput::make('bank_name')
-                    //->required()
-                    ->maxLength(255),
+                    ->maxLength(255)
+                    ->hidden(fn ($get) => $get('type') === 'individual'), // Hidden when Individual is selected,
                 Forms\Components\TextInput::make('bank_mfo')
                     ->required()
                     ->numeric()
                     ->rule('regex:/^\d{5}$/')
                     ->maxLength(5)
                     ->label('Bank MFO Code')
-                    ->placeholder('Enter 5-digit bank code'),
-                
+                    ->placeholder('Enter 5-digit bank code')
+                    ->hidden(fn ($get) => $get('type') === 'individual') // Hidden when Individual is selected
+                    ->dehydrated(fn ($get) => $get('type') !== 'individual'), // Not submitted when hidden
+
                 Forms\Components\TextInput::make('director_name')
                     ->required()
-                    ->maxLength(255), 
+                    ->maxLength(255)
+                    ->hidden(fn ($get) => $get('type') === 'individual') // Hidden when Individual is selected
+                    ->dehydrated(fn ($get) => $get('type') !== 'individual'), // Not submitted when hidden
+
+                // Forms\Components\TextInput::make('social_media')
+                //     ->label('Social Media')
+                //     ->placeholder('Enter social media handle or link')
+                //     ->hidden(fn ($get) => $get('type') === 'tourfirm'), // Shown only when Individual is selected
             ]);
     }
 
@@ -102,15 +128,12 @@ class TurfirmaResource extends Resource
                 Tables\Columns\TextColumn::make('email')
                     ->searchable(),
                 Tables\Columns\TextColumn::make('inn')
-                   // ->numeric()
                     ->sortable(),
                 Tables\Columns\TextColumn::make('account_number')
-                   // ->numeric()
                     ->sortable(),
                 Tables\Columns\TextColumn::make('bank_name')
                     ->searchable(),
                 Tables\Columns\TextColumn::make('bank_mfo')
-                   // ->numeric()
                     ->sortable(),
             ])
             ->filters([
@@ -141,4 +164,5 @@ class TurfirmaResource extends Resource
             'edit' => Pages\EditTurfirma::route('/{record}/edit'),
         ];
     }
+   
 }

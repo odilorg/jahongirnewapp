@@ -9,4 +9,8 @@ use Filament\Resources\Pages\CreateRecord;
 class CreateTerminalCheck extends CreateRecord
 {
     protected static string $resource = TerminalCheckResource::class;
+    protected function getRedirectUrl(): string
+    {
+        return $this->getResource()::getUrl('index');
+    }
 }
