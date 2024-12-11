@@ -43,14 +43,30 @@ class ZayavkaResource extends Resource
                     ->preload()
                     ->searchable()
                     ->createOptionForm([
+                        Forms\Components\Select::make('type')
+                    ->label('Type')
+                    ->options([
+                        'tourfirm' => 'Tourfirm',
+                        'individual' => 'Individual',
+                    ])
+                    ->required()
+                    ->reactive() // Makes the form respond dynamically
+                    ->default('tourfirm'),
                         Forms\Components\TextInput::make('tin')
                             ->label('TIN')
                             ->required()
                             ->numeric()
                             ->minLength(9)
                             ->maxLength(9)
-                            ->hint('Enter the 9-digit TIN to fetch data'),
-                        Forms\Components\TextInput::make('phone')
+                            ->hint('Enter the 9-digit TIN to fetch data')
+                            ->hidden(fn($get) => $get('type') === 'individual') // Hidden when Individual is selected
+                            ->dehydrated(fn($get) => $get('type') !== 'individual'), // Not submitted when hidden,
+                        Forms\Components\TextInput::make('name')
+                            ->required()
+                            ->maxLength(255)
+                            ->hidden(fn($get) => $get('type') === 'tourfirm') // Hidden when Individual is selected
+                            ->dehydrated(fn($get) => $get('type') !== 'tourfirm'), // Not submitted when hidden,
+                            Forms\Components\TextInput::make('phone')
                             ->label('Phone')
                             ->required()
                             ->tel()
@@ -63,7 +79,8 @@ class ZayavkaResource extends Resource
                     ])
                     ->createOptionUsing(function (array $data): int {
                         // Check if the company already exists in the database
-                        $existingTurfirma = \App\Models\Turfirma::where('inn', $data['tin'])->first();
+                        if (!empty($data['tin'])) {
+                            $existingTurfirma = \App\Models\Turfirma::where('inn', $data['tin'])->first();
 
                         if ($existingTurfirma) {
                             // Show a notification if the company already exists
@@ -122,11 +139,33 @@ class ZayavkaResource extends Resource
                             'director_name' => $apiData['director'] ?? null,
                             'phone' => $data['phone'], // Save the phone from the form
                             'email' => $data['email'], // Save the email from the form
+                            'type' => $data['type'], // Save the email from the form
                             'api_data' => json_encode($apiData), // Save the JSON data
                         ]);
 
                         // Return the primary key of the newly created Turfirma
                         return $newTurfirma->id;
+                        }   else {
+                            // Create a new Turfirma record in the database
+                        $newTurfirma = \App\Models\Turfirma::create([
+                           // 'name' => $apiData['shortName'] ?? null,
+                            //'official_name' => $apiData['name'] ?? null,
+                            //'address_street' => $apiData['address'] ?? null,
+                            //'inn' => $apiData['tin'] ?? $data['tin'],
+                          //  'account_number' => $apiData['account'] ?? null,
+                           // 'bank_mfo' => $apiData['bankCode'] ?? $apiData['mfo'] ?? null, // Handles both bankCode (primary API) and mfo (backup APIs)
+                           // 'director_name' => $apiData['director'] ?? null,
+                           'name' => $data['name'], // Save the phone from the form 
+                           'phone' => $data['phone'], // Save the phone from the form
+                            'email' => $data['email'], // Save the email from the form
+                            'type' => $data['type'], // Save the phone from the form
+                           // 'api_data' => json_encode($apiData), // Save the JSON data
+                        ]);
+
+                        // Return the primary key of the newly created Turfirma
+                        return $newTurfirma->id;
+                        }
+                        
                     }),
 
                 Forms\Components\DatePicker::make('submitted_date')
