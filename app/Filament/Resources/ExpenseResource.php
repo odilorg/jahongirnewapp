@@ -30,8 +30,12 @@ class ExpenseResource extends Resource
                    // ->numeric(),
                    Forms\Components\Select::make('category_id')
                    ->relationship('category', 'name')
+                   ->createOptionForm([
+                    Forms\Components\TextInput::make('name')
+                        ->required(),
+                   ])
                   // ->default(session('last_selected_hotel_id')) // Set the default value
-                   ->required(),   
+                 ->required(),   
                 Forms\Components\DatePicker::make('expense_date'),
                 Forms\Components\TextInput::make('name')
                     ->required()
