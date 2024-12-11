@@ -24,7 +24,13 @@ protected $fillable = [
      'phone',
      'email',
      'website',
-     'director_name'
+     'director_name',
+     'official_name',
+        'account_number',
+        'bank_name',
+        'inn',
+        'bank_mfo'
+
     ];
 
 }

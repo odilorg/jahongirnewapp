@@ -37,7 +37,8 @@ class GenerateContractPdf implements ShouldQueue
      */
     public function handle()
     {
-
+         // Fetch the associated hotel
+        // $hotel = $this->contract->hotel;
         // Check if the Barryvdh\DomPDF\Facade class exists
     //dd(class_exists(PDF::class));
         Log::info('GenerateContractPdf Job handling started.');
@@ -95,6 +96,7 @@ class GenerateContractPdf implements ShouldQueue
                 'contract' => $this->contract,
                 'hotelData' => $hotelData,
                 'contract_end_date' => $contract_end_date, // Pass the contract_end_date to the view
+               
             ]);
             Log::info('PDF generated successfully for Contract ID: ' . $this->contract->id);
 

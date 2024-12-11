@@ -12,16 +12,18 @@ class RoomRepair extends Model
 
     protected $fillable = [
         'repair_date',
-        'hotel_id',
+        'room_id',
         'room_number',
         'repair_name',
         'amount',
         'notes'
         ];
 
-        public function hotel(): BelongsTo
+       
+
+    public function room(): BelongsTo
     {
-        return $this->belongsTo(Hotel::class);
+        return $this->belongsTo(Room::class);
     }
 
 }

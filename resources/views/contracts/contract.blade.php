@@ -157,12 +157,13 @@
             <table style="width: 100%; border-collapse: collapse;">
                 <tr>
                     <td style="width: 50%; vertical-align: top; padding: 10px; border-right: 1px solid black;">
-                        <strong>«Jahongir» При СП «Jaxongir travel»</strong><br>
-                        р/с 2020 8000 7047 3455 7001<br>
-                        Hamkorbank OATB Andijon ф-ли МФО 00083<br>
-                        ИНН 300965341 ОКОНХ 91620<br>
-                        г. Самарканд, ул. Чироки №4<br>
-                        Тел: (+998 91) 555 08 08<br>
+                        <strong>{{ $contract->$hotel->name }} {{ $contract->$hotel->official_name }}</strong><br>
+                        {{ $contract->$hotel->account_number }}<br>
+                        {{ $contract->$hotel->bank_name }} МФО {{ $contract->$hotel->bank_mfo }}<br>
+                        ИНН {{ $contract->$hotel->inn }} <br>
+                        {{ $contract->$hotel->address }}<br>
+                        Тел: {{ $contract->$hotel->phone }}<br>
+                        Email: {{ $contract->$hotel->email }}<br>
                         Директор: {{ $contract->hotel->director_name }}<br>
                     </td>
                     <td style="width: 50%; vertical-align: top; padding: 10px;">

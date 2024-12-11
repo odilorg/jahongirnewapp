@@ -47,17 +47,30 @@ class TurfirmaResource extends Resource
                     ->required(),
                     //->maxLength(255),
                 Forms\Components\TextInput::make('inn')
-                    ->required(),
-                    //->numeric(),
+                    ->required()
+                    ->numeric()
+                    ->rule('regex:/^\d{9}$/')
+                    ->maxLength(9)
+                    ->label('Taxpayer Identification Number (TIN)')
+                    ->placeholder('Enter 9-digit TIN'),
                 Forms\Components\TextInput::make('account_number')
                     ->required()
-                    ->numeric(),
+                    ->numeric()
+                    ->rule('regex:/^\d{20}$/')
+                    ->maxLength(20)
+                    ->label('Account Number')
+                    ->placeholder('Enter 20-digit account number'),
                 Forms\Components\TextInput::make('bank_name')
                     //->required()
                     ->maxLength(255),
                 Forms\Components\TextInput::make('bank_mfo')
                     ->required()
-                    ->numeric(),
+                    ->numeric()
+                    ->rule('regex:/^\d{5}$/')
+                    ->maxLength(5)
+                    ->label('Bank MFO Code')
+                    ->placeholder('Enter 5-digit bank code'),
+                
                 Forms\Components\TextInput::make('director_name')
                     ->required()
                     ->maxLength(255), 

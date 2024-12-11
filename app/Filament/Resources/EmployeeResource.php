@@ -47,12 +47,11 @@ class EmployeeResource extends Resource
                     ->maxLength(255),
                 Forms\Components\TextInput::make('pinfl')
                     ->label('Pensionniy nomer PINFL')
-                    ->maxLength(255),        
+                    ->numeric(),        
                 Forms\Components\Textarea::make('extra_info')
                     ->maxLength(65535)
                     ->columnSpanFull(),
-                Forms\Components\TextInput::make('school')
-                    ->maxLength(255),
+                
                
                 Forms\Components\FileUpload::make('image')
                     ->image(),
@@ -87,8 +86,7 @@ class EmployeeResource extends Resource
                     ->searchable(),
                 Tables\Columns\TextColumn::make('phone02')
                     ->searchable(),
-                Tables\Columns\TextColumn::make('school')
-                    ->searchable(),
+              
                 
                 Tables\Columns\ImageColumn::make('image'),
                 Tables\Columns\ImageColumn::make('passport_image'),
