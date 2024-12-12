@@ -36,16 +36,22 @@ class ExpenseResource extends Resource
                    ])
                   // ->default(session('last_selected_hotel_id')) // Set the default value
                  ->required(),   
-                Forms\Components\DatePicker::make('expense_date'),
+                Forms\Components\DatePicker::make('expense_date')
+                    ->default(now()),
                 Forms\Components\TextInput::make('name')
                     ->required()
                     ->maxLength(255),
                 Forms\Components\TextInput::make('amount')
                     ->required()
                     ->numeric(),
-                Forms\Components\TextInput::make('payment_type')
+                Forms\Components\Select::make('payment_type')
+                    ->options([
+                        'naqd' => 'Naqd',
+                        'karta' => 'Karta',
+                        'perech' => 'Perech'
+                    ])
                     ->required()
-                    ->maxLength(255),
+                    ->default('naqd')
                
             ]);
     }

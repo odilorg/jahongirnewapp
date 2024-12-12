@@ -20,8 +20,11 @@ class Turfirma extends Model
         'bank_name',
         'bank_mfo',
         'director_name',
-        'type'
+        'type',
+        'files'
     ];
+
+   
 
     
 }

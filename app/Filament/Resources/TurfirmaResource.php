@@ -2,13 +2,14 @@
 
 namespace App\Filament\Resources;
 
-use App\Filament\Resources\TurfirmaResource\Pages;
-use App\Models\Turfirma;
 use Filament\Forms;
-use Filament\Forms\Form;
-use Filament\Resources\Resource;
 use Filament\Tables;
+use App\Models\Turfirma;
+use Filament\Forms\Form;
 use Filament\Tables\Table;
+use Filament\Resources\Resource;
+use Filament\Forms\Components\FileUpload;
+use App\Filament\Resources\TurfirmaResource\Pages;
 
 class TurfirmaResource extends Resource
 {
@@ -95,7 +96,17 @@ class TurfirmaResource extends Resource
                     ->maxLength(255)
                     ->hidden(fn($get) => $get('type') === 'individual') // Hidden when Individual is selected
                     ->dehydrated(fn($get) => $get('type') !== 'individual'), // Not submitted when hidden
+                FileUpload::make('files')
+               // ->multiple()   
+                ->maxSize(6024)
+                   
+                    ->acceptedFileTypes([
+                        'application/pdf',
+                        'application/msword',
+                        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                        'image/jpeg'
 
+                        ])        
                 // Forms\Components\TextInput::make('social_media')
                 //     ->label('Social Media')
                 //     ->placeholder('Enter social media handle or link')
