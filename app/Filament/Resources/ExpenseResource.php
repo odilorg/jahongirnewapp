@@ -2,16 +2,18 @@
 
 namespace App\Filament\Resources;
 
-use App\Filament\Resources\ExpenseResource\Pages;
-use App\Filament\Resources\ExpenseResource\RelationManagers;
-use App\Models\Expense;
 use Filament\Forms;
-use Filament\Forms\Form;
-use Filament\Resources\Resource;
 use Filament\Tables;
+use App\Models\Expense;
+use Filament\Forms\Form;
 use Filament\Tables\Table;
+use Filament\Resources\Resource;
+use Filament\Tables\Grouping\Group;
 use Illuminate\Database\Eloquent\Builder;
+use Filament\Tables\Columns\Summarizers\Sum;
+use App\Filament\Resources\ExpenseResource\Pages;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
+use App\Filament\Resources\ExpenseResource\RelationManagers;
 
 class ExpenseResource extends Resource
 {
@@ -59,6 +61,13 @@ class ExpenseResource extends Resource
     public static function table(Table $table): Table
     {
         return $table
+        ->groups([
+            'payment_type',
+            
+        ])
+        ->defaultGroup('hotel.name')
+       
+
             ->columns([
                 Tables\Columns\TextColumn::make('created_at')
                     ->dateTime()
@@ -77,6 +86,11 @@ class ExpenseResource extends Resource
                 Tables\Columns\TextColumn::make('name')
                     ->searchable(),
                 Tables\Columns\TextColumn::make('amount')
+                ->summarize(
+                    Sum::make()->formatStateUsing(fn ($state) => $state / 100)
+                )
+                ->money('UZS')
+                   
                     ->numeric()
                     ->sortable(),
                 Tables\Columns\TextColumn::make('payment_type')
@@ -84,6 +98,9 @@ class ExpenseResource extends Resource
                 Tables\Columns\TextColumn::make('hotel.name')
                     ->numeric()
                     ->sortable(),
+
+                  
+
             ])
             ->filters([
                 //
