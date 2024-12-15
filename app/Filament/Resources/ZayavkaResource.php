@@ -44,14 +44,14 @@ class ZayavkaResource extends Resource
                     ->searchable()
                     ->createOptionForm([
                         Forms\Components\Select::make('type')
-                    ->label('Type')
-                    ->options([
-                        'tourfirm' => 'Tourfirm',
-                        'individual' => 'Individual',
-                    ])
-                    ->required()
-                    ->reactive() // Makes the form respond dynamically
-                    ->default('tourfirm'),
+                            ->label('Type')
+                            ->options([
+                                'tourfirm' => 'Tourfirm',
+                                'individual' => 'Individual',
+                            ])
+                            ->required()
+                            ->reactive() // Makes the form respond dynamically
+                            ->default('tourfirm'),
                         Forms\Components\TextInput::make('tin')
                             ->label('TIN')
                             ->required()
@@ -66,7 +66,7 @@ class ZayavkaResource extends Resource
                             ->maxLength(255)
                             ->hidden(fn($get) => $get('type') === 'tourfirm') // Hidden when Individual is selected
                             ->dehydrated(fn($get) => $get('type') !== 'tourfirm'), // Not submitted when hidden,
-                            Forms\Components\TextInput::make('phone')
+                        Forms\Components\TextInput::make('phone')
                             ->label('Phone')
                             ->required()
                             ->tel()
@@ -82,90 +82,90 @@ class ZayavkaResource extends Resource
                         if (!empty($data['tin'])) {
                             $existingTurfirma = \App\Models\Turfirma::where('inn', $data['tin'])->first();
 
-                        if ($existingTurfirma) {
-                            // Show a notification if the company already exists
-                            Notification::make()
-                                ->title('Duplicate Entry')
-                                ->body('A company with this TIN already exists.')
-                                ->success()
-                                ->send();
+                            if ($existingTurfirma) {
+                                // Show a notification if the company already exists
+                                Notification::make()
+                                    ->title('Duplicate Entry')
+                                    ->body('A company with this TIN already exists.')
+                                    ->success()
+                                    ->send();
 
-                            // Return the ID of the existing company
-                            return $existingTurfirma->id;
-                        }
+                                // Return the ID of the existing company
+                                return $existingTurfirma->id;
+                            }
 
-                        // Initialize variable for the API data
-                        $apiData = null;
+                            // Initialize variable for the API data
+                            $apiData = null;
 
-                        // Try the primary API endpoint
-                        $primaryResponse = Http::get("https://gnk-api.didox.uz/api/v1/utils/info/{$data['tin']}");
-                        if ($primaryResponse->successful() && !empty($primaryResponse->json('shortName')) && !empty($primaryResponse->json('name'))) {
-                            $apiData = $primaryResponse->json();
-                        } else {
-                            // If the primary API fails, try the first backup endpoint
-                            $backupResponse = Http::get("https://new.soliqservis.uz/api/np1/bytin/factura?tinOrPinfl={$data['tin']}");
-                            if ($backupResponse->successful() && !empty($backupResponse->json('shortName')) && !empty($backupResponse->json('name'))) {
-                                $apiData = $backupResponse->json();
+                            // Try the primary API endpoint
+                            $primaryResponse = Http::get("https://gnk-api.didox.uz/api/v1/utils/info/{$data['tin']}");
+                            if ($primaryResponse->successful() && !empty($primaryResponse->json('shortName')) && !empty($primaryResponse->json('name'))) {
+                                $apiData = $primaryResponse->json();
                             } else {
-                                // If the first backup API fails, try the second backup endpoint
-                                $secondBackupResponse = Http::get("https://stage.goodsign.biz/v1/utils/info/{$data['tin']}");
-                                if ($secondBackupResponse->successful() && !empty($secondBackupResponse->json('shortName')) && !empty($secondBackupResponse->json('name'))) {
-                                    $apiData = $secondBackupResponse->json();
+                                // If the primary API fails, try the first backup endpoint
+                                $backupResponse = Http::get("https://new.soliqservis.uz/api/np1/bytin/factura?tinOrPinfl={$data['tin']}");
+                                if ($backupResponse->successful() && !empty($backupResponse->json('shortName')) && !empty($backupResponse->json('name'))) {
+                                    $apiData = $backupResponse->json();
+                                } else {
+                                    // If the first backup API fails, try the second backup endpoint
+                                    $secondBackupResponse = Http::get("https://stage.goodsign.biz/v1/utils/info/{$data['tin']}");
+                                    if ($secondBackupResponse->successful() && !empty($secondBackupResponse->json('shortName')) && !empty($secondBackupResponse->json('name'))) {
+                                        $apiData = $secondBackupResponse->json();
+                                    }
                                 }
                             }
-                        }
 
-                        // If no API returned valid data
-                        if (!$apiData) {
-                            Notification::make()
-                                ->title('Error Fetching Data')
-                                ->body('All APIs are down, or the TIN is invalid. Please add the company details manually.')
-                                ->danger()
-                                ->send();
+                            // If no API returned valid data
+                            if (!$apiData) {
+                                Notification::make()
+                                    ->title('Error Fetching Data')
+                                    ->body('All APIs are down, or the TIN is invalid. Please add the company details manually.')
+                                    ->danger()
+                                    ->send();
 
-                            throw ValidationException::withMessages([
-                                'tin' => 'Failed to fetch data from all APIs. Please verify the TIN or add the data manually.',
-                            ]);
-                        }
+                                throw ValidationException::withMessages([
+                                    'tin' => 'Failed to fetch data from all APIs. Please verify the TIN or add the data manually.',
+                                ]);
+                            }
 
-                        // Create a new Turfirma record in the database
-                        $newTurfirma = \App\Models\Turfirma::create([
-                            'name' => $apiData['shortName'] ?? null,
-                            'official_name' => $apiData['name'] ?? null,
-                            'address_street' => $apiData['address'] ?? null,
-                            'inn' => $apiData['tin'] ?? $data['tin'],
-                            'account_number' => $apiData['account'] ?? null,
-                            'bank_mfo' => $apiData['bankCode'] ?? $apiData['mfo'] ?? null, // Handles both bankCode (primary API) and mfo (backup APIs)
-                            'director_name' => $apiData['director'] ?? null,
-                            'phone' => $data['phone'], // Save the phone from the form
-                            'email' => $data['email'], // Save the email from the form
-                            'type' => $data['type'], // Save the email from the form
-                            'api_data' => json_encode($apiData), // Save the JSON data
-                        ]);
-
-                        // Return the primary key of the newly created Turfirma
-                        return $newTurfirma->id;
-                        }   else {
                             // Create a new Turfirma record in the database
-                        $newTurfirma = \App\Models\Turfirma::create([
-                           // 'name' => $apiData['shortName'] ?? null,
-                            //'official_name' => $apiData['name'] ?? null,
-                            //'address_street' => $apiData['address'] ?? null,
-                            //'inn' => $apiData['tin'] ?? $data['tin'],
-                          //  'account_number' => $apiData['account'] ?? null,
-                           // 'bank_mfo' => $apiData['bankCode'] ?? $apiData['mfo'] ?? null, // Handles both bankCode (primary API) and mfo (backup APIs)
-                           // 'director_name' => $apiData['director'] ?? null,
-                           'name' => $data['name'], // Save the phone from the form 
-                           'phone' => $data['phone'], // Save the phone from the form
-                            'email' => $data['email'], // Save the email from the form
-                            'type' => $data['type'], // Save the phone from the form
-                           // 'api_data' => json_encode($apiData), // Save the JSON data
-                        ]);
+                            $newTurfirma = \App\Models\Turfirma::create([
+                                'name' => $apiData['shortName'] ?? null,
+                                'official_name' => $apiData['name'] ?? null,
+                                'address_street' => $apiData['address'] ?? null,
+                                'inn' => $apiData['tin'] ?? $data['tin'],
+                                'account_number' => $apiData['account'] ?? null,
+                                'bank_mfo' => $apiData['bankCode'] ?? $apiData['mfo'] ?? null, // Handles both bankCode (primary API) and mfo (backup APIs)
+                                'director_name' => $apiData['director'] ?? null,
+                                'phone' => $data['phone'], // Save the phone from the form
+                                'email' => $data['email'], // Save the email from the form
+                                'bank_name' => \App\Models\Bank::where('mfo', $apiData['bankCode'] ?? $apiData['mfo'] ?? null)->value('bankName'), // Fetch bank name
+                                'type' => $data['type'], // Save the email from the form
+                                'api_data' => json_encode($apiData), // Save the JSON data
+                            ]);
 
-                        // Return the primary key of the newly created Turfirma
-                        return $newTurfirma->id;
+                            // Return the primary key of the newly created Turfirma
+                            return $newTurfirma->id;
+                        } else {
+                            // Create a new Turfirma record in the database
+                            $newTurfirma = \App\Models\Turfirma::create([
+                                // 'name' => $apiData['shortName'] ?? null,
+                                //'official_name' => $apiData['name'] ?? null,
+                                //'address_street' => $apiData['address'] ?? null,
+                                //'inn' => $apiData['tin'] ?? $data['tin'],
+                                //  'account_number' => $apiData['account'] ?? null,
+                                // 'bank_mfo' => $apiData['bankCode'] ?? $apiData['mfo'] ?? null, // Handles both bankCode (primary API) and mfo (backup APIs)
+                                // 'director_name' => $apiData['director'] ?? null,
+                                'name' => $data['name'], // Save the phone from the form 
+                                'phone' => $data['phone'], // Save the phone from the form
+                                'email' => $data['email'], // Save the email from the form
+                                'type' => $data['type'], // Save the phone from the form
+                                // 'api_data' => json_encode($apiData), // Save the JSON data
+                            ]);
+
+                            // Return the primary key of the newly created Turfirma
+                            return $newTurfirma->id;
                         }
-                        
                     }),
 
                 Forms\Components\DatePicker::make('submitted_date')
@@ -184,7 +184,7 @@ class ZayavkaResource extends Resource
                     ->required()
                     ->maxLength(255),
                 Forms\Components\Hidden::make('user_id')
-                    ->default(fn () => auth()->id()) // Automatically set the authenticated user's ID
+                    ->default(fn() => auth()->id()) // Automatically set the authenticated user's ID
                     ->dehydrated(), // Ensure the value is saved to the database
                 Forms\Components\Textarea::make('description')
                     ->required()
@@ -208,8 +208,8 @@ class ZayavkaResource extends Resource
                         'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
                         'image/jpeg'
 
-                        ])
-                    //->image()
+                    ])
+                //->image()
 
 
             ]);
@@ -229,7 +229,7 @@ class ZayavkaResource extends Resource
                     ->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\TextColumn::make('name')
                     ->searchable(),
-                    Tables\Columns\TextColumn::make('turfirma.name')
+                Tables\Columns\TextColumn::make('turfirma.name')
                     ->numeric()
                     ->sortable(),
                 Tables\Columns\TextColumn::make('submitted_date')
@@ -248,31 +248,31 @@ class ZayavkaResource extends Resource
                 Tables\Columns\TextColumn::make('hotel.name')
                     ->numeric()
                     ->sortable(),
-                    Tables\Columns\TextColumn::make('image')
+                Tables\Columns\TextColumn::make('image')
                     ->label('Zayavka File')
-                    ->url(fn ($record) => asset('storage/' . $record->image)) // Construct the file URL
+                    ->url(fn($record) => asset('storage/' . $record->image)) // Construct the file URL
                     ->openUrlInNewTab() // Open the file in a new tab
-                    ->formatStateUsing(fn ($state) => 'Download'), // Display the text "Download"
-                    
-                  
-                
-                
-                    
+                    ->formatStateUsing(fn($state) => 'Download'), // Display the text "Download"
+
+
+
+
+
             ])
             ->filters([
                 //
             ])
             ->actions([
                 Tables\Actions\EditAction::make(),
-            // Tables\Actions\Action::make('download_contract')
-            //     ->label('Download')
-            //     ->icon('heroicon-s-cloud-arrow-down')
-            //     ->action(function ($record) {
-            //         Log::info('Image field value:', ['image' => $record->image]);
-            //         return redirect(asset('storage/' . $record->image));
-            //     })
-            //     ->color('success'),
-            
+                // Tables\Actions\Action::make('download_contract')
+                //     ->label('Download')
+                //     ->icon('heroicon-s-cloud-arrow-down')
+                //     ->action(function ($record) {
+                //         Log::info('Image field value:', ['image' => $record->image]);
+                //         return redirect(asset('storage/' . $record->image));
+                //     })
+                //     ->color('success'),
+
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([

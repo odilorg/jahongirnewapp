@@ -109,18 +109,20 @@ class ContractResource extends Resource
                         }
                 
                         // Create a new Turfirma record in the database
-                        $newTurfirma = \App\Models\Turfirma::create([
-                            'name' => $apiData['shortName'] ?? null,
-                            'official_name' => $apiData['name'] ?? null,
-                            'address_street' => $apiData['address'] ?? null,
-                            'inn' => $apiData['tin'] ?? $data['tin'],
-                            'account_number' => $apiData['account'] ?? null,
-                            'bank_mfo' => $apiData['bankCode'] ?? $apiData['mfo'] ?? null, // Handles both bankCode (primary API) and mfo (backup APIs)
-                            'director_name' => $apiData['director'] ?? null,
-                            'phone' => $data['phone'], // Save the phone from the form
-                            'email' => $data['email'], // Save the email from the form
-                            'api_data' => json_encode($apiData), // Save the JSON data
-                        ]);
+$newTurfirma = \App\Models\Turfirma::create([
+    'name' => $apiData['shortName'] ?? null,
+    'official_name' => $apiData['name'] ?? null,
+    'address_street' => $apiData['address'] ?? null,
+    'inn' => $apiData['tin'] ?? $data['tin'],
+    'account_number' => $apiData['account'] ?? null,
+    'bank_mfo' => $apiData['bankCode'] ?? $apiData['mfo'] ?? null, // Handles both bankCode (primary API) and mfo (backup APIs)
+    'bank_name' => \App\Models\Bank::where('mfo', $apiData['bankCode'] ?? $apiData['mfo'] ?? null)->value('bankName'), // Fetch bank name
+    'director_name' => $apiData['director'] ?? null,
+    'phone' => $data['phone'], // Save the phone from the form
+    'email' => $data['email'], // Save the email from the form
+    'api_data' => json_encode($apiData), // Save the JSON data
+]);
+
                 
                         // Return the primary key of the newly created Turfirma
                         return $newTurfirma->id;
