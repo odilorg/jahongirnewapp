@@ -42,7 +42,7 @@ class TurfirmaService
             }
 
             // Create a new Turfirma
-            return Turfirma::create([
+            $turfirma = Turfirma::create([
                 'name' => $apiData['shortName'] ?? null,
                 'official_name' => $apiData['name'] ?? null,
                 'address_street' => $apiData['address'] ?? null,
@@ -55,16 +55,34 @@ class TurfirmaService
                 'email' => $data['email'],
                 'type' => $data['type'],
                 'api_data' => json_encode($apiData),
-            ])->id;
+            ]);
+
+            // Success notification
+            Notification::make()
+                ->title('Company Created')
+                ->body("The company '{$turfirma->name}' has been successfully created.")
+                ->success()
+                ->send();
+
+            return $turfirma->id;
         }
 
         // If no TIN, create minimal Turfirma
-        return Turfirma::create([
+        $turfirma = Turfirma::create([
             'name' => $data['name'],
             'phone' => $data['phone'],
             'email' => $data['email'],
             'type' => $data['type'],
-        ])->id;
+        ]);
+
+        // Success notification for minimal Turfirma creation
+        Notification::make()
+            ->title('Tourfirm Created')
+            ->body("The company '{$turfirma->name}' has been successfully created.")
+            ->success()
+            ->send();
+
+        return $turfirma->id;
     }
 
     private static function fetchDataFromApis(string $tin): ?array
