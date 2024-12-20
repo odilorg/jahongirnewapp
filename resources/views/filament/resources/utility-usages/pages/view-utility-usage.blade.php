@@ -66,7 +66,9 @@
         }
     }
 </style>
-
+@php
+    \Carbon\Carbon::setLocale('uz'); // Set locale to Uzbek
+@endphp
 
 <div class="custom-invoice-wrapper">
     <div class="custom-invoice">
@@ -79,22 +81,22 @@
                             <div class="col-12 table-responsive">
                                 <table class="table table-sm table-borderless">
                                     <tbody>
-                                        <tr><td>Мижоз:</td><td>СП "JAXONGIR TRAVEL"</td></tr>
-                                        <tr><td>Шартнома:</td><td>C-II-93 46042 sana 01/01/2022</td></tr>
-                                        <tr><td>Х/р:</td><td>20208000704734557001</td></tr>
-                                        <tr><td>Банк номи:</td><td>САМАРКАНД Ш., Хамкорбанк Андижон ф-ли</td></tr>
-                                        <tr><td>Банк коди:</td><td>00083</td></tr>
-                                        <tr><td>ИНН:</td><td>300965341</td></tr>
-                                        <tr><td>Манзил:</td><td>Samarkand CHIROQCHI, 4</td></tr>
-                                        <tr><td>Тел:</td><td>915550808</td></tr>
+                                        <tr><td>Мижоз:</td><td>{{ $record->hotel->official_name }}</td></tr>
+                                        <tr><td>Шартнома:</td><td>{{ $record->meter->contract_number }} sana {{ \Carbon\Carbon::parse($record->meter->contract_date)->format('d/m/Y') }}
+                                        <tr><td>Х/р:</td><td>{{ $record->hotel->account_number }}</td></tr>
+                                        <tr><td>Банк номи:</td><td>{{ $record->hotel->bank_name }}</td></tr>
+                                        <tr><td>Банк коди:</td><td>{{ $record->hotel->bank_mfo}}</td></tr>
+                                        <tr><td>ИНН:</td><td>{{ $record->hotel->inn }}</td></tr>
+                                        <tr><td>Манзил:</td><td>{{ $record->hotel->address }}</td></tr>
+                                        <tr><td>Тел:</td><td>{{ $record->hotel->phone }}</td></tr>
                                     </tbody>
                                 </table>
                             </div>
                         </div>
                         <div class="card">
                             <div class="card-header">
-                                <h3>Сарфланган Tabiiy Gaz буйича хисобот</h3>
-                                <h3>Ноябр учун</h3>
+                                <h3>Сарфланган {{ $record->meter->utility->name }} буйича хисобот</h3>
+                                <h3>{{ strtoupper(\Carbon\Carbon::parse($record->usage_date)->translatedFormat('F')) }} {{ \Carbon\Carbon::parse($record->usage_date)->year }} учун</h3>
                             </div>
                             <div class="card-body table-responsive p-0">
                                 <table class="table table-bordered">
@@ -109,11 +111,11 @@
                                     </thead>
                                     <tbody>
                                         <tr>
-                                            <td>Samarkand CHIROQCHI, 4</td>
-                                            <td>TPGR036120253481</td>
-                                            <td>32224</td>
-                                            <td>32908</td>
-                                            <td>684</td>
+                                            <td>{{ $record->hotel->address }}</td>
+                                            <td>{{ $record->meter->meter_serial_number }}</td>
+                                            <td>{{ $record->meter_previous }}</td>
+                                            <td>{{ $record->meter_latest }}</td>
+                                            <td>{{ $record->meter_difference }}</td>
                                         </tr>
                                     </tbody>
                                 </table>
@@ -123,7 +125,7 @@
                             <table>
                                 <tbody>
                                     <tr>
-                                        <td>СП "JAXONGIR TRAVEL"</td>
+                                        <td>{{ $record->hotel->official_name }}</td>
                                         <td style="text-align:right;">Tabiiy Gaz</td>
                                     </tr>
                                     <tr>
@@ -135,8 +137,8 @@
                                         <td style="text-align:right;">Имзо_____________________</td>
                                     </tr>
                                     <tr>
-                                        <td>Сана: 25/11/2024</td>
-                                        <td style="text-align:right;">Сана: 25/11/2024</td>
+                                        <td>Сана: {{ \Carbon\Carbon::parse($record->usage_date)->format('d/m/Y') }}</td>
+                                        <td style="text-align:right;">Сана: {{ \Carbon\Carbon::parse($record->usage_date)->format('d/m/Y') }}</td>
                                     </tr>
                                 </tbody>
                             </table>
@@ -151,22 +153,22 @@
                             <div class="col-12 table-responsive">
                                 <table class="table table-sm table-borderless">
                                     <tbody>
-                                        <tr><td>Мижоз:</td><td>СП "JAXONGIR TRAVEL"</td></tr>
-                                        <tr><td>Шартнома:</td><td>C-II-93 46042 sana 01/01/2022</td></tr>
-                                        <tr><td>Х/р:</td><td>20208000704734557001</td></tr>
-                                        <tr><td>Банк номи:</td><td>САМАРКАНД Ш., Хамкорбанк Андижон ф-ли</td></tr>
-                                        <tr><td>Банк коди:</td><td>00083</td></tr>
-                                        <tr><td>ИНН:</td><td>300965341</td></tr>
-                                        <tr><td>Манзил:</td><td>Samarkand CHIROQCHI, 4</td></tr>
-                                        <tr><td>Тел:</td><td>915550808</td></tr>
+                                        <tr><td>Мижоз:</td><td>{{ $record->hotel->official_name }}</td></tr>
+                                        <tr><td>Шартнома:</td><td>{{ $record->meter->contract_number }} sana {{ \Carbon\Carbon::parse($record->meter->contract_date)->format('d/m/Y') }}
+                                        <tr><td>Х/р:</td><td>{{ $record->hotel->account_number }}</td></tr>
+                                        <tr><td>Банк номи:</td><td>{{ $record->hotel->bank_name }}</td></tr>
+                                        <tr><td>Банк коди:</td><td>{{ $record->hotel->bank_mfo}}</td></tr>
+                                        <tr><td>ИНН:</td><td>{{ $record->hotel->inn }}</td></tr>
+                                        <tr><td>Манзил:</td><td>{{ $record->hotel->address }}</td></tr>
+                                        <tr><td>Тел:</td><td>{{ $record->hotel->phone }}</td></tr>
                                     </tbody>
                                 </table>
                             </div>
                         </div>
                         <div class="card">
                             <div class="card-header">
-                                <h3>Сарфланган Tabiiy Gaz буйича хисобот</h3>
-                                <h3>Ноябр учун</h3>
+                                <h3>Сарфланган {{ $record->meter->utility->name }} буйича хисобот</h3>
+                                <h3>{{ strtoupper(\Carbon\Carbon::parse($record->usage_date)->translatedFormat('F')) }} {{ \Carbon\Carbon::parse($record->usage_date)->year }} учун</h3>
                             </div>
                             <div class="card-body table-responsive p-0">
                                 <table class="table table-bordered">
@@ -181,11 +183,11 @@
                                     </thead>
                                     <tbody>
                                         <tr>
-                                            <td>Samarkand CHIROQCHI, 4</td>
-                                            <td>TPGR036120253481</td>
-                                            <td>32224</td>
-                                            <td>32908</td>
-                                            <td>684</td>
+                                            <td>{{ $record->hotel->address }}</td>
+                                            <td>{{ $record->meter->meter_serial_number }}</td>
+                                            <td>{{ $record->meter_previous }}</td>
+                                            <td>{{ $record->meter_latest }}</td>
+                                            <td>{{ $record->meter_difference }}</td>
                                         </tr>
                                     </tbody>
                                 </table>
@@ -195,7 +197,7 @@
                             <table>
                                 <tbody>
                                     <tr>
-                                        <td>СП "JAXONGIR TRAVEL"</td>
+                                        <td>{{ $record->hotel->official_name }}</td>
                                         <td style="text-align:right;">Tabiiy Gaz</td>
                                     </tr>
                                     <tr>
@@ -207,8 +209,8 @@
                                         <td style="text-align:right;">Имзо_____________________</td>
                                     </tr>
                                     <tr>
-                                        <td>Сана: 25/11/2024</td>
-                                        <td style="text-align:right;">Сана: 25/11/2024</td>
+                                        <td>Сана: {{ \Carbon\Carbon::parse($record->usage_date)->format('d/m/Y') }}</td>
+                                        <td style="text-align:right;">Сана: {{ \Carbon\Carbon::parse($record->usage_date)->format('d/m/Y') }}</td>
                                     </tr>
                                 </tbody>
                             </table>
