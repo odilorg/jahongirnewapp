@@ -9,9 +9,12 @@ use Filament\Forms\Get;
 use Filament\Forms\Set;
 use Filament\Forms\Form;
 use Filament\Tables\Table;
+use Pages\ViewUtilityUsage;
 use App\Models\UtilityUsage;
+use Filament\Infolists\Infolist;
 use Filament\Resources\Resource;
 use Illuminate\Database\Eloquent\Builder;
+use Filament\Infolists\Components\TextEntry;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
 use App\Filament\Resources\UtilityUsageResource\Pages;
 use App\Filament\Resources\UtilityUsageResource\RelationManagers;
@@ -21,6 +24,7 @@ class UtilityUsageResource extends Resource
     protected static ?string $model = UtilityUsage::class;
 
     protected static ?string $navigationIcon = 'heroicon-o-rectangle-stack';
+    protected static string $view = 'filament.resources.utility-usages.pages.view-utility-usage.blade';
 
     public static function form(Form $form): Form
     {
@@ -120,7 +124,11 @@ class UtilityUsageResource extends Resource
             ])
             ->actions([
                 Tables\Actions\EditAction::make(),
+                Tables\Actions\ViewAction::make(),
+                
             ])
+                
+            
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
                     Tables\Actions\DeleteBulkAction::make(),
@@ -141,10 +149,25 @@ class UtilityUsageResource extends Resource
             'index' => Pages\ListUtilityUsages::route('/'),
             'create' => Pages\CreateUtilityUsage::route('/create'),
             'edit' => Pages\EditUtilityUsage::route('/{record}/edit'),
+           'view' => Pages\ViewUtilityUsage::route('/{record}'),
+           'print' => Pages\PrintUtilityUsage::route('/{record}/print'),
+           
         ];
     }
 
     public static function calculateMeterDif(Get $get, Set $set): void {
         $set('meter_difference', $get('meter_latest')-$get('meter_previous'));
     }
+
+     
+// public static function infolist(Infolist $infolist): Infolist
+// {
+//     return $infolist
+//         ->schema([
+//             TextEntry::make('hotel.name')
+
+
+//         ]);
+// }
 }
+

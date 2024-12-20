@@ -27,7 +27,7 @@ class GenerateContractPdf implements ShouldQueue
     public function __construct(Contract $contract)
     {
         $this->contract = $contract;
-        Log::info('GenerateContractPdf Job initialized with Contract ID: ' . $contract->id);
+      //  Log::info('GenerateContractPdf Job initialized with Contract ID: ' . $contract->id);
     }
 
     /**
