@@ -73,7 +73,8 @@ class ExpenseResource extends Resource
                     ->default(session('last_selected_payment_type'))
                     ->required(),
 
-            ]);
+                ]);
+             
     }
 
     public static function table(Table $table): Table
