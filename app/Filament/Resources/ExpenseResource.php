@@ -9,6 +9,10 @@ use Filament\Forms\Form;
 use Filament\Tables\Table;
 use Filament\Resources\Resource;
 use Filament\Tables\Grouping\Group;
+use Filament\Forms\Components\Select;
+use Illuminate\Support\Facades\Session;
+use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\DatePicker;
 use Illuminate\Database\Eloquent\Builder;
 use Filament\Tables\Columns\Summarizers\Sum;
 use App\Filament\Resources\ExpenseResource\Pages;
@@ -25,48 +29,62 @@ class ExpenseResource extends Resource
     {
         return $form
             ->schema([
-                Forms\Components\Select::make('hotel_id')
+                Select::make('hotel_id')
                     ->relationship('hotel', 'name')
+                    ->after(function ($component) {
+                        Session::put('last_selected_hotel_id', $component->getState());
+                    })
                     ->default(session('last_selected_hotel_id')) // Set the default value
                     ->required(),
-                   // ->numeric(),
-                   Forms\Components\Select::make('category_id')
-                   ->relationship('category', 'name')
-                   ->createOptionForm([
-                    Forms\Components\TextInput::make('name')
-                        ->required(),
-                   ])
-                  // ->default(session('last_selected_hotel_id')) // Set the default value
-                 ->required(),   
-                Forms\Components\DatePicker::make('expense_date')
-                    ->default(now()),
+                // ->numeric(),
+                Select::make('category_id')
+                    ->relationship('category', 'name')
+                    ->createOptionForm([
+                        TextInput::make('name')
+                            ->required(),
+                    ])
+                    ->after(function ($component) {
+                        Session::put('last_selected_category_id', $component->getState());
+                    })
+                    ->default(session('last_selected_category_id'))
+                    ->required(),
+
+                DatePicker::make('expense_date')
+                    ->after(function ($component) {
+                        Session::put('last_selected_expense_date', $component->getState());
+                    })
+                    ->default(session('last_selected_expense_date'))
+                    ->required(),
                 Forms\Components\TextInput::make('name')
                     ->required()
                     ->maxLength(255),
                 Forms\Components\TextInput::make('amount')
                     ->required()
                     ->numeric(),
-                Forms\Components\Select::make('payment_type')
+                Select::make('payment_type')
                     ->options([
                         'naqd' => 'Naqd',
                         'karta' => 'Karta',
                         'perech' => 'Perech'
                     ])
-                    ->required()
-                    ->default('naqd')
-               
+                    ->after(function ($component) {
+                        Session::put('last_selected_payment_type', $component->getState());
+                    })
+                    ->default(session('last_selected_payment_type'))
+                    ->required(),
+
             ]);
     }
 
     public static function table(Table $table): Table
     {
         return $table
-        ->groups([
-            'payment_type',
-            
-        ])
-        ->defaultGroup('hotel.name')
-       
+            ->groups([
+                'payment_type',
+
+            ])
+            ->defaultGroup('hotel.name')
+
 
             ->columns([
                 Tables\Columns\TextColumn::make('created_at')
@@ -86,11 +104,11 @@ class ExpenseResource extends Resource
                 Tables\Columns\TextColumn::make('name')
                     ->searchable(),
                 Tables\Columns\TextColumn::make('amount')
-                ->summarize(
-                    Sum::make()->formatStateUsing(fn ($state) => $state / 100)
-                )
-                ->money('UZS')
-                   
+                    ->summarize(
+                        Sum::make()->formatStateUsing(fn($state) => $state / 100)
+                    )
+                    ->money('UZS')
+
                     ->numeric()
                     ->sortable(),
                 Tables\Columns\TextColumn::make('payment_type')
@@ -99,7 +117,7 @@ class ExpenseResource extends Resource
                     ->numeric()
                     ->sortable(),
 
-                  
+
 
             ])
             ->filters([
