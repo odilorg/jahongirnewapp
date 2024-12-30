@@ -13,11 +13,13 @@ use Filament\Forms\Components\Select;
 use Illuminate\Support\Facades\Session;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\DatePicker;
+use Filament\Tables\Filters\SelectFilter;
 use Illuminate\Database\Eloquent\Builder;
 use Filament\Tables\Columns\Summarizers\Sum;
 use App\Filament\Resources\ExpenseResource\Pages;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
 use App\Filament\Resources\ExpenseResource\RelationManagers;
+use Filament\Tables\Filters\Filter;
 
 class ExpenseResource extends Resource
 {
@@ -122,7 +124,31 @@ class ExpenseResource extends Resource
 
             ])
             ->filters([
-                //
+                SelectFilter::make('category')
+                    ->relationship('category', 'name')
+                    ->searchable()
+                    ->preload(),
+                    SelectFilter::make('hotel')
+                    ->relationship('hotel', 'name')
+                    ->searchable()
+                    ->preload(),
+                    Filter::make('expense_date')
+                    ->form([
+                        DatePicker::make('created_from'),
+                        DatePicker::make('created_until'),
+                    ])
+                    ->query(function (Builder $query, array $data): Builder {
+                        return $query
+                            ->when(
+                                $data['created_from'],
+                                fn (Builder $query, $date): Builder => $query->whereDate('expense_date', '>=', $date),
+                            )
+                            ->when(
+                                $data['created_until'],
+                                fn (Builder $query, $date): Builder => $query->whereDate('expense_date', '<=', $date),
+                            );
+                    })
+
             ])
             ->actions([
                 Tables\Actions\EditAction::make(),
