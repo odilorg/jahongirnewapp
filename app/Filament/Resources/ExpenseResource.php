@@ -109,9 +109,9 @@ class ExpenseResource extends Resource
                     ->searchable(),
                 Tables\Columns\TextColumn::make('amount')
                     ->summarize(
-                        Sum::make()->formatStateUsing(fn($state) => $state / 100)
+                        Sum::make()->money('UZS', divideBy: 100)
                     )
-                    ->money('UZS')
+                   // 
 
                     ->numeric()
                     ->sortable(),
