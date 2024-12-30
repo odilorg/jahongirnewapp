@@ -7,9 +7,12 @@ use Filament\Tables;
 use App\Models\Expense;
 use Filament\Forms\Form;
 use Filament\Tables\Table;
+use Illuminate\Support\Carbon;
 use Filament\Resources\Resource;
+use Filament\Tables\Filters\Filter;
 use Filament\Tables\Grouping\Group;
 use Filament\Forms\Components\Select;
+use Filament\Tables\Filters\Indicator;
 use Illuminate\Support\Facades\Session;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\DatePicker;
@@ -19,7 +22,6 @@ use Filament\Tables\Columns\Summarizers\Sum;
 use App\Filament\Resources\ExpenseResource\Pages;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
 use App\Filament\Resources\ExpenseResource\RelationManagers;
-use Filament\Tables\Filters\Filter;
 
 class ExpenseResource extends Resource
 {
@@ -75,8 +77,7 @@ class ExpenseResource extends Resource
                     ->default(session('last_selected_payment_type'))
                     ->required(),
 
-                ]);
-             
+            ]);
     }
 
     public static function table(Table $table): Table
@@ -128,24 +129,39 @@ class ExpenseResource extends Resource
                     ->relationship('category', 'name')
                     ->searchable()
                     ->preload(),
-                    SelectFilter::make('hotel')
+                SelectFilter::make('hotel')
                     ->relationship('hotel', 'name')
                     ->searchable()
                     ->preload(),
-                    Filter::make('expense_date')
+                Filter::make('expense_date')
                     ->form([
-                        DatePicker::make('created_from'),
-                        DatePicker::make('created_until'),
+                        DatePicker::make('from'),
+                        DatePicker::make('until'),
                     ])
+                    ->indicateUsing(function (array $data): array {
+                        $indicators = [];
+                 
+                        if ($data['from'] ?? null) {
+                            $indicators[] = Indicator::make('Created from ' . Carbon::parse($data['from'])->toFormattedDateString())
+                                ->removeField('from');
+                        }
+                 
+                        if ($data['until'] ?? null) {
+                            $indicators[] = Indicator::make('Created until ' . Carbon::parse($data['until'])->toFormattedDateString())
+                                ->removeField('until');
+                        }
+                 
+                        return $indicators;
+                    })
                     ->query(function (Builder $query, array $data): Builder {
                         return $query
                             ->when(
-                                $data['created_from'],
-                                fn (Builder $query, $date): Builder => $query->whereDate('expense_date', '>=', $date),
+                                $data['from'],
+                                fn(Builder $query, $date): Builder => $query->whereDate('expense_date', '>=', $date),
                             )
                             ->when(
-                                $data['created_until'],
-                                fn (Builder $query, $date): Builder => $query->whereDate('expense_date', '<=', $date),
+                                $data['until'],
+                                fn(Builder $query, $date): Builder => $query->whereDate('expense_date', '<=', $date),
                             );
                     })
 
