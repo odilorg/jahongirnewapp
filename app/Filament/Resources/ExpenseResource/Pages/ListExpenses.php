@@ -2,9 +2,12 @@
 
 namespace App\Filament\Resources\ExpenseResource\Pages;
 
-use App\Filament\Resources\ExpenseResource;
 use Filament\Actions;
+use Illuminate\Support\Carbon;
+use Filament\Resources\Components\Tab;
 use Filament\Resources\Pages\ListRecords;
+use Illuminate\Database\Eloquent\Builder;
+use App\Filament\Resources\ExpenseResource;
 
 class ListExpenses extends ListRecords
 {
@@ -16,4 +19,34 @@ class ListExpenses extends ListRecords
             Actions\CreateAction::make(),
         ];
     }
+
+    public function getTabs(): array
+    {
+        return [
+            'all' => Tab::make(),
+            'Jahongir' => Tab::make()
+                ->modifyQueryUsing(fn (Builder $query) => $query->where('hotel_id', 1)),
+            'Premium' => Tab::make()
+                ->modifyQueryUsing(fn (Builder $query) => $query->where('hotel_id', 2)),
+            'Break Jah' => Tab::make()
+             ->modifyQueryUsing(fn (Builder $query) => $query->where('category_id', 2)->where('hotel_id', 1)),
+            'Break Pr' => Tab::make()
+             ->modifyQueryUsing(fn (Builder $query) => $query->where('category_id', 2)->where('hotel_id', 2)),
+             'Month Br Jah' => Tab::make()
+                ->modifyQueryUsing(fn (Builder $query) => 
+                    $query->where('category_id', 2)
+                        ->where('hotel_id', 1)
+                        ->whereMonth('expense_date', Carbon::now()->month)
+                        ->whereYear('expense_date', Carbon::now()->year)
+                ),
+                'Month Br Pr' => Tab::make()
+                ->modifyQueryUsing(fn (Builder $query) => 
+                    $query->where('category_id', 2)
+                        ->where('hotel_id', 2)
+                        ->whereMonth('expense_date', Carbon::now()->month)
+                        ->whereYear('expense_date', Carbon::now()->year)
+                ),    
+        ];
+    }
+
 }
