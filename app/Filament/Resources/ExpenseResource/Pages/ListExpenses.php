@@ -28,10 +28,25 @@ class ListExpenses extends ListRecords
                 ->modifyQueryUsing(fn (Builder $query) => $query->where('hotel_id', 1)),
             'Premium' => Tab::make()
                 ->modifyQueryUsing(fn (Builder $query) => $query->where('hotel_id', 2)),
-            'Break Jah' => Tab::make()
-             ->modifyQueryUsing(fn (Builder $query) => $query->where('category_id', 2)->where('hotel_id', 1)),
-            'Break Pr' => Tab::make()
-             ->modifyQueryUsing(fn (Builder $query) => $query->where('category_id', 2)->where('hotel_id', 2)),
+            
+'Break Jah' => Tab::make()
+->modifyQueryUsing(fn (Builder $query) => 
+    $query->whereHas('category', fn ($query) => 
+        $query->where('name', 'Breakfast')
+    )
+    ->where('hotel_id', 1)
+    ->whereMonth('created_at', Carbon::now()->month)
+    ->whereYear('created_at', Carbon::now()->year)
+),
+'Break Pr' => Tab::make()
+->modifyQueryUsing(fn (Builder $query) => 
+    $query->whereHas('category', fn ($query) => 
+        $query->where('name', 'Breakfast')
+    )
+    ->where('hotel_id', 2)
+    ->whereMonth('created_at', Carbon::now()->month)
+    ->whereYear('created_at', Carbon::now()->year)
+),
              'Month Br Jah' => Tab::make()
                 ->modifyQueryUsing(fn (Builder $query) => 
                     $query->whereHas('category', fn ($query) => 
