@@ -41,11 +41,13 @@ class ListExpenses extends ListRecords
                 ),
                 'Month Br Pr' => Tab::make()
                 ->modifyQueryUsing(fn (Builder $query) => 
-                    $query->where('category_id', 2)
-                        ->where('hotel_id', 2)
-                        ->whereMonth('expense_date', Carbon::now()->month)
-                        ->whereYear('expense_date', Carbon::now()->year)
-                ),    
+                    $query->whereHas('category', fn ($query) => 
+                        $query->where('name', 'Breakfast')
+                    )
+                    ->where('hotel_id', 2)
+                    ->whereMonth('created_at', Carbon::now()->month)
+                    ->whereYear('created_at', Carbon::now()->year)
+                ),  
         ];
     }
 
