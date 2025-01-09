@@ -28,6 +28,7 @@ class ExpenseResource extends Resource
     protected static ?string $model = Expense::class;
 
     protected static ?string $navigationIcon = 'heroicon-o-rectangle-stack';
+    
 
     public static function form(Form $form): Form
     {
@@ -83,11 +84,19 @@ class ExpenseResource extends Resource
     public static function table(Table $table): Table
     {
         return $table
+            
             ->groups([
-                'payment_type',
-
+                Group::make('expense_date')
+               
+                ->date(),
+                
+            
+                
+                                
+               // ->defaultSort('desc'),
+                'hotel.name',
             ])
-            ->defaultGroup('hotel.name')
+            ->defaultGroup('expense_date')
 
 
             ->columns([
@@ -103,8 +112,9 @@ class ExpenseResource extends Resource
                     ->numeric()
                     ->sortable(),
                 Tables\Columns\TextColumn::make('expense_date')
-                    ->date()
-                    ->sortable(),
+               
+                    ->date(),
+                    //->sortable(),
                 Tables\Columns\TextColumn::make('name')
                     ->searchable(),
                 Tables\Columns\TextColumn::make('amount')
@@ -121,9 +131,10 @@ class ExpenseResource extends Resource
                     ->numeric()
                     ->sortable(),
 
-
+                            
 
             ])
+           
             ->filters([
                 SelectFilter::make('category')
                     ->relationship('category', 'name')
