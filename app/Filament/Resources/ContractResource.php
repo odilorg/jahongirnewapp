@@ -115,15 +115,26 @@ class ContractResource extends Resource
     ->visible(fn(Contract $record): bool => !is_null($record->file_name))
     ->action(function (Contract $record) {
         $turfirmaEmail = $record->turfirma?->email; // Safely access the email via the relationship
+        
         if ($turfirmaEmail) {
             Mail::to($turfirmaEmail)->queue(new SendContract($record));
-        } else {
+            
+            // Add a success notification
             Notification::make()
-                ->title('Turfirma email not found')
+                ->title('Contract Sent Successfully')
+                ->body('The contract has been sent to ' . $record->turfirma->name . ' (' . $turfirmaEmail . ').')
+                ->success()
+                ->send();
+        } else {
+            // Add an error notification
+            Notification::make()
+                ->title('Failed to Send Contract')
+                ->body('No email address found for the partner.')
                 ->danger()
                 ->send();
         }
     }),
+
 
             ])
             ->bulkActions([

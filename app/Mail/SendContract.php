@@ -23,7 +23,16 @@ class SendContract extends Mailable
     }
     public function build()
     {
+        // Retrieve the related Turfirma instance
+        $turfirma = $this->contract->turfirma;
+        $hotel = $this->contract->hotel;
+
         return $this->view('emails.send_contract')
+            ->with([
+                'contract' => $this->contract,
+                'turfirma' => $turfirma,
+                'hotel' => $hotel,
+            ])
             ->subject('Your Contract: ' . $this->contract->contract_title)
             ->attach(storage_path('app/public/contracts/' . $this->contract->file_name));
     }

@@ -17,7 +17,9 @@ class Contract extends Model
     {
         return $this->belongsTo(Turfirma::class);
     }
-
+    protected $casts = [
+        'date' => 'datetime',
+    ];
     public function hotel(): BelongsTo
     {
         return $this->belongsTo(Hotel::class);
