@@ -110,13 +110,21 @@ class ContractResource extends Resource
                     ->action(function (Contract $record) {
                         return response()->download(storage_path('app/public/contracts/') . $record->file_name);
                     }),
+                    Tables\Actions\Action::make('send_contract')
+    ->icon('heroicon-o-envelope')
+    ->visible(fn(Contract $record): bool => !is_null($record->file_name))
+    ->action(function (Contract $record) {
+        $turfirmaEmail = $record->turfirma?->email; // Safely access the email via the relationship
+        if ($turfirmaEmail) {
+            Mail::to($turfirmaEmail)->queue(new SendContract($record));
+        } else {
+            Notification::make()
+                ->title('Turfirma email not found')
+                ->danger()
+                ->send();
+        }
+    }),
 
-                Tables\Actions\Action::make('send_contract')
-                    ->icon('heroicon-o-envelope')
-                    ->visible(fn(Contract $record): bool => !is_null($record->file_name))
-                    ->action(function (Contract $record) {
-                        Mail::to($record->client_email)->queue(new SendContract($record));
-                    }),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([

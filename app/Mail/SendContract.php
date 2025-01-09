@@ -25,27 +25,27 @@ class SendContract extends Mailable
     {
         return $this->view('emails.send_contract')
             ->subject('Your Contract: ' . $this->contract->contract_title)
-            ->attach(storage_path('app/public/' . $this->contract->file_name));
+            ->attach(storage_path('app/public/contracts/' . $this->contract->file_name));
     }
     /**
      * Get the message envelope.
      */
-    public function envelope(): Envelope
-    {
-        return new Envelope(
-            subject: 'Send Contract',
-        );
-    }
+    // public function envelope(): Envelope
+    // {
+    //     return new Envelope(
+    //         subject: 'Send Contract',
+    //     );
+    // }
 
     /**
      * Get the message content definition.
      */
-    public function content(): Content
-    {
-        return new Content(
-            view: 'view.name',
-        );
-    }
+    // public function content(): Content
+    // {
+    //     return new Content(
+    //         view: 'view.name',
+    //     );
+    // }
 
     /**
      * Get the attachments for the message.
