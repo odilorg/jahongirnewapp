@@ -10,7 +10,8 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 class Expense extends Model
 {
     use HasFactory;
-
+    public ?string $start_date = null;
+    public ?string $end_date = null;
     protected $fillable = [
         'category_id',
         'name',
@@ -33,4 +34,6 @@ class Expense extends Model
 {
     return $this->belongsTo(ExpenseCategory::class);
 }
+
+
 }
