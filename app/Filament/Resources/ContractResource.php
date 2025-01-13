@@ -8,11 +8,14 @@ use App\Models\Contract;
 use Filament\Forms\Form;
 use App\Mail\SendContract;
 use Filament\Tables\Table;
+use Filament\Infolists\Infolist;
 use Filament\Resources\Resource;
 use Illuminate\Support\Facades\Mail;
-use App\Services\TurfirmaService; // Import the TurfirmaService
 use Filament\Notifications\Notification;
+use Filament\Infolists\Components\TextEntry;
 use App\Filament\Resources\ContractResource\Pages;
+use App\Services\TurfirmaService; // Import the TurfirmaService
+
 
 class ContractResource extends Resource
 {
@@ -27,7 +30,7 @@ class ContractResource extends Resource
                 Forms\Components\Select::make('hotel_id')
                     ->relationship('hotel', 'name')
                     ->required(),
-                    Forms\Components\Select::make('turfirma_id')
+                Forms\Components\Select::make('turfirma_id')
                     ->relationship('turfirma', 'name')
                     ->required()
                     ->preload()
@@ -110,30 +113,32 @@ class ContractResource extends Resource
                     ->action(function (Contract $record) {
                         return response()->download(storage_path('app/public/contracts/') . $record->file_name);
                     }),
-                    Tables\Actions\Action::make('send_contract')
-    ->icon('heroicon-o-envelope')
-    ->visible(fn(Contract $record): bool => !is_null($record->file_name))
-    ->action(function (Contract $record) {
-        $turfirmaEmail = $record->turfirma?->email; // Safely access the email via the relationship
-        
-        if ($turfirmaEmail) {
-            Mail::to($turfirmaEmail)->queue(new SendContract($record));
-            
-            // Add a success notification
-            Notification::make()
-                ->title('Contract Sent Successfully')
-                ->body('The contract has been sent to ' . $record->turfirma->name . ' (' . $turfirmaEmail . ').')
-                ->success()
-                ->send();
-        } else {
-            // Add an error notification
-            Notification::make()
-                ->title('Failed to Send Contract')
-                ->body('No email address found for the partner.')
-                ->danger()
-                ->send();
-        }
-    }),
+                Tables\Actions\Action::make('send_contract')
+                    ->icon('heroicon-o-envelope')
+                    ->visible(fn(Contract $record): bool => !is_null($record->file_name))
+                    ->action(function (Contract $record) {
+                        $turfirmaEmail = $record->turfirma?->email; // Safely access the email via the relationship
+
+                        if ($turfirmaEmail) {
+                            Mail::to($turfirmaEmail)->queue(new SendContract($record));
+
+                            // Add a success notification
+                            Notification::make()
+                                ->title('Contract Sent Successfully')
+                                ->body('The contract has been sent to ' . $record->turfirma->name . ' (' . $turfirmaEmail . ').')
+                                ->success()
+                                ->send();
+                        } else {
+                            // Add an error notification
+                            Notification::make()
+                                ->title('Failed to Send Contract')
+                                ->body('No email address found for the partner.')
+                                ->danger()
+                                ->send();
+                        }
+                    }),
+                    Tables\Actions\ViewAction::make(),
+   
 
 
             ])
@@ -155,6 +160,24 @@ class ContractResource extends Resource
             'index' => Pages\ListContracts::route('/'),
             'create' => Pages\CreateContract::route('/create'),
             'edit' => Pages\EditContract::route('/{record}/edit'),
+            'view' => Pages\ViewContract::route('/{record}'),
         ];
+    }
+
+    public static function infolist(Infolist $infolist): Infolist
+    {
+        return $infolist
+            ->schema([
+                TextEntry::make('number')
+                ->color('primary'),
+                TextEntry::make('date')
+                ->color('primary'),
+                TextEntry::make('hotel.name')
+                ->color('primary'),
+                TextEntry::make('turfirma.name')
+                ->color('primary'),
+                    
+
+            ]);
     }
 }

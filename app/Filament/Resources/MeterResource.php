@@ -12,6 +12,8 @@ use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
+use Filament\Infolists;
+use Filament\Infolists\Infolist;
 
 class MeterResource extends Resource
 {
@@ -84,6 +86,8 @@ class MeterResource extends Resource
             ])
             ->actions([
                 Tables\Actions\EditAction::make(),
+                Tables\Actions\ViewAction::make(),
+
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
@@ -105,6 +109,22 @@ class MeterResource extends Resource
             'index' => Pages\ListMeters::route('/'),
             'create' => Pages\CreateMeter::route('/create'),
             'edit' => Pages\EditMeter::route('/{record}/edit'),
+            'view' => Pages\ViewMeter::route('/{record}'),
+
         ];
     }
+
+    public static function infolist(Infolist $infolist): Infolist
+{
+    return $infolist
+        ->schema([
+            Infolists\Components\TextEntry::make('hotel.name')
+            ->color('primary'),
+             Infolists\Components\TextEntry::make('utility.name')
+             ->color('primary'),
+             Infolists\Components\TextEntry::make('meter_serial_number')
+             ->color('primary'),
+               
+        ]);
+}
 }
