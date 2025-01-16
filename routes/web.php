@@ -6,6 +6,7 @@ use Illuminate\Http\Request;
 use App\Models\ScheduledMessage;
 use Illuminate\Support\Facades\Log;
 use App\Jobs\SendTelegramMessageJob;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Storage;
@@ -20,20 +21,23 @@ use Illuminate\Support\Facades\Storage;
 | be assigned to the "web" middleware group. Make something great!
 |
 */
-Route::middleware(['auth'])->group(function () {
-    Route::any('/n8n/{path?}', function ($path = '') {
-        $response = Http::withHeaders([
-            'Authorization' => 'Bearer ' . (auth()->user()->api_token ?? ''),
-            'Content-Type' => request()->header('Content-Type'),
-        ])->send(request()->method(), "http://localhost:5678/$path", [
-            'query' => request()->query(),
-            'body' => request()->getContent(),
-        ]);
+Route::get('/n8n/auth', function () {
+    if (!Auth::check()) {
+        return response()->json(['message' => 'Unauthorized'], 401);
+    }
 
-        return response($response->body(), $response->status())->withHeaders($response->headers());
-    })->where('path', '.*');
-});
+    $user = Auth::user();
 
+    // Generate or fetch the API token for the authenticated user
+    // Replace this with your actual logic for managing tokens
+    $apiToken = $user->api_token ?? null;
+
+    if (!$apiToken) {
+        return response()->json(['message' => 'API token missing for the user'], 403);
+    }
+
+    return response()->json(['message' => 'Authenticated', 'api_token' => $apiToken], 200);
+})->middleware('auth');
 
 
 Route::post('/webhook/bookings', function (Request $request) {
