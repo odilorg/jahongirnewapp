@@ -20,15 +20,20 @@ use Illuminate\Support\Facades\Storage;
 | be assigned to the "web" middleware group. Make something great!
 |
 */
-Route::any('/n8n/{path}', function ($path) {
-    $response = Http::withToken(auth()->user()->api_token)
-        ->send(request()->method(), "http://localhost:5678/$path", [
+Route::middleware(['auth'])->group(function () {
+    Route::any('/n8n/{path?}', function ($path = '') {
+        $response = Http::withHeaders([
+            'Authorization' => 'Bearer ' . (auth()->user()->api_token ?? ''),
+            'Content-Type' => request()->header('Content-Type'),
+        ])->send(request()->method(), "http://localhost:5678/$path", [
             'query' => request()->query(),
             'body' => request()->getContent(),
         ]);
 
-    return response($response->body(), $response->status());
-})->where('path', '.*');
+        return response($response->body(), $response->status())->withHeaders($response->headers());
+    })->where('path', '.*');
+});
+
 
 
 Route::post('/webhook/bookings', function (Request $request) {
