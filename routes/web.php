@@ -6,6 +6,7 @@ use Illuminate\Http\Request;
 use App\Models\ScheduledMessage;
 use Illuminate\Support\Facades\Log;
 use App\Jobs\SendTelegramMessageJob;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Storage;
 
@@ -19,6 +20,16 @@ use Illuminate\Support\Facades\Storage;
 | be assigned to the "web" middleware group. Make something great!
 |
 */
+Route::any('/n8n/{path}', function ($path) {
+    $response = Http::withToken(auth()->user()->api_token)
+        ->send(request()->method(), "http://localhost:5678/$path", [
+            'query' => request()->query(),
+            'body' => request()->getContent(),
+        ]);
+
+    return response($response->body(), $response->status());
+})->where('path', '.*');
+
 
 Route::post('/webhook/bookings', function (Request $request) {
     try {
