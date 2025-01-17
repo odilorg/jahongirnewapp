@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Storage;
 
+
 /*
 |--------------------------------------------------------------------------
 | Web Routes
@@ -38,7 +39,19 @@ use Illuminate\Support\Facades\Storage;
 
 //     return response()->json(['message' => 'Authenticated', 'api_token' => $apiToken], 200);
 // })->middleware('auth');
+// Proxy all requests to /n8n/*
+Route::any('/n8n/{any}', function ($any) {
+    // Define the base URL of your n8n instance
+    $n8nBaseUrl = 'http://localhost:5678/'; // Replace with your n8n internal URL
+    $n8nUrl = $n8nBaseUrl . $any;
 
+    // Forward the request to n8n
+    return Http::withHeaders(request()->header())
+        ->send(request()->method(), $n8nUrl, [
+            'query' => request()->query(),
+            'form_params' => request()->all(),
+        ]);
+})->where('any', '.*')->middleware('protect.n8n');
 
 Route::post('/webhook/bookings', function (Request $request) {
     try {
