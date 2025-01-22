@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Storage;
 
+
 /*
 |--------------------------------------------------------------------------
 | Web Routes
@@ -39,54 +40,69 @@ use Illuminate\Support\Facades\Storage;
 
 //     return response()->json(['message' => 'Authenticated', 'api_token' => $apiToken], 200);
 // })->middleware('auth');
+// Proxy all requests to /n8n/*
+// Route::any('/n8n/{any}', function ($any) {
+//     // Define the base URL of your n8n instance
+//     $n8nBaseUrl = 'http://localhost:5678/'; // Replace with your n8n internal URL
+//     $n8nUrl = $n8nBaseUrl . $any;
 
+<<<<<<< HEAD
 // routes/api.php
 Route::post('/availability', [Availability::class, 'checkAvailability'])->middleware('auth:sanctum');
 
 
+=======
+//     // Forward the request to n8n
+//     return Http::withHeaders(request()->header())
+//         ->send(request()->method(), $n8nUrl, [
+//             'query' => request()->query(),
+//             'form_params' => request()->all(),
+//         ]);
+// })->where('any', '.*')->middleware('protect.n8n');
+>>>>>>> 1a9f581b020e780c7eeccd18a9b615cffa9a4395
 
-Route::post('/webhook/bookings', function (Request $request) {
-    try {
-        // Validate the incoming request data
-        $data = $request->validate([
-            'status' => 'required|string',
-            'subStatus' => 'nullable|string',
-            'arrival' => 'required|date',
-            'departure' => 'required|date',
-            'numAdult' => 'required|integer',
-            'numChild' => 'required|integer',
-            'cancelTime' => 'nullable|string',
-            'price' => 'required|numeric',
-            'deposit' => 'required|numeric',
-            'bookingId' => 'required|integer',
-            'invoiceeId' => 'required|integer',
-            'description' => 'nullable|string',
-            'qty' => 'required|integer',
-            'amount' => 'required|numeric',
-            'vatRate' => 'required|numeric',
-            'createdBy' => 'required|integer',
-            'tax' => 'required|numeric',
-        ]);
+// Route::post('/webhook/bookings', function (Request $request) {
+//     try {
+//         // Validate the incoming request data
+//         $data = $request->validate([
+//             'status' => 'required|string',
+//             'subStatus' => 'nullable|string',
+//             'arrival' => 'required|date',
+//             'departure' => 'required|date',
+//             'numAdult' => 'required|integer',
+//             'numChild' => 'required|integer',
+//             'cancelTime' => 'nullable|string',
+//             'price' => 'required|numeric',
+//             'deposit' => 'required|numeric',
+//             'bookingId' => 'required|integer',
+//             'invoiceeId' => 'required|integer',
+//             'description' => 'nullable|string',
+//             'qty' => 'required|integer',
+//             'amount' => 'required|numeric',
+//             'vatRate' => 'required|numeric',
+//             'createdBy' => 'required|integer',
+//             'tax' => 'required|numeric',
+//         ]);
 
-        // Prepare the content to save
-        $content = json_encode($data, JSON_PRETTY_PRINT);
+//         // Prepare the content to save
+//         $content = json_encode($data, JSON_PRETTY_PRINT);
 
-        // Define the storage path and filename
-        $filename = 'bookings/booking_' . now()->format('Ymd_His') . '.txt';
+//         // Define the storage path and filename
+//         $filename = 'bookings/booking_' . now()->format('Ymd_His') . '.txt';
 
-        // Save the content to a file in the storage folder
-        Storage::put($filename, $content);
+//         // Save the content to a file in the storage folder
+//         Storage::put($filename, $content);
 
-        // Return a success response
-        return response()->json(['message' => 'Webhook data saved successfully!', 'file' => $filename], 200);
-    } catch (\Exception $e) {
-        // Log the error for troubleshooting
-        Log::error('Webhook processing failed: ' . $e->getMessage());
+//         // Return a success response
+//         return response()->json(['message' => 'Webhook data saved successfully!', 'file' => $filename], 200);
+//     } catch (\Exception $e) {
+//         // Log the error for troubleshooting
+//         Log::error('Webhook processing failed: ' . $e->getMessage());
 
-        // Return a 200 response to prevent retries, with an error message
-        return response()->json(['message' => 'Webhook processing failed, but acknowledged to prevent retries.'], 200);
-    }
-});
+//         // Return a 200 response to prevent retries, with an error message
+//         return response()->json(['message' => 'Webhook processing failed, but acknowledged to prevent retries.'], 200);
+//     }
+// });
 
 Route::get('/', function () {
     return redirect()->route('filament.admin.auth.login');
