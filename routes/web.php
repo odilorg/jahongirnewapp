@@ -46,12 +46,10 @@ use Illuminate\Support\Facades\Storage;
 //     $n8nBaseUrl = 'http://localhost:5678/'; // Replace with your n8n internal URL
 //     $n8nUrl = $n8nBaseUrl . $any;
 
-<<<<<<< HEAD
 // routes/api.php
 Route::post('/availability', [Availability::class, 'checkAvailability'])->middleware('auth:sanctum');
 
 
-=======
 //     // Forward the request to n8n
 //     return Http::withHeaders(request()->header())
 //         ->send(request()->method(), $n8nUrl, [
@@ -59,7 +57,6 @@ Route::post('/availability', [Availability::class, 'checkAvailability'])->middle
 //             'form_params' => request()->all(),
 //         ]);
 // })->where('any', '.*')->middleware('protect.n8n');
->>>>>>> 1a9f581b020e780c7eeccd18a9b615cffa9a4395
 
 // Route::post('/webhook/bookings', function (Request $request) {
 //     try {
