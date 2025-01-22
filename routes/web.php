@@ -5,6 +5,7 @@ use App\Jobs\TestJob;
 use Illuminate\Http\Request;
 use App\Models\ScheduledMessage;
 use Illuminate\Support\Facades\Log;
+use App\Filament\Pages\Availability;
 use App\Jobs\SendTelegramMessageJob;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Http;
@@ -38,6 +39,10 @@ use Illuminate\Support\Facades\Storage;
 
 //     return response()->json(['message' => 'Authenticated', 'api_token' => $apiToken], 200);
 // })->middleware('auth');
+
+// routes/api.php
+Route::post('/availability', [Availability::class, 'checkAvailability'])->middleware('auth:sanctum');
+
 
 
 Route::post('/webhook/bookings', function (Request $request) {

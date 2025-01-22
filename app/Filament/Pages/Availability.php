@@ -2,13 +2,14 @@
 
 namespace App\Filament\Pages;
 
-use Illuminate\Support\Facades\Log;
+use Carbon\Carbon;
 use Filament\Forms;
 use Filament\Pages\Page;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Cache;
 use Filament\Notifications\Notification;
-use Carbon\Carbon;
 
 class Availability extends Page implements Forms\Contracts\HasForms
 {
@@ -39,8 +40,8 @@ class Availability extends Page implements Forms\Contracts\HasForms
             Forms\Components\Select::make('hotel')
                 ->label('Hotel')
                 ->options([
-                    41097 => 'Hotel A',
-                    172793 => 'Hotel B',
+                    41097 => 'Jahongir Hotel',
+                    172793 => 'Jahongir Premium Hotel',
                 ])
                 ->required(),
         ];
@@ -211,4 +212,151 @@ class Availability extends Page implements Forms\Contracts\HasForms
             Notification::make()->title('An error occurred while fetching room availability!')->danger()->send();
         }
     }
+
+
+
+    public function checkAvailability(Request $request)
+{
+    $validated = $request->validate([
+        'arrival_date' => 'required|date',
+        'departure_date' => 'required|date|after:arrival_date',
+    ]);
+
+    // List of hotels to query
+    $hotels = [
+        41097 => 'Jahongir Hotel',
+        172793 => 'Jahongir Premium Hotel',
+    ];
+
+    try {
+        $token = $this->getApiToken();
+
+        if (!$token) {
+            return response()->json(['message' => 'Failed to authenticate with the API'], 401);
+        }
+
+        $formattedArrivalDate = Carbon::parse($validated['arrival_date'])->format('Y-m-d');
+        $formattedDepartureDate = Carbon::parse($validated['departure_date'])->format('Y-m-d');
+
+        $allHotelData = []; // Store availability data for all hotels
+
+        foreach ($hotels as $hotelId => $hotelName) {
+            // Prepare request parameters for each hotel
+            $requestParams = [
+                'propertyId' => $hotelId,
+                'startDate' => $formattedArrivalDate,
+                'endDate' => $formattedDepartureDate,
+            ];
+
+            $requestHeaders = [
+                'token' => $token,
+            ];
+
+            // Query the API for each hotel
+            $response = Http::withHeaders($requestHeaders)->get('https://beds24.com/api/v2/inventory/rooms/unitBookings', $requestParams);
+
+            if ($response->failed()) {
+                Log::error("Failed API Response for Hotel ID: {$hotelId}", ['response' => $response->body()]);
+                $allHotelData[$hotelId] = [
+                    'hotel_name' => $hotelName,
+                    'available_rooms' => [],
+                    'error' => 'Failed to fetch availability',
+                ];
+                continue;
+            }
+
+            $data = $response->json();
+
+            if (!isset($data['success']) || !$data['success']) {
+                Log::error("Invalid API Response for Hotel ID: {$hotelId}", ['response' => $data]);
+                $allHotelData[$hotelId] = [
+                    'hotel_name' => $hotelName,
+                    'available_rooms' => [],
+                    'error' => 'Invalid API response',
+                ];
+                continue;
+            }
+
+            // Process available rooms for the current hotel
+            $availableRooms = collect($data['data'])->map(function ($room) {
+                $roomName = $room['name'];
+                $qty = (int)$room['qty'];
+                $unitBookings = $room['unitBookings'];
+
+                $dates = array_keys($unitBookings);
+                $relevantDates = array_slice($dates, 0, -1);
+
+                $fullyAvailableUnits = 0;
+                foreach (range(1, $qty) as $unit) {
+                    $isFullyAvailable = true;
+                    foreach ($relevantDates as $date) {
+                        if (!isset($unitBookings[$date][$unit]) || $unitBookings[$date][$unit] !== 0) {
+                            $isFullyAvailable = false;
+                            break;
+                        }
+                    }
+                    if ($isFullyAvailable) {
+                        $fullyAvailableUnits++;
+                    }
+                }
+
+                if ($fullyAvailableUnits > 0) {
+                    return [
+                        'name' => $roomName,
+                        'available_qty' => $fullyAvailableUnits,
+                        'total_qty' => $qty,
+                        'price' => mt_rand(50, 100),
+                        'switching_required' => false,
+                    ];
+                }
+
+                $isSwitchingAvailable = true;
+                foreach ($relevantDates as $date) {
+                    $availableUnits = 0;
+                    foreach (range(1, $qty) as $unit) {
+                        if (isset($unitBookings[$date][$unit]) && $unitBookings[$date][$unit] === 0) {
+                            $availableUnits++;
+                        }
+                    }
+                    if ($availableUnits < 1) {
+                        $isSwitchingAvailable = false;
+                        break;
+                    }
+                }
+
+                if ($isSwitchingAvailable) {
+                    return [
+                        'name' => $roomName,
+                        'available_qty' => 0,
+                        'total_qty' => $qty,
+                        'price' => mt_rand(50, 100),
+                        'switching_required' => true,
+                    ];
+                }
+
+                return null;
+            })->filter()->values()->toArray();
+
+            // Add data for the current hotel to the result
+            $allHotelData[$hotelId] = [
+                'hotel_name' => $hotelName,
+                'available_rooms' => $availableRooms,
+            ];
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => $allHotelData,
+        ]);
+
+    } catch (\Exception $e) {
+        Log::error('Error fetching availability', [
+            'error' => $e->getMessage(),
+            'trace' => $e->getTraceAsString(),
+        ]);
+        return response()->json(['message' => 'An error occurred while fetching room availability'], 500);
+    }
+}
+
+
 }
