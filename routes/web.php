@@ -47,7 +47,7 @@ use Illuminate\Support\Facades\Storage;
 //     $n8nUrl = $n8nBaseUrl . $any;
 
 // routes/api.php
-Route::post('/availability', [Availability::class, 'checkAvailability'])->middleware('auth:sanctum');
+//Route::post('/availability', [Availability::class, 'checkAvailability'])->middleware('auth:sanctum');
 
 
 //     // Forward the request to n8n
