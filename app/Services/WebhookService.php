@@ -12,7 +12,7 @@ class WebhookService
     public function __construct()
     {
         // Set your webhook URL here (you can also use .env for this)
-        $this->webhookUrl = env('WEBHOOK_URL', 'https://jahongir-app.uz/n8n/webhook-test/35f85b50-628f-4bdc-b0dd-6cf57ed392a0');
+        $this->webhookUrl = env('WEBHOOK_URL', 'https://jahongir-app.uz/n8n/webhook-test/02bd71f2-e8c0-4d31-a6e1-6b6b4f1ab22a');
     }
 
     public function sendWebhook($data)
