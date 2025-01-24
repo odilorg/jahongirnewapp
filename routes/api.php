@@ -4,6 +4,7 @@ use Illuminate\Http\Request;
 use App\Filament\Pages\Availability;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\AiInstructionController;
+use App\Http\Controllers\Api\SysInstructionController;
 
 /*
 |--------------------------------------------------------------------------
@@ -27,4 +28,8 @@ Route::middleware('auth:sanctum')->group(function () {
     // Route::get('ai-instructions', [AiInstructionController::class, 'index']);
     // Route::post('ai-instructions', [AiInstructionController::class, 'store']);
     // etc...
+});
+
+Route::middleware('auth:sanctum')->group(function () {
+    Route::post('/sys-instructions', [SysInstructionController::class, 'store']);
 });
