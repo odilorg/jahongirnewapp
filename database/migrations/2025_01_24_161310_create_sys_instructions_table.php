@@ -14,7 +14,7 @@ return new class extends Migration
         Schema::create('sys_instructions', function (Blueprint $table) {
             $table->id();
             $table->timestamps();
-            $table->text('sys_instruction ');
+            $table->text('sys_instruction');
         });
     }
 
