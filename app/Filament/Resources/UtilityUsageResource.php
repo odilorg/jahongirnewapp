@@ -22,6 +22,12 @@ use App\Filament\Resources\UtilityUsageResource\RelationManagers;
 class UtilityUsageResource extends Resource
 {
     protected static ?string $model = UtilityUsage::class;
+    protected static ?string $navigationGroup = 'Hotel Management';
+    //protected static ?string $navigationParentItem = 'Utilities';
+    protected static ?string $navigationLabel = 'Показания';
+     protected static ?string $modelLabel = 'Показания';
+     protected static ?string $pluralModelLabel = 'Показания';
+
 
     protected static ?string $navigationIcon = 'heroicon-o-rectangle-stack';
     protected static string $view = 'filament.resources.utility-usages.pages.view-utility-usage.blade';

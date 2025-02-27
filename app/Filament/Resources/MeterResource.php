@@ -18,6 +18,13 @@ use Filament\Infolists\Infolist;
 class MeterResource extends Resource
 {
     protected static ?string $model = Meter::class;
+    protected static ?string $navigationGroup = 'Hotel Management';
+   protected static ?string $navigationParentItem = 'Показания';
+    protected static ?string $navigationLabel = 'Cчетчики';
+    protected static ?string $modelLabel = 'Счетчики';
+    protected static ?string $pluralModelLabel = 'Счетчики';
+
+
 
     protected static ?string $navigationIcon = 'heroicon-o-rectangle-stack';
 

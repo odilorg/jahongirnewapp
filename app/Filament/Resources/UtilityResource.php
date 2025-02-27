@@ -16,6 +16,14 @@ use Illuminate\Database\Eloquent\SoftDeletingScope;
 class UtilityResource extends Resource
 {
     protected static ?string $model = Utility::class;
+    protected static ?string $navigationGroup = 'Hotel Management';
+    protected static ?string $navigationParentItem = 'Показания';
+
+    protected static ?string $navigationLabel = 'Коммунальные услуги';
+     protected static ?string $modelLabel = 'Коммунальные услуги';
+     protected static ?string $pluralModelLabel = 'Коммунальные услуги';
+
+
 
     protected static ?string $navigationIcon = 'heroicon-o-rectangle-stack';
 
