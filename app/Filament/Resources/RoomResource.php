@@ -24,7 +24,7 @@ class RoomResource extends Resource
 
     protected static ?string $navigationGroup = 'Hotel Management';
 
-    protected static ?string $navigationParentItem = 'Hotels';
+    protected static ?string $navigationParentItem = 'Гостиницы';
 
 
     public static function form(Form $form): Form

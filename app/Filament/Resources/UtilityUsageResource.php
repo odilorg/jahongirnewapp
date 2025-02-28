@@ -23,7 +23,7 @@ class UtilityUsageResource extends Resource
 {
     protected static ?string $model = UtilityUsage::class;
     protected static ?string $navigationGroup = 'Hotel Management';
-    //protected static ?string $navigationParentItem = 'Utilities';
+    protected static ?string $navigationParentItem = 'Коммунальные услуги';
     protected static ?string $navigationLabel = 'Показания';
      protected static ?string $modelLabel = 'Показания';
      protected static ?string $pluralModelLabel = 'Показания';

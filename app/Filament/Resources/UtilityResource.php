@@ -17,7 +17,7 @@ class UtilityResource extends Resource
 {
     protected static ?string $model = Utility::class;
     protected static ?string $navigationGroup = 'Hotel Management';
-    protected static ?string $navigationParentItem = 'Показания';
+   // protected static ?string $navigationParentItem = 'Показания';
 
     protected static ?string $navigationLabel = 'Коммунальные услуги';
      protected static ?string $modelLabel = 'Коммунальные услуги';
@@ -25,7 +25,7 @@ class UtilityResource extends Resource
 
 
 
-    protected static ?string $navigationIcon = 'heroicon-o-rectangle-stack';
+    protected static ?string $navigationIcon = 'heroicon-o-beaker';
 
     public static function form(Form $form): Form
     {

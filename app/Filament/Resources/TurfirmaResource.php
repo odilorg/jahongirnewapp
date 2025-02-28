@@ -15,8 +15,11 @@ class TurfirmaResource extends Resource
 {
     protected static ?string $model = Turfirma::class;
 
-    protected static ?string $navigationIcon = 'heroicon-o-rectangle-stack';
+    protected static ?string $navigationIcon = 'heroicon-m-wallet';
     protected static ?string $navigationGroup = 'Hotel Management';
+    protected static ?string $navigationLabel = 'Турфирмы';
+     protected static ?string $modelLabel = 'Турфирмы';
+     protected static ?string $pluralModelLabel = 'Турфирмы';
 
     public static function form(Form $form): Form
     {
