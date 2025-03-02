@@ -61,6 +61,7 @@ class ExpenseResource extends Resource
                         Session::put('last_selected_expense_date', $component->getState());
                     })
                     ->default(session('last_selected_expense_date'))
+                    ->format('d/m/Y')
                     ->required(),
                 Forms\Components\TextInput::make('name')
                     ->required()
