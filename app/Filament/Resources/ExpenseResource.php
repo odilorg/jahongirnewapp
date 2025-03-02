@@ -52,6 +52,8 @@ class ExpenseResource extends Resource
                         Session::put('last_selected_category_id', $component->getState());
                     })
                     ->default(session('last_selected_category_id'))
+                    ->searchable()
+                    ->preload()
                     ->required(),
 
                 DatePicker::make('expense_date')
