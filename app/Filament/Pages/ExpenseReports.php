@@ -155,6 +155,6 @@ class ExpenseReports extends Page
             Log::error("Failed to fetch USD conversion rate: " . $e->getMessage());
         }
 
-        return 12850; // Default rate if API fails
+        return 13000; // Default rate if API fails
     }
 }
