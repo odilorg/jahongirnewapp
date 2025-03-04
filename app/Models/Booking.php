@@ -29,9 +29,7 @@ class Booking extends Model
         'booking_status',
         'booking_source'
     ] ;
-    protected $casts = [
-        'amount' => MoneyCast::class,
-    ];    public function guest() : BelongsTo {
+     public function guest() : BelongsTo {
         
         return $this->belongsTo(Guest::class);
     }
@@ -50,6 +48,11 @@ class Booking extends Model
     {
         return $this->belongsTo(Guide::class);
     }
+
+    public function guestPayments()
+{
+    return $this->hasMany(GuestPayment::class, 'booking_id');
+}
 
     
 }

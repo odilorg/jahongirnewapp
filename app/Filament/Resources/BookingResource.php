@@ -12,11 +12,13 @@ use Filament\Forms\Form;
 use Filament\Tables\Table;
 use Filament\Infolists\Infolist;
 use Filament\Resources\Resource;
+use Illuminate\Support\Facades\Log;
 use Filament\Forms\Components\Group;
 use Filament\Forms\Components\Radio;
 use Filament\Forms\Components\Section;
 use Filament\Forms\Components\Repeater;
 use Filament\Tables\Columns\TextColumn;
+use Illuminate\Database\Eloquent\Model;
 use Filament\Tables\Columns\SelectColumn;
 use Illuminate\Database\Eloquent\Builder;
 use Filament\Infolists\Components\TextEntry;
@@ -68,10 +70,10 @@ class BookingResource extends Resource
                                 //     return rand(100000, 999999) . 'UZ';
                                 // }),  
                                 Forms\Components\DateTimePicker::make('booking_start_date_time')
+                                    ->label('Tour Start Date & Time')
                                     ->required()
                                     ->native(false),
                                 Forms\Components\Select::make('guide_id')
-                                    ->required()
                                     ->searchable()
                                     ->preload()
                                     ->relationship('guide', 'full_name'),
@@ -81,33 +83,10 @@ class BookingResource extends Resource
                                     ->preload()
                                     ->relationship('tour', 'title'),
                                 Forms\Components\Select::make('driver_id')
-                                    ->required()
                                     ->searchable()
                                     ->preload()
                                     ->relationship('driver', 'full_name'),
-                                Forms\Components\Select::make('payment_status')
-                                    ->required()
-                                    ->options([
-                                        'paid' => 'Paid',
-                                        'not_paid' => 'Not Paid',
-                                    ])
-                                    ->default('not paid')  // Set the default option to 'Not Paid'
-                                    ->label('Payment Status'),
-                                Forms\Components\Select::make('payment_method')
-                                    ->required()
-                                    ->options([
-                                        'cash' => 'Cash',
-                                        'card' => 'Card',
-                                        'paypal' => 'PayPal',
-                                        'bank' => 'Bank Transfer',
-                                        'stripe' => 'Stripe',
-                                    ])
-                                    ->default('not paid')  // Set the default option to 'Not Paid'
-                                    ->label('Payment Status'),
-                                Forms\Components\TextInput::make('amount')
-                                    ->numeric()
-                                    ->prefix('$')
-                                    ->maxValue(42949672.95),
+
                                 Forms\Components\TextInput::make('pickup_location')
                                     ->required()
                                     ->maxLength(255),
@@ -122,15 +101,19 @@ class BookingResource extends Resource
                                         'in_progress' => 'in Progress',
                                         'finished' => 'Finished'
                                     ]),
-                                    
+
                                 Radio::make('booking_source')
-                                ->label('Booking Source')
-                                ->options([
-                                    'viatour' => 'Viatour',
-                                    'geturguide' => 'GetUrGuide',
-                                    'website' => 'Website',
-                                    'walkin' => 'Walk In',
-                                ])->columns(2),
+                                    ->label('Booking Source')
+                                    ->options([
+                                        'viatour' => 'Viatour',
+                                        'geturguide' => 'GetUrGuide',
+                                        'website' => 'Website',
+                                        'walkin' => 'Walk In',
+                                        'phone' => 'Phone',
+                                        'email' => 'Email',
+                                        'other' => 'Other'
+
+                                    ])->columns(2),
 
                                 Forms\Components\Textarea::make('special_requests')
                                     ->maxLength(65535)
@@ -151,15 +134,7 @@ class BookingResource extends Resource
     {
         return $table
             ->columns([
-                // TextColumn::make('booking_status')
-                //     ->label('Status')
-                //     ->badge()
-                //     ->color(fn (string $state): string => match ($state) {
 
-                //         'in_progress' => 'warning',
-                //         'finished' => 'success',
-                //         'pending' => 'danger',
-                //     }),
                 SelectColumn::make('booking_status')
                     ->options([
                         'pending' => 'Pending',
@@ -177,18 +152,13 @@ class BookingResource extends Resource
                     ->dateTime('M d, Y H:i')
                     ->sortable(),
 
-                TextColumn::make('payment_status')
-                    ->label('Paym St')
-                    ->badge()
-                    ->color(fn(string $state): string => match ($state) {
-                        'paid' => 'success',
+                     TextColumn::make('guestPayments.payment_status')
+                ->label('Payment Status'),
 
-                        'not_paid' => 'danger',
-                    }),
-                Tables\Columns\TextColumn::make('amount')
-                    ->label('Amount')
-                    ->money('USD')
-                    ->sortable(),
+            TextColumn::make('guestPayments.payment_method')
+                ->label('Payment Method'),
+                 TextColumn::make('guestPayments.amount')
+                ->label('Amount Paid'),
                 Tables\Columns\TextColumn::make('created_at')
                     ->dateTime()
                     ->sortable()
