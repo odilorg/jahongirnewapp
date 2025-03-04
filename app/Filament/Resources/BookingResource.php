@@ -134,7 +134,9 @@ class BookingResource extends Resource
     {
         return $table
             ->columns([
-
+                Tables\Columns\TextColumn::make('guest.full_name')
+                ->searchable()
+                ->label('Guest Name'),
                 SelectColumn::make('booking_status')
                     ->options([
                         'pending' => 'Pending',
@@ -144,7 +146,7 @@ class BookingResource extends Resource
                 Tables\Columns\TextColumn::make('tour.title')
                     ->searchable()
                     ->limit(20),
-                    Tables\Columns\TextColumn::make('booking_source')
+                Tables\Columns\TextColumn::make('booking_source')
                     ->label('Source')
                     ->searchable(),
                 Tables\Columns\TextColumn::make('booking_start_date_time')
@@ -152,13 +154,13 @@ class BookingResource extends Resource
                     ->dateTime('M d, Y H:i')
                     ->sortable(),
 
-                     TextColumn::make('guestPayments.payment_status')
-                ->label('Payment Status'),
+                TextColumn::make('guestPayments.payment_status')
+                    ->label('Payment Status'),
 
-            TextColumn::make('guestPayments.payment_method')
-                ->label('Payment Method'),
-                 TextColumn::make('guestPayments.amount')
-                ->label('Amount Paid'),
+                TextColumn::make('guestPayments.payment_method')
+                    ->label('Payment Method'),
+                TextColumn::make('guestPayments.amount')
+                    ->label('Amount Paid'),
                 Tables\Columns\TextColumn::make('created_at')
                     ->dateTime()
                     ->sortable()
@@ -178,7 +180,7 @@ class BookingResource extends Resource
                     ->label('Note')
                     ->searchable()
                     ->limit(20),
-                
+
             ])
 
             ->filters([
