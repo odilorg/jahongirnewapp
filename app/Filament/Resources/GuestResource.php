@@ -40,13 +40,18 @@ class GuestResource extends Resource
                     ->email()
                     ->required()
                     ->maxLength(255),
-                Forms\Components\TextInput::make('country')
-                    ->required()
-                    ->maxLength(255),
+               
                 Forms\Components\TextInput::make('phone')
                     ->tel()
                     ->required()
                     ->maxLength(255),
+                    Forms\Components\TextInput::make('country')
+                    ->required()
+                    ->maxLength(255),
+                    Forms\Components\TextInput::make('number_of_people')
+                    ->required()
+                    ->numeric(),
+                    
             ]);
     }
 
