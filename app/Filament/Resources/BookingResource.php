@@ -48,6 +48,29 @@ class BookingResource extends Resource
                                 Forms\Components\Select::make('guest_id')
                                     ->required()
                                     ->searchable()
+                                    ->createOptionForm([
+                                        Forms\Components\TextInput::make('first_name')
+                                        ->required()
+                                        ->maxLength(255),
+                                    Forms\Components\TextInput::make('last_name')
+                                        ->required()
+                                        ->maxLength(255),
+                                    Forms\Components\TextInput::make('email')
+                                        ->email()
+                                        ->required()
+                                        ->maxLength(255),
+                                   
+                                    Forms\Components\TextInput::make('phone')
+                                        ->tel()
+                                        ->required()
+                                        ->maxLength(255),
+                                        Forms\Components\TextInput::make('country')
+                                        ->required()
+                                        ->maxLength(255),
+                                        Forms\Components\TextInput::make('number_of_people')
+                                        ->required()
+                                        ->numeric(),
+                                    ])
                                     ->preload()
                                     ->relationship('guest', 'full_name')
                                     ->reactive() // Makes the field reactive to changes
@@ -77,6 +100,7 @@ class BookingResource extends Resource
                                     ->searchable()
                                     ->preload()
                                     ->relationship('guide', 'full_name'),
+                                    
                                 Forms\Components\Select::make('tour_id')
                                     ->required()
                                     ->searchable()
