@@ -144,8 +144,8 @@ class BookingResource extends Resource
                 Tables\Columns\TextColumn::make('tour.title')
                     ->searchable()
                     ->limit(20),
-                Tables\Columns\TextColumn::make('group_name')
-                    ->label('Group')
+                    Tables\Columns\TextColumn::make('booking_source')
+                    ->label('Source')
                     ->searchable(),
                 Tables\Columns\TextColumn::make('booking_start_date_time')
                     ->label('Start DT')
@@ -178,9 +178,7 @@ class BookingResource extends Resource
                     ->label('Note')
                     ->searchable()
                     ->limit(20),
-                Tables\Columns\TextColumn::make('booking_source')
-                    ->label('Source')
-                    ->searchable(),
+                
             ])
 
             ->filters([
