@@ -52,8 +52,9 @@ class Booking extends Model
      */
     public function scheduleNotifications()
     {
-        // Ensure the booking has a tour and a start date.
-        if (!$this->tour || !$this->booking_start_date_time) {
+        // Ensure the booking has a tour, a guest, and a start date.
+        if (!$this->tour || !$this->guest || !$this->booking_start_date_time) {
+            Log::warning("Missing tour, guest, or start date for Booking #{$this->id}.");
             return;
         }
 
@@ -80,11 +81,16 @@ class Booking extends Model
         // Flag to check if at least one scheduled time was in the future.
         $notificationScheduled = false;
 
+        // Build common booking details for the message.
+        $tourTitle = $this->tour->title;
+        $guestName = $this->guest->full_name;
+        $bookingDateTime = $this->booking_start_date_time;
+
         // Schedule Advanced Notification (48 hours before)
         if ($advancedTime->isFuture()) {
             ScheduledMessage::create([
                 'booking_id'   => $this->id,
-                'message'      => "Advanced Notification: The tour '{$this->tour->title}' starts on {$this->booking_start_date_time}. Please prepare accordingly.",
+                'message'      => "Advanced Notification: Booking for {$guestName} on tour '{$tourTitle}' starts on {$bookingDateTime}. Please prepare accordingly.",
                 'scheduled_at' => $advancedTime,
                 'status'       => 'pending',
                 'frequency'    => 'none',
@@ -99,7 +105,7 @@ class Booking extends Model
         if ($finalCountdownTime24->isFuture()) {
             ScheduledMessage::create([
                 'booking_id'   => $this->id,
-                'message'      => "Final Countdown Alert: The tour '{$this->tour->title}' starts in 24 hours on {$this->booking_start_date_time}.",
+                'message'      => "Final Countdown Alert: Booking for {$guestName} on tour '{$tourTitle}' starts in 24 hours on {$bookingDateTime}.",
                 'scheduled_at' => $finalCountdownTime24,
                 'status'       => 'pending',
                 'frequency'    => 'none',
@@ -114,7 +120,7 @@ class Booking extends Model
         if ($finalCountdownTime1->isFuture()) {
             ScheduledMessage::create([
                 'booking_id'   => $this->id,
-                'message'      => "Final Countdown Alert: The tour '{$this->tour->title}' starts in 1 hour on {$this->booking_start_date_time}.",
+                'message'      => "Final Countdown Alert: Booking for {$guestName} on tour '{$tourTitle}' starts in 1 hour on {$bookingDateTime}.",
                 'scheduled_at' => $finalCountdownTime1,
                 'status'       => 'pending',
                 'frequency'    => 'none',
@@ -129,20 +135,28 @@ class Booking extends Model
         // but the booking start time is still in the future,
         // send an immediate notification.
         if (!$notificationScheduled && $bookingStart->isFuture()) {
-            $this->sendImmediateNotification($chatRecords, $bookingStart);
+            $this->sendImmediateNotification($chatRecords, $bookingStart, $tourTitle, $guestName);
         }
     }
 
     /**
      * Send an immediate notification for last-minute bookings.
      */
-    public function sendImmediateNotification($chatRecords, $bookingStart = null)
+    public function sendImmediateNotification($chatRecords, $bookingStart = null, $tourTitle = '', $guestName = '')
     {
         $bookingStart = $bookingStart ?: Carbon::parse($this->booking_start_date_time);
 
+        // Use provided tourTitle and guestName if available, otherwise pull from relations.
+        if (!$tourTitle) {
+            $tourTitle = $this->tour->title;
+        }
+        if (!$guestName) {
+            $guestName = $this->guest->full_name;
+        }
+
         $scheduledMessage = ScheduledMessage::create([
             'booking_id'   => $this->id,
-            'message'      => "Immediate Alert: The tour '{$this->tour->title}' is starting soon on {$this->booking_start_date_time}. Please prepare immediately.",
+            'message'      => "Immediate Alert: Booking for {$guestName} on tour '{$tourTitle}' is starting soon on {$this->booking_start_date_time}. Please prepare immediately.",
             'scheduled_at' => Carbon::now(),
             'status'       => 'pending',
             'frequency'    => 'none',
