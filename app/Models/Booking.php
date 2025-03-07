@@ -36,82 +36,137 @@ class Booking extends Model
         parent::boot();
 
         static::created(function ($booking) {
-            $booking->scheduleTelegramMessages();
+            $booking->scheduleNotifications();
         });
 
         static::updated(function ($booking) {
-            $booking->updateScheduledMessages();
+            $booking->updateScheduledNotifications();
         });
     }
 
     /**
-     * Schedule Telegram messages for a new booking.
-     * This creates daily reminders from 3 days prior until the tour start date,
-     * then attaches multiple chats to each scheduled message via pivot.
+     * Schedule notifications for a booking.
+     * - Advance Notification at 48 hours before the tour.
+     * - Final Countdown Alerts at 24 hours and 1 hour before the tour.
+     * - If none of these times are in the future, send an immediate notification.
      */
-    public function scheduleTelegramMessages()
+    public function scheduleNotifications()
     {
-        // 1. Must have a tour and a start date.
+        // Ensure the booking has a tour and a start date.
         if (!$this->tour || !$this->booking_start_date_time) {
             return;
         }
 
-        // 2. Calculate the date range: 3 days before up to the start date.
-        $startReminderDate = Carbon::parse($this->booking_start_date_time)->subDays(3);
-        $tourStartDate = Carbon::parse($this->booking_start_date_time);
+        $bookingStart = Carbon::parse($this->booking_start_date_time);
+        $now = Carbon::now();
 
-        // 3. Retrieve the Chat records we want to notify.
-        //    For example, the "chat_id" column in the `chats` table might be the Telegram ID:
+        // Define notification times relative to the booking start.
+        $advancedTime         = $bookingStart->copy()->subHours(48);
+        $finalCountdownTime24 = $bookingStart->copy()->subHours(24);
+        $finalCountdownTime1  = $bookingStart->copy()->subHour();
+
+        // Retrieve the Chat records (for example, using Telegram chat IDs).
         $desiredTelegramIds = [
             '38738713',
             '5164858668',
         ];
-
-        // Grab Chat rows that match these Telegram IDs.
         $chatRecords = Chat::whereIn('chat_id', $desiredTelegramIds)->get();
 
         if ($chatRecords->isEmpty()) {
-            Log::warning("No matching chats found for Booking #{$this->id}. Please check 'chat_id' values in the `chats` table.");
+            Log::warning("No matching chats found for Booking #{$this->id}. Check the 'chat_id' values in the chats table.");
             return;
         }
 
-        // 4. Loop day-by-day to create daily reminders
-        for ($date = $startReminderDate->copy(); $date->lessThanOrEqualTo($tourStartDate); $date->addDay()) {
-            // Create the scheduled message for this day, linking it to the booking.
-            $scheduledMessage = ScheduledMessage::create([
+        // Flag to check if at least one scheduled time was in the future.
+        $notificationScheduled = false;
+
+        // Schedule Advanced Notification (48 hours before)
+        if ($advancedTime->isFuture()) {
+            ScheduledMessage::create([
                 'booking_id'   => $this->id,
-                'message'      => "Reminder: The tour '{$this->tour->title}' is happening soon! It starts on {$this->booking_start_date_time}.",
-                'scheduled_at' => $date,
+                'message'      => "Advanced Notification: The tour '{$this->tour->title}' starts on {$this->booking_start_date_time}. Please prepare accordingly.",
+                'scheduled_at' => $advancedTime,
                 'status'       => 'pending',
                 'frequency'    => 'none',
-            ]);
+            ])->chats()->attach($chatRecords->pluck('id')->toArray());
 
-            // Attach all Chat records to this scheduled message via pivot.
-            // This assumes a belongsToMany relationship: ScheduledMessage::chats()
-            $scheduledMessage->chats()->attach($chatRecords->pluck('id')->toArray());
+            $notificationScheduled = true;
+        } else {
+            Log::info("Advanced notification time (48 hours before) has passed for Booking #{$this->id}.");
+        }
+
+        // Schedule Final Countdown Alert (24 hours before)
+        if ($finalCountdownTime24->isFuture()) {
+            ScheduledMessage::create([
+                'booking_id'   => $this->id,
+                'message'      => "Final Countdown Alert: The tour '{$this->tour->title}' starts in 24 hours on {$this->booking_start_date_time}.",
+                'scheduled_at' => $finalCountdownTime24,
+                'status'       => 'pending',
+                'frequency'    => 'none',
+            ])->chats()->attach($chatRecords->pluck('id')->toArray());
+
+            $notificationScheduled = true;
+        } else {
+            Log::info("Final Countdown Alert (24 hrs) time has passed for Booking #{$this->id}.");
+        }
+
+        // Schedule Final Countdown Alert (1 hour before)
+        if ($finalCountdownTime1->isFuture()) {
+            ScheduledMessage::create([
+                'booking_id'   => $this->id,
+                'message'      => "Final Countdown Alert: The tour '{$this->tour->title}' starts in 1 hour on {$this->booking_start_date_time}.",
+                'scheduled_at' => $finalCountdownTime1,
+                'status'       => 'pending',
+                'frequency'    => 'none',
+            ])->chats()->attach($chatRecords->pluck('id')->toArray());
+
+            $notificationScheduled = true;
+        } else {
+            Log::info("Final Countdown Alert (1 hr) time has passed for Booking #{$this->id}.");
+        }
+
+        // If none of the scheduled notification times are in the future,
+        // but the booking start time is still in the future,
+        // send an immediate notification.
+        if (!$notificationScheduled && $bookingStart->isFuture()) {
+            $this->sendImmediateNotification($chatRecords, $bookingStart);
         }
     }
 
     /**
-     * Update scheduled messages when a booking is modified.
-     * If no scheduled message exists for this booking, it creates new ones.
+     * Send an immediate notification for last-minute bookings.
      */
-    public function updateScheduledMessages()
+    public function sendImmediateNotification($chatRecords, $bookingStart = null)
     {
-        // Must have a tour and a start date.
+        $bookingStart = $bookingStart ?: Carbon::parse($this->booking_start_date_time);
+
+        $scheduledMessage = ScheduledMessage::create([
+            'booking_id'   => $this->id,
+            'message'      => "Immediate Alert: The tour '{$this->tour->title}' is starting soon on {$this->booking_start_date_time}. Please prepare immediately.",
+            'scheduled_at' => Carbon::now(),
+            'status'       => 'pending',
+            'frequency'    => 'none',
+        ]);
+
+        $scheduledMessage->chats()->attach($chatRecords->pluck('id')->toArray());
+        Log::info("Immediate notification sent for Booking #{$this->id}.");
+    }
+
+    /**
+     * Update scheduled notifications when a booking is modified.
+     * This deletes any existing notifications for the booking and re-schedules them.
+     */
+    public function updateScheduledNotifications()
+    {
         if (!$this->tour || !$this->booking_start_date_time) {
             return;
         }
 
-        // Check if any scheduled messages already exist for this booking.
-        $existingMessagesCount = ScheduledMessage::where('booking_id', $this->id)->count();
+        // Remove all scheduled messages linked to this booking.
+        ScheduledMessage::where('booking_id', $this->id)->delete();
 
-        // Only schedule messages if none exist.
-        if ($existingMessagesCount === 0) {
-            $this->scheduleTelegramMessages();
-        } else {
-            Log::info("Scheduled message(s) already exist for Booking #{$this->id}. No new messages created.");
-        }
+        // Re-schedule notifications based on the new booking start time.
+        $this->scheduleNotifications();
     }
 
     // ---------------------------
@@ -142,4 +197,3 @@ class Booking extends Model
         return $this->hasMany(GuestPayment::class, 'booking_id');
     }
 }
-?>
