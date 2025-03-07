@@ -2,56 +2,48 @@
 
 namespace App\Filament\Resources;
 
-use Filament\Forms;
-use Filament\Tables;
-use Filament\Forms\Form;
-use Filament\Tables\Table;
-use App\Models\ScheduledMessage;
-use Filament\Resources\Resource;
-use Filament\Forms\Components\TextInput;
-use Illuminate\Database\Eloquent\Builder;
-use Filament\Forms\Components\DateTimePicker;
-use Illuminate\Database\Eloquent\SoftDeletingScope;
 use App\Filament\Resources\ScheduledMessageResource\Pages;
-use App\Filament\Resources\ScheduledMessageResource\RelationManagers;
-use App\Models\Chatid;
+use App\Models\ScheduledMessage;
+use Filament\Forms;
+use Filament\Forms\Form;
+use Filament\Resources\Resource;
+use Filament\Tables;
+use Filament\Tables\Table;
+use Filament\Tables\Columns\TextColumn;
+use App\Models\Chat;
 
 class ScheduledMessageResource extends Resource
 {
     protected static ?string $model = ScheduledMessage::class;
-
     protected static ?string $navigationIcon = 'heroicon-o-rectangle-stack';
-
     protected static ?string $navigationGroup = 'Scheduled Messages';
 
     public static function form(Form $form): Form
     {
-
-      //  dd(env('JAHONGIRCLEANINGBOT'));
-
         return $form
             ->schema([
-                
                 Forms\Components\Textarea::make('message')
-                    ->required()
-                    ->label('Message'),
+                    ->label('Message')
+                    ->required(),
                 Forms\Components\DateTimePicker::make('scheduled_at')
-                    ->required()
-                    ->label('Schedule Date and Time'),
+                    ->label('Schedule Date & Time')
+                    ->required(),
+                // Use a relationship-based select if possible:
                 Forms\Components\Select::make('chat_id')
                     ->label('Chat')
-                    ->options(\App\Models\Chat::pluck('name', 'id'))
+                    ->relationship('chat', 'name') // or ->options(Chat::pluck('name', 'id'))
                     ->required(),
                 Forms\Components\Select::make('frequency')
                     ->label('Frequency')
                     ->options([
-                        'daily' => 'Daily',
-                        'weekly' => 'Weekly',
-                        'monthly' => 'Monthly',
-                        'yearly' => 'Yearly',
+                        ScheduledMessage::FREQUENCY_NONE     => 'None (One-time)',
+                        ScheduledMessage::FREQUENCY_DAILY    => 'Daily',
+                        ScheduledMessage::FREQUENCY_WEEKLY   => 'Weekly',
+                        ScheduledMessage::FREQUENCY_MONTHLY  => 'Monthly',
+                        ScheduledMessage::FREQUENCY_YEARLY   => 'Yearly',
                     ])
-                    ->default('daily')
-                    ->required()
+                    ->default(ScheduledMessage::FREQUENCY_NONE)
+                    ->required(),
             ]);
     }
 
@@ -59,53 +51,46 @@ class ScheduledMessageResource extends Resource
     {
         return $table
             ->columns([
-                Tables\Columns\TextColumn::make('message')
-                    ->limit(30),
-                Tables\Columns\TextColumn::make('chat.name')
+                TextColumn::make('message')->limit(30),
+                TextColumn::make('chat.name')
+                    ->label('Chat Name')
                     ->badge(),
-                Tables\Columns\TextColumn::make('status')
+                TextColumn::make('status')
                     ->badge()
-                    ->color(fn (string $state): string => match ($state) {
-                        'pending' => 'gray',
-                        'sent' => 'success',
-                        'failed' => 'danger'
+                    ->color(fn (string $state) => match ($state) {
+                        'pending'   => 'gray',
+                        'processing'=> 'warning',
+                        'sent'      => 'success',
+                        'failed'    => 'danger',
+                        default     => 'secondary',
                     }),
-                Tables\Columns\TextColumn::make('scheduled_at')->dateTime(),
+                TextColumn::make('scheduled_at')->dateTime(),
+                TextColumn::make('frequency')->badge(),
             ])
             ->filters([
-                //
+                // Define Filament filters if needed
             ])
             ->actions([
                 Tables\Actions\EditAction::make(),
             ])
             ->bulkActions([
-                Tables\Actions\BulkActionGroup::make([
-                    Tables\Actions\DeleteBulkAction::make(),
-                ]),
+                Tables\Actions\DeleteBulkAction::make(),
             ]);
-    }
-
-    public static function getRelations(): array
-    {
-        return [
-            //
-        ];
     }
 
     public static function getPages(): array
     {
         return [
-            'index' => Pages\ListScheduledMessages::route('/'),
+            'index'  => Pages\ListScheduledMessages::route('/'),
             'create' => Pages\CreateScheduledMessage::route('/create'),
-            'edit' => Pages\EditScheduledMessage::route('/{record}/edit'),
+            'edit'   => Pages\EditScheduledMessage::route('/{record}/edit'),
         ];
     }
 
-    public static function canViewAny(): bool
-    {
-        /** @var \App\Models\User $user */
-        $user = auth()->user();
-        
-        return $user && $user->hasRole('super_admin');
-    }
+    // public static function canViewAny(): bool
+    // {
+    //     // Example: only super_admin can see
+    //     $user = auth()->user();
+    //     return $user && $user->hasRole('super_admin');
+    // }
 }
