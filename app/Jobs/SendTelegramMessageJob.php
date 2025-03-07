@@ -15,27 +15,16 @@ class SendTelegramMessageJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    /**
-     * The scheduled message to send.
-     */
     protected ScheduledMessage $message;
-
-    /**
-     * The Telegram chat ID.
-     */
-    protected string $chatId;
 
     /**
      * Create a new job instance.
      */
-    public function __construct(ScheduledMessage $message, string $chatId)
+    public function __construct(ScheduledMessage $message)
     {
         $this->message = $message;
-        $this->chatId = $chatId;
-
-        Log::debug('SendTelegramMessageJob initialized.', [
-            'message_id' => $this->message->id,
-            'chat_id'    => $this->chatId,
+        Log::debug('SendTelegramMessageJob initialized', [
+            'message_id' => $message->id,
         ]);
     }
 
@@ -44,79 +33,50 @@ class SendTelegramMessageJob implements ShouldQueue
      */
     public function handle()
     {
-        Log::info('🟢 [JOB] SendTelegramMessageJob started for message ID ' . $this->message->id);
-    
         $botToken = config('services.telegram_bot.token');
-    
+
         if (!$botToken) {
-            Log::error('🔴 [JOB] Telegram bot token is missing!');
+            Log::error('Telegram bot token is missing!');
             $this->message->update(['status' => 'failed']);
             return;
         }
-    
-        Log::info('🟢 [JOB] Sending message to Telegram. Message ID: ' . $this->message->id);
-    
-        // Send request to Telegram API
-        $response = Http::post("https://api.telegram.org/bot{$botToken}/sendMessage", [
-            'chat_id' => $this->chatId,
-            'text'    => $this->message->message,
-        ]);
-    
-        Log::info('🟢 [JOB] Telegram API Response: ' . json_encode($response->json()));
-    
-        if ($response->successful()) {
-            $this->message->update(['status' => 'sent']);
-            Log::info('✅ [JOB] Message sent successfully. ID: ' . $this->message->id);
-    
-            // Reschedule if frequency is set
-            if ($this->message->frequency !== 'none') {
-                $this->message->reschedule();
-                Log::info('🔄 [JOB] Message rescheduled for next time. ID: ' . $this->message->id);
+
+        // Mark the message as "processing" if you like
+        $this->message->update(['status' => 'processing']);
+
+        // Loop through each related Chat record in the pivot
+        foreach ($this->message->chats as $chat) {
+            // The actual Telegram chat ID is stored in the chat_id column
+            $telegramChatId = $chat->chat_id;
+
+            // Send message to Telegram
+            $response = Http::post("https://api.telegram.org/bot{$botToken}/sendMessage", [
+                'chat_id' => $telegramChatId,
+                'text'    => $this->message->message,
+            ]);
+
+            // Log the API response for debugging
+            Log::info('Telegram API response', [
+                'message_id' => $this->message->id,
+                'chat_name'  => $chat->name,
+                'chat_id'    => $chat->chat_id,
+                'response'   => $response->json(),
+            ]);
+
+            if (!$response->successful()) {
+                // If any chat fails, we can mark it as "failed". 
+                // (Alternatively, keep track of partial failures).
+                $this->message->update(['status' => 'failed']);
+                return;
             }
-        } else {
-            $this->message->update(['status' => 'failed']);
-            Log::error('🔴 [JOB] Message failed to send. Response: ' . json_encode($response->body()));
         }
+
+        // If we got through the loop successfully, mark the message as sent
+        $this->message->update(['status' => 'sent']);
+        Log::info('Message sent successfully.', [
+            'message_id' => $this->message->id,
+        ]);
     }
-     // public function handle()
-    // {
-    //     // Get the bot token from config/services.php
-    //     $botToken = config('services.telegram_bot.token');
-
-    //     if (!$botToken) {
-    //         Log::error('Telegram bot token is missing!');
-    //         $this->message->update(['status' => 'failed']);
-    //         return;
-    //     }
-
-    //     // Ensure message content is a string
-    //     $text = (string) $this->message->message;
-
-    //     // Send to Telegram API
-    //     $response = Http::post("https://api.telegram.org/bot{$botToken}/sendMessage", [
-    //         'chat_id' => $this->chatId,
-    //         'text'    => $text,
-    //     ]);
-
-    //     if ($response->successful()) {
-    //         // Mark as sent
-    //         $this->message->update(['status' => 'sent']);
-    //         Log::info('Message sent successfully.', [
-    //             'message_id' => $this->message->id,
-    //         ]);
-
-    //         // If this message is recurring, reschedule it
-    //         $this->message->reschedule();
-    //     } else {
-    //         // Mark as failed
-    //         $this->message->update(['status' => 'failed']);
-    //         Log::error('Failed to send message.', [
-    //             'message_id'  => $this->message->id,
-    //             'status_code' => $response->status(),
-    //             'response'    => $response->body(),
-    //         ]);
-    //     }
-    // }
 
     /**
      * Handle a job failure.
@@ -125,7 +85,6 @@ class SendTelegramMessageJob implements ShouldQueue
     {
         Log::critical('SendTelegramMessageJob failed.', [
             'message_id' => $this->message->id,
-            'chat_id'    => $this->chatId,
             'error'      => $exception->getMessage(),
         ]);
 

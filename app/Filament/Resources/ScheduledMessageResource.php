@@ -9,14 +9,13 @@ use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
-use Filament\Tables\Columns\TextColumn;
-use App\Models\Chat;
 
 class ScheduledMessageResource extends Resource
 {
     protected static ?string $model = ScheduledMessage::class;
     protected static ?string $navigationIcon = 'heroicon-o-rectangle-stack';
     protected static ?string $navigationGroup = 'Scheduled Messages';
+
 
     public static function form(Form $form): Form
     {
@@ -25,25 +24,42 @@ class ScheduledMessageResource extends Resource
                 Forms\Components\Textarea::make('message')
                     ->label('Message')
                     ->required(),
+
                 Forms\Components\DateTimePicker::make('scheduled_at')
                     ->label('Schedule Date & Time')
                     ->required(),
-                // Use a relationship-based select if possible:
-                Forms\Components\Select::make('chat_id')
-                    ->label('Chat')
-                    ->relationship('chat', 'name') // or ->options(Chat::pluck('name', 'id'))
-                    ->required(),
+
                 Forms\Components\Select::make('frequency')
-                    ->label('Frequency')
                     ->options([
-                        ScheduledMessage::FREQUENCY_NONE     => 'None (One-time)',
-                        ScheduledMessage::FREQUENCY_DAILY    => 'Daily',
-                        ScheduledMessage::FREQUENCY_WEEKLY   => 'Weekly',
-                        ScheduledMessage::FREQUENCY_MONTHLY  => 'Monthly',
-                        ScheduledMessage::FREQUENCY_YEARLY   => 'Yearly',
+                        'none' => 'None (One-Time)',
+                        'daily' => 'Daily',
+                        'weekly' => 'Weekly',
+                        'monthly' => 'Monthly',
+                        'yearly' => 'Yearly',
                     ])
-                    ->default(ScheduledMessage::FREQUENCY_NONE)
-                    ->required(),
+                    ->default('none')
+                    ->label('Frequency'),
+
+                Forms\Components\Select::make('status')
+                    ->options([
+                        'pending' => 'Pending',
+                        'processing' => 'Processing',
+                        'sent' => 'Sent',
+                        'failed' => 'Failed',
+                    ])
+                    ->default('pending')
+                    ->label('Status'),
+
+                // Here's the magic: BelongsToMany with multiple()
+                Forms\Components\Select::make('chats')
+                    ->multiple()
+                    ->relationship(
+                        name: 'chats',          // The relationship name in ScheduledMessage model
+                        titleAttribute: 'name'  // The column in Chat model used as the display label
+                    )
+                    ->searchable()
+                    ->preload()
+                    ->label('Associated Chats'),
             ]);
     }
 
@@ -51,24 +67,16 @@ class ScheduledMessageResource extends Resource
     {
         return $table
             ->columns([
-                TextColumn::make('message')->limit(30),
-                TextColumn::make('chat.name')
-                    ->label('Chat Name')
-                    ->badge(),
-                TextColumn::make('status')
-                    ->badge()
-                    ->color(fn (string $state) => match ($state) {
-                        'pending'   => 'gray',
-                        'processing'=> 'warning',
-                        'sent'      => 'success',
-                        'failed'    => 'danger',
-                        default     => 'secondary',
-                    }),
-                TextColumn::make('scheduled_at')->dateTime(),
-                TextColumn::make('frequency')->badge(),
+                Tables\Columns\TextColumn::make('message')->limit(30),
+                Tables\Columns\TextColumn::make('status'),
+                Tables\Columns\TextColumn::make('scheduled_at')->dateTime(),
+                // Show how many chats are linked
+                Tables\Columns\TextColumn::make('chats_count')
+                    ->counts('chats')
+                    ->label('Number of Chats'),
             ])
             ->filters([
-                // Define Filament filters if needed
+                //
             ])
             ->actions([
                 Tables\Actions\EditAction::make(),
@@ -81,16 +89,9 @@ class ScheduledMessageResource extends Resource
     public static function getPages(): array
     {
         return [
-            'index'  => Pages\ListScheduledMessages::route('/'),
+            'index' => Pages\ListScheduledMessages::route('/'),
             'create' => Pages\CreateScheduledMessage::route('/create'),
-            'edit'   => Pages\EditScheduledMessage::route('/{record}/edit'),
+            'edit' => Pages\EditScheduledMessage::route('/{record}/edit'),
         ];
     }
-
-    // public static function canViewAny(): bool
-    // {
-    //     // Example: only super_admin can see
-    //     $user = auth()->user();
-    //     return $user && $user->hasRole('super_admin');
-    // }
 }
