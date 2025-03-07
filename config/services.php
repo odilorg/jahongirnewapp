@@ -15,7 +15,7 @@ return [
     */
 
     'telegram_bot' => [
-        'token' => env('JAHONGIRCLEANINGBOT'), // Bot token from the .env file
+        'token' => env('TELEGRAM_BOT_TOKEN'), // Bot token from the .env file
     ],
 
     'mailgun' => [
