@@ -13,66 +13,34 @@ class SendScheduledMessagesCommand extends Command
     protected $description = 'Dispatch jobs for any messages that are due to be sent.';
 
     public function handle()
-{
-    Log::info('🟢 [SCHEDULER] Checking for pending messages...');
+    {
+        Log::info('🟢 [SCHEDULER] Checking for pending messages...');
 
-    $dueMessages = ScheduledMessage::where('scheduled_at', '<=', now())
-        ->where('status', 'pending')
-        ->get();
+        // 1) Grab all due, pending messages
+        $dueMessages = ScheduledMessage::where('scheduled_at', '<=', now())
+            ->where('status', 'pending')
+            ->get();
 
-    if ($dueMessages->isEmpty()) {
-        Log::info('🟡 [SCHEDULER] No pending messages found.');
-        return;
-    }
-
-    foreach ($dueMessages as $message) {
-        $chatId = $message->chat->chat_id ?? null;
-
-        if (!$chatId) {
-            Log::warning('🟠 [SCHEDULER] No chat_id found for message ID ' . $message->id);
-            continue;
+        if ($dueMessages->isEmpty()) {
+            Log::info('🟡 [SCHEDULER] No pending messages found.');
+            return;
         }
 
-        Log::info('🟢 [SCHEDULER] Dispatching SendTelegramMessageJob for message ID ' . $message->id);
-        
-        // Dispatch the job
-        SendTelegramMessageJob::dispatch($message, $chatId);
+        // 2) Loop through each due message
+        foreach ($dueMessages as $message) {
+            // Check if there are any chats assigned via the pivot relationship
+            if ($message->chats->isEmpty()) {
+                Log::warning("🟠 [SCHEDULER] No chats found for message ID {$message->id}");
+                continue;
+            }
 
-        // Mark message as "processing" so it doesn't get picked up again too soon
-        $message->update(['status' => 'processing']);
+            Log::info("🟢 [SCHEDULER] Dispatching SendTelegramMessageJob for message ID {$message->id}");
+
+            // 3) Dispatch the job
+            SendTelegramMessageJob::dispatch($message);
+
+            // 4) Mark the message as "processing" so it won't be picked up again immediately
+            $message->update(['status' => 'processing']);
+        }
     }
-}
-    // public function handle()
-    // {
-    //     $dueMessages = ScheduledMessage::where('scheduled_at', '<=', now())
-    //         ->where('status', 'pending')
-    //         ->get();
-
-    //     if ($dueMessages->isEmpty()) {
-    //         $this->info('No pending messages are due right now.');
-    //         return;
-    //     }
-
-    //     foreach ($dueMessages as $message) {
-    //         $chatId = $message->chat->chat_id ?? null;
-    //         if (!$chatId) {
-    //             Log::warning('No valid chat_id found for message.', [
-    //                 'message_id' => $message->id,
-    //             ]);
-    //             continue;
-    //         }
-
-    //         // Mark as processing to avoid re-dispatching
-    //         $message->update(['status' => 'processing']);
-
-    //         SendTelegramMessageJob::dispatch($message, $chatId);
-
-    //         Log::info('Message dispatched to queue.', [
-    //             'message_id' => $message->id,
-    //             'chat_id'    => $chatId,
-    //         ]);
-    //     }
-
-    //     $this->info('All due messages have been dispatched.');
-    // }
 }
