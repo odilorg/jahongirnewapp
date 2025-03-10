@@ -271,146 +271,237 @@ class TelegramController extends Controller
      * Handle steps for updating a booking.
      */
     protected function handleUpdateFlow(TelegramConversation $conversation, string $input, bool $isCallback)
-    {
-        $step = $conversation->step;
+{
+    $step = $conversation->step;
 
-        // If user tapped "resume_update" or "cancel_update"
-        if ($input === 'resume_update') {
-            return $this->reAskCurrentStep($conversation);
-        }
-        if ($input === 'cancel_update') {
-            $this->endConversation($conversation);
-            $this->sendTelegramMessage($conversation->chat_id, "Update canceled.");
-            return response('OK');
-        }
+    // Check for "resume_update" or "cancel_update"
+    if ($input === 'resume_update') {
+        return $this->reAskCurrentStep($conversation);
+    }
+    if ($input === 'cancel_update') {
+        $this->endConversation($conversation);
+        $this->sendTelegramMessage($conversation->chat_id, "Update canceled.");
+        return response('OK');
+    }
 
-        // Refresh updated_at to avoid timeouts
-        $conversation->updated_at = now();
-        $conversation->save();
+    // Refresh updated_at
+    $conversation->updated_at = now();
+    $conversation->save();
 
-        switch ($step) {
-            case 1:
-                // We expect them to type a booking ID or maybe choose inline
-                if (!$isCallback) {
-                    // Check if the typed input is a valid ID
-                    $bookingId = (int) $input;
-                    $booking   = Booking::find($bookingId);
-                    if (!$booking) {
-                        $this->sendTelegramMessage($conversation->chat_id,
-                            "Booking ID {$bookingId} not found. Try again."
-                        );
-                        return response('OK');
-                    }
-                    // Store the booking ID in data
-                    $this->saveConversationData($conversation, [
-                        'booking_id' => $booking->id,
-                    ]);
-                    // Next step
-                    $conversation->step = 2;
+    switch ($step) {
+        case 1:
+            // The user should type or pick a booking ID to update
+            if (!$isCallback) {
+                $bookingId = (int) $input;
+                $booking   = Booking::find($bookingId);
+                if (!$booking) {
+                    $this->sendTelegramMessage($conversation->chat_id,
+                        "Booking ID {$bookingId} not found. Try again."
+                    );
+                    return response('OK');
+                }
+                // Store booking_id
+                $this->saveConversationData($conversation, [
+                    'booking_id' => $booking->id,
+                    'changes'    => [],  // Initialize an empty array for changes
+                ]);
+                $conversation->step = 2;
+                $conversation->save();
+
+                // Show the field menu
+                return $this->showUpdateFieldMenu($conversation, $booking);
+            } else {
+                $this->sendTelegramMessage($conversation->chat_id,
+                    "Please type the Booking ID or pick from a list."
+                );
+            }
+            break;
+
+        case 2:
+            // The user picks which field to update (inline callback) or "Finish"
+            if ($isCallback) {
+                if (Str::startsWith($input, 'update_field:')) {
+                    // e.g. "update_field:booking_status"
+                    $field = Str::after($input, 'update_field:');
+                    $this->saveConversationData($conversation, ['update_field' => $field]);
+
+                    $conversation->step = 3;
                     $conversation->save();
 
-                    // Show a menu of fields to update
-                    return $this->showUpdateFieldMenu($conversation, $booking);
-                } else {
-                    $this->sendTelegramMessage($conversation->chat_id,
-                        "Please type the booking ID or pick from list."
-                    );
+                    return $this->askFieldValue($conversation, $field);
                 }
-                break;
+                if ($input === 'finish_update') {
+                    // Summarize changes, ask for confirm
+                    $conversation->step = 4;
+                    $conversation->save();
 
-            case 2:
-                // Step 2 means user is picking which field to update 
-                // or typed "done" to finish.
-                if ($isCallback) {
-                    // e.g. "update_field:date", "update_field:guide", etc.
-                    if (Str::startsWith($input, 'update_field:')) {
-                        $field = Str::after($input, 'update_field:');
-                        // Save which field we want to update
-                        $this->saveConversationData($conversation, [
-                            'update_field' => $field,
-                        ]);
-                        $conversation->step = 3;
-                        $conversation->save();
-
-                        // Ask user for the new value
-                        return $this->askFieldValue($conversation, $field);
-                    }
-                    if ($input === 'finish_update') {
-                        // Summarize changes, confirm
-                        $conversation->step = 4;
-                        $conversation->save();
-                        return $this->askUpdateConfirmation($conversation);
-                    }
-                } else {
-                    $this->sendTelegramMessage($conversation->chat_id,
-                        "Please pick a field or tap Finish."
-                    );
+                    return $this->askUpdateConfirmation($conversation);
                 }
-                break;
+            } else {
+                $this->sendTelegramMessage($conversation->chat_id,
+                    "Please pick a field or tap 'Finish'."
+                );
+            }
+            break;
 
-            case 3:
-                // Step 3 means user is providing a new value for that field
-                if (!$isCallback) {
-                    // They typed something (the new value)
-                    $field = $conversation->data['update_field'] ?? null;
-                    if (!$field) {
-                        $this->sendTelegramMessage($conversation->chat_id,
-                            "No field selected. Please pick from the menu."
-                        );
-                        return response('OK');
-                    }
+        case 3:
+            // The user supplies a new value (typed OR inline)
+            if ($isCallback) {
+                // 1) If they picked a status from the inline keyboard, e.g. "statuspick:in_progress"
+                if (Str::startsWith($input, 'statuspick:')) {
+                    $newValue = Str::after($input, 'statuspick:');
+                    $changes  = $conversation->data['changes'] ?? [];
+                    $changes['booking_status'] = $newValue;
 
-                    // Store it in conversation->data['changes'][field] = ...
-                    $changes = $conversation->data['changes'] ?? [];
-                    $newValue = $input;
-                    
-                    if ($field === 'booking_start_date_time') {
-                        // parse date/time
-                        try {
-                            $dt = Carbon::parse($newValue);
-                            $newValue = $dt->toDateTimeString();
-                        } catch (\Exception $e) {
-                            $this->sendTelegramMessage($conversation->chat_id,
-                                "Invalid date/time. Try again (e.g. 2025-03-15 09:00)."
-                            );
-                            return response('OK');
-                        }
-                    }
-                    
-                    $changes[$field] = $newValue;
                     $this->saveConversationData($conversation, ['changes' => $changes]);
 
-                    // Move back to step 2 (field selection)
+                    // Return to step 2 (field menu)
                     $conversation->step = 2;
                     $conversation->save();
 
-                    // Show the field menu again so user can pick another field or finish
                     $bookingId = $conversation->data['booking_id'] ?? null;
                     $booking   = Booking::find($bookingId);
                     return $this->showUpdateFieldMenu($conversation, $booking,
-                        "Updated {$field} → {$newValue}. Pick another field or Finish."
-                    );
-                } else {
-                    // user tapped something
-                    $this->sendTelegramMessage($conversation->chat_id,
-                        "Please type the new value for this field."
+                        "Updated status → {$newValue}. Pick another field or Finish."
                     );
                 }
-                break;
 
-            case 4:
-                // Step 4 means we are confirming changes
-                if ($input === 'confirm_update') {
-                    return $this->applyBookingUpdates($conversation);
+                // 2) If they picked a source from the inline keyboard, e.g. "sourcepick:geturguide"
+                if (Str::startsWith($input, 'sourcepick:')) {
+                    $newValue = Str::after($input, 'sourcepick:');
+                    $changes  = $conversation->data['changes'] ?? [];
+                    $changes['booking_source'] = $newValue;
+
+                    $this->saveConversationData($conversation, ['changes' => $changes]);
+
+                    $conversation->step = 2;
+                    $conversation->save();
+
+                    $bookingId = $conversation->data['booking_id'] ?? null;
+                    $booking   = Booking::find($bookingId);
+                    return $this->showUpdateFieldMenu($conversation, $booking,
+                        "Updated booking source → {$newValue}. Pick another field or Finish."
+                    );
                 }
+
+                // 3) If they picked a guide, e.g. "guidepick:5"
+                if (Str::startsWith($input, 'guidepick:')) {
+                    $guideId = (int) Str::after($input, 'guidepick:');
+                    $changes = $conversation->data['changes'] ?? [];
+                    $changes['guide_id'] = $guideId === 0 ? null : $guideId;
+
+                    $this->saveConversationData($conversation, ['changes' => $changes]);
+
+                    $conversation->step = 2;
+                    $conversation->save();
+
+                    $bookingId = $conversation->data['booking_id'] ?? null;
+                    $booking   = Booking::find($bookingId);
+                    return $this->showUpdateFieldMenu($conversation, $booking,
+                        "Updated guide → {$guideId}. Pick another field or Finish."
+                    );
+                }
+
+                // 4) If they picked a driver, e.g. "driverpick:10"
+                if (Str::startsWith($input, 'driverpick:')) {
+                    $driverId = (int) Str::after($input, 'driverpick:');
+                    $changes  = $conversation->data['changes'] ?? [];
+                    $changes['driver_id'] = $driverId === 0 ? null : $driverId;
+
+                    $this->saveConversationData($conversation, ['changes' => $changes]);
+
+                    $conversation->step = 2;
+                    $conversation->save();
+
+                    $bookingId = $conversation->data['booking_id'] ?? null;
+                    $booking   = Booking::find($bookingId);
+                    return $this->showUpdateFieldMenu($conversation, $booking,
+                        "Updated driver → {$driverId}. Pick another field or Finish."
+                    );
+                }
+
+                // 5) If they picked a guest, e.g. "guestpick:12"
+                if (Str::startsWith($input, 'guestpick:')) {
+                    $guestId = (int) Str::after($input, 'guestpick:');
+                    $guest   = Guest::find($guestId);
+
+                    $changes = $conversation->data['changes'] ?? [];
+                    $changes['guest_id']   = $guestId;
+                    $changes['group_name'] = $guest ? $guest->full_name : 'Unknown Group';
+
+                    $this->saveConversationData($conversation, ['changes' => $changes]);
+
+                    $conversation->step = 2;
+                    $conversation->save();
+
+                    $bookingId = $conversation->data['booking_id'] ?? null;
+                    $booking   = Booking::find($bookingId);
+                    return $this->showUpdateFieldMenu($conversation, $booking,
+                        "Updated guest → {$guestId}. Pick another field or Finish."
+                    );
+                }
+
+                // If none of the above matched, we treat it as unrecognized
                 $this->sendTelegramMessage($conversation->chat_id,
-                    "Please confirm or cancel."
+                    "Unrecognized option. Please pick from the inline options or type a new value."
                 );
-                break;
-        }
+                return response('OK');
 
-        return response('OK');
+            } else {
+                // The user typed text for the new field value
+                $field = $conversation->data['update_field'] ?? null;
+                if (!$field) {
+                    $this->sendTelegramMessage($conversation->chat_id,
+                        "No field selected. Please pick from the menu."
+                    );
+                    return response('OK');
+                }
+
+                $changes = $conversation->data['changes'] ?? [];
+                $newValue = $input;
+
+                // If the field is date/time, parse it
+                if ($field === 'booking_start_date_time') {
+                    try {
+                        $dt = Carbon::parse($newValue);
+                        $newValue = $dt->toDateTimeString();
+                    } catch (\Exception $e) {
+                        $this->sendTelegramMessage($conversation->chat_id,
+                            "Invalid date/time. Try again (e.g. 2025-03-15 09:00)."
+                        );
+                        return response('OK');
+                    }
+                }
+
+                $changes[$field] = $newValue;
+                $this->saveConversationData($conversation, ['changes' => $changes]);
+
+                // Return to step 2
+                $conversation->step = 2;
+                $conversation->save();
+
+                $bookingId = $conversation->data['booking_id'] ?? null;
+                $booking   = Booking::find($bookingId);
+                return $this->showUpdateFieldMenu($conversation, $booking,
+                    "Updated {$field} → {$newValue}. Pick another field or Finish."
+                );
+            }
+            break;
+
+        case 4:
+            // Final confirmation
+            if ($input === 'confirm_update') {
+                return $this->applyBookingUpdates($conversation);
+            }
+            $this->sendTelegramMessage($conversation->chat_id,
+                "Please confirm or cancel."
+            );
+            break;
     }
+
+    return response('OK');
+}
+
 
     /**
      * Show a menu of possible fields to update. (Step 2)
