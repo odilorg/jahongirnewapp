@@ -291,7 +291,7 @@ class TelegramController extends Controller
 
             case 8:
                 // We expect user to pick booking_status from inline keyboard
-                if ($isCallback && Str::starts_with($input, 'status:')) {
+                if ($isCallback && Str::startsWith($input, 'status:')) {
                     $status = Str::after($input, 'status:');
                     $this->saveConversationData($conversation, ['booking_status' => $status]);
 
@@ -305,7 +305,7 @@ class TelegramController extends Controller
 
             case 9:
                 // We expect user to pick booking_source from inline keyboard
-                if ($isCallback && Str::starts_with($input, 'source:')) {
+                if ($isCallback && Str::startsWith($input, 'source:')) {
                     $source = Str::after($input, 'source:');
                     $this->saveConversationData($conversation, ['booking_source' => $source]);
 
