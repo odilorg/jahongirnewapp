@@ -230,10 +230,12 @@ class TelegramController extends Controller
 
     $responseText = "Upcoming Bookings:\n";
     foreach ($bookings as $booking) {
+        // Format the date as "Jan 12 2025"
+        $formattedDate = $booking->booking_start_date_time->format('M j Y');
         $responseText .= "Guest: {$booking->guest->full_name}\n "
                        . "Tour: {$booking->tour->title}\n "
                        . "Source: {$booking->booking_source}\n "
-                       . "Date: {$booking->booking_start_date_time}\n"
+                       . "Date: {$formattedDate}\n"
                        ."----------------------------------------\n\n";
     }
 
