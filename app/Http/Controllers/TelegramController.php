@@ -216,32 +216,33 @@ class TelegramController extends Controller
      */
 
      protected function listBookings($chatId)
-{
-    // Filter for upcoming bookings, order by start date, and limit to 5 results
-    $bookings = Booking::where('booking_start_date_time', '>', now())
-                        ->orderBy('booking_start_date_time', 'asc')
-                        ->take(5)
-                        ->get();
-
-    if ($bookings->isEmpty()) {
-        $this->sendTelegramMessage($chatId, "No upcoming bookings found.");
-        return response('OK');
-    }
-
-    $responseText = "Upcoming Bookings:\n";
-    foreach ($bookings as $booking) {
-        // Format the date as "Jan 12 2025"
-        $formattedDate = $booking->booking_start_date_time->format('M j Y');
-        $responseText .= "Guest: {$booking->guest->full_name}\n "
-                       . "Tour: {$booking->tour->title}\n "
-                       . "Source: {$booking->booking_source}\n "
-                       . "Date: {$formattedDate}\n"
-                       ."----------------------------------------\n\n";
-    }
-
-    $this->sendTelegramMessage($chatId, $responseText);
-    return response('OK');
-}
+     {
+         // Filter for upcoming bookings, order by start date, and limit to 5 results
+         $bookings = Booking::where('booking_start_date_time', '>', now())
+                             ->orderBy('booking_start_date_time', 'asc')
+                             ->take(5)
+                             ->get();
+     
+         if ($bookings->isEmpty()) {
+             $this->sendTelegramMessage($chatId, "No upcoming bookings found.");
+             return response('OK');
+         }
+     
+         $responseText = "Upcoming Bookings:\n";
+         foreach ($bookings as $booking) {
+             // Convert the string to a Carbon instance and format the date as "Jan 12 2025"
+             $formattedDate = \Carbon\Carbon::parse($booking->booking_start_date_time)->format('M j Y');
+             $responseText .= "Guest: {$booking->guest->full_name}\n"
+                            . "Tour: {$booking->tour->title}\n"
+                            . "Source: {$booking->booking_source}\n"
+                            . "Date: {$formattedDate}\n"
+                            . "----------------------------------------\n\n";
+         }
+     
+         $this->sendTelegramMessage($chatId, $responseText);
+         return response('OK');
+     }
+     
 
     protected function parseParams($data)
     {
