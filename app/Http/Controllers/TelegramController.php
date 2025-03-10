@@ -190,30 +190,56 @@ class TelegramController extends Controller
      * List all bookings.
      * Example usage in chat: /list
      */
-    protected function listBookings($chatId)
-    {
-        $bookings = Booking::all();
-        if ($bookings->isEmpty()) {
-            $this->sendTelegramMessage($chatId, "No bookings found.");
-            return response('OK');
-        }
+    // protected function listBookings($chatId)
+    // {
+    //     $bookings = Booking::all();
+    //     if ($bookings->isEmpty()) {
+    //         $this->sendTelegramMessage($chatId, "No bookings found.");
+    //         return response('OK');
+    //     }
 
-        $responseText = "Bookings:\n";
-        foreach ($bookings as $booking) {
-            $responseText .= "ID: {$booking->id}, "
-                           . "Name: {$booking->name}, "
-                           . "Tour: {$booking->tour}, "
-                           . "Date: {$booking->date}\n";
-        }
+    //     $responseText = "Bookings:\n";
+    //     foreach ($bookings as $booking) {
+    //         $responseText .= "Guest: {$booking->guest->full_name}, "
+    //                        . "Tour: {$booking->tour->name}, "
+    //                        . "Source: {$booking->booking_source}, "
+    //                        . "Date: {$booking->booking_start_date_time}\n";
+    //     }
 
-        $this->sendTelegramMessage($chatId, $responseText);
-        return response('OK');
-    }
+    //     $this->sendTelegramMessage($chatId, $responseText);
+    //     return response('OK');
+    // }
 
     /**
      * Helper method to parse a parameter string into an associative array.
      * Example input: "name:John Doe; tour:City Tour; date:2025-03-15"
      */
+
+     protected function listBookings($chatId)
+{
+    // Filter for upcoming bookings, order by start date, and limit to 5 results
+    $bookings = Booking::where('booking_start_date_time', '>', now())
+                        ->orderBy('booking_start_date_time', 'asc')
+                        ->take(5)
+                        ->get();
+
+    if ($bookings->isEmpty()) {
+        $this->sendTelegramMessage($chatId, "No upcoming bookings found.");
+        return response('OK');
+    }
+
+    $responseText = "Upcoming Bookings:\n";
+    foreach ($bookings as $booking) {
+        $responseText .= "Guest: {$booking->guest->full_name}, "
+                       . "Tour: {$booking->tour->name}, "
+                       . "Source: {$booking->booking_source}, "
+                       . "Date: {$booking->booking_start_date_time}\n";
+    }
+
+    $this->sendTelegramMessage($chatId, $responseText);
+    return response('OK');
+}
+
     protected function parseParams($data)
     {
         $params = [];
