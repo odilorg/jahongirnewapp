@@ -3,6 +3,10 @@
 namespace App\Http\Controllers;
 
 use Carbon\Carbon;
+use App\Models\Guest;
+use App\Models\Guide;
+use App\Models\Tour;
+use App\Models\Driver;
 use App\Models\Booking;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -10,354 +14,477 @@ use Illuminate\Support\Facades\Http;
 
 class TelegramController extends Controller
 {
-    /**
-     * The chat ID that is authorized to use this bot.
-     * Replace with your actual Telegram user ID if you only
-     * want to allow commands from a specific user.
-     */
     protected $authorizedChatId = '38738713';
 
-    /**
-     * Your bot token from config/services.php.
-     */
+    /** @var string */
     protected $botToken;
 
     /**
-     * Constructor to initialize the bot token from config().
+     * Very simple conversation store (in-memory).
+     * In production, store in DB or cache (e.g. Redis).
      */
+    protected static $conversationState = [];
+
     public function __construct()
     {
-        // Ensure you have 'telegram_bot' => ['token' => env('TELEGRAM_BOT_TOKEN')] in config/services.php
+        // Make sure config/services.php has ['telegram_bot' => ['token' => env('TELEGRAM_BOT_TOKEN')]]
         $this->botToken = config('services.telegram_bot.token');
     }
 
     /**
-     * Webhook endpoint that Telegram calls.
+     * Webhook endpoint from Telegram.
      */
     public function handleWebhook(Request $request)
     {
-        // Telegram can send either a message (typed command) or a callback_query (button press).
-        $callbackQuery = $request->input('callback_query');
-        if ($callbackQuery) {
-            // User tapped on inline keyboard button
-            return $this->handleCallbackQuery($callbackQuery);
+        // If it’s a callback from an inline keyboard:
+        if ($callback = $request->input('callback_query')) {
+            return $this->handleCallbackQuery($callback);
         }
-
-        // Otherwise, treat it as a standard incoming message.
+        // Otherwise, treat it as a normal message:
         return $this->processCommand($request);
     }
 
     /**
-     * Handle Telegram inline keyboard button presses.
+     * Handle inline keyboard button presses.
      */
-    protected function handleCallbackQuery(array $callbackQuery)
+    protected function handleCallbackQuery(array $callback)
     {
-        $data   = $callbackQuery['data'] ?? null;  // e.g. "list_bookings"
-        $chatId = $callbackQuery['message']['chat']['id'] ?? null;
+        $callbackData = $callback['data'] ?? '';
+        $chatId       = $callback['message']['chat']['id'] ?? null;
+        $callbackId   = $callback['id'];
 
-        // You can optionally confirm to Telegram that we received the callback.
-        $this->answerCallbackQuery($callbackQuery['id']);
+        // Acknowledge we received the callback so Telegram doesn’t keep retrying.
+        $this->answerCallbackQuery($callbackId);
 
-        // If you’re using authorizedChatId logic, check that:
+        // If unauthorized user:
         if ($chatId != $this->authorizedChatId) {
-            Log::warning("Unauthorized chat ID (callback): $chatId");
+            Log::warning("Unauthorized callback from chat ID: $chatId");
             return response('OK');
         }
 
-        switch ($data) {
-            case 'main_menu':
-                $this->sendMainMenu($chatId, "Main Menu");
-                break;
-            case 'list_bookings':
-                // Reuse the same logic as the /list command
-                $this->listBookings($chatId);
-                break;
-            case 'create_booking':
-                // For simplicity, just show a message. Typically you'd collect more info here.
-                $this->sendTelegramMessage($chatId, "To create a booking, type:\n/create name:John Doe; tour:City Tour; date:2025-03-15");
-                break;
-            case 'update_booking':
-                $this->sendTelegramMessage($chatId, "To update a booking, type:\n/update 1 name:Jane Doe; date:2025-03-20");
-                break;
-            case 'delete_booking':
-                $this->sendTelegramMessage($chatId, "To delete a booking, type:\n/delete 1");
-                break;
-            case 'refresh_bookings':
-                // Just call listBookings again
-                $this->listBookings($chatId);
-                break;
-            default:
-                $this->sendTelegramMessage($chatId, "Callback not recognized: $data");
-                break;
+        // If user is in the middle of the create‐booking flow, route them to that function:
+        if ($this->isInCreateFlow($chatId)) {
+            return $this->handleCreateBookingFlow($chatId, $callbackData, true);
         }
 
-        return response('OK');
+        // Otherwise, handle top‐level callback commands (like “main_menu”, etc.)
+        switch ($callbackData) {
+            case 'create_booking':
+                // Start the multi‐step create flow
+                return $this->startCreateBookingFlow($chatId);
+            // ... e.g. 'list_bookings' or other top-level callbacks ...
+            default:
+                $this->sendTelegramMessage($chatId, "Callback not recognized: {$callbackData}");
+                return response('OK');
+        }
     }
 
     /**
-     * Process incoming Telegram commands from the request (typed by user).
+     * Process typed commands like /create, /update, etc.
      */
-    public function processCommand(Request $request)
+    protected function processCommand(Request $request)
     {
         $message = $request->input('message');
         if (!$message) {
-            Log::error("No message provided in webhook payload.");
-            return response('OK'); // Return 200 so Telegram doesn't retry
+            Log::error("No message in webhook payload.");
+            return response('OK');
         }
 
         $chatId = $message['chat']['id'] ?? null;
+        $text   = trim($message['text'] ?? '');
+
+        // If unauthorized user:
         if ($chatId != $this->authorizedChatId) {
-            // If unauthorized, just log and return 200 to avoid repeated retries
             Log::warning("Unauthorized chat ID: $chatId");
             return response('OK');
         }
 
-        $text = trim($message['text'] ?? '');
-        if (empty($text)) {
-            $this->sendTelegramMessage($chatId, "Empty command.");
-            return response('OK');
+        if (strpos($text, '/create') === 0) {
+            // Start the multi‐step flow
+            return $this->startCreateBookingFlow($chatId);
         }
 
-        // Route the command based on its prefix
-        if (strpos($text, '/start') === 0) {
-            // Show an inline menu so user can tap to choose an action
-            $this->sendMainMenu($chatId, "Main Menu");
-            return response('OK');
-        } elseif (strpos($text, '/create') === 0) {
-            return $this->createBooking($chatId, $text);
-        } elseif (strpos($text, '/update') === 0) {
-            return $this->updateBooking($chatId, $text);
-        } elseif (strpos($text, '/delete') === 0) {
-            return $this->deleteBooking($chatId, $text);
-        } elseif (strpos($text, '/list') === 0) {
-            return $this->listBookings($chatId);
-        } else {
-            $this->sendTelegramMessage($chatId, "Command not recognized.");
-            return response('OK');
+        // If user is in the create flow and they typed something, treat that as input
+        if ($this->isInCreateFlow($chatId)) {
+            return $this->handleCreateBookingFlow($chatId, $text, false);
         }
+
+        // Other commands or fallback
+        // e.g.: /list => $this->listBookings($chatId)
+        $this->sendTelegramMessage($chatId, "Command not recognized. Type /create to begin booking.");
+        return response('OK');
     }
 
+    /* ----------------------------------------------------------------------
+     *  Multi-Step Create Booking Flow
+     * ---------------------------------------------------------------------- */
+
     /**
-     *  Show an inline keyboard main menu so user can choose an action.
+     * Step 0: Start the flow. Send inline keyboard to pick GUEST or “Cancel.”
      */
-    protected function sendMainMenu($chatId, $headerText)
+    protected function startCreateBookingFlow($chatId)
     {
-        $keyboard = [
-            [
-                ['text' => 'List Bookings',   'callback_data' => 'list_bookings'],
-                ['text' => 'Create Booking',  'callback_data' => 'create_booking'],
-            ],
-            [
-                ['text' => 'Update Booking',  'callback_data' => 'update_booking'],
-                ['text' => 'Delete Booking',  'callback_data' => 'delete_booking'],
-            ],
-            [
-                ['text' => 'Refresh Bookings','callback_data' => 'refresh_bookings'],
-            ],
+        // Initialize state for this user’s booking creation
+        self::$conversationState[$chatId] = [
+            'step'  => 1,
+            'data'  => [], // Will hold guest_id, date/time, tour_id, ...
+        ];
+
+        // Build an inline keyboard of existing guests (limit to say 5 or 10 for demo)
+        $guests = Guest::take(5)->get();
+        $keyboard = [];
+        foreach ($guests as $guest) {
+            // Each button uses the guest’s ID as callback data
+            $keyboard[] = [
+                [
+                    'text'          => $guest->full_name,
+                    'callback_data' => "guest_id:{$guest->id}",
+                ],
+            ];
+        }
+        // Add a “Cancel” row
+        $keyboard[] = [
+            ['text' => 'Cancel', 'callback_data' => 'cancel_create'],
         ];
 
         $payload = [
             'chat_id'      => $chatId,
-            'text'         => $headerText,
+            'text'         => "Step 1: Select a Guest (showing first 5) or Cancel:",
             'reply_markup' => json_encode(['inline_keyboard' => $keyboard]),
         ];
 
         $this->sendRawTelegramRequest('sendMessage', $payload);
-    }
-
-    /**
-     * Create a booking.
-     * Example usage in chat: /create name:John Doe; tour:City Tour; date:2025-03-15
-     */
-    protected function createBooking($chatId, $text)
-    {
-        // Remove the command portion to parse parameters.
-        $dataPart = trim(str_replace('/create', '', $text));
-        $params   = $this->parseParams($dataPart);
-
-        // Validate required parameters
-        if (!isset($params['name']) || !isset($params['tour']) || !isset($params['date'])) {
-            $this->sendTelegramMessage($chatId, "Missing parameters. Required: name, tour, date.");
-            return response('OK');
-        }
-
-        try {
-            $booking = Booking::create([
-                'name' => $params['name'],
-                'tour' => $params['tour'],
-                'date' => $params['date'],
-            ]);
-        } catch (\Exception $e) {
-            Log::error("Error creating booking: " . $e->getMessage());
-            $this->sendTelegramMessage($chatId, "Error creating booking.");
-            return response('OK');
-        }
-
-        $responseText  = "Booking created with ID: {$booking->id}\n";
-        $responseText .= "Name: {$booking->name}\n";
-        $responseText .= "Tour: {$booking->tour}\n";
-        $responseText .= "Date: {$booking->date}";
-
-        $this->sendTelegramMessage($chatId, $responseText);
         return response('OK');
     }
 
     /**
-     * Update a booking.
-     * Example usage in chat: /update 1 name:Jane Doe; date:2025-03-20
+     * Check if user is in the middle of creating a booking.
      */
-    protected function updateBooking($chatId, $text)
+    protected function isInCreateFlow($chatId)
     {
-        $parts = explode(' ', $text, 3); // [command, bookingId, data]
-        if (count($parts) < 3) {
-            $this->sendTelegramMessage($chatId, "Invalid format. Use: /update {id} key:value; key:value");
+        return isset(self::$conversationState[$chatId]) 
+            && isset(self::$conversationState[$chatId]['step']);
+    }
+
+    /**
+     * This function is called repeatedly whenever the user
+     * picks an inline button or types input during the create flow.
+     */
+    protected function handleCreateBookingFlow($chatId, $input, $isCallback)
+    {
+        // Access user’s current step
+        $step  = self::$conversationState[$chatId]['step'];
+        $data  = self::$conversationState[$chatId]['data'];
+
+        // Check if user canceled
+        if ($input === 'cancel_create') {
+            unset(self::$conversationState[$chatId]);
+            $this->sendTelegramMessage($chatId, "Booking creation canceled.");
             return response('OK');
         }
 
-        $bookingId = $parts[1];
-        $dataPart  = $parts[2];
+        switch ($step) {
+            case 1: // We expect the user to pick a GUEST from inline keyboard
+                if ($isCallback && str_starts_with($input, 'guest_id:')) {
+                    // Save the chosen guest_id
+                    $guestId = str_replace('guest_id:', '', $input);
+                    $data['guest_id'] = (int) $guestId;
 
-        $booking = Booking::find($bookingId);
-        if (!$booking) {
-            $this->sendTelegramMessage($chatId, "Booking not found.");
-            return response('OK');
+                    // Move to step 2
+                    self::$conversationState[$chatId]['step'] = 2;
+                    self::$conversationState[$chatId]['data'] = $data;
+
+                    // Ask for Tour Start Date & Time (we’ll let them type in for simplicity)
+                    $this->sendTelegramMessage($chatId, "Step 2: Please type the Tour Start Date & Time (YYYY-MM-DD HH:MM). Example: 2025-03-15 09:00");
+                } else {
+                    // Invalid or user typed text instead of picking from keyboard
+                    $this->sendTelegramMessage($chatId, "Please tap on one of the guest buttons.");
+                }
+                break;
+
+            case 2: // They should type the date/time
+                // Validate user typed date/time
+                try {
+                    $dateTime = Carbon::parse($input);
+                    $data['booking_start_date_time'] = $dateTime->toDateTimeString();
+                } catch (\Exception $e) {
+                    $this->sendTelegramMessage($chatId, "Invalid date/time. Please try again. Example: 2025-03-15 09:00");
+                    break;
+                }
+
+                // Move to step 3
+                self::$conversationState[$chatId]['step'] = 3;
+                self::$conversationState[$chatId]['data'] = $data;
+
+                // Show inline keyboard for picking a Tour
+                $tours = Tour::take(5)->get();
+                $keyboard = [];
+                foreach ($tours as $tour) {
+                    $keyboard[] = [[
+                        'text'          => $tour->title,
+                        'callback_data' => "tour_id:{$tour->id}",
+                    ]];
+                }
+                $keyboard[] = [['text' => 'Cancel', 'callback_data' => 'cancel_create']];
+
+                $payload = [
+                    'chat_id'      => $chatId,
+                    'text'         => "Step 3: Select a Tour (showing first 5).",
+                    'reply_markup' => json_encode(['inline_keyboard' => $keyboard]),
+                ];
+                $this->sendRawTelegramRequest('sendMessage', $payload);
+                break;
+
+            case 3: // User picks a Tour from inline keyboard
+                if ($isCallback && str_starts_with($input, 'tour_id:')) {
+                    $tourId          = str_replace('tour_id:', '', $input);
+                    $data['tour_id'] = (int) $tourId;
+
+                    // Move to step 4
+                    self::$conversationState[$chatId]['step'] = 4;
+                    self::$conversationState[$chatId]['data'] = $data;
+
+                    // Show inline keyboard for picking a Guide
+                    $guides = Guide::take(5)->get();
+                    $keyboard = [];
+                    $keyboard[] = [['text' => 'No guide', 'callback_data' => 'guide_id:0']];
+                    foreach ($guides as $guide) {
+                        $keyboard[] = [[
+                            'text'          => $guide->full_name,
+                            'callback_data' => "guide_id:{$guide->id}",
+                        ]];
+                    }
+                    $keyboard[] = [['text' => 'Cancel', 'callback_data' => 'cancel_create']];
+
+                    $payload = [
+                        'chat_id'      => $chatId,
+                        'text'         => "Step 4: Select a Guide (or choose No guide).",
+                        'reply_markup' => json_encode(['inline_keyboard' => $keyboard]),
+                    ];
+                    $this->sendRawTelegramRequest('sendMessage', $payload);
+
+                } else {
+                    $this->sendTelegramMessage($chatId, "Please pick from the Tour buttons.");
+                }
+                break;
+
+            case 4: // Guides
+                if ($isCallback && str_starts_with($input, 'guide_id:')) {
+                    $guideId = str_replace('guide_id:', '', $input);
+                    $data['guide_id'] = (int) $guideId === 0 ? null : (int) $guideId;
+
+                    // Move to step 5
+                    self::$conversationState[$chatId]['step'] = 5;
+                    self::$conversationState[$chatId]['data'] = $data;
+
+                    // Show inline keyboard for picking a Driver
+                    $drivers = Driver::take(5)->get();
+                    $keyboard = [];
+                    $keyboard[] = [['text' => 'No driver', 'callback_data' => 'driver_id:0']];
+                    foreach ($drivers as $driver) {
+                        $keyboard[] = [[
+                            'text'          => $driver->full_name,
+                            'callback_data' => "driver_id:{$driver->id}",
+                        ]];
+                    }
+                    $keyboard[] = [['text' => 'Cancel', 'callback_data' => 'cancel_create']];
+
+                    $payload = [
+                        'chat_id'      => $chatId,
+                        'text'         => "Step 5: Select a Driver (or choose No driver).",
+                        'reply_markup' => json_encode(['inline_keyboard' => $keyboard]),
+                    ];
+                    $this->sendRawTelegramRequest('sendMessage', $payload);
+
+                } else {
+                    $this->sendTelegramMessage($chatId, "Please pick from the Guide options.");
+                }
+                break;
+
+            case 5: // Driver
+                if ($isCallback && str_starts_with($input, 'driver_id:')) {
+                    $driverId = str_replace('driver_id:', '', $input);
+                    $data['driver_id'] = (int) $driverId === 0 ? null : (int) $driverId;
+
+                    // Step 6: prompt for “pickup_location” (text field)
+                    self::$conversationState[$chatId]['step'] = 6;
+                    self::$conversationState[$chatId]['data'] = $data;
+                    $this->sendTelegramMessage($chatId, "Step 6: Please type the Pickup Location:");
+                } else {
+                    $this->sendTelegramMessage($chatId, "Please pick from the Driver options.");
+                }
+                break;
+
+            case 6: // pickup_location
+                $data['pickup_location'] = $input;
+
+                // Move to step 7: dropoff_location
+                self::$conversationState[$chatId]['step'] = 7;
+                self::$conversationState[$chatId]['data'] = $data;
+                $this->sendTelegramMessage($chatId, "Step 7: Please type the Dropoff Location:");
+                break;
+
+            case 7: // dropoff_location
+                $data['dropoff_location'] = $input;
+
+                // Move to step 8: booking_status
+                self::$conversationState[$chatId]['step'] = 8;
+                self::$conversationState[$chatId]['data'] = $data;
+
+                // Show inline keyboard for booking_status
+                $keyboard = [
+                    [['text' => 'Pending',     'callback_data' => 'status:pending']],
+                    [['text' => 'In Progress', 'callback_data' => 'status:in_progress']],
+                    [['text' => 'Finished',    'callback_data' => 'status:finished']],
+                    [['text' => 'Cancel',      'callback_data' => 'cancel_create']],
+                ];
+                $payload = [
+                    'chat_id'      => $chatId,
+                    'text'         => "Step 8: Choose Booking Status:",
+                    'reply_markup' => json_encode(['inline_keyboard' => $keyboard]),
+                ];
+                $this->sendRawTelegramRequest('sendMessage', $payload);
+                break;
+
+            case 8: // booking_status
+                if ($isCallback && str_starts_with($input, 'status:')) {
+                    $status = str_replace('status:', '', $input);
+                    $data['booking_status'] = $status;
+
+                    // Move to step 9: booking_source
+                    self::$conversationState[$chatId]['step'] = 9;
+                    self::$conversationState[$chatId]['data'] = $data;
+
+                    // Show inline keyboard for booking_source
+                    $keyboard = [
+                        [['text' => 'Viatour',    'callback_data' => 'source:viatour']],
+                        [['text' => 'GetUrGuide','callback_data' => 'source:geturguide']],
+                        [['text' => 'Website',   'callback_data' => 'source:website']],
+                        [['text' => 'Walk In',   'callback_data' => 'source:walkin']],
+                        [['text' => 'Phone',     'callback_data' => 'source:phone']],
+                        [['text' => 'Email',     'callback_data' => 'source:email']],
+                        [['text' => 'Other',     'callback_data' => 'source:other']],
+                        [['text' => 'Cancel',    'callback_data' => 'cancel_create']],
+                    ];
+                    $payload = [
+                        'chat_id'      => $chatId,
+                        'text'         => "Step 9: Choose Booking Source:",
+                        'reply_markup' => json_encode(['inline_keyboard' => $keyboard]),
+                    ];
+                    $this->sendRawTelegramRequest('sendMessage', $payload);
+                } else {
+                    $this->sendTelegramMessage($chatId, "Please choose a status from the buttons.");
+                }
+                break;
+
+            case 9: // booking_source
+                if ($isCallback && str_starts_with($input, 'source:')) {
+                    $source = str_replace('source:', '', $input);
+                    $data['booking_source'] = $source;
+
+                    // Move to step 10: special_requests
+                    self::$conversationState[$chatId]['step'] = 10;
+                    self::$conversationState[$chatId]['data'] = $data;
+                    $this->sendTelegramMessage($chatId, "Step 10: Any special requests? (Type 'none' if not).");
+                } else {
+                    $this->sendTelegramMessage($chatId, "Please pick a booking source from the buttons.");
+                }
+                break;
+
+            case 10: // special_requests
+                $data['special_requests'] = $input;
+
+                // All fields collected. Confirm or create
+                self::$conversationState[$chatId]['step'] = 11;
+                self::$conversationState[$chatId]['data'] = $data;
+
+                // Show a summary with a Confirm/Cancel
+                $summary = $this->formatBookingSummary($data);
+                $keyboard = [
+                    [['text' => 'Confirm', 'callback_data' => 'confirm_create']],
+                    [['text' => 'Cancel',  'callback_data' => 'cancel_create']],
+                ];
+                $payload = [
+                    'chat_id'      => $chatId,
+                    'text'         => "Review your booking:\n\n{$summary}",
+                    'reply_markup' => json_encode(['inline_keyboard' => $keyboard]),
+                ];
+                $this->sendRawTelegramRequest('sendMessage', $payload);
+                break;
+
+            case 11: // waiting for confirm
+                if ($input === 'confirm_create') {
+                    // Actually create the booking
+                    try {
+                        $booking = Booking::create([
+                            'guest_id'                => $data['guest_id'],
+                            'booking_start_date_time' => $data['booking_start_date_time'],
+                            'tour_id'                 => $data['tour_id'],
+                            'guide_id'                => $data['guide_id'],
+                            'driver_id'               => $data['driver_id'],
+                            'pickup_location'         => $data['pickup_location'],
+                            'dropoff_location'        => $data['dropoff_location'],
+                            'booking_status'          => $data['booking_status'],
+                            'booking_source'          => $data['booking_source'],
+                            'special_requests'        => $data['special_requests'],
+                            // ... any other fields needed ...
+                        ]);
+
+                        unset(self::$conversationState[$chatId]); // Clear flow
+
+                        $this->sendTelegramMessage($chatId, "Booking created successfully! ID: {$booking->id}");
+                    } catch (\Exception $e) {
+                        Log::error("Error creating booking: " . $e->getMessage());
+                        $this->sendTelegramMessage($chatId, "Error creating booking. Please try again.");
+                    }
+                } else {
+                    $this->sendTelegramMessage($chatId, "Please confirm or cancel.");
+                }
+                break;
         }
 
-        $params = $this->parseParams($dataPart);
-
-        try {
-            $booking->update($params);
-        } catch (\Exception $e) {
-            Log::error("Error updating booking: " . $e->getMessage());
-            $this->sendTelegramMessage($chatId, "Error updating booking.");
-            return response('OK');
-        }
-
-        $responseText  = "Booking with ID {$booking->id} updated.\n";
-        $responseText .= "Name: {$booking->name}\n";
-        $responseText .= "Tour: {$booking->tour}\n";
-        $responseText .= "Date: {$booking->date}";
-
-        $this->sendTelegramMessage($chatId, $responseText);
         return response('OK');
     }
 
     /**
-     * Delete a booking.
-     * Example usage in chat: /delete {id}
+     * Format the summary of chosen fields for final confirmation.
      */
-    protected function deleteBooking($chatId, $text)
+    protected function formatBookingSummary(array $data)
     {
-        $parts = explode(' ', $text, 2);
-        if (count($parts) < 2) {
-            $this->sendTelegramMessage($chatId, "Invalid format. Use: /delete {id}");
-            return response('OK');
-        }
+        // Attempt to load related objects for a nicer summary
+        $guestName  = optional(Guest::find($data['guest_id']))->full_name ?? 'N/A';
+        $tourTitle  = optional(Tour::find($data['tour_id']))->title ?? 'N/A';
+        $guideName  = $data['guide_id'] 
+            ? optional(Guide::find($data['guide_id']))->full_name 
+            : 'No guide';
+        $driverName = $data['driver_id']
+            ? optional(Driver::find($data['driver_id']))->full_name
+            : 'No driver';
 
-        $bookingId = $parts[1];
-        $booking   = Booking::find($bookingId);
+        $dt = $data['booking_start_date_time'] ?? 'N/A';
 
-        if (!$booking) {
-            $this->sendTelegramMessage($chatId, "Booking not found.");
-            return response('OK');
-        }
+        $summary  = "Guest: $guestName\n";
+        $summary .= "Tour Start: $dt\n";
+        $summary .= "Tour: $tourTitle\n";
+        $summary .= "Guide: $guideName\n";
+        $summary .= "Driver: $driverName\n";
+        $summary .= "Pickup: {$data['pickup_location']}\n";
+        $summary .= "Dropoff: {$data['dropoff_location']}\n";
+        $summary .= "Status: {$data['booking_status']}\n";
+        $summary .= "Source: {$data['booking_source']}\n";
+        $summary .= "Requests: {$data['special_requests']}\n";
 
-        try {
-            $booking->delete();
-        } catch (\Exception $e) {
-            Log::error("Error deleting booking: " . $e->getMessage());
-            $this->sendTelegramMessage($chatId, "Error deleting booking.");
-            return response('OK');
-        }
-
-        $this->sendTelegramMessage($chatId, "Booking with ID {$bookingId} deleted.");
-        return response('OK');
+        return $summary;
     }
 
-    /**
-     * List up to 5 upcoming bookings and show inline keyboard.
-     * Example usage in chat: /list
-     */
-    protected function listBookings($chatId)
-    {
-        // 1) Fetch upcoming bookings
-        $bookings = Booking::where('booking_start_date_time', '>', now())
-            ->orderBy('booking_start_date_time', 'asc')
-            ->take(5)
-            ->get();
+    /* ----------------------------------------------------------------------
+     *  General Telegram Bot Utility Methods
+     * ---------------------------------------------------------------------- */
 
-        // 2) Handle empty results
-        if ($bookings->isEmpty()) {
-            $this->sendInlineMessage($chatId, 'No upcoming bookings found.');
-            return response('OK');
-        }
-
-        // 3) Build the message text
-        $responseText = "Upcoming Bookings:\n\n";
-        foreach ($bookings as $booking) {
-            $formattedDate = Carbon::parse($booking->booking_start_date_time)->format('M j Y');
-        
-            $responseText .= "ID: {$booking->id}\n"
-                           . "Guest: {$booking->guest->full_name}\n"
-                           . "Tour: {$booking->tour->title}\n"
-                           . "Source: {$booking->booking_source}\n"
-                           . "Date: {$formattedDate}\n"
-                           . "----------------------------------------\n\n";
-        }
-        
-
-        // 4) Inline keyboard to refresh or go to main menu
-        $inlineKeyboard = [
-            [
-                ['text' => 'Refresh',    'callback_data' => 'refresh_bookings'],
-                ['text' => 'Main Menu',  'callback_data' => 'main_menu'],
-            ],
-        ];
-
-        // 5) Construct the payload
-        $payload = [
-            'chat_id'      => $chatId,
-            'text'         => $responseText,
-            'reply_markup' => json_encode([
-                'inline_keyboard' => $inlineKeyboard
-            ]),
-        ];
-
-        // 6) Send request
-        $this->sendRawTelegramRequest('sendMessage', $payload);
-        return response('OK');
-    }
-
-    /**
-     * Helper: parse a parameter string into an associative array.
-     * Example input: "name:John Doe; tour:City Tour; date:2025-03-15"
-     */
-    protected function parseParams($data)
-    {
-        $params = [];
-        $pairs = explode(';', $data);
-        foreach ($pairs as $pair) {
-            $pair = trim($pair);
-            if (empty($pair)) {
-                continue;
-            }
-            $parts = explode(':', $pair, 2);
-            if (count($parts) === 2) {
-                $key   = trim($parts[0]);
-                $value = trim($parts[1]);
-                $params[$key] = $value;
-            }
-        }
-        return $params;
-    }
-
-    /**
-     * Sends a simple text message to the Telegram chat (no inline keyboard).
-     */
     protected function sendTelegramMessage($chatId, $text)
     {
         if (!$this->botToken) {
-            Log::error("TELEGRAM_BOT_TOKEN is not set or missing in config('services.telegram_bot.token').");
+            Log::error("TELEGRAM_BOT_TOKEN missing in config('services.telegram_bot.token').");
             return false;
         }
 
@@ -368,74 +495,61 @@ class TelegramController extends Controller
                 'chat_id' => $chatId,
                 'text'    => $text,
             ]);
-
             if ($response->failed()) {
-                Log::error("Failed to send Telegram message: " . $response->body());
+                Log::error("Failed to sendTelegramMessage: " . $response->body());
                 return false;
             }
             return true;
         } catch (\Exception $e) {
-            Log::error("Exception while sending Telegram message: " . $e->getMessage());
+            Log::error("Exception while sendTelegramMessage: " . $e->getMessage());
             return false;
         }
     }
 
     /**
-     * Sends a text-only message with no keyboard using file_get_contents (alternative).
-     */
-    protected function sendInlineMessage($chatId, $text)
-    {
-        $payload = [
-            'chat_id' => $chatId,
-            'text'    => $text,
-        ];
-        $this->sendRawTelegramRequest('sendMessage', $payload);
-    }
-
-    /**
-     * Generic method to send any payload to any Telegram method using file_get_contents().
+     * Send any payload to a Telegram method using file_get_contents or Http.
      */
     protected function sendRawTelegramRequest($method, array $payload)
     {
         if (!$this->botToken) {
-            Log::error("TELEGRAM_BOT_TOKEN is not set or missing in config('services.telegram_bot.token').");
+            Log::error("TELEGRAM_BOT_TOKEN missing in config('services.telegram_bot.token').");
             return false;
         }
 
         $url = "https://api.telegram.org/bot{$this->botToken}/{$method}";
-
-        $context = stream_context_create([
-            'http' => [
-                'method'  => 'POST',
-                'header'  => "Content-Type: application/json\r\n",
-                'content' => json_encode($payload),
-            ],
-        ]);
-
         try {
-            $response = file_get_contents($url, false, $context);
-            if ($response === false) {
-                Log::error("Failed to connect to Telegram: {$method}");
+            // Using file_get_contents (you can also use Http::post)
+            $options = [
+                'http' => [
+                    'method'  => 'POST',
+                    'header'  => "Content-Type: application/json\r\n",
+                    'content' => json_encode($payload),
+                ]
+            ];
+            $context = stream_context_create($options);
+            $res     = file_get_contents($url, false, $context);
+
+            if ($res === false) {
+                Log::error("Failed to connect to Telegram method $method");
                 return false;
             }
             return true;
         } catch (\Exception $e) {
-            Log::error("Exception while sending request to Telegram: " . $e->getMessage());
+            Log::error("Exception while sendRawTelegramRequest: " . $e->getMessage());
             return false;
         }
     }
 
     /**
-     * Acknowledge a callback query so Telegram doesn't keep re-sending it.
+     * Acknowledge callback query so Telegram stops resending it.
      */
-    protected function answerCallbackQuery($callbackQueryId, $text = 'Got it!', $showAlert = false)
+    protected function answerCallbackQuery($callbackId, $text = 'Got it!', $showAlert = false)
     {
         $payload = [
-            'callback_query_id' => $callbackQueryId,
+            'callback_query_id' => $callbackId,
             'text'              => $text,
             'show_alert'        => $showAlert,
         ];
-
         $this->sendRawTelegramRequest('answerCallbackQuery', $payload);
     }
 }
