@@ -2,33 +2,45 @@
 
 namespace App\Http\Controllers;
 
-use Illuminate\Http\Request;
 use App\Models\Booking;
-// use App\Http\Resources\BookingResource; // Uncomment if you plan to use it for output formatting
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 
 class TelegramController extends Controller
 {
-    // Set your authorized chat ID here so only your Telegram account can interact
+    // Set your authorized chat ID (replace with your actual chat ID)
     protected $authorizedChatId = '38738713';
 
     /**
+     * Webhook endpoint that Telegram calls.
+     */
+    public function handleWebhook(Request $request)
+    {
+        return $this->processCommand($request);
+    }
+
+    /**
      * Process incoming Telegram commands.
-     * For now, this method is called manually (or via a test route) since we're not setting up webhooks.
      */
     public function processCommand(Request $request)
     {
-        // Retrieve message payload from the request
         $message = $request->input('message');
-        $chatId = $message['chat']['id'] ?? null;
+        if (!$message) {
+            Log::error("No message provided in webhook payload.");
+            return response("No message provided", 400);
+        }
 
-        // Simple authorization: only process if chat id matches your authorized chat id
+        $chatId = $message['chat']['id'] ?? null;
         if ($chatId != $this->authorizedChatId) {
             return response('Unauthorized', 403);
         }
 
         $text = trim($message['text'] ?? '');
+        if (empty($text)) {
+            return response("Empty command", 400);
+        }
 
-        // Determine which command is being sent
+        // Route the command based on its prefix.
         if (strpos($text, '/create') === 0) {
             return $this->createBooking($message);
         } elseif (strpos($text, '/update') === 0) {
@@ -38,7 +50,7 @@ class TelegramController extends Controller
         } elseif (strpos($text, '/list') === 0) {
             return $this->listBookings($message);
         } else {
-            return response('Command not recognized.');
+            return response('Command not recognized.', 400);
         }
     }
 
@@ -49,36 +61,45 @@ class TelegramController extends Controller
     protected function createBooking($message)
     {
         $text = $message['text'];
-        // Remove the command portion to parse parameters
+        // Remove the command portion to parse parameters.
         $dataPart = trim(str_replace('/create', '', $text));
         $params = $this->parseParams($dataPart);
 
-        // Validate required parameters
+        // Validate required parameters.
         if (!isset($params['name']) || !isset($params['tour']) || !isset($params['date'])) {
-            return response('Missing parameters. Required: name, tour, date.');
+            return response('Missing parameters. Required: name, tour, date.', 400);
         }
 
-        // Create a new booking record
-        $booking = Booking::create([
-            'name' => $params['name'],
-            'tour' => $params['tour'],
-            'date' => $params['date'],
-            // Add additional fields as necessary
-        ]);
+        try {
+            $booking = Booking::create([
+                'name' => $params['name'],
+                'tour' => $params['tour'],
+                'date' => $params['date'],
+                // Add additional fields here if needed.
+            ]);
+        } catch (\Exception $e) {
+            Log::error("Error creating booking: " . $e->getMessage());
+            return response("Error creating booking", 500);
+        }
 
-        return response("Booking created with ID: " . $booking->id);
+        $responseText  = "Booking created with ID: {$booking->id}\n";
+        $responseText .= "Name: {$booking->name}\n";
+        $responseText .= "Tour: {$booking->tour}\n";
+        $responseText .= "Date: {$booking->date}";
+
+        return response($responseText, 200);
     }
 
     /**
      * Update a booking.
-     * Expected format: /update 1 name:Jane Doe; date:2025-03-20
+     * Expected format: /update {id} name:Jane Doe; date:2025-03-20
      */
     protected function updateBooking($message)
     {
         $text = $message['text'];
         $parts = explode(' ', $text, 3); // [command, bookingId, data]
         if (count($parts) < 3) {
-            return response('Invalid format. Use: /update {id} key:value; key:value');
+            return response('Invalid format. Use: /update {id} key:value; key:value', 400);
         }
 
         $bookingId = $parts[1];
@@ -86,14 +107,24 @@ class TelegramController extends Controller
 
         $booking = Booking::find($bookingId);
         if (!$booking) {
-            return response('Booking not found.');
+            return response('Booking not found.', 404);
         }
 
         $params = $this->parseParams($dataPart);
 
-        $booking->update($params);
+        try {
+            $booking->update($params);
+        } catch (\Exception $e) {
+            Log::error("Error updating booking: " . $e->getMessage());
+            return response("Error updating booking", 500);
+        }
 
-        return response("Booking with ID {$booking->id} updated.");
+        $responseText  = "Booking with ID {$booking->id} updated.\n";
+        $responseText .= "Name: {$booking->name}\n";
+        $responseText .= "Tour: {$booking->tour}\n";
+        $responseText .= "Date: {$booking->date}";
+
+        return response($responseText, 200);
     }
 
     /**
@@ -105,18 +136,23 @@ class TelegramController extends Controller
         $text = $message['text'];
         $parts = explode(' ', $text, 2);
         if (count($parts) < 2) {
-            return response('Invalid format. Use: /delete {id}');
+            return response('Invalid format. Use: /delete {id}', 400);
         }
         $bookingId = $parts[1];
 
         $booking = Booking::find($bookingId);
         if (!$booking) {
-            return response('Booking not found.');
+            return response('Booking not found.', 404);
         }
 
-        $booking->delete();
+        try {
+            $booking->delete();
+        } catch (\Exception $e) {
+            Log::error("Error deleting booking: " . $e->getMessage());
+            return response("Error deleting booking", 500);
+        }
 
-        return response("Booking with ID {$booking->id} deleted.");
+        return response("Booking with ID {$bookingId} deleted.", 200);
     }
 
     /**
@@ -126,14 +162,14 @@ class TelegramController extends Controller
     {
         $bookings = Booking::all();
         if ($bookings->isEmpty()) {
-            return response("No bookings found.");
+            return response("No bookings found.", 200);
         }
 
         $responseText = "Bookings:\n";
         foreach ($bookings as $booking) {
             $responseText .= "ID: {$booking->id}, Name: {$booking->name}, Tour: {$booking->tour}, Date: {$booking->date}\n";
         }
-        return response($responseText);
+        return response($responseText, 200);
     }
 
     /**
@@ -146,7 +182,9 @@ class TelegramController extends Controller
         $pairs = explode(';', $data);
         foreach ($pairs as $pair) {
             $pair = trim($pair);
-            if (empty($pair)) continue;
+            if (empty($pair)) {
+                continue;
+            }
             $parts = explode(':', $pair, 2);
             if (count($parts) === 2) {
                 $key = trim($parts[0]);
