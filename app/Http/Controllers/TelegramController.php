@@ -14,23 +14,11 @@ class TelegramController extends Controller
     /**
      * Webhook endpoint that Telegram calls.
      */
-    // public function handleWebhook(Request $request)
-    // {
-    //     return $this->processCommand($request);
-    // }
     public function handleWebhook(Request $request)
     {
-        try {
-            Log::info('Webhook update received:', $request->all());
-            // Place your processing logic here
-            
-            return response('OK', 200);
-        } catch (\Exception $e) {
-            Log::error('Webhook error: ' . $e->getMessage());
-            return response('Server error', 500);
-        }
+        return $this->processCommand($request);
     }
-    
+
     /**
      * Process incoming Telegram commands.
      */
