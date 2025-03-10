@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use Carbon\Carbon;
 use App\Models\Booking;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -215,34 +216,122 @@ class TelegramController extends Controller
      * Example input: "name:John Doe; tour:City Tour; date:2025-03-15"
      */
 
-     protected function listBookings($chatId)
-     {
-         // Filter for upcoming bookings, order by start date, and limit to 5 results
-         $bookings = Booking::where('booking_start_date_time', '>', now())
-                             ->orderBy('booking_start_date_time', 'asc')
-                             ->take(5)
-                             ->get();
+    //  protected function listBookings($chatId)
+    //  {
+    //      // Filter for upcoming bookings, order by start date, and limit to 5 results
+    //      $bookings = Booking::where('booking_start_date_time', '>', now())
+    //                          ->orderBy('booking_start_date_time', 'asc')
+    //                          ->take(5)
+    //                          ->get();
      
-         if ($bookings->isEmpty()) {
-             $this->sendTelegramMessage($chatId, "No upcoming bookings found.");
-             return response('OK');
-         }
+    //      if ($bookings->isEmpty()) {
+    //          $this->sendTelegramMessage($chatId, "No upcoming bookings found.");
+    //          return response('OK');
+    //      }
      
-         $responseText = "Upcoming Bookings:\n";
-         foreach ($bookings as $booking) {
-             // Convert the string to a Carbon instance and format the date as "Jan 12 2025"
-             $formattedDate = \Carbon\Carbon::parse($booking->booking_start_date_time)->format('M j Y');
-             $responseText .= "Guest: {$booking->guest->full_name}\n"
-                            . "Tour: {$booking->tour->title}\n"
-                            . "Source: {$booking->booking_source}\n"
-                            . "Date: {$formattedDate}\n"
-                            . "----------------------------------------\n\n";
-         }
+    //      $responseText = "Upcoming Bookings:\n";
+    //      foreach ($bookings as $booking) {
+    //          // Convert the string to a Carbon instance and format the date as "Jan 12 2025"
+    //          $formattedDate = \Carbon\Carbon::parse($booking->booking_start_date_time)->format('M j Y');
+    //          $responseText .= "Guest: {$booking->guest->full_name}\n"
+    //                         . "Tour: {$booking->tour->title}\n"
+    //                         . "Source: {$booking->booking_source}\n"
+    //                         . "Date: {$formattedDate}\n"
+    //                         . "----------------------------------------\n\n";
+    //      }
      
-         $this->sendTelegramMessage($chatId, $responseText);
-         return response('OK');
-     }
+    //      $this->sendTelegramMessage($chatId, $responseText);
+    //      return response('OK');
+    //  }
      
+   
+
+protected function listBookings($chatId)
+{
+    // 1) Fetch upcoming bookings
+    $bookings = Booking::where('booking_start_date_time', '>', now())
+        ->orderBy('booking_start_date_time', 'asc')
+        ->take(5)
+        ->get();
+
+    // 2) Handle empty results
+    if ($bookings->isEmpty()) {
+        $this->sendInlineMessage($chatId, 'No upcoming bookings found.');
+        return response('OK');
+    }
+
+    // 3) Build the message text
+    $responseText = "Upcoming Bookings:\n\n";
+    foreach ($bookings as $booking) {
+        $formattedDate = Carbon::parse($booking->booking_start_date_time)->format('M j Y');
+        $responseText .= "Guest: {$booking->guest->full_name}\n"
+                       . "Tour: {$booking->tour->title}\n"
+                       . "Source: {$booking->booking_source}\n"
+                       . "Date: {$formattedDate}\n"
+                       . "----------------------------------------\n\n";
+    }
+
+    // 4) Build an inline keyboard (JSON structure)
+    $inlineKeyboard = [
+        [
+            ['text' => 'Refresh', 'callback_data' => 'refresh_bookings'],
+            ['text' => 'Main Menu', 'callback_data' => 'main_menu'],
+        ],
+    ];
+
+    // 5) Construct the payload
+    // "reply_markup" is JSON-encoded data with an "inline_keyboard" array
+    $payload = [
+        'chat_id'    => $chatId,
+        'text'       => $responseText,
+        'reply_markup' => json_encode([
+            'inline_keyboard' => $inlineKeyboard
+        ]),
+    ];
+
+    // 6) Send the request to Telegram's sendMessage endpoint
+    $botToken = env('TELEGRAM_BOT_TOKEN'); // or however you store it
+    $url = "https://api.telegram.org/bot{$botToken}/sendMessage";
+
+    $context = stream_context_create([
+        'http' => [
+            'method'  => 'POST',
+            'header'  => "Content-Type: application/json\r\n",
+            'content' => json_encode($payload),
+        ],
+    ]);
+
+    // 7) Send request (handle exceptions as needed)
+    $response = file_get_contents($url, false, $context);
+
+    return response('OK');
+}
+
+/**
+ * Optionally, you can create a helper to send a quick inline message (with no keyboard)
+ * or a text-only message. This is just an example of how you might abstract it.
+ */
+protected function sendInlineMessage($chatId, $text)
+{
+    $botToken = env('TELEGRAM_BOT_TOKEN');
+    $url = "https://api.telegram.org/bot{$botToken}/sendMessage";
+
+    $payload = [
+        'chat_id' => $chatId,
+        'text'    => $text,
+    ];
+
+    $context = stream_context_create([
+        'http' => [
+            'method'  => 'POST',
+            'header'  => "Content-Type: application/json\r\n",
+            'content' => json_encode($payload),
+        ],
+    ]);
+
+    file_get_contents($url, false, $context);
+}
+
 
     protected function parseParams($data)
     {
