@@ -231,7 +231,7 @@ class TelegramController extends Controller
     $responseText = "Upcoming Bookings:\n";
     foreach ($bookings as $booking) {
         $responseText .= "Guest: {$booking->guest->full_name}, "
-                       . "Tour: {$booking->tour->name}, "
+                       . "Tour: {$booking->tour->title}, "
                        . "Source: {$booking->booking_source}, "
                        . "Date: {$booking->booking_start_date_time}\n";
     }
