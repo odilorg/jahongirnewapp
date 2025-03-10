@@ -296,12 +296,15 @@ class TelegramController extends Controller
         $responseText = "Upcoming Bookings:\n\n";
         foreach ($bookings as $booking) {
             $formattedDate = Carbon::parse($booking->booking_start_date_time)->format('M j Y');
-            $responseText .= "Guest: {$booking->guest->full_name}\n"
+        
+            $responseText .= "ID: {$booking->id}\n"
+                           . "Guest: {$booking->guest->full_name}\n"
                            . "Tour: {$booking->tour->title}\n"
                            . "Source: {$booking->booking_source}\n"
                            . "Date: {$formattedDate}\n"
                            . "----------------------------------------\n\n";
         }
+        
 
         // 4) Inline keyboard to refresh or go to main menu
         $inlineKeyboard = [
