@@ -5,11 +5,29 @@ namespace App\Http\Controllers;
 use App\Models\Booking;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Http;
 
 class TelegramController extends Controller
 {
-    // Set your authorized chat ID (replace with your actual chat ID)
+    /**
+     * The chat ID that is authorized to use this bot.
+     * Replace with your actual Telegram user ID.
+     */
     protected $authorizedChatId = '38738713';
+
+    /**
+     * Your bot token from config/services.php.
+     */
+    protected $botToken;
+
+    /**
+     * Constructor to initialize the bot token from config().
+     */
+    public function __construct()
+    {
+        // Make sure you have 'telegram_bot' => ['token' => env('TELEGRAM_BOT_TOKEN')] in config/services.php
+        $this->botToken = config('services.telegram_bot.token');
+    }
 
     /**
      * Webhook endpoint that Telegram calls.
@@ -20,54 +38,59 @@ class TelegramController extends Controller
     }
 
     /**
-     * Process incoming Telegram commands.
+     * Process incoming Telegram commands from the request.
      */
     public function processCommand(Request $request)
     {
         $message = $request->input('message');
+
         if (!$message) {
             Log::error("No message provided in webhook payload.");
-            return response("No message provided", 400);
+            return response('OK'); // Return 200 so Telegram doesn't retry
         }
 
         $chatId = $message['chat']['id'] ?? null;
         if ($chatId != $this->authorizedChatId) {
-            return response('Unauthorized', 403);
+            // If unauthorized, just log and return 200 to avoid repeated retries
+            Log::warning("Unauthorized chat ID: $chatId");
+            return response('OK');
         }
 
         $text = trim($message['text'] ?? '');
         if (empty($text)) {
-            return response("Empty command", 400);
+            $this->sendTelegramMessage($chatId, "Empty command.");
+            return response('OK');
         }
 
-        // Route the command based on its prefix.
+        // Route the command based on its prefix
         if (strpos($text, '/create') === 0) {
-            return $this->createBooking($message);
+            return $this->createBooking($chatId, $text);
         } elseif (strpos($text, '/update') === 0) {
-            return $this->updateBooking($message);
+            return $this->updateBooking($chatId, $text);
         } elseif (strpos($text, '/delete') === 0) {
-            return $this->deleteBooking($message);
+            return $this->deleteBooking($chatId, $text);
         } elseif (strpos($text, '/list') === 0) {
-            return $this->listBookings($message);
+            return $this->listBookings($chatId);
         } else {
-            return response('Command not recognized.', 400);
+            $this->sendTelegramMessage($chatId, "Command not recognized.");
+            return response('OK');
         }
     }
 
     /**
      * Create a booking.
-     * Expected format: /create name:John Doe; tour:City Tour; date:2025-03-15
+     * Example usage in chat: /create name:John Doe; tour:City Tour; date:2025-03-15
      */
-    protected function createBooking($message)
+    protected function createBooking($chatId, $text)
     {
-        $text = $message['text'];
         // Remove the command portion to parse parameters.
         $dataPart = trim(str_replace('/create', '', $text));
         $params = $this->parseParams($dataPart);
 
-        // Validate required parameters.
+        // Validate required parameters
         if (!isset($params['name']) || !isset($params['tour']) || !isset($params['date'])) {
-            return response('Missing parameters. Required: name, tour, date.', 400);
+            $this->sendTelegramMessage($chatId, "Missing parameters. Required: name, tour, date.");
+            return response('OK');
         }
 
         try {
@@ -75,11 +98,11 @@ class TelegramController extends Controller
                 'name' => $params['name'],
                 'tour' => $params['tour'],
                 'date' => $params['date'],
-                // Add additional fields here if needed.
             ]);
         } catch (\Exception $e) {
             Log::error("Error creating booking: " . $e->getMessage());
-            return response("Error creating booking", 500);
+            $this->sendTelegramMessage($chatId, "Error creating booking.");
+            return response('OK');
         }
 
         $responseText  = "Booking created with ID: {$booking->id}\n";
@@ -87,27 +110,29 @@ class TelegramController extends Controller
         $responseText .= "Tour: {$booking->tour}\n";
         $responseText .= "Date: {$booking->date}";
 
-        return response($responseText, 200);
+        $this->sendTelegramMessage($chatId, $responseText);
+        return response('OK');
     }
 
     /**
      * Update a booking.
-     * Expected format: /update {id} name:Jane Doe; date:2025-03-20
+     * Example usage in chat: /update 1 name:Jane Doe; date:2025-03-20
      */
-    protected function updateBooking($message)
+    protected function updateBooking($chatId, $text)
     {
-        $text = $message['text'];
         $parts = explode(' ', $text, 3); // [command, bookingId, data]
         if (count($parts) < 3) {
-            return response('Invalid format. Use: /update {id} key:value; key:value', 400);
+            $this->sendTelegramMessage($chatId, "Invalid format. Use: /update {id} key:value; key:value");
+            return response('OK');
         }
 
         $bookingId = $parts[1];
-        $dataPart = $parts[2];
+        $dataPart  = $parts[2];
 
         $booking = Booking::find($bookingId);
         if (!$booking) {
-            return response('Booking not found.', 404);
+            $this->sendTelegramMessage($chatId, "Booking not found.");
+            return response('OK');
         }
 
         $params = $this->parseParams($dataPart);
@@ -116,7 +141,8 @@ class TelegramController extends Controller
             $booking->update($params);
         } catch (\Exception $e) {
             Log::error("Error updating booking: " . $e->getMessage());
-            return response("Error updating booking", 500);
+            $this->sendTelegramMessage($chatId, "Error updating booking.");
+            return response('OK');
         }
 
         $responseText  = "Booking with ID {$booking->id} updated.\n";
@@ -124,52 +150,64 @@ class TelegramController extends Controller
         $responseText .= "Tour: {$booking->tour}\n";
         $responseText .= "Date: {$booking->date}";
 
-        return response($responseText, 200);
+        $this->sendTelegramMessage($chatId, $responseText);
+        return response('OK');
     }
 
     /**
      * Delete a booking.
-     * Expected format: /delete {id}
+     * Example usage in chat: /delete {id}
      */
-    protected function deleteBooking($message)
+    protected function deleteBooking($chatId, $text)
     {
-        $text = $message['text'];
         $parts = explode(' ', $text, 2);
         if (count($parts) < 2) {
-            return response('Invalid format. Use: /delete {id}', 400);
+            $this->sendTelegramMessage($chatId, "Invalid format. Use: /delete {id}");
+            return response('OK');
         }
-        $bookingId = $parts[1];
 
-        $booking = Booking::find($bookingId);
+        $bookingId = $parts[1];
+        $booking   = Booking::find($bookingId);
+
         if (!$booking) {
-            return response('Booking not found.', 404);
+            $this->sendTelegramMessage($chatId, "Booking not found.");
+            return response('OK');
         }
 
         try {
             $booking->delete();
         } catch (\Exception $e) {
             Log::error("Error deleting booking: " . $e->getMessage());
-            return response("Error deleting booking", 500);
+            $this->sendTelegramMessage($chatId, "Error deleting booking.");
+            return response('OK');
         }
 
-        return response("Booking with ID {$bookingId} deleted.", 200);
+        $this->sendTelegramMessage($chatId, "Booking with ID {$bookingId} deleted.");
+        return response('OK');
     }
 
     /**
      * List all bookings.
+     * Example usage in chat: /list
      */
-    protected function listBookings($message)
+    protected function listBookings($chatId)
     {
         $bookings = Booking::all();
         if ($bookings->isEmpty()) {
-            return response("No bookings found.", 200);
+            $this->sendTelegramMessage($chatId, "No bookings found.");
+            return response('OK');
         }
 
         $responseText = "Bookings:\n";
         foreach ($bookings as $booking) {
-            $responseText .= "ID: {$booking->id}, Name: {$booking->name}, Tour: {$booking->tour}, Date: {$booking->date}\n";
+            $responseText .= "ID: {$booking->id}, "
+                           . "Name: {$booking->name}, "
+                           . "Tour: {$booking->tour}, "
+                           . "Date: {$booking->date}\n";
         }
-        return response($responseText, 200);
+
+        $this->sendTelegramMessage($chatId, $responseText);
+        return response('OK');
     }
 
     /**
@@ -187,11 +225,40 @@ class TelegramController extends Controller
             }
             $parts = explode(':', $pair, 2);
             if (count($parts) === 2) {
-                $key = trim($parts[0]);
+                $key   = trim($parts[0]);
                 $value = trim($parts[1]);
                 $params[$key] = $value;
             }
         }
         return $params;
+    }
+
+    /**
+     * Sends a text message to the Telegram chat using the Bot API.
+     */
+    protected function sendTelegramMessage($chatId, $text)
+    {
+        if (!$this->botToken) {
+            Log::error("TELEGRAM_BOT_TOKEN is not set in config('services.telegram_bot.token').");
+            return false;
+        }
+
+        $url = "https://api.telegram.org/bot{$this->botToken}/sendMessage";
+
+        try {
+            $response = Http::post($url, [
+                'chat_id' => $chatId,
+                'text'    => $text,
+            ]);
+
+            if ($response->failed()) {
+                Log::error("Failed to send Telegram message: " . $response->body());
+                return false;
+            }
+            return true;
+        } catch (\Exception $e) {
+            Log::error("Exception while sending Telegram message: " . $e->getMessage());
+            return false;
+        }
     }
 }
