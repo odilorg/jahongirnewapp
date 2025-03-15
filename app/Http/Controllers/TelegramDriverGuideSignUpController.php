@@ -81,11 +81,11 @@ class TelegramDriverGuideSignUpController extends Controller
 
             // Determine which type it was
             if ($driver) {
-                $name   = $driver->name;
+                $name   = $driver->full_name;
                 $userId = $driver->id;
                 $type   = 'driver';
             } else {
-                $name   = $guide->name;
+                $name   = $guide->full_name;
                 $userId = $guide->id;
                 $type   = 'guide';
             }
