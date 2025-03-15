@@ -150,7 +150,7 @@ class TelegramDriverGuideSignUpController extends Controller
             'keyboard' => [
                 [
                     [
-                        'text'            => 'Share Phone Number',
+                        'text'            => 'Поделиться телефон номером',
                         'request_contact' => true
                     ]
                 ]
