@@ -59,12 +59,41 @@ class Booking extends Model
         }
 
         $bookingStart = Carbon::parse($this->booking_start_date_time);
-        $now = Carbon::now();
+
+        // Build common booking details for the message:
+        $tourTitle         = $this->tour->title;
+        $guestName         = $this->guest->full_name;
+        $guestEmail        = $this->guest->email ?? '(no email)';
+        $guestPhone        = $this->guest->phone ?? '(no phone)';
+        $pickupLocation    = $this->pickup_location;
+        $dropoffLocation   = $this->dropoff_location;
+        $specialRequests   = $this->special_requests;
+        $bookingSource     = $this->booking_source;
+
+        $driverName        = $this->driver ? $this->driver->full_name : '(no driver)';
+        $driverPhone1      = $this->driver ? $this->driver->phone1 : '';
+        $driverPhone2      = $this->driver ? $this->driver->phone2 : '';
+
+        $guideName         = $this->guide ? $this->guide->full_name : '(no guide)';
+        $guidePhone1       = $this->guide ? $this->guide->phone1 : '';
+        $guidePhone2       = $this->guide ? $this->guide->phone2 : '';
+
+        // Prepare the text we’ll inject into each message:
+        $sharedInfo = "Tour: {$tourTitle}\n"
+            ."Guest: {$guestName} (Email: {$guestEmail}, Phone: {$guestPhone})\n"
+            ."Pickup: {$pickupLocation}\n"
+            ."Dropoff: {$dropoffLocation}\n"
+            ."Special Requests: {$specialRequests}\n"
+            ."Booking Source: {$bookingSource}\n"
+            ."Driver: {$driverName} (Phones: {$driverPhone1}, {$driverPhone2})\n"
+            ."Guide: {$guideName} (Phones: {$guidePhone1}, {$guidePhone2})\n"
+            ."Scheduled Start: {$this->booking_start_date_time}";
 
         // Define notification times relative to the booking start.
         $advancedTime         = $bookingStart->copy()->subHours(48);
         $finalCountdownTime24 = $bookingStart->copy()->subHours(24);
         $finalCountdownTime1  = $bookingStart->copy()->subHour();
+        $now = Carbon::now();
 
         // Retrieve the Chat records (for example, using Telegram chat IDs).
         $desiredTelegramIds = [
@@ -81,16 +110,11 @@ class Booking extends Model
         // Flag to check if at least one scheduled time was in the future.
         $notificationScheduled = false;
 
-        // Build common booking details for the message.
-        $tourTitle = $this->tour->title;
-        $guestName = $this->guest->full_name;
-        $bookingDateTime = $this->booking_start_date_time;
-
         // Schedule Advanced Notification (48 hours before)
         if ($advancedTime->isFuture()) {
             ScheduledMessage::create([
                 'booking_id'   => $this->id,
-                'message'      => "Advanced Notification: Booking for {$guestName} on tour '{$tourTitle}' starts on {$bookingDateTime}. Please prepare accordingly.",
+                'message'      => "Advanced Notification:\n{$sharedInfo}\n\nPlease prepare accordingly (48 hours remaining).",
                 'scheduled_at' => $advancedTime,
                 'status'       => 'pending',
                 'frequency'    => 'none',
@@ -105,7 +129,7 @@ class Booking extends Model
         if ($finalCountdownTime24->isFuture()) {
             ScheduledMessage::create([
                 'booking_id'   => $this->id,
-                'message'      => "Final Countdown Alert: Booking for {$guestName} on tour '{$tourTitle}' starts in 24 hours on {$bookingDateTime}.",
+                'message'      => "Final Countdown Alert (24 hours):\n{$sharedInfo}",
                 'scheduled_at' => $finalCountdownTime24,
                 'status'       => 'pending',
                 'frequency'    => 'none',
@@ -120,7 +144,7 @@ class Booking extends Model
         if ($finalCountdownTime1->isFuture()) {
             ScheduledMessage::create([
                 'booking_id'   => $this->id,
-                'message'      => "Final Countdown Alert: Booking for {$guestName} on tour '{$tourTitle}' starts in 1 hour on {$bookingDateTime}.",
+                'message'      => "Final Countdown Alert (1 hour):\n{$sharedInfo}",
                 'scheduled_at' => $finalCountdownTime1,
                 'status'       => 'pending',
                 'frequency'    => 'none',
@@ -131,32 +155,53 @@ class Booking extends Model
             Log::info("Final Countdown Alert (1 hr) time has passed for Booking #{$this->id}.");
         }
 
-        // If none of the scheduled notification times are in the future,
-        // but the booking start time is still in the future,
-        // send an immediate notification.
+        // If none of the scheduled notification times are in the future but the
+        // booking start time itself is still in the future, send an immediate notification.
         if (!$notificationScheduled && $bookingStart->isFuture()) {
-            $this->sendImmediateNotification($chatRecords, $bookingStart, $tourTitle, $guestName);
+            $this->sendImmediateNotification($chatRecords, $bookingStart, $sharedInfo);
         }
     }
 
     /**
      * Send an immediate notification for last-minute bookings.
      */
-    public function sendImmediateNotification($chatRecords, $bookingStart = null, $tourTitle = '', $guestName = '')
+    public function sendImmediateNotification($chatRecords, $bookingStart = null, $sharedInfo = '')
     {
         $bookingStart = $bookingStart ?: Carbon::parse($this->booking_start_date_time);
 
-        // Use provided tourTitle and guestName if available, otherwise pull from relations.
-        if (!$tourTitle) {
-            $tourTitle = $this->tour->title;
-        }
-        if (!$guestName) {
-            $guestName = $this->guest->full_name;
+        // If for some reason the info wasn’t passed, re-construct it here
+        if (!$sharedInfo) {
+            $tourTitle         = $this->tour ? $this->tour->title : '';
+            $guestName         = $this->guest ? $this->guest->full_name : '';
+            $guestEmail        = $this->guest ? $this->guest->email : '(no email)';
+            $guestPhone        = $this->guest ? $this->guest->phone : '(no phone)';
+            $pickupLocation    = $this->pickup_location;
+            $dropoffLocation   = $this->dropoff_location;
+            $specialRequests   = $this->special_requests;
+            $bookingSource     = $this->booking_source;
+
+            $driverName        = $this->driver ? $this->driver->full_name : '(no driver)';
+            $driverPhone1      = $this->driver ? $this->driver->phone1 : '';
+            $driverPhone2      = $this->driver ? $this->driver->phone2 : '';
+
+            $guideName         = $this->guide ? $this->guide->full_name : '(no guide)';
+            $guidePhone1       = $this->guide ? $this->guide->phone1 : '';
+            $guidePhone2       = $this->guide ? $this->guide->phone2 : '';
+
+            $sharedInfo = "Tour: {$tourTitle}\n"
+                ."Guest: {$guestName} (Email: {$guestEmail}, Phone: {$guestPhone})\n"
+                ."Pickup: {$pickupLocation}\n"
+                ."Dropoff: {$dropoffLocation}\n"
+                ."Special Requests: {$specialRequests}\n"
+                ."Booking Source: {$bookingSource}\n"
+                ."Driver: {$driverName} (Phones: {$driverPhone1}, {$driverPhone2})\n"
+                ."Guide: {$guideName} (Phones: {$guidePhone1}, {$guidePhone2})\n"
+                ."Scheduled Start: {$this->booking_start_date_time}";
         }
 
         $scheduledMessage = ScheduledMessage::create([
             'booking_id'   => $this->id,
-            'message'      => "Immediate Alert: Booking for {$guestName} on tour '{$tourTitle}' is starting soon on {$this->booking_start_date_time}. Please prepare immediately.",
+            'message'      => "Immediate Alert:\n{$sharedInfo}\n\nStarting soon. Please prepare immediately.",
             'scheduled_at' => Carbon::now(),
             'status'       => 'pending',
             'frequency'    => 'none',
