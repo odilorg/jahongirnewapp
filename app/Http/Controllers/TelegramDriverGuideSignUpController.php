@@ -15,7 +15,7 @@ class TelegramDriverGuideSignUpController extends Controller
 
     public function __construct()
     {
-        $this->botToken = env('TELEGRAM_BOT_TOKEN');
+        $this->botToken = env('TELEGRAM_BOT_TOKEN_DRIVER_GUIDE');
         $this->telegramClient = new Client([
             'base_uri' => 'https://api.telegram.org',
         ]);
