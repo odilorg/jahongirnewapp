@@ -42,15 +42,15 @@ class TelegramDriverGuideSignUpController extends Controller
             // $phoneNumber = ltrim($phoneNumber, '+');
 
             // Look up driver:
-            $driver = Driver::where('phone1', $phoneNumber)
-                ->orWhere('phone2', $phoneNumber)
+            $driver = Driver::where('phone01', $phoneNumber)
+                ->orWhere('phone02', $phoneNumber)
                 ->first();
 
             // If not found, look up guide:
             $guide = null;
             if (! $driver) {
-                $guide = Guide::where('phone1', $phoneNumber)
-                    ->orWhere('phone2', $phoneNumber)
+                $guide = Guide::where('phone01', $phoneNumber)
+                    ->orWhere('phone02', $phoneNumber)
                     ->first();
             }
 
