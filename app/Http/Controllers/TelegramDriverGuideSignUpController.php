@@ -17,7 +17,7 @@ class TelegramDriverGuideSignUpController extends Controller
     public function __construct()
     {
         // Pull the token from config/services.php (which in turn reads .env)
-        $this->botToken = config('services.telegram_bot.bot_token');
+        $this->botToken = env('TELEGRAM_BOT_TOKEN_DRIVER_GUIDE');
 
         // Log out the bot token to confirm it's not empty
         Log::info('TelegramDriverGuideSignUpController: Bot token is: ' . ($this->botToken ?? 'NULL/EMPTY'));
