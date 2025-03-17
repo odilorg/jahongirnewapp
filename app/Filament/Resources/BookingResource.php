@@ -237,7 +237,7 @@ class BookingResource extends Resource
                     }
                 })
                 ->requiresConfirmation()
-                ->icon('heroicon-o-cash'),
+                ->icon('heroicon-o-banknotes'),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
