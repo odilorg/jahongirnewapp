@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use App\Models\Booking;
 
@@ -15,7 +16,6 @@ class OctoPaymentService
 
     public function __construct()
     {
-        // Load from config/services.php
         $this->shopId = config('services.octo.shop_id');
         $this->secret = config('services.octo.secret');
         $this->apiUrl = config('services.octo.url');
@@ -29,46 +29,38 @@ class OctoPaymentService
      * @param  float   $usdAmount  The amount in USD
      * @return string  The payment URL to redirect the user to
      *
-     * The doc's example used "currency": "UZS". We'll set "currency" => "USD" (if Octo supports it).
-     * If you need "UZS", pass it as well; the code is the same otherwise.
+     * Logs the request payload and response for debugging.
      */
     public function createPaymentLink(Booking $booking, float $usdAmount): string
     {
-        // Construct a "shop_transaction_id" from booking ID, or any unique reference
-        $transactionId = 'booking_'.$booking->id.'_'.Str::random(6);
+        $transactionId = 'booking_' . $booking->id . '_' . Str::random(6);
 
-        // Build the "user_data" object from the booking’s guest
-        $guest        = $booking->guest;
-        $guestName    = $guest ? ($guest->full_name ?? '') : '';
-        $guestPhone   = $guest ? ($guest->phone ?? '') : '';
-        $guestEmail   = $guest ? ($guest->email ?? '') : '';
+        $guest      = $booking->guest;
+        $guestName  = $guest ? ($guest->full_name ?? '') : '';
+        $guestPhone = $guest ? ($guest->phone ?? '') : '';
+        $guestEmail = $guest ? ($guest->email ?? '') : '';
 
-        // Prepare the JSON data
-        // NOTE: The sample shows "currency": "UZS" => "total_sum": 1000.0
-        // If you truly want USD, set "currency": "USD" or confirm Octo's docs. 
-        // We'll pass "bank_card" in "payment_methods" to accept Visa/MasterCard.
-        // "auto_capture" => true means we want an immediate capture, not an auth+capture separate flow.
         $payload = [
             'octo_shop_id'        => (int) $this->shopId,
             'octo_secret'         => $this->secret,
             'shop_transaction_id' => $transactionId,
             'auto_capture'        => true,
             'init_time'           => now()->format('Y-m-d H:i:s'),
-            'test'                => false,    // set true for testing if needed
-            'user_data' => [
+            'test'                => false,
+            'user_data'           => [
                 'user_id' => $guestName,
                 'phone'   => $guestPhone,
                 'email'   => $guestEmail,
             ],
             'total_sum'   => $usdAmount,
-            'currency'    => 'USD',    // or 'UZS', if that’s what your business supports
+            'currency'    => 'USD',  // or change to 'UZS' if required
             'description' => "Booking #{$booking->id} Payment",
-            'basket' => [
+            'basket'      => [
                 [
                     'position_desc' => "Booking #{$booking->id}",
                     'count'         => 1,
                     'price'         => $usdAmount,
-                    'spic'          => 'N/A', // optional additional info
+                    'spic'          => 'N/A',
                 ],
             ],
             'payment_methods' => [
@@ -76,21 +68,28 @@ class OctoPaymentService
                     'method' => 'bank_card',
                 ],
             ],
-            // If you have a TSP ID from Octo:
             'tsp_id'      => $this->tspId ? (int) $this->tspId : null,
-            'return_url'  => url('/payment/success'), // or your custom route
-            'notify_url'  => route('octo.callback'),  // your server callback
-            'language'    => 'en',    // 'uz', 'ru', etc.
-            'ttl'         => 15,      // minutes until link expires
+            'return_url'  => url('/payment/success'),
+            'notify_url'  => route('octo.callback'),
+            'language'    => 'en',
+            'ttl'         => 15,
         ];
 
-        // If "tsp_id" is null, remove it
+        // Remove tsp_id if null.
         if (!$payload['tsp_id']) {
             unset($payload['tsp_id']);
         }
 
-        // Send POST JSON to Octo
+        // Log the outgoing request payload.
+        Log::info('Octo Payment Request Payload', $payload);
+
         $response = Http::post($this->apiUrl, $payload);
+
+        // Log the response from Octo.
+        Log::info('Octo Payment Response', [
+            'status' => $response->status(),
+            'body'   => $response->body(),
+        ]);
 
         if (!$response->successful()) {
             throw new \Exception('Octo payment link creation failed: ' . $response->body());
