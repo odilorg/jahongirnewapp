@@ -31,7 +31,7 @@ use App\Filament\Resources\BookingResource\RelationManagers\DriversRelationManag
 // Import the Notification builder
 use Filament\Notifications\Notification;
 
-// If you have the OctoPaymentService:
+// Import your Octo payment service
 use App\Services\OctoPaymentService;
 use Filament\Tables\Actions\Action;
 
@@ -175,7 +175,7 @@ class BookingResource extends Resource
                     ->dateTime('M d, Y H:i')
                     ->sortable(),
 
-                // Display the *latest* guest payment status (if any):
+                // Display the *latest* guest payment status (if any)
                 Tables\Columns\TextColumn::make('guestPayments.payment_status')
                     ->label('Payment Status'),
 
@@ -217,21 +217,27 @@ class BookingResource extends Resource
                 Action::make('createPaymentLink')
                     ->label('Create Payment Link')
                     ->action(function (Booking $record) {
-                        // Ensure we have an amount
-                        if (!$record->amount) {
+                        // Determine payment amount from Booking->amount or GuestPayment
+                        $paymentAmount = $record->amount;
+                        if (!$paymentAmount) {
+                            $guestPayment = $record->guestPayments()->first();
+                            if ($guestPayment && $guestPayment->amount) {
+                                $paymentAmount = $guestPayment->amount;
+                            }
+                        }
+
+                        if (!$paymentAmount) {
                             Notification::make()
-                                ->title('No "amount" set for this booking!')
+                                ->title('No amount set for this booking!')
                                 ->danger()
                                 ->send();
-
                             return;
                         }
 
-                        // Use your payment service (e.g. OctoPaymentService)
                         $service = new OctoPaymentService();
 
                         try {
-                            $paymentUrl = $service->createPaymentLink($record, $record->amount);
+                            $paymentUrl = $service->createPaymentLink($record, $paymentAmount);
                             $record->payment_link = $paymentUrl;
                             $record->save();
 
@@ -240,7 +246,6 @@ class BookingResource extends Resource
                                 ->success()
                                 ->body('Link: ' . $paymentUrl)
                                 ->send();
-
                         } catch (\Exception $ex) {
                             Notification::make()
                                 ->title('Failed to create payment link.')
@@ -250,7 +255,7 @@ class BookingResource extends Resource
                         }
                     })
                     ->requiresConfirmation()
-                    ->icon('heroicon-o-banknotes'),
+                    ->icon('heroicon-o-cash'),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
@@ -278,7 +283,7 @@ class BookingResource extends Resource
     public static function getRelations(): array
     {
         return [
-            // ...
+            // Define your relation managers here if needed
         ];
     }
 
