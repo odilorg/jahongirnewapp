@@ -11,6 +11,8 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Storage;
+use App\Http\Controllers\OctoCallbackController;
+
 
 
 /*
@@ -104,6 +106,11 @@ use Illuminate\Support\Facades\Storage;
 Route::get('/', function () {
     return redirect()->route('filament.admin.auth.login');
 });
+
+
+Route::post('/octo/callback', [OctoCallbackController::class, 'handle'])
+    ->name('octo.callback');
+
 
 // Route::get('/dispatch-job', function () {
 //     $message = \App\Models\ScheduledMessage::first(); // Adjust as needed

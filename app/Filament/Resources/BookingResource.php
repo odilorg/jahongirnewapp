@@ -12,7 +12,9 @@ use Filament\Forms\Form;
 use Filament\Tables\Table;
 use Filament\Infolists\Infolist;
 use Filament\Resources\Resource;
+use Filament\Tables\Actions\Action;
 use Illuminate\Support\Facades\Log;
+use App\Services\OctoPaymentService;
 use Filament\Forms\Components\Group;
 use Filament\Forms\Components\Radio;
 use Filament\Forms\Components\Section;
@@ -213,6 +215,29 @@ class BookingResource extends Resource
             ->actions([
                 Tables\Actions\EditAction::make(),
                 Tables\Actions\ViewAction::make(),
+                Action::make('createPaymentLink')
+                ->label('Create Payment Link')
+                ->action(function (Booking $record) {
+                    // This is the amount we want to charge in USD
+                    if (!$record->amount) {
+                        $this->notify('danger', 'No "amount" set for this booking!');
+                        return;
+                    }
+
+                    $service = new OctoPaymentService();
+
+                    try {
+                        $paymentUrl = $service->createPaymentLink($record, $record->amount);
+                        $record->payment_link = $paymentUrl;
+                        $record->save();
+
+                        $this->notify('success', 'Payment link created! '.$paymentUrl);
+                    } catch (\Exception $ex) {
+                        $this->notify('danger', 'Failed: '.$ex->getMessage());
+                    }
+                })
+                ->requiresConfirmation()
+                ->icon('heroicon-o-cash'),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([

@@ -14,6 +14,15 @@ return [
     |
     */
 
+
+    'octo' => [
+        'shop_id' => env('OCTO_SHOP_ID'),
+        'secret'  => env('OCTO_SECRET'),
+        'url'     => env('OCTO_API_URL'),
+        'tsp_id'  => env('OCTO_TSP_ID'),  // if needed
+    ],
+
+
     'telegram_bot' => [
         'token' => env('TELEGRAM_BOT_TOKEN'),
         'bot_token' => env('TELEGRAM_BOT_TOKEN_DRIVER_GUIDE'), 
