@@ -23,16 +23,43 @@ class OctoPaymentService
     }
 
     /**
-     * Create an Octo one-stage payment link (JSON-based, no Basic Auth).
+     * Fetch the current exchange rate for USD to UZS.
      *
-     * @param  Booking $booking
-     * @param  float   $usdAmount  The amount in USD
-     * @return string  The payment URL to redirect the user to
+     * @return float The exchange rate
+     * @throws \Exception If unable to fetch the exchange rate
+     */
+    private function getExchangeRate(): float
+    {
+        $date = now()->format('Y-m-d');
+        $response = Http::get("https://cbu.uz/ru/arkhiv-kursov-valyut/json/USD/{$date}/");
+
+        if (!$response->successful()) {
+            throw new \Exception('Failed to fetch exchange rate from CBU: ' . $response->body());
+        }
+
+        $data = $response->json();
+
+        if (!isset($data[0]['Rate'])) {
+            throw new \Exception('Exchange rate data is missing in CBU response');
+        }
+
+        return (float) $data[0]['Rate'];
+    }
+
+    /**
+     * Create an Octo one-stage payment link.
      *
-     * Logs the request payload and response for debugging.
+     * @param Booking $booking
+     * @param float   $usdAmount  The amount in USD
+     * @return string  The payment URL
+     *
+     * @throws \Exception If the request fails
      */
     public function createPaymentLink(Booking $booking, float $usdAmount): string
     {
+        $exchangeRate = $this->getExchangeRate();
+        $uzsAmount = round($usdAmount * $exchangeRate);
+
         $transactionId = 'booking_' . $booking->id . '_' . Str::random(6);
 
         $guest      = $booking->guest;
@@ -52,14 +79,14 @@ class OctoPaymentService
                 'phone'   => $guestPhone,
                 'email'   => $guestEmail,
             ],
-            'total_sum'   => $usdAmount,
-            'currency'    => 'UZS',  // or change to 'UZS' if required
+            'total_sum'   => $uzsAmount,
+            'currency'    => 'UZS',
             'description' => "Booking #{$booking->id} Payment",
             'basket'      => [
                 [
                     'position_desc' => "Booking #{$booking->id}",
                     'count'         => 1,
-                    'price'         => $usdAmount,
+                    'price'         => $uzsAmount,
                     'spic'          => 'N/A',
                 ],
             ],
@@ -75,17 +102,14 @@ class OctoPaymentService
             'ttl'         => 15,
         ];
 
-        // Remove tsp_id if null.
         if (!$payload['tsp_id']) {
             unset($payload['tsp_id']);
         }
 
-        // Log the outgoing request payload.
         Log::info('Octo Payment Request Payload', $payload);
 
         $response = Http::post($this->apiUrl, $payload);
 
-        // Log the response from Octo.
         Log::info('Octo Payment Response', [
             'status' => $response->status(),
             'body'   => $response->body(),
@@ -96,10 +120,10 @@ class OctoPaymentService
         }
 
         $json = $response->json();
-if (!isset($json['data']['octo_pay_url'])) {
-    throw new \Exception('No "octo_pay_url" in Octo response: ' . $response->body());
-}
-return $json['data']['octo_pay_url'];
+        if (!isset($json['data']['octo_pay_url'])) {
+            throw new \Exception('No "octo_pay_url" in Octo response: ' . $response->body());
+        }
 
+        return $json['data']['octo_pay_url'];
     }
 }
