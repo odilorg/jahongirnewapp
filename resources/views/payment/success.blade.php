@@ -24,6 +24,6 @@
     <h1 class="{{ $status === 'succeeded' ? 'success' : 'error' }}">
         {{ $message }}
     </h1>
-    <a href="/">Go back to home</a>
+    <a href="https://jahongir-travel.uz">Go back to home</a>
 </body>
 </html>
