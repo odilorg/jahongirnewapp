@@ -111,6 +111,9 @@ Route::get('/', function () {
 Route::post('/octo/callback', [OctoCallbackController::class, 'handle'])
     ->name('octo.callback');
 
+Route::get('/payment/success', [OctoCallbackController::class, 'success'])->name('payment.success');
+
+
 
 // Route::get('/dispatch-job', function () {
 //     $message = \App\Models\ScheduledMessage::first(); // Adjust as needed

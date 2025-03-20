@@ -62,4 +62,13 @@ class OctoCallbackController extends Controller
         // Return a 200 so Octo knows you processed it
         return response()->json(['status' => 'ok']);
     }
+
+    public function success(Request $request)
+{
+    $status = $request->query('octo_status', 'unknown');
+    $message = $status === 'succeeded' ? "Your payment was successful! 🎉" : "Payment status: " . ucfirst($status);
+
+    return view('payment.success', compact('message', 'status'));
+}
+
 }
