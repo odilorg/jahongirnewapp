@@ -96,10 +96,10 @@ class OctoPaymentService
         }
 
         $json = $response->json();
-        if (!isset($json['payment_url'])) {
-            throw new \Exception('No "payment_url" in Octo response: ' . $response->body());
-        }
+if (!isset($json['data']['octo_pay_url'])) {
+    throw new \Exception('No "octo_pay_url" in Octo response: ' . $response->body());
+}
+return $json['data']['octo_pay_url'];
 
-        return $json['payment_url'];
     }
 }
