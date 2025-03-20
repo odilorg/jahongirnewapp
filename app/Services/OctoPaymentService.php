@@ -53,7 +53,7 @@ class OctoPaymentService
                 'email'   => $guestEmail,
             ],
             'total_sum'   => $usdAmount,
-            'currency'    => 'USD',  // or change to 'UZS' if required
+            'currency'    => 'UZS',  // or change to 'UZS' if required
             'description' => "Booking #{$booking->id} Payment",
             'basket'      => [
                 [
