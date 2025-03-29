@@ -475,7 +475,7 @@ class TelegramController extends Controller
 
      protected function listBookings($chatId)
      {
-         $bookings = Booking::with(['tour', 'guest', 'guide', 'driver']) // Eager-load relationships
+         $bookings = Booking::with(['tour', 'guest', 'guide', 'driver', 'guestPayments']) // Eager-load relationships
              ->where('booking_status', '!=', 'finished') // Filter out finished
              ->orderBy('booking_start_date_time', 'asc')
              ->take(10)
@@ -504,7 +504,8 @@ class TelegramController extends Controller
              . "Dropoff: {$b->dropoff_location}\n"
              . "Booking Source: {$b->booking_source}\n"
              . "Special Req: {$b->special_requests}\n"
-             . "Status: {$b->booking_status}\n"
+             . "Tour Status: {$b->booking_status}\n"
+             . "Payment Status: " . ($b->guestPayments->payment_status ?? 'N/A') . "\n"
              . "-------------------------\n";
 
          }
