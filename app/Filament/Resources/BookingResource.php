@@ -209,6 +209,7 @@ class BookingResource extends Resource
                     ->searchable()
                     ->limit(20),
             ])
+            ->defaultSort('booking_start_date_time', 'asc')
             ->filters([])
             ->actions([
                 Tables\Actions\EditAction::make(),
