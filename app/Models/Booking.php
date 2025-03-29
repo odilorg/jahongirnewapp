@@ -64,6 +64,7 @@ class Booking extends Model
         // Build common booking details for the message:
         $tourTitle         = $this->tour->title;
         $guestName         = $this->guest->full_name;
+        $guestNumber         = $this->guest->number_of_people;
         $guestEmail        = $this->guest->email ?? '(no email)';
         $guestPhone        = $this->guest->phone ?? '(no phone)';
         $pickupLocation    = $this->pickup_location;
@@ -82,6 +83,7 @@ class Booking extends Model
         // Prepare the text we’ll inject into each message:
         $sharedInfo = "Tour: {$tourTitle}\n"
             ."Guest: {$guestName} (Email: {$guestEmail}, Phone: {$guestPhone})\n"
+            ."Number of people: {$guestNumber}\n"
             ."Pickup: {$pickupLocation}\n"
             ."Dropoff: {$dropoffLocation}\n"
             ."Special Requests: {$specialRequests}\n"
@@ -174,6 +176,7 @@ class Booking extends Model
         if (!$sharedInfo) {
             $tourTitle         = $this->tour ? $this->tour->title : '';
             $guestName         = $this->guest ? $this->guest->full_name : '';
+            $guestNumber         = $this->guest->number_of_people;
             $guestEmail        = $this->guest ? $this->guest->email : '(no email)';
             $guestPhone        = $this->guest ? $this->guest->phone : '(no phone)';
             $pickupLocation    = $this->pickup_location;
@@ -191,6 +194,7 @@ class Booking extends Model
 
             $sharedInfo = "Tour: {$tourTitle}\n"
                 ."Guest: {$guestName} (Email: {$guestEmail}, Phone: {$guestPhone})\n"
+                ."Number of people: {$guestNumber}\n"
                 ."Pickup: {$pickupLocation}\n"
                 ."Dropoff: {$dropoffLocation}\n"
                 ."Special Requests: {$specialRequests}\n"
