@@ -67,9 +67,11 @@ class ScheduledMessageResource extends Resource
     {
         return $table
             ->columns([
-                Tables\Columns\TextColumn::make('message')->limit(30),
+                Tables\Columns\TextColumn::make('message')->limit(50)
+                ->searchable(),
                 Tables\Columns\TextColumn::make('status'),
-                Tables\Columns\TextColumn::make('scheduled_at')->dateTime(),
+                Tables\Columns\TextColumn::make('scheduled_at')->dateTime()
+                ->sortable(),
                 // Show how many chats are linked
                 Tables\Columns\TextColumn::make('chats_count')
                     ->counts('chats')
