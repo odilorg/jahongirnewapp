@@ -73,7 +73,7 @@ class OctoPaymentService
             'shop_transaction_id' => $transactionId,
             'auto_capture'        => true,
             'init_time'           => now()->format('Y-m-d H:i:s'),
-            'test'                => false,
+            'test'                => true,
             'user_data'           => [
                 'user_id' => $guestName,
                 'phone'   => $guestPhone,
