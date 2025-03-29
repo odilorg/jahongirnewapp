@@ -473,31 +473,47 @@ class TelegramController extends Controller
      * LIST FLOW
      * ------------------------------------------------------------------ */
 
-    protected function listBookings($chatId)
-    {
-        $bookings = Booking::orderBy('booking_start_date_time','asc')->take(10)->get();
-        if ($bookings->isEmpty()) {
-            $this->sendTelegramMessage($chatId, "No bookings found.");
-            return response('OK');
-        }
+     protected function listBookings($chatId)
+     {
+         $bookings = Booking::with(['tour', 'guest', 'guide', 'driver']) // Eager-load relationships
+             ->where('booking_status', '!=', 'finished') // Filter out finished
+             ->orderBy('booking_start_date_time', 'asc')
+             ->take(10)
+             ->get();
+     
+         if ($bookings->isEmpty()) {
+             $this->sendTelegramMessage($chatId, "No bookings found.");
+             return response('OK');
+         }
+     
+         $responseText = "Bookings:\n\n";
+         foreach ($bookings as $b) {
+             $date = $b->booking_start_date_time
+                 ? Carbon::parse($b->booking_start_date_time)->format('M j Y H:i')
+                 : 'N/A';
+     
+             $guestName = $b->guest->full_name ?? 'N/A';
+     
+             $responseText .= "ID: {$b->id}\n"
+             . "Guest: " . ($b->guest->full_name ?? 'N/A') . "\n"
+             . "Group: {$b->group_name}\n"
+             . "Tour: " . ($b->tour->title ?? 'N/A') . "\n"
+             . "Start Date: {$date}\n"
+             . "Guide: " . ($b->guide->full_name ?? 'N/A') . "\n"
+             . "Driver: " . ($b->driver->full_name ?? 'N/A') . "\n"
+             . "Pickup: {$b->pickup_location}\n"
+             . "Dropoff: {$b->dropoff_location}\n"
+             . "Booking Source: {$b->booking_source}\n"
+             . "Special Req: {$b->special_requests}\n"
+             . "Status: {$b->booking_status}\n"
+             . "-------------------------\n";
 
-        $responseText = "Bookings:\n\n";
-        foreach ($bookings as $b) {
-            $date = $b->booking_start_date_time
-                ? Carbon::parse($b->booking_start_date_time)->format('M j Y H:i')
-                : 'N/A';
-
-            $responseText .= "ID: {$b->id}\n"
-                           . "Group: {$b->group_name}\n"
-                           . "Tour: ".($b->tour->title??'N/A')."\n"
-                           . "Start Date: {$date}\n"
-                           . "Status: {$b->booking_status}\n"
-                           . "-------------------------\n";
-        }
-
-        $this->sendTelegramMessage($chatId, $responseText);
-        return response('OK');
-    }
+         }
+     
+         $this->sendTelegramMessage($chatId, $responseText);
+         return response('OK');
+     }
+     
 
     /* ------------------------------------------------------------------
      *  Conversation Helpers
