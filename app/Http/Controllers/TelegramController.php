@@ -474,45 +474,45 @@ class TelegramController extends Controller
      * ------------------------------------------------------------------ */
 
      protected function listBookings($chatId)
-     {
-         $bookings = Booking::with(['tour', 'guest', 'guide', 'driver', 'guestPayments']) // Eager-load relationships
-             ->where('booking_status', '!=', 'finished') // Filter out finished
-             ->orderBy('booking_start_date_time', 'asc')
-             ->take(10)
-             ->get();
-     
-         if ($bookings->isEmpty()) {
-             $this->sendTelegramMessage($chatId, "No bookings found.");
-             return response('OK');
-         }
-     
-         $responseText = "Bookings:\n\n";
-         foreach ($bookings as $b) {
-             $date = $b->booking_start_date_time
-                 ? Carbon::parse($b->booking_start_date_time)->format('M j Y H:i')
-                 : 'N/A';
-     
-             $guestName = $b->guest->full_name ?? 'N/A';
-     
-             $responseText .= "ID: {$b->id}\n"
-             . "Guest: " . ($b->guest->full_name ?? 'N/A') . "\n"
-             . "Tour: " . ($b->tour->title ?? 'N/A') . "\n"
-             . "Start Date: {$date}\n"
-             . "Guide: " . ($b->guide->full_name ?? 'N/A') . "\n"
-             . "Driver: " . ($b->driver->full_name ?? 'N/A') . "\n"
-             . "Pickup: {$b->pickup_location}\n"
-             . "Dropoff: {$b->dropoff_location}\n"
-             . "Booking Source: {$b->booking_source}\n"
-             . "Special Req: {$b->special_requests}\n"
-             . "Tour Status: {$b->booking_status}\n"
-             . "Payment Status: " . ($b->guestPayments->payment_status ?? 'N/A') . "\n"
-             . "-------------------------\n";
+{
+    $bookings = Booking::with(['tour', 'guest', 'guide', 'driver', 'guestPayments'])
+        ->where('booking_status', '!=', 'finished')
+        ->orderBy('booking_start_date_time', 'asc')
+        ->take(10)
+        ->get();
 
-         }
-     
-         $this->sendTelegramMessage($chatId, $responseText);
-         return response('OK');
-     }
+    if ($bookings->isEmpty()) {
+        $this->sendTelegramMessage($chatId, "No bookings found.");
+        return response('OK');
+    }
+
+    $responseText = "Bookings:\n\n";
+    foreach ($bookings as $b) {
+        $date = $b->booking_start_date_time
+            ? Carbon::parse($b->booking_start_date_time)->format('M j Y H:i')
+            : 'N/A';
+
+        $paymentStatuses = $b->guestPayments->pluck('payment_status')->implode(', ') ?: 'N/A';
+
+        $responseText .= "ID: {$b->id}\n"
+            . "Guest: " . ($b->guest->full_name ?? 'N/A') . "\n"
+            . "Tour: " . ($b->tour->title ?? 'N/A') . "\n"
+            . "Start Date: {$date}\n"
+            . "Guide: " . ($b->guide->full_name ?? 'N/A') . "\n"
+            . "Driver: " . ($b->driver->full_name ?? 'N/A') . "\n"
+            . "Pickup: {$b->pickup_location}\n"
+            . "Dropoff: {$b->dropoff_location}\n"
+            . "Booking Source: {$b->booking_source}\n"
+            . "Special Req: {$b->special_requests}\n"
+            . "Tour Status: {$b->booking_status}\n"
+            . "Payment Status: {$paymentStatuses}\n"
+            . "-------------------------\n";
+    }
+
+    $this->sendTelegramMessage($chatId, $responseText);
+    return response('OK');
+}
+
      
 
     /* ------------------------------------------------------------------
