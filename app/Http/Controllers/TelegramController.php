@@ -496,7 +496,6 @@ class TelegramController extends Controller
      
              $responseText .= "ID: {$b->id}\n"
              . "Guest: " . ($b->guest->full_name ?? 'N/A') . "\n"
-             . "Group: {$b->group_name}\n"
              . "Tour: " . ($b->tour->title ?? 'N/A') . "\n"
              . "Start Date: {$date}\n"
              . "Guide: " . ($b->guide->full_name ?? 'N/A') . "\n"
