@@ -29,7 +29,8 @@ class Booking extends Model
         'amount',
         'booking_status',
         'booking_source',
-        'payment_link'
+        'payment_link',
+        'number_of_people'
     ];
 
     protected static function boot()
