@@ -273,7 +273,9 @@
                 @endforeach
             </tbody>
         </table>
-         
+        <p style="margin-top: 10px; font-size: 13px;">
+            <strong>Турсбор не включен (10% БРВ). Завтрак включен</strong>
+        </p> 
         
         
         </div>
