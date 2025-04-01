@@ -91,7 +91,8 @@ class ContractResource extends Resource
                     ->sortable(),
                 Tables\Columns\TextColumn::make('turfirma.name')
                     ->numeric()
-                    ->sortable(),
+                    ->sortable()
+                    ->searchable(),
                 Tables\Columns\TextColumn::make('created_at')
                     ->dateTime()
                     ->sortable()
