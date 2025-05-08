@@ -3,12 +3,13 @@
 namespace App\Models;
 
 use Carbon\Carbon;
+use App\Models\Chat;
+use App\Jobs\GenerateBookingPdf;
+use App\Models\ScheduledMessage;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Support\Facades\Log;
-use App\Models\Chat;
-use App\Models\ScheduledMessage;
 
 class Booking extends Model
 {
@@ -30,7 +31,9 @@ class Booking extends Model
         'booking_status',
         'booking_source',
         'payment_link',
-        'number_of_people'
+        'number_of_people',
+        'file_name',
+        'booking_number',
     ];
 
     protected static function boot()
@@ -38,8 +41,30 @@ class Booking extends Model
         parent::boot();
 
         static::created(function ($booking) {
+            // Generate booking number like "BOOK-2025-001"
+            Log::info("Booking created with ID: {$booking->id}");
+
+        $month = now()->month;
+        $year = $month >= 11 ? now()->year + 1 : now()->year;
+
+        $booking->booking_number = 'BOOK-' . $year . '-' . str_pad($booking->id, 3, '0', STR_PAD_LEFT);
+
+        Log::info("Generated booking number: {$booking->booking_number}");
+
+
+        $booking->saveQuietly();
+
+        $booking->scheduleNotifications();
+
+        // Dispatch PDF job (if used)
+        // GenerateBookingPdf::dispatch($booking);
             $booking->scheduleNotifications();
+
+            // Dispatch PDF generation
+        GenerateBookingPdf::dispatch($booking);
         });
+
+        
 
         static::updated(function ($booking) {
             $booking->updateScheduledNotifications();

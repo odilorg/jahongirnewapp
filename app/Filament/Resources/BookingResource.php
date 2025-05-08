@@ -12,28 +12,29 @@ use Filament\Forms\Form;
 use Filament\Tables\Table;
 use Filament\Infolists\Infolist;
 use Filament\Resources\Resource;
+use Filament\Tables\Actions\Action;
 use Illuminate\Support\Facades\Log;
+use App\Services\OctoPaymentService;
 use Filament\Forms\Components\Group;
 use Filament\Forms\Components\Radio;
 use Filament\Forms\Components\Section;
 use Filament\Forms\Components\Repeater;
 use Filament\Tables\Columns\TextColumn;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Storage;
+use Filament\Notifications\Notification;
 use Filament\Tables\Columns\SelectColumn;
 use Illuminate\Database\Eloquent\Builder;
 use Filament\Infolists\Components\TextEntry;
 use App\Filament\Resources\BookingResource\Pages;
+
+// Import the Notification builder
 use Illuminate\Database\Eloquent\SoftDeletingScope;
+
+// Import your Octo payment service
 use App\Filament\Resources\BookingResource\RelationManagers;
 use App\Filament\Resources\BookingResource\RelationManagers\DriverRelationManager;
 use App\Filament\Resources\BookingResource\RelationManagers\DriversRelationManager;
-
-// Import the Notification builder
-use Filament\Notifications\Notification;
-
-// Import your Octo payment service
-use App\Services\OctoPaymentService;
-use Filament\Tables\Actions\Action;
 
 class BookingResource extends Resource
 {
@@ -85,11 +86,10 @@ class BookingResource extends Resource
                                         }
                                     }),
 
-                                Forms\Components\Hidden::make('group_name')
-                                    ->label('Group Name')
+                                    Forms\Components\Hidden::make('booking_number')
                                     ->disabled()
-                                    ->dehydrated()
-                                    ->required(),
+                                    ->dehydrated(fn ($get) => filled($get('booking_number'))) // only save if filled
+                                    ->required(fn ($context) => $context === 'edit'), // required only on edit
 
                                 Forms\Components\DateTimePicker::make('booking_start_date_time')
                                     ->label('Tour Start Date & Time')
@@ -164,6 +164,10 @@ class BookingResource extends Resource
                         'in_progress' => 'in Progress',
                         'finished' => 'Finished',
                     ]),
+                    Tables\Columns\TextColumn::make('booking_number')
+    ->label('Booking #')
+    ->sortable()
+    ->searchable(),
                 Tables\Columns\TextColumn::make('tour.title')
                     ->searchable()
                     ->limit(20),
@@ -214,6 +218,13 @@ class BookingResource extends Resource
             ->actions([
                 Tables\Actions\EditAction::make(),
                 Tables\Actions\ViewAction::make(),
+                Tables\Actions\Action::make('download_pdf')
+                    ->label('Download PDF')
+                    ->icon('heroicon-o-document-arrow-down')
+                    ->visible(fn(Booking $record): bool => !is_null($record->file_name))
+                    ->action(function (Booking $record) {
+                        return response()->download(storage_path('app/public/confirmations/') . $record->file_name);
+                    }),
 
                 Action::make('createPaymentLink')
                     ->label('Create Payment Link')
