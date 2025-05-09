@@ -36,7 +36,7 @@ class WebhookController extends Controller
                
                 'departure_date' => $data['Departure Date Time'],
                 'number_of_people' => $data['Number of people'],
-                'pickup_location' => $data['Meeting Point '],
+                'pickup_location' => $data['Meeting Point'],
                 'special_requests' => $data['Mesage'] ?? null,
             ]);
 
