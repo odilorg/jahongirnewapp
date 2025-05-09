@@ -27,6 +27,8 @@ class WebhookController extends Controller
                 'email' => $data['Email'],
                 'phone' => $data['Phone'],
                 'country' => $data['Country'],
+                'number_of_people' => $data['Number of people'],
+
                 'full_name' => $data['Name'], // optional if you need to store full
             ]);
 
@@ -35,7 +37,6 @@ class WebhookController extends Controller
                 'guest_id' => $guest->id,
                
                 'departure_date' => $data['Departure Date Time'],
-                'number_of_people' => $data['Number of people'],
                 'pickup_location' => $data['Meeting Point'],
                 'special_requests' => $data['Mesage'] ?? null,
             ]);
