@@ -1,15 +1,18 @@
 <?php
 namespace App\Http\Controllers;
 
-use Illuminate\Http\Request;
 use App\Models\Guest;
 use App\Models\Booking;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class WebhookController extends Controller
 {
     public function handleTourBooking(Request $request)
     {
+        Log::info('Incoming API key: ' . $request->header('X-API-KEY'));
+
         // 🔒 API key protection
         if ($request->header('X-API-KEY') !== env('N8N_SECRET_KEY')) {
             return response()->json(['error' => 'Unauthorized'], 403);
