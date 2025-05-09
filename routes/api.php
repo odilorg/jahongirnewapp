@@ -7,6 +7,8 @@ use App\Http\Controllers\TelegramController;
 use App\Http\Controllers\Api\AiInstructionController;
 use App\Http\Controllers\Api\SysInstructionController;
 use App\Http\Controllers\TelegramDriverGuideSignUpController;
+use App\Http\Controllers\WebhookController;
+
 
 /*
 |--------------------------------------------------------------------------
@@ -38,4 +40,7 @@ Route::post('/availability', [Availability::class, 'checkAvailability'])->middle
 
 Route::post('/telegram/webhook', [TelegramController::class, 'handleWebhook']);
 Route::post('/telegram/driver_guide_signup', [TelegramDriverGuideSignUpController::class, 'handleWebhook']);
+
+
+Route::post('/webhook/tour-booking', [WebhookController::class, 'handleTourBooking']);
 
