@@ -36,7 +36,7 @@ class WebhookController extends Controller
             $booking = Booking::create([
                 'guest_id' => $guest->id,
                
-                'departure_date' => $data['Departure Date Time'],
+                'booking_start_date_time' => $data['Departure Date Time'],
                 'pickup_location' => $data['Meeting Point'],
                 'special_requests' => $data['Mesage'] ?? null,
             ]);
