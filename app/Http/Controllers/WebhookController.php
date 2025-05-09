@@ -14,7 +14,7 @@ class WebhookController extends Controller
         Log::info('Incoming API key: ' . $request->header('X-API-KEY'));
 
         // 🔒 API key protection
-        if ($request->header('X-API-KEY') !== env('N8N_SECRET_KEY')) {
+        if ($request->header('x-api-key') !== env('N8N_SECRET_KEY')) {
             return response()->json(['error' => 'Unauthorized'], 403);
         }
     
