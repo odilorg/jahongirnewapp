@@ -86,10 +86,10 @@ class BookingResource extends Resource
                                         }
                                     }),
 
-                                    Forms\Components\Hidden::make('booking_number')
+                                Forms\Components\Hidden::make('booking_number')
                                     ->disabled()
-                                    ->dehydrated(fn ($get) => filled($get('booking_number'))) // only save if filled
-                                    ->required(fn ($context) => $context === 'edit'), // required only on edit
+                                    ->dehydrated(fn($get) => filled($get('booking_number'))) // only save if filled
+                                    ->required(fn($context) => $context === 'edit'), // required only on edit
 
                                 Forms\Components\DateTimePicker::make('booking_start_date_time')
                                     ->label('Tour Start Date & Time')
@@ -164,10 +164,10 @@ class BookingResource extends Resource
                         'in_progress' => 'in Progress',
                         'finished' => 'Finished',
                     ]),
-                    Tables\Columns\TextColumn::make('booking_number')
-    ->label('Booking #')
-    ->sortable()
-    ->searchable(),
+                Tables\Columns\TextColumn::make('booking_number')
+                    ->label('Booking #')
+                    ->sortable()
+                    ->searchable(),
                 Tables\Columns\TextColumn::make('tour.title')
                     ->searchable()
                     ->limit(20),

@@ -242,7 +242,7 @@ class DriverResource extends Resource
 
     public static function getPages(): array
     {
-        return [
+        return [    
             'index' => Pages\ListDrivers::route('/'),
             'create' => Pages\CreateDriver::route('/create'),
             'view' => Pages\ViewDriver::route('/{record}'),

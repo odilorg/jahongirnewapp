@@ -19,6 +19,8 @@ use Illuminate\Database\Eloquent\SoftDeletingScope;
 use App\Filament\Resources\GuideResource\RelationManagers;
 use App\Filament\Resources\GuideResource\RelationManagers\LanguagesRelationManager;
 use App\Filament\Resources\GuideResource\RelationManagers\SupplierPaymentsRelationManager;
+use App\Filament\Resources\GuideResource\RelationManagers\BookingsRelationManager;
+
 
 class GuideResource extends Resource
 {
@@ -143,6 +145,8 @@ class GuideResource extends Resource
     {
         return [
             LanguagesRelationManager::class,
+            BookingsRelationManager::class,
+
            // SupplierPaymentsRelationManager::class
         ];
     }

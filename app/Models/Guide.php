@@ -22,15 +22,12 @@ class Guide extends Model
         return $this->belongsToMany(SpokenLanguage::class, 'language_guide');
     }
 
-    // public function soldTours()
-    // {
-    //     return $this->belongsToMany(SoldTour::class, 'sold_tour_guide')
-    //                 ->withPivot('amount_paid', 'payment_date', 'payment_method')
-    //                 ->withTimestamps();
-    // }
-
-    public function supplier_payments(): HasMany
+    public function bookings(): HasMany
     {
-        return $this->hasMany(SupplierPayment::class);
+        return $this->hasMany(Booking::class);
     }
+
+    
+
+   
 }
