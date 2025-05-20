@@ -10,16 +10,26 @@ class Rating extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['tour_booking_id', 'driver_id', 'review_source', 'review_score', 'comments' ];
+    protected $fillable = ['booking_id', 'driver_id', 'guide_id', 'review_source', 'review_score', 'comments' ];
 
     public function driver(): BelongsTo
     {
         return $this->belongsTo(Driver::class);
     } 
 
-    public function tour_booking(): BelongsTo
+     public function guide(): BelongsTo
     {
-        return $this->belongsTo(TourBooking::class);
+        return $this->belongsTo(Guide::class);
     } 
+
+    public function booking(): BelongsTo
+    {
+        return $this->belongsTo(Booking::class);
+    } 
+
+       public function tags()
+    {
+        return $this->belongsToMany(Tag::class);
+    }
    
 }

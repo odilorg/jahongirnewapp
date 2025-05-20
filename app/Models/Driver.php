@@ -34,32 +34,15 @@ class Driver extends Model
         return $this->hasMany(Car::class);
     }
 
-    // public function driverPayments(): HasMany
-    // {
-    //     return $this->hasMany(DriverPayment::class);
-    // }
+   public function averageScore(): ?float
+{
+    return $this->ratings()->avg('score');
+}
 
-    // public function sold_tours(): HasMany
-    // {
-    //     return $this->hasMany(SoldTour::class);
-    // }
-
-
-    // public function cars(): BelongsToMany
-    // {
-    //     return $this->belongsToMany(Car::class);
-    // }
-    // public function cars()
-    // {
-    //     return $this->belongsToMany(Car::class, 'car_driver', 'driver_id', 'car_id')
-    //                 ->withPivot('car_plate'); // Assume 'car_plate' is stored in the pivot table
-    // }
-
-    // public function payments()
-    // {
-    //     return $this->belongsToMany(SoldTour::class, 'driver_payment', 'driver_id', 'sold_tour_id')
-    //                 ->withPivot('amount_paid', 'payment_date', 'receipt_image', 'payment_type'); // Assume 'car_plate' is stored in the pivot table
-    // }
+public function totalRatings(): int
+{
+    return $this->ratings()->count();
+}
     
 
     public function ratings(): HasMany
