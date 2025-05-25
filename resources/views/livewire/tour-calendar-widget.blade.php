@@ -22,7 +22,7 @@
 
         background-image:repeating-linear-gradient(
             to right,
-            rgba(0,0,0,.08) 0 1px,
+            rgba(0,0,0,1) 0 1px,
             transparent     1px var(--w)
         );
         background-position:var(--l) 0;
@@ -32,11 +32,21 @@
         #tour-calendar .row{
             background-image:repeating-linear-gradient(
                 to right,
-                rgba(255,255,255,.06) 0 1px,
+                rgba(255, 255, 255, 0.5) 0 1px,
                 transparent            1px var(--w)
             );
         }
     }
+
+    /* Dark mode for Filament / Tailwind “dark” class */
+.dark #tour-calendar .hdr,
+.dark #tour-calendar .row{
+    background-image:repeating-linear-gradient(
+        to right,
+        rgba(255,255,255,1.10) 0 1px,
+        transparent              1px var(--w)
+    );
+}
 
     /* ───── booking bar style ───── */
     #tour-calendar .bar{

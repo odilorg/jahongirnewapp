@@ -2,12 +2,14 @@
 
 namespace App\Livewire;
 
-use Livewire\Component;
 use Carbon\Carbon;
-use Illuminate\Support\Collection;
+use Livewire\Livewire;
 use App\Models\Booking;
+use Livewire\Component;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Log;
 
-class TourCalendar extends Component
+class TourCalendarWidget extends Component
 {
     /* ───── Calendar range ───── */
     public Carbon $startDate;
@@ -36,6 +38,8 @@ class TourCalendar extends Component
     /* ───── Called from wire:click="showBooking(id)" ───── */
     public function showBooking(int $id): void
     {
+           
+
         $this->selected  = Booking::with(['tour', 'guest', 'driver', 'guide'])->find($id);
         $this->showModal = true;
     }
@@ -86,7 +90,7 @@ class TourCalendar extends Component
             fn ($b) => $b->tour?->title ?? 'Unknown Tour'
         );
 
-        return view('livewire.tour-calendar', [
+        return view('livewire.tour-calendar-widget', [
             'startDate' => $this->startDate,
             'days'      => $this->days,
             'rows'      => $rows,
