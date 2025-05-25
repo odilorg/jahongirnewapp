@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources;
 
+use Carbon\Carbon;
 use Filament\Forms;
 use App\Models\Tour;
 use Filament\Tables;
@@ -26,12 +27,12 @@ use Filament\Notifications\Notification;
 use Filament\Tables\Columns\SelectColumn;
 use Illuminate\Database\Eloquent\Builder;
 use Filament\Infolists\Components\TextEntry;
-use App\Filament\Resources\BookingResource\Pages;
 
 // Import the Notification builder
-use Illuminate\Database\Eloquent\SoftDeletingScope;
+use App\Filament\Resources\BookingResource\Pages;
 
 // Import your Octo payment service
+use Illuminate\Database\Eloquent\SoftDeletingScope;
 use App\Filament\Resources\BookingResource\RelationManagers;
 use App\Filament\Resources\BookingResource\RelationManagers\DriverRelationManager;
 use App\Filament\Resources\BookingResource\RelationManagers\DriversRelationManager;
@@ -101,11 +102,26 @@ class BookingResource extends Resource
                                     ->preload()
                                     ->relationship('guide', 'full_name'),
 
-                                Forms\Components\Select::make('tour_id')
-                                    ->required()
-                                    ->searchable()
-                                    ->preload()
-                                    ->relationship('tour', 'title'),
+                                 Forms\Components\Select::make('tour_id')
+        ->required()->searchable()->preload()
+        ->relationship('tour', 'title')
+        ->reactive()
+        ->afterStateUpdated(function (callable $set, callable $get, $state) {
+            /*  Recalculate the end date whenever the tour changes           */
+            $start = $get('booking_start_date_time');
+            if ($start && $state) {
+                if ($tour = Tour::find($state)) {
+                    $duration = max(1, (int) $tour->tour_duration);
+                    $end      = Carbon::parse($start)->copy()->addDays($duration - 1);
+                    $set('booking_end_date_time', $end);
+                }
+            }
+        }),
+
+         /* ───────────────── NEW: Hidden end-date field ───────────────── */
+    Forms\Components\Hidden::make('booking_end_date_time')
+        ->dehydrated()          // make sure it is passed to the model
+        ->required(),           // booking must always have an end date
 
                                 Forms\Components\Select::make('driver_id')
                                     ->searchable()
