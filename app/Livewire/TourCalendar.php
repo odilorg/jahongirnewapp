@@ -31,6 +31,8 @@ class TourCalendar extends Component
         }
     }
 
+    
+
     /* ───── Called from wire:click="showBooking(id)" ───── */
     public function showBooking(int $id): void
     {
