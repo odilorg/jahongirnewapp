@@ -80,16 +80,12 @@ class BookingsRelationManager extends RelationManager
             ->columns([
                 Tables\Columns\TextColumn::make('tour.title')
                     ->searchable(),
-                Tables\Columns\TextColumn::make('group_name')
-                    ->searchable(),
-                // Tables\Columns\TextColumn::make('booking_start_date_time')
-                //     ->dateTime(),
                
-                // Tables\Columns\TextColumn::make('pickup_location')
-                //     ->numeric()
-                //     ->sortable(),
-                // Tables\Columns\TextColumn::make('dropoff_location')
-                //     ->searchable(),
+                 Tables\Columns\TextColumn::make('booking_number')
+                    ->searchable(),  
+                     Tables\Columns\TextColumn::make('booking_start_date_time')
+                    ->searchable(),    
+              
                
             ])
             ->filters([

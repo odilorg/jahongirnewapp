@@ -287,4 +287,17 @@ class Booking extends Model
     {
         return $this->hasMany(GuestPayment::class, 'booking_id');
     }
+
+    // In app/Models/Booking.php
+
+public function tourExpenses()
+{
+    return $this->hasMany(\App\Models\TourExpense::class);
+}
+public function getTotalExpensesAttribute()
+{
+    return $this->tourExpenses()->sum('amount');
+}
+
+
 }

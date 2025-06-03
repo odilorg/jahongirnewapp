@@ -27,6 +27,12 @@ class Guide extends Model
         return $this->hasMany(Booking::class);
     }
 
+    public function tourExpenses()
+{
+    return $this->morphMany(TourExpense::class, 'supplier');
+}
+
+
     
 
    

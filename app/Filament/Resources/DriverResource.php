@@ -30,6 +30,7 @@ use App\Filament\Resources\DriverResource\RelationManagers;
 use App\Filament\Resources\DriverResource\RelationManagers\CarRelationManager;
 use App\Filament\Resources\DriverResource\RelationManagers\CarsRelationManager;
 use App\Filament\Resources\DriverResource\RelationManagers\BookingsRelationManager;
+use App\Filament\Resources\DriverResource\RelationManagers\TourExpensesRelationManager;
 use App\Filament\Resources\DriverResource\RelationManagers\SupplierPaymentsRelationManager;
 
 //use App\Filament\Resources\TourRepeaterDriversRelationManagerResource\RelationManagers\SoldToursRelationManager;
@@ -47,7 +48,7 @@ class DriverResource extends Resource
     {
         return $form
             ->schema([
-                
+
                 Forms\Components\Section::make('Driver Personal Info')
                     ->description('Add information about Driver')
                     ->collapsible()
@@ -84,7 +85,7 @@ class DriverResource extends Resource
                                 'methane' => 'Methane',
                                 'benzin' => 'Benzin',
                             ]),
-                            
+
                         Forms\Components\FileUpload::make('driver_image')
                             ->image(),
                         //  ->required(),
@@ -235,14 +236,15 @@ class DriverResource extends Resource
     {
         return [
             CarsRelationManager::class,
-            BookingsRelationManager::class
+            BookingsRelationManager::class,
+            TourExpensesRelationManager::class,
 
         ];
     }
 
     public static function getPages(): array
     {
-        return [    
+        return [
             'index' => Pages\ListDrivers::route('/'),
             'create' => Pages\CreateDriver::route('/create'),
             'view' => Pages\ViewDriver::route('/{record}'),
