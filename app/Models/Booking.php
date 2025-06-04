@@ -35,6 +35,7 @@ class Booking extends Model
         'file_name',
         'booking_number',
         'booking_end_date_time',
+        'booking_id',
     ];
 
     protected static function boot()

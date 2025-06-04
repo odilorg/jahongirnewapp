@@ -43,6 +43,30 @@ class TourExpenseResource extends Resource
                 TextInput::make('amount')->numeric()->required(),
                 Textarea::make('description'),
                 DatePicker::make('expense_date')->default(now()),
+                Select::make('booking_id')
+    ->label('Booking')
+    ->options(function (callable $get) {
+        $supplierType = $get('supplier_type');
+        $supplierId = $get('supplier_id');
+        $tourId = $get('tour_id');
+
+        if (!$supplierType || !$supplierId || !$tourId) {
+            return [];
+        }
+
+        $supplierModel = $supplierType::find($supplierId);
+        if (!$supplierModel) {
+            return [];
+        }
+
+        return $supplierModel->bookings()
+            ->where('tour_id', $tourId)
+            ->pluck('id', 'id')
+            ->toArray();
+    })
+    ->reactive()
+    ->required(),
+
                 Select::make('tour_id')
                     ->label('Tour')
                     ->options(function (callable $get) {
