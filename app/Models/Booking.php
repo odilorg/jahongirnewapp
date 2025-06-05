@@ -300,5 +300,10 @@ public function getTotalExpensesAttribute()
     return $this->tourExpenses()->sum('amount');
 }
 
+public function getTotalGuestPaymentsAttribute()
+{
+    return $this->guestPayments()->sum('amount');
+}
+
 
 }

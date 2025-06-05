@@ -1,29 +1,21 @@
 <?php
 
-namespace App\Filament\Resources;
+namespace App\Filament\Resources\BookingResource\RelationManagers;
 
 use Filament\Forms;
 use Filament\Tables;
-use App\Models\Booking;
 use Filament\Forms\Form;
 use Filament\Tables\Table;
-use App\Models\GuestPayment;
-use Filament\Resources\Resource;
 use Filament\Tables\Columns\SelectColumn;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
-use App\Filament\Resources\GuestPaymentResource\Pages;
-use App\Filament\Resources\GuestPaymentResource\RelationManagers;
+use Filament\Resources\RelationManagers\RelationManager;
 
-class GuestPaymentResource extends Resource
+class GuestPaymentsRelationManager extends RelationManager
 {
-    protected static ?string $model = GuestPayment::class;
+    protected static string $relationship = 'GuestPayments';
 
-    protected static ?string $navigationIcon = 'heroicon-o-rectangle-stack';
-    protected static ?string $navigationGroup = 'Tour Details';
-
-
-    public static function form(Form $form): Form
+    public function form(Form $form): Form
     {
         return $form
             ->schema([
@@ -32,30 +24,7 @@ class GuestPaymentResource extends Resource
                 ->relationship('guest', 'full_name')
                 ->reactive(), // <-- important to trigger changes
 
-           Forms\Components\Select::make('booking_id')
-    ->label('Booking')
-    ->options(function (callable $get) {
-        $guestId = $get('guest_id');
-
-        if (!$guestId) {
-            return [];
-        }
-
-        return Booking::with('tour')
-            ->where('guest_id', $guestId)
-            ->get()
-            ->mapWithKeys(function ($booking) {
-                $label = $booking->booking_number;
-                if ($booking->tour) {
-                    $label .= ' – ' . $booking->tour->title;
-                }
-                return [$booking->id => $label];
-            })
-            ->toArray();
-    })
-    ->required()
-    ->searchable()
-    ->reactive(),
+           
                 Forms\Components\TextInput::make('amount')
                 ->numeric()
                 ->prefix('$')
@@ -87,11 +56,12 @@ class GuestPaymentResource extends Resource
             ]);
     }
 
-    public static function table(Table $table): Table
+    public function table(Table $table): Table
     {
         return $table
+            ->recordTitleAttribute('title')
             ->columns([
-                Tables\Columns\TextColumn::make('created_at')
+                 Tables\Columns\TextColumn::make('created_at')
                     ->dateTime()
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
@@ -127,29 +97,17 @@ class GuestPaymentResource extends Resource
             ->filters([
                 //
             ])
+            ->headerActions([
+                Tables\Actions\CreateAction::make(),
+            ])
             ->actions([
                 Tables\Actions\EditAction::make(),
+                Tables\Actions\DeleteAction::make(),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
                     Tables\Actions\DeleteBulkAction::make(),
                 ]),
             ]);
-    }
-
-    public static function getRelations(): array
-    {
-        return [
-            //
-        ];
-    }
-
-    public static function getPages(): array
-    {
-        return [
-            'index' => Pages\ListGuestPayments::route('/'),
-            'create' => Pages\CreateGuestPayment::route('/create'),
-            'edit' => Pages\EditGuestPayment::route('/{record}/edit'),
-        ];
     }
 }

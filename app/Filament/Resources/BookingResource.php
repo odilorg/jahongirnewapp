@@ -37,6 +37,7 @@ use App\Filament\Resources\BookingResource\RelationManagers;
 use App\Filament\Resources\BookingResource\RelationManagers\DriverRelationManager;
 use App\Filament\Resources\BookingResource\RelationManagers\DriversRelationManager;
 use App\Filament\Resources\BookingResource\RelationManagers\TourExpensesRelationManager;
+use App\Filament\Resources\BookingResource\RelationManagers\GuestPaymentsRelationManager;
 
 class BookingResource extends Resource
 {
@@ -314,6 +315,7 @@ class BookingResource extends Resource
         return [
             // Define your relation managers here if needed
             TourExpensesRelationManager::class,
+            GuestPaymentsRelationManager::class,
         ];
     }
 
