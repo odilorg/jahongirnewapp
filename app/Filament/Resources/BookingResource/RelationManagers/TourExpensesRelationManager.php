@@ -13,6 +13,7 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\DatePicker;
 use Illuminate\Database\Eloquent\Builder;
+use Filament\Tables\Columns\Summarizers\Sum;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
 use Filament\Resources\RelationManagers\RelationManager;
 
@@ -76,11 +77,10 @@ class TourExpensesRelationManager extends RelationManager
                     ->label('Description')
                     ->searchable()
                     ->sortable(),
-
-                TextColumn::make('amount')
-                    ->label('Amount')
-                    ->money('usd', true)
-                    ->sortable(),
+TextColumn::make('amount')
+    ->label('Amount')
+    ->money('usd', true)
+    ->summarize(Sum::make()->label('Total')),
 
                 TextColumn::make('expense_date')
                     ->label('Date')

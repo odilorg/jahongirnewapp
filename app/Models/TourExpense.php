@@ -9,7 +9,7 @@ class TourExpense extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['tour_id', 'supplier_id', 'supplier_type', 'description', 'amount', 'expense_date'];
+    protected $fillable = ['booking_id', 'tour_id', 'supplier_id', 'supplier_type', 'description', 'amount', 'expense_date'];
 
     public function tour()
     {

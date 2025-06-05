@@ -44,28 +44,31 @@ class TourExpenseResource extends Resource
                 Textarea::make('description'),
                 DatePicker::make('expense_date')->default(now()),
                 Select::make('booking_id')
-    ->label('Booking')
-    ->options(function (callable $get) {
-        $supplierType = $get('supplier_type');
-        $supplierId = $get('supplier_id');
-        $tourId = $get('tour_id');
+                    ->label('Booking')
+                    ->options(function (callable $get) {
+                        $supplierType = $get('supplier_type');
+                        $supplierId = $get('supplier_id');
+                        $tourId = $get('tour_id');
 
-        if (!$supplierType || !$supplierId || !$tourId) {
-            return [];
-        }
+                        if (!$supplierType || !$supplierId || !$tourId) {
+                            return [];
+                        }
 
-        $supplierModel = $supplierType::find($supplierId);
-        if (!$supplierModel) {
-            return [];
-        }
+                        $supplierModel = $supplierType::find($supplierId);
+                        if (!$supplierModel) {
+                            return [];
+                        }
+return $supplierModel->bookings()
+    ->where('tour_id', $tourId)
+    ->get()
+    ->mapWithKeys(fn($booking) => [
+        $booking->id => $booking->booking_number,
+    ])
+    ->toArray();
 
-        return $supplierModel->bookings()
-            ->where('tour_id', $tourId)
-            ->pluck('id', 'id')
-            ->toArray();
-    })
-    ->reactive()
-    ->required(),
+                    })
+                    ->reactive()
+                    ->required(),
 
                 Select::make('tour_id')
                     ->label('Tour')
