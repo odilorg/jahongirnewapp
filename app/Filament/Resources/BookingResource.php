@@ -26,12 +26,12 @@ use Illuminate\Support\Facades\Storage;
 use Filament\Notifications\Notification;
 use Filament\Tables\Columns\SelectColumn;
 use Illuminate\Database\Eloquent\Builder;
-use Filament\Infolists\Components\TextEntry;
 
 // Import the Notification builder
-use App\Filament\Resources\BookingResource\Pages;
+use Filament\Infolists\Components\TextEntry;
 
 // Import your Octo payment service
+use App\Filament\Resources\BookingResource\Pages;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
 use App\Filament\Resources\BookingResource\RelationManagers;
 use App\Filament\Resources\BookingResource\RelationManagers\DriverRelationManager;
@@ -328,4 +328,5 @@ class BookingResource extends Resource
             // 'view' => Pages\ViewBooking::route('/{record}'),
         ];
     }
+    
 }
