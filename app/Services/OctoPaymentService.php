@@ -99,7 +99,7 @@ class OctoPaymentService
             'return_url'  => url('/payment/success'),
             'notify_url'  => route('octo.callback'),
             'language'    => 'en',
-            'ttl'         => 500,
+            'ttl'         => 5000,
         ];
 
         if (!$payload['tsp_id']) {
