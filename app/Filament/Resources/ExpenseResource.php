@@ -148,6 +148,12 @@ class ExpenseResource extends Resource
                     ->relationship('hotel', 'name')
                     ->searchable()
                     ->preload(),
+                    SelectFilter::make('payment_type')
+    ->options([
+        'naqd' => 'naqd',
+        'karta' => 'karta',
+       
+    ]),
                 Filter::make('expense_date')
                     ->form([
                         DatePicker::make('from'),
