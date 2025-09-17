@@ -9,8 +9,7 @@ use Illuminate\Notifications\Notifiable;
 use Filament\Models\Contracts\FilamentUser;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
-use Illuminate\Testing\Fluent\Concerns\Has;
-use Spatie\Permission\Traits\HasRoles;
+
 
 /**
  * @property string $role
@@ -20,7 +19,7 @@ use Spatie\Permission\Traits\HasRoles;
 
 class User extends Authenticatable implements FilamentUser
 {
-    use HasApiTokens, HasFactory, Notifiable, HasRoles;
+    use HasApiTokens, HasFactory, Notifiable;
 
 
     public function canAccessPanel(Panel $panel): bool
