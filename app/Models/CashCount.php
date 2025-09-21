@@ -70,3 +70,4 @@ class CashCount extends Model
         return $formatted;
     }
 }
+

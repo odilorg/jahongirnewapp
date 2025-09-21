@@ -19,20 +19,16 @@ class StartShiftAction
     {
         $validated = Validator::make($data, [
             'beginning_saldo' => 'required|numeric|min:0',
-            'currency' => 'string|size:3',
             'notes' => 'nullable|string|max:1000',
         ])->validate();
 
         return DB::transaction(function () use ($user, $drawer, $validated) {
-            // Check if user already has an open shift on this drawer
-            $existingShift = CashierShift::where('user_id', $user->id)
-                ->where('cash_drawer_id', $drawer->id)
-                ->where('status', ShiftStatus::OPEN)
-                ->first();
+            // Check if user already has ANY open shift (across all drawers)
+            $existingShift = CashierShift::getUserOpenShift($user->id);
 
             if ($existingShift) {
                 throw ValidationException::withMessages([
-                    'shift' => 'You already have an open shift on this drawer.'
+                    'shift' => "You already have an open shift on drawer '{$existingShift->cashDrawer->name}'. Please close it before starting a new shift."
                 ]);
             }
 
@@ -48,7 +44,6 @@ class StartShiftAction
                 'cash_drawer_id' => $drawer->id,
                 'user_id' => $user->id,
                 'status' => ShiftStatus::OPEN,
-                'currency' => $validated['currency'] ?? 'UZS',
                 'beginning_saldo' => $validated['beginning_saldo'],
                 'opened_at' => now(),
                 'notes' => $validated['notes'] ?? null,
@@ -58,3 +53,4 @@ class StartShiftAction
         });
     }
 }
+

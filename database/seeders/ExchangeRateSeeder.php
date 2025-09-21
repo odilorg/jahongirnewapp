@@ -79,3 +79,4 @@ class ExchangeRateSeeder extends Seeder
         $this->command->info('📊 Supported currencies: UZS, EUR, USD, RUB');
     }
 }
+

@@ -39,3 +39,4 @@ enum TransactionType: string
         };
     }
 }
+

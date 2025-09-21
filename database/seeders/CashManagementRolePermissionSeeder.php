@@ -123,3 +123,4 @@ class CashManagementRolePermissionSeeder extends Seeder
         }
     }
 }
+

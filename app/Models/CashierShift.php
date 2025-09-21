@@ -226,4 +226,25 @@ class CashierShift extends Model
     {
         return $this->transactions->pluck('currency')->unique();
     }
+
+    /**
+     * Check if a user has any open shift
+     */
+    public static function userHasOpenShift(int $userId): bool
+    {
+        return self::where('user_id', $userId)
+            ->where('status', ShiftStatus::OPEN)
+            ->exists();
+    }
+
+    /**
+     * Get user's open shift
+     */
+    public static function getUserOpenShift(int $userId): ?self
+    {
+        return self::where('user_id', $userId)
+            ->where('status', ShiftStatus::OPEN)
+            ->with('cashDrawer')
+            ->first();
+    }
 }

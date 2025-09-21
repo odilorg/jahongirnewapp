@@ -92,7 +92,9 @@ class CashTransactionResource extends Resource
                     ->required()
                     ->searchable()
                     ->preload()
-                    ->default(auth()->id()),
+                    ->default(auth()->id())
+                    ->visible(fn () => auth()->user()->hasAnyRole(['super_admin', 'admin', 'manager']))
+                    ->dehydrated(fn () => auth()->user()->hasAnyRole(['super_admin', 'admin', 'manager'])),
                 Forms\Components\DateTimePicker::make('occurred_at')
                     ->default(now())
                     ->required(),

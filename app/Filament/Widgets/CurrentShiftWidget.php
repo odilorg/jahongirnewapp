@@ -27,3 +27,4 @@ class CurrentShiftWidget extends Widget
         ];
     }
 }
+

@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\TransactionCategory;
 use App\Enums\TransactionType;
+use App\Enums\Currency;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -28,7 +29,6 @@ class CashTransaction extends Model
     protected $casts = [
         'type' => TransactionType::class,
         'category' => TransactionCategory::class,
-        'currency' => Currency::class,
         'amount' => 'decimal:2',
         'occurred_at' => 'datetime',
     ];
@@ -103,5 +103,25 @@ class CashTransaction extends Model
     public function isCashOut(): bool
     {
         return $this->type === TransactionType::OUT;
+    }
+
+    /**
+     * Get currency as enum
+     */
+    public function getCurrencyAttribute($value): Currency
+    {
+        return Currency::from($value);
+    }
+
+    /**
+     * Set currency from enum
+     */
+    public function setCurrencyAttribute($value): void
+    {
+        if ($value instanceof Currency) {
+            $this->attributes['currency'] = $value->value;
+        } else {
+            $this->attributes['currency'] = $value;
+        }
     }
 }

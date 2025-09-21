@@ -101,3 +101,4 @@ class ExchangeRate extends Model
         return "1 {$this->from_currency->value} = {$this->rate} {$this->to_currency->value}";
     }
 }
+

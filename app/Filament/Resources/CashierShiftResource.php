@@ -33,18 +33,21 @@ class CashierShiftResource extends Resource
     {
         return $form
             ->schema([
+                Forms\Components\Hidden::make('user_id')
+                    ->default(auth()->id())
+                    ->visible(fn () => !auth()->user()->hasAnyRole(['super_admin', 'admin', 'manager'])),
                 Forms\Components\Select::make('cash_drawer_id')
                     ->relationship('cashDrawer', 'name')
                     ->required()
                     ->searchable()
                     ->preload(),
-                       Forms\Components\Select::make('user_id')
-                           ->relationship('user', 'name')
-                           ->required()
-                           ->searchable()
-                           ->preload()
-                           ->visible(fn () => auth()->user()->hasAnyRole(['super_admin', 'admin', 'manager']))
-                           ->default(fn () => auth()->id()),
+                Forms\Components\Select::make('user_id')
+                    ->relationship('user', 'name')
+                    ->required()
+                    ->searchable()
+                    ->preload()
+                    ->visible(fn () => auth()->user()->hasAnyRole(['super_admin', 'admin', 'manager']))
+                    ->default(fn () => auth()->id()),
                        Forms\Components\Select::make('status')
                            ->options([
                                'open' => 'Open',

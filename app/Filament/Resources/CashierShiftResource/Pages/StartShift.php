@@ -27,14 +27,25 @@ class StartShift extends Page
         $user = Auth::user();
         $isManagerOrAdmin = $user->hasAnyRole(['super_admin', 'admin', 'manager']);
         
-               $formData = [
-                   // No currency needed - transactions will have their own currency
-               ];
-        
-        // Only set beginning saldo for managers/admins
-        if ($isManagerOrAdmin) {
-            $formData['beginning_saldo'] = 0;
+        // Check if user already has an open shift
+        $existingShift = \App\Models\CashierShift::getUserOpenShift($user->id);
+            
+        if ($existingShift) {
+            Notification::make()
+                ->title('Cannot Start New Shift')
+                ->body("You already have an open shift on drawer '{$existingShift->cashDrawer->name}'. Please close it before starting a new shift.")
+                ->warning()
+                ->persistent()
+                ->send();
+                
+            $this->redirect(route('filament.admin.resources.cashier-shifts.view', ['record' => $existingShift->id]));
+            return;
         }
+        
+        $formData = [
+            'user_id' => $user->id, // Always set current user
+            'beginning_saldo' => 0, // Default to 0 for everyone
+        ];
         
         $this->form->fill($formData);
     }
@@ -46,18 +57,21 @@ class StartShift extends Page
         
         return $form
             ->schema([
-                       Forms\Components\Select::make('cash_drawer_id')
-                           ->label('Cash Drawer')
-                           ->options(CashDrawer::active()->pluck('name', 'id'))
-                           ->required()
-                           ->searchable()
-                           ->preload(),
+                Forms\Components\Hidden::make('user_id')
+                    ->default(auth()->id()),
+                Forms\Components\Select::make('cash_drawer_id')
+                    ->label('Cash Drawer')
+                    ->options(CashDrawer::active()->pluck('name', 'id'))
+                    ->required()
+                    ->searchable()
+                    ->preload(),
                        Forms\Components\TextInput::make('beginning_saldo')
                            ->label('Beginning Cash Amount')
                            ->numeric()
                            ->prefix('UZS')
                            ->required()
                            ->minValue(0)
+                           ->default(0)
                            ->visible($isManagerOrAdmin) // Only managers/admins can set beginning saldo
                            ->helperText($isManagerOrAdmin ? 'Set the opening cash amount' : 'Beginning saldo will be calculated automatically'),
                 Forms\Components\Textarea::make('notes')
@@ -72,10 +86,9 @@ class StartShift extends Page
         $data = $this->form->getState();
         $user = Auth::user();
         
-        // For cashiers, set beginning saldo to 0 if not provided
-        if (!$user->hasAnyRole(['super_admin', 'admin', 'manager'])) {
-            $data['beginning_saldo'] = 0;
-        }
+        // Ensure required fields are set
+        $data['user_id'] = $data['user_id'] ?? $user->id;
+        $data['beginning_saldo'] = $data['beginning_saldo'] ?? 0;
         
         try {
             $drawer = CashDrawer::findOrFail($data['cash_drawer_id']);
