@@ -38,12 +38,12 @@ class UserResource extends Resource
                     ->password()
                     ->required()
                     ->maxLength(255),
-                Select::make('role')
-                    ->options([
-                          'admin' => 'Admin',
-                           'super_admin' => 'Super Admin',
-                           'touroperator' => 'Touoperator',
-                    ])    
+                // Using Select Component
+Forms\Components\Select::make('roles')
+    ->relationship('roles', 'name')
+    ->multiple()
+    ->preload()
+    ->searchable(),  
             ]);
     }
 

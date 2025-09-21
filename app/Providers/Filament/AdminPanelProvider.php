@@ -59,8 +59,6 @@ class AdminPanelProvider extends PanelProvider
             ->plugins([
                 FilamentShieldPlugin::make(),
             ])
-            ->authGuard('web') // (optional, but makes intent explicit)
-
             ->authMiddleware([
                 Authenticate::class,
             ]);
