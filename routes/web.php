@@ -104,7 +104,7 @@ use App\Http\Controllers\OctoCallbackController;
 // });
 
 Route::get('/', function () {
-    return redirect()->route('filament.admin.auth.login');
+    return redirect('/admin/login');
 });
 
 
