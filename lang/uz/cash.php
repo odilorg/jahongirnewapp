@@ -142,4 +142,9 @@ return [
     'other' => 'Boshqa',
     'reference' => 'Havola',
     'created_by' => 'Yaratgan',
+    'drawer_name' => 'Apparat nomi',
+    'drawer_location' => 'Apparat joylashuvi',
+    'active' => 'Faol',
+    'active_currencies' => 'Ishlatilgan valyutalar',
+    'total_shifts' => 'Jami smenalar',
 ];

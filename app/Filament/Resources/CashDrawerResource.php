@@ -23,19 +23,41 @@ class CashDrawerResource extends Resource
 
     protected static bool $shouldRegisterNavigation = true;
 
+    public static function getNavigationLabel(): string
+    {
+        return __('cash.cash_drawers');
+    }
+
+    public static function getModelLabel(): string
+    {
+        return __('cash.cash_drawer');
+    }
+
+    public static function getPluralModelLabel(): string
+    {
+        return __('cash.cash_drawers');
+    }
+
+    public static function getNavigationGroup(): ?string
+    {
+        return 'Cash Management';
+    }
+
     public static function form(Form $form): Form
     {
         return $form
             ->schema([
                 Forms\Components\TextInput::make('name')
+                    ->label(__('cash.drawer_name'))
                     ->required()
                     ->unique(ignoreRecord: true)
                     ->maxLength(255),
                 Forms\Components\TextInput::make('location')
+                    ->label(__('cash.drawer_location'))
                     ->maxLength(255),
                 Forms\Components\Toggle::make('is_active')
-                    ->default(true)
-                    ->label('Active'),
+                    ->label(__('cash.active'))
+                    ->default(true),
             ]);
     }
 
@@ -44,16 +66,18 @@ class CashDrawerResource extends Resource
         return $table
             ->columns([
                 Tables\Columns\TextColumn::make('name')
+                    ->label(__('cash.drawer_name'))
                     ->searchable()
                     ->sortable(),
                 Tables\Columns\TextColumn::make('location')
+                    ->label(__('cash.drawer_location'))
                     ->searchable()
                     ->sortable(),
                 Tables\Columns\IconColumn::make('is_active')
                     ->boolean()
-                    ->label('Active'),
+                    ->label(__('cash.active')),
                 Tables\Columns\TextColumn::make('active_currencies')
-                    ->label('Used Currencies')
+                    ->label(__('cash.active_currencies'))
                     ->getStateUsing(function ($record) {
                         // Get all shifts (open and closed) to find all currencies ever used
                         $allShifts = $record->shifts()->with(['transactions', 'beginningSaldos', 'endSaldos'])->get();
@@ -92,7 +116,7 @@ class CashDrawerResource extends Resource
                     ->badge()
                     ->color('info'),
                 Tables\Columns\TextColumn::make('multi_currency_balance')
-                    ->label('Current Balances')
+                    ->label(__('cash.current_balance'))
                     ->getStateUsing(function ($record) {
                         // Get all shifts to find the most recent state
                         $allShifts = $record->shifts()->with(['transactions', 'beginningSaldos', 'endSaldos'])->get();
@@ -159,18 +183,19 @@ class CashDrawerResource extends Resource
                     ->html(),
                 Tables\Columns\TextColumn::make('shifts_count')
                     ->counts('shifts')
-                    ->label('Total Shifts'),
+                    ->label(__('cash.total_shifts')),
                 Tables\Columns\TextColumn::make('open_shifts_count')
                     ->counts('openShifts')
-                    ->label('Open Shifts'),
+                    ->label(__('cash.active_shifts')),
                 Tables\Columns\TextColumn::make('created_at')
+                    ->label(__('cash.created_at'))
                     ->dateTime()
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
                 Tables\Filters\TernaryFilter::make('is_active')
-                    ->label('Active Status'),
+                    ->label(__('cash.active')),
             ])
             ->actions([
                 Tables\Actions\EditAction::make(),
