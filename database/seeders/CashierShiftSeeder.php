@@ -43,7 +43,6 @@ class CashierShiftSeeder extends Seeder
                     'cash_drawer_id' => $drawer->id,
                     'user_id' => $user->id,
                     'status' => ShiftStatus::CLOSED,
-                    'currency' => 'UZS',
                     'beginning_saldo' => 100000,
                     'opened_at' => now()->subHours(8),
                     'closed_at' => now()->subHours(1),
@@ -92,6 +91,7 @@ class CashierShiftSeeder extends Seeder
                 foreach ($transactions as $transactionData) {
                     CashTransaction::create([
                         'cashier_shift_id' => $shift->id,
+                        'currency' => 'UZS',
                         ...$transactionData,
                     ]);
                 }
@@ -126,7 +126,6 @@ class CashierShiftSeeder extends Seeder
             'cash_drawer_id' => $drawers->first()->id,
             'user_id' => $users->first()->id,
             'status' => ShiftStatus::OPEN,
-            'currency' => 'UZS',
             'beginning_saldo' => 50000,
             'opened_at' => now()->subHours(2),
         ]);
@@ -156,6 +155,7 @@ class CashierShiftSeeder extends Seeder
         foreach ($openTransactions as $transactionData) {
             CashTransaction::create([
                 'cashier_shift_id' => $openShift->id,
+                'currency' => 'UZS',
                 ...$transactionData,
             ]);
         }
