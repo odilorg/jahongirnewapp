@@ -7,6 +7,7 @@ use App\Enums\ShiftStatus;
 use App\Models\CashCount;
 use App\Models\CashierShift;
 use App\Models\EndSaldo;
+use App\Models\ShiftTemplate;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
@@ -22,7 +23,7 @@ class CloseShiftAction
         $validated = Validator::make($data, [
             'counted_end_saldos' => 'required|array|min:1',
             'counted_end_saldos.*.currency' => 'required|string|in:UZS,USD,EUR,RUB',
-            'counted_end_saldos.*.counted_end_saldo' => 'required|numeric|min:0',
+            'counted_end_saldos.*.counted_end_saldo' => 'required|numeric',
             'counted_end_saldos.*.denominations' => 'nullable|array',
             'counted_end_saldos.*.denominations.*.denomination' => 'required|numeric|min:0.01',
             'counted_end_saldos.*.denominations.*.qty' => 'required|integer|min:0',
@@ -124,8 +125,33 @@ class CloseShiftAction
                 }
             }
 
+            // Create shift templates for next shift (only if no discrepancies)
+            $this->createShiftTemplates($shift, $hasDiscrepancy);
+
             return $shift->fresh();
         });
+    }
+
+    /**
+     * Create shift templates for the next shift based on current end saldos
+     */
+    protected function createShiftTemplates(CashierShift $shift, bool $hasDiscrepancy): void
+    {
+        $endSaldos = $shift->endSaldos;
+        
+        foreach ($endSaldos as $endSaldo) {
+            ShiftTemplate::updateOrCreate(
+                [
+                    'cash_drawer_id' => $shift->cash_drawer_id,
+                    'currency' => $endSaldo->currency,
+                ],
+                [
+                    'amount' => $endSaldo->counted_end_saldo,
+                    'last_shift_id' => $shift->id,
+                    'has_discrepancy' => $hasDiscrepancy,
+                ]
+            );
+        }
     }
 }
 

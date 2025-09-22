@@ -33,17 +33,17 @@ class EndSaldo extends Model
     }
 
     /**
-     * Get formatted amount for display
+     * Get formatted expected end saldo for display
      */
-    public function getFormattedExpectedAmountAttribute(): string
+    public function getFormattedExpectedEndSaldoAttribute(): string
     {
         return $this->currency->formatAmount($this->expected_end_saldo);
     }
 
     /**
-     * Get formatted counted amount for display
+     * Get formatted counted end saldo for display
      */
-    public function getFormattedCountedAmountAttribute(): string
+    public function getFormattedCountedEndSaldoAttribute(): string
     {
         return $this->currency->formatAmount($this->counted_end_saldo ?? 0);
     }

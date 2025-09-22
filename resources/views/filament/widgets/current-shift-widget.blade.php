@@ -56,7 +56,7 @@
         @else
             <div class="text-center py-8">
                 <div class="text-gray-500 dark:text-gray-400 mb-4">
-                    <x-heroicon-o-play class="w-12 h-12 mx-auto" />
+                    <x-heroicon-o-play class="w-6 h-6 mx-auto" />
                 </div>
                 <h3 class="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">
                     No Open Shift
@@ -67,7 +67,7 @@
                 <x-filament::button
                     color="primary"
                     icon="heroicon-o-play"
-                    href="{{ route('filament.admin.resources.cashier-shifts.start-shift') }}"
+                    wire:click="startNewShift"
                 >
                     Start New Shift
                 </x-filament::button>

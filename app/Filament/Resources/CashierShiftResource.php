@@ -29,6 +29,26 @@ class CashierShiftResource extends Resource
 
     protected static bool $shouldRegisterNavigation = true;
 
+    public static function getNavigationLabel(): string
+    {
+        return __('cash.cashier_shifts');
+    }
+
+    public static function getModelLabel(): string
+    {
+        return __('cash.cashier_shifts');
+    }
+
+    public static function getPluralModelLabel(): string
+    {
+        return __('cash.cashier_shifts');
+    }
+
+    public static function getNavigationGroup(): ?string
+    {
+        return 'Cash Management';
+    }
+
     public static function form(Form $form): Form
     {
         return $form
@@ -37,50 +57,53 @@ class CashierShiftResource extends Resource
                     ->default(auth()->id())
                     ->visible(fn () => !auth()->user()->hasAnyRole(['super_admin', 'admin', 'manager'])),
                 Forms\Components\Select::make('cash_drawer_id')
+                    ->label(__('cash.cash_drawer'))
                     ->relationship('cashDrawer', 'name')
                     ->required()
                     ->searchable()
                     ->preload(),
                 Forms\Components\Select::make('user_id')
+                    ->label(__('cash.user'))
                     ->relationship('user', 'name')
                     ->required()
                     ->searchable()
                     ->preload()
                     ->visible(fn () => auth()->user()->hasAnyRole(['super_admin', 'admin', 'manager']))
                     ->default(fn () => auth()->id()),
-                       Forms\Components\Select::make('status')
-                           ->options([
-                               'open' => 'Open',
-                               'closed' => 'Closed',
-                           ])
-                           ->required(),
+                Forms\Components\Select::make('status')
+                    ->label(__('cash.shift_status'))
+                    ->options([
+                        'open' => __('cash.open_shift'),
+                        'closed' => __('cash.closed_shift'),
+                    ])
+                    ->required(),
                 // Multi-currency beginning saldos
-                Forms\Components\Section::make('Beginning Cash Amounts')
-                    ->description('Set the opening cash amount for each currency')
+                Forms\Components\Section::make(__c('beginning_saldo'))
+                    ->description(__c('set_for_each_currency'))
                     ->schema([
                         Forms\Components\TextInput::make('beginning_saldo_uzs')
-                            ->label('UZS Amount')
+                            ->label(__c('uzs') . ' ' . __c('amount'))
                             ->numeric()
                             ->prefix('UZS')
                             ->minValue(0)
                             ->default(0)
                             ->visible(fn () => auth()->user()->hasAnyRole(['super_admin', 'admin', 'manager'])),
                         Forms\Components\TextInput::make('beginning_saldo_usd')
-                            ->label('USD Amount')
+                            ->label(__c('usd') . ' ' . __c('amount'))
                             ->numeric()
                             ->prefix('$')
                             ->minValue(0)
                             ->default(0)
                             ->visible(fn () => auth()->user()->hasAnyRole(['super_admin', 'admin', 'manager'])),
                         Forms\Components\TextInput::make('beginning_saldo_eur')
-                            ->label('EUR Amount')
+                            ->label(__c('eur') . ' ' . __c('amount'))
                             ->numeric()
                             ->prefix('€')
                             ->minValue(0)
                             ->default(0)
                             ->visible(fn () => auth()->user()->hasAnyRole(['super_admin', 'admin', 'manager'])),
                         Forms\Components\TextInput::make('beginning_saldo_rub')
-                            ->label('RUB Amount')
+                            ->label(__c('rub') . ' ' . __c('amount'))
                             ->numeric()
                             ->prefix('₽')
                             ->minValue(0)
@@ -114,6 +137,7 @@ class CashierShiftResource extends Resource
                     ->required(),
                 Forms\Components\DateTimePicker::make('closed_at'),
                 Forms\Components\Textarea::make('notes')
+                    ->label(__c('notes'))
                     ->maxLength(1000),
             ]);
     }
@@ -123,21 +147,25 @@ class CashierShiftResource extends Resource
         return $table
             ->columns([
                 Tables\Columns\TextColumn::make('cashDrawer.name')
+                    ->label(__c('cash_drawer'))
                     ->searchable()
                     ->sortable(),
                 Tables\Columns\TextColumn::make('user.name')
+                    ->label(__c('user'))
                     ->searchable()
                     ->sortable(),
                 Tables\Columns\BadgeColumn::make('status')
+                    ->label(__c('shift_status'))
                     ->colors([
                         'success' => 'open',
                         'gray' => 'closed',
                     ]),
                 Tables\Columns\TextColumn::make('beginning_saldo')
+                    ->label(__c('beginning_saldo'))
                     ->money('UZS')
                     ->sortable(),
                 Tables\Columns\TextColumn::make('multi_currency_beginning_saldos')
-                    ->label('Beginning Saldos')
+                    ->label(__c('beginning_saldo'))
                     ->getStateUsing(function (CashierShift $record): string {
                         $saldos = $record->beginningSaldos;
                         if ($saldos->isEmpty()) {
@@ -151,23 +179,28 @@ class CashierShiftResource extends Resource
                     ->badge()
                     ->color('info'),
                 Tables\Columns\TextColumn::make('expected_end_saldo')
+                    ->label(__c('expected_balance'))
                     ->money('UZS')
                     ->sortable(),
                 Tables\Columns\TextColumn::make('counted_end_saldo')
+                    ->label(__c('counted_balance'))
                     ->money('UZS')
                     ->sortable(),
                 Tables\Columns\TextColumn::make('discrepancy')
+                    ->label(__c('discrepancy'))
                     ->money('UZS')
                     ->color(fn ($state) => $state > 0 ? 'success' : ($state < 0 ? 'danger' : 'gray'))
                     ->sortable(),
                 Tables\Columns\TextColumn::make('opened_at')
+                    ->label(__c('opened_at'))
                     ->dateTime()
                     ->sortable(),
                 Tables\Columns\TextColumn::make('closed_at')
+                    ->label(__c('closed_at'))
                     ->dateTime()
                     ->sortable(),
                 Tables\Columns\TextColumn::make('duration_in_hours')
-                    ->label('Duration (hrs)')
+                    ->label(__c('duration') . ' (' . __c('hours') . ')')
                     ->numeric(1)
                     ->sortable(),
             ])
@@ -227,6 +260,7 @@ class CashierShiftResource extends Resource
         return [
             'index' => Pages\ListCashierShifts::route('/'),
             'create' => Pages\CreateCashierShift::route('/create'),
+            'view' => Pages\ViewCashierShift::route('/{record}'),
             'edit' => Pages\EditCashierShift::route('/{record}/edit'),
             'start-shift' => Pages\StartShift::route('/start-shift'),
             'close-shift' => Pages\CloseShift::route('/{record}/close-shift'),

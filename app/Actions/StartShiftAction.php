@@ -7,6 +7,7 @@ use App\Enums\Currency;
 use App\Models\CashDrawer;
 use App\Models\CashierShift;
 use App\Models\BeginningSaldo;
+use App\Models\ShiftTemplate;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
@@ -64,7 +65,9 @@ class StartShiftAction
             ];
 
             foreach ($currencies as $key => $currency) {
-                $amount = $validated["beginning_saldo_{$key}"] ?? 0;
+                // Use provided amount or get from shift template
+                $amount = $validated["beginning_saldo_{$key}"] ?? $this->getTemplateAmount($drawer, $currency);
+                
                 if ($amount > 0) {
                     BeginningSaldo::create([
                         'cashier_shift_id' => $shift->id,
@@ -76,6 +79,19 @@ class StartShiftAction
 
             return $shift;
         });
+    }
+
+    /**
+     * Get template amount for a currency from previous shift (if no discrepancies)
+     */
+    protected function getTemplateAmount(CashDrawer $drawer, Currency $currency): float
+    {
+        $template = ShiftTemplate::where('cash_drawer_id', $drawer->id)
+            ->where('currency', $currency)
+            ->where('has_discrepancy', false)
+            ->first();
+
+        return $template ? $template->amount : 0;
     }
 }
 

@@ -107,6 +107,10 @@ Route::get('/', function () {
     return redirect('/admin/login');
 });
 
+// Language switching route
+Route::post('/language/switch', [App\Http\Controllers\LanguageController::class, 'switch'])
+    ->name('language.switch')
+    ->middleware('web');
 
 Route::post('/octo/callback', [OctoCallbackController::class, 'handle'])
     ->name('octo.callback');

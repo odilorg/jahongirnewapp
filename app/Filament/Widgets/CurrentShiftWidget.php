@@ -6,6 +6,7 @@ use App\Models\CashierShift;
 use App\Models\User;
 use Filament\Widgets\Widget;
 use Illuminate\Support\Facades\Auth;
+use Filament\Notifications\Notification;
 
 class CurrentShiftWidget extends Widget
 {
@@ -25,6 +26,11 @@ class CurrentShiftWidget extends Widget
             'totalCashOut' => $currentShift?->total_cash_out ?? 0,
             'expectedBalance' => $currentShift?->expected_end_saldo ?? 0,
         ];
+    }
+
+    public function startNewShift(): void
+    {
+        $this->redirect('/admin/cashier-shifts/start-shift');
     }
 }
 

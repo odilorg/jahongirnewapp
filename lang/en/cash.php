@@ -1,0 +1,145 @@
+<?php
+
+return [
+    // Cash Management
+    'cash_management' => 'Cash Management',
+    'cashier_shifts' => 'Cashier Shifts',
+    'cash_transactions' => 'Cash Transactions',
+    'cash_drawers' => 'Cash Drawers',
+    'cash_counts' => 'Cash Counts',
+    
+    // Shift Management
+    'start_shift' => 'Start Shift',
+    'close_shift' => 'Close Shift',
+    'shift_status' => 'Shift Status',
+    'open_shift' => 'Open Shift',
+    'closed_shift' => 'Closed Shift',
+    'current_shift' => 'Current Shift',
+    'no_open_shift' => 'No Open Shift',
+    'start_new_shift' => 'Start New Shift',
+    'shift_duration' => 'Shift Duration',
+    'shift_id' => 'Shift ID',
+    
+    // Cash Drawers
+    'cash_drawer' => 'Cash Drawer',
+    'drawer_name' => 'Drawer Name',
+    'drawer_location' => 'Drawer Location',
+    'active_drawers' => 'Active Drawers',
+    'drawer_status' => 'Drawer Status',
+    
+    // Transactions
+    'transaction' => 'Transaction',
+    'transaction_id' => 'Transaction ID',
+    'transaction_type' => 'Transaction Type',
+    'cash_in' => 'Cash In',
+    'cash_out' => 'Cash Out',
+    'complex_transaction' => 'Complex Transaction',
+    'transaction_amount' => 'Transaction Amount',
+    'transaction_description' => 'Transaction Description',
+    'transaction_date' => 'Transaction Date',
+    'total_cash_in' => 'Total Cash In',
+    'total_cash_out' => 'Total Cash Out',
+    
+    // Currencies
+    'currency' => 'Currency',
+    'uzs' => 'Uzbek Som',
+    'usd' => 'US Dollar',
+    'eur' => 'Euro',
+    'rub' => 'Russian Ruble',
+    'multi_currency' => 'Multi-Currency',
+    'currency_balance' => 'Currency Balance',
+    'exchange_rate' => 'Exchange Rate',
+    
+    // Balances
+    'balance' => 'Balance',
+    'current_balance' => 'Current Balance',
+    'beginning_saldo' => 'Beginning Saldo',
+    'ending_saldo' => 'Ending Saldo',
+    'expected_balance' => 'Expected Balance',
+    'counted_balance' => 'Counted Balance',
+    'net_balance' => 'Net Balance',
+    'discrepancy' => 'Discrepancy',
+    'discrepancy_reason' => 'Discrepancy Reason',
+    
+    // Reports
+    'reports' => 'Reports',
+    'daily_summary' => 'Daily Summary',
+    'shift_performance' => 'Shift Performance',
+    'multi_currency_report' => 'Multi-Currency Report',
+    'transaction_analysis' => 'Transaction Analysis',
+    
+    // Common Actions
+    'create' => 'Create',
+    'edit' => 'Edit',
+    'delete' => 'Delete',
+    'view' => 'View',
+    'save' => 'Save',
+    'cancel' => 'Cancel',
+    'confirm' => 'Confirm',
+    'close' => 'Close',
+    'submit' => 'Submit',
+    'search' => 'Search',
+    'filter' => 'Filter',
+    'export' => 'Export',
+    'import' => 'Import',
+    
+    // Status Messages
+    'success' => 'Success',
+    'error' => 'Error',
+    'warning' => 'Warning',
+    'info' => 'Information',
+    'operation_successful' => 'Operation completed successfully',
+    'operation_failed' => 'Operation failed',
+    'data_saved' => 'Data saved successfully',
+    'data_updated' => 'Data updated successfully',
+    'data_deleted' => 'Data deleted successfully',
+    
+    // Validation Messages
+    'required_field' => 'This field is required',
+    'invalid_amount' => 'Invalid amount',
+    'amount_must_be_positive' => 'Amount must be positive',
+    'currency_required' => 'Currency is required',
+    'drawer_required' => 'Cash drawer is required',
+    
+    // Dashboard
+    'dashboard' => 'Dashboard',
+    'welcome' => 'Welcome',
+    'total_transactions' => 'Total Transactions',
+    'active_shifts' => 'Active Shifts',
+    'today_summary' => 'Today Summary',
+    'recent_activity' => 'Recent Activity',
+    
+    // Users and Roles
+    'user' => 'User',
+    'cashier' => 'Cashier',
+    'manager' => 'Manager',
+    'admin' => 'Administrator',
+    'super_admin' => 'Super Administrator',
+    'role' => 'Role',
+    'permissions' => 'Permissions',
+    
+    // Time and Date
+    'today' => 'Today',
+    'yesterday' => 'Yesterday',
+    'this_week' => 'This Week',
+    'this_month' => 'This Month',
+    'opened_at' => 'Opened At',
+    'closed_at' => 'Closed At',
+    'created_at' => 'Created At',
+    'updated_at' => 'Updated At',
+    'notes' => 'Notes',
+    'language' => 'Language',
+    'set_for_each_currency' => 'Set for each currency',
+    'amount' => 'Amount',
+    'duration' => 'Duration',
+    'hours' => 'Hours',
+    'category' => 'Category',
+    'sale' => 'Sale',
+    'refund' => 'Refund',
+    'expense' => 'Expense',
+    'deposit' => 'Deposit',
+    'change' => 'Change',
+    'other' => 'Other',
+    'reference' => 'Reference',
+    'created_by' => 'Created By',
+];

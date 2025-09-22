@@ -17,6 +17,14 @@ class CloseShift extends ViewRecord
 
     protected static ?string $title = 'Close Shift';
 
+    public function mount(int | string $record): void
+    {
+        parent::mount($record);
+        
+        // Load relationships to ensure endSaldos are available
+        $this->record = $this->record->load(['endSaldos', 'beginningSaldos', 'transactions', 'user', 'cashDrawer']);
+    }
+
     protected function getHeaderActions(): array
     {
         return [
@@ -27,6 +35,9 @@ class CloseShift extends ViewRecord
                 ->requiresConfirmation()
                 ->action(function () {
                     try {
+                        // Ensure we have the latest data with relationships
+                        $this->record = $this->record->fresh(['endSaldos', 'beginningSaldos', 'transactions']);
+                        
                         // Get all currencies used in this shift
                         $usedCurrencies = $this->record->getUsedCurrencies();
                         $beginningSaldoCurrencies = $this->record->beginningSaldos->pluck('currency');
@@ -72,9 +83,12 @@ class CloseShift extends ViewRecord
                         
                         $shift = app(CloseShiftAction::class)->execute($this->record, auth()->user(), $data);
                         
+                        // Verify EndSaldo records were created
+                        $endSaldosCount = $shift->fresh()->endSaldos->count();
+                        
                         Notification::make()
                             ->title('Shift Closed Successfully')
-                            ->body("Shift #{$shift->id} has been closed")
+                            ->body("Shift #{$shift->id} has been closed with {$endSaldosCount} end saldo records")
                             ->success()
                             ->send();
                             

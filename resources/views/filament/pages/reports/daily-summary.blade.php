@@ -125,7 +125,7 @@
     @else
         <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
             <div class="text-center">
-                <x-heroicon-o-check-circle class="mx-auto h-12 w-12 text-green-400" />
+                <x-heroicon-o-check-circle class="mx-auto h-6 w-6 text-green-400" />
                 <h3 class="mt-2 text-sm font-medium text-gray-900 dark:text-white">No Discrepancies</h3>
                 <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
                     All shifts balanced correctly today.

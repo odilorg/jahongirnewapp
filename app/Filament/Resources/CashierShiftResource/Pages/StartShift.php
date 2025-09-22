@@ -6,17 +6,16 @@ use App\Actions\StartShiftAction;
 use App\Enums\Currency;
 use App\Filament\Resources\CashierShiftResource;
 use App\Models\CashDrawer;
+use App\Models\ShiftTemplate;
 use Filament\Forms;
 use Filament\Forms\Form;
-use Filament\Resources\Pages\Page;
+use Filament\Resources\Pages\CreateRecord;
 use Filament\Notifications\Notification;
 use Illuminate\Support\Facades\Auth;
 
-class StartShift extends Page
+class StartShift extends CreateRecord
 {
     protected static string $resource = CashierShiftResource::class;
-
-    protected static string $view = 'filament.resources.cashier-shift-resource.pages.start-shift';
 
     protected static ?string $title = 'Start New Shift';
 
@@ -24,6 +23,8 @@ class StartShift extends Page
 
     public function mount(): void
     {
+        parent::mount();
+        
         $user = Auth::user();
         $isManagerOrAdmin = $user->hasAnyRole(['super_admin', 'admin', 'manager']);
         
@@ -60,90 +61,61 @@ class StartShift extends Page
                 Forms\Components\Hidden::make('user_id')
                     ->default(auth()->id()),
                 Forms\Components\Select::make('cash_drawer_id')
-                    ->label('Cash Drawer')
+                    ->label(__c('cash_drawer'))
                     ->options(CashDrawer::active()->pluck('name', 'id'))
                     ->required()
                     ->searchable()
                     ->preload(),
                 
-                // Multi-currency beginning saldos
-                Forms\Components\Section::make('Beginning Cash Amounts')
-                    ->description('Set the opening cash amount for each currency')
-                    ->schema([
-                        Forms\Components\TextInput::make('beginning_saldo_uzs')
-                            ->label('UZS Amount')
-                            ->numeric()
-                            ->prefix('UZS')
-                            ->minValue(0)
-                            ->default(0)
-                            ->visible($isManagerOrAdmin),
-                        Forms\Components\TextInput::make('beginning_saldo_usd')
-                            ->label('USD Amount')
-                            ->numeric()
-                            ->prefix('$')
-                            ->minValue(0)
-                            ->default(0)
-                            ->visible($isManagerOrAdmin),
-                        Forms\Components\TextInput::make('beginning_saldo_eur')
-                            ->label('EUR Amount')
-                            ->numeric()
-                            ->prefix('€')
-                            ->minValue(0)
-                            ->default(0)
-                            ->visible($isManagerOrAdmin),
-                        Forms\Components\TextInput::make('beginning_saldo_rub')
-                            ->label('RUB Amount')
-                            ->numeric()
-                            ->prefix('₽')
-                            ->minValue(0)
-                            ->default(0)
-                            ->visible($isManagerOrAdmin),
-                    ])
-                    ->visible($isManagerOrAdmin)
-                    ->collapsible(),
-                
-                // Legacy field for backward compatibility
+                // Legacy beginning saldo for UZS
                 Forms\Components\TextInput::make('beginning_saldo')
-                    ->label('Beginning Cash Amount (UZS)')
+                    ->label(__c('beginning_saldo') . ' (UZS)')
                     ->numeric()
                     ->prefix('UZS')
                     ->minValue(0)
                     ->default(0)
-                    ->visible($isManagerOrAdmin)
-                    ->helperText('Legacy field - use multi-currency section above'),
+                    ->helperText(__c('beginning_saldo') . ' ' . __('cash.uzs')),
+                
                 Forms\Components\Textarea::make('notes')
-                    ->label('Notes (Optional)')
+                    ->label(__c('notes'))
+                    ->rows(3)
                     ->maxLength(1000),
             ])
             ->statePath('data');
     }
 
-    public function startShift(): void
+    protected function mutateFormDataBeforeCreate(array $data): array
     {
-        $data = $this->form->getState();
         $user = Auth::user();
         
-        // Ensure required fields are set
-        $data['user_id'] = $data['user_id'] ?? $user->id;
-        $data['beginning_saldo'] = $data['beginning_saldo'] ?? 0;
+        // Ensure user_id and beginning_saldo are set
+        $data['user_id'] = $user->id;
+        $data['beginning_saldo'] = $data['beginning_saldo'] ?? $data['beginning_saldo_uzs'] ?? 0;
+        $data['opened_at'] = now();
         
-        try {
-            $drawer = CashDrawer::findOrFail($data['cash_drawer_id']);
-            $shift = app(StartShiftAction::class)->execute($user, $drawer, $data);
-            
-            Notification::make()
-                ->title('Shift Started Successfully')
-                ->body("Shift #{$shift->id} has been started on {$drawer->name}")
-                ->success()
-                ->send();
-                
-            $this->redirect(route('filament.admin.resources.cashier-shifts.view', ['record' => $shift->id]));
-        } catch (\Exception $e) {
-            Notification::make()
-                ->title('Error Starting Shift')
-                ->body($e->getMessage())
-                ->danger()
-                ->send();
+        return $data;
+    }
+
+    protected function afterCreate(): void
+    {
+        $shift = $this->record;
+        
+        // Create beginning saldo for UZS if amount is provided
+        $uzsAmount = $shift->beginning_saldo ?? 0;
+        if ($uzsAmount > 0) {
+            \App\Models\BeginningSaldo::create([
+                'cashier_shift_id' => $shift->id,
+                'currency' => Currency::UZS,
+                'amount' => $uzsAmount,
+            ]);
         }
+        
+        Notification::make()
+            ->title(__c('operation_successful'))
+            ->body("New shift started on drawer '{$shift->cashDrawer->name}'")
+            ->success()
+            ->send();
+            
+        $this->redirect(route('filament.admin.resources.cashier-shifts.view', ['record' => $shift->id]));
     }
 }

@@ -1,0 +1,145 @@
+<?php
+
+return [
+    // Управление кассой
+    'cash_management' => 'Управление кассой',
+    'cashier_shifts' => 'Смены кассиров',
+    'cash_transactions' => 'Кассовые операции',
+    'cash_drawers' => 'Кассовые аппараты',
+    'cash_counts' => 'Пересчет кассы',
+    
+    // Управление сменами
+    'start_shift' => 'Начать смену',
+    'close_shift' => 'Закрыть смену',
+    'shift_status' => 'Статус смены',
+    'open_shift' => 'Открытая смена',
+    'closed_shift' => 'Закрытая смена',
+    'current_shift' => 'Текущая смена',
+    'no_open_shift' => 'Нет открытой смены',
+    'start_new_shift' => 'Начать новую смену',
+    'shift_duration' => 'Длительность смены',
+    'shift_id' => 'ID смены',
+    
+    // Кассовые аппараты
+    'cash_drawer' => 'Кассовый аппарат',
+    'drawer_name' => 'Название аппарата',
+    'drawer_location' => 'Местоположение аппарата',
+    'active_drawers' => 'Активные аппараты',
+    'drawer_status' => 'Статус аппарата',
+    
+    // Операции
+    'transaction' => 'Операция',
+    'transaction_id' => 'ID операции',
+    'transaction_type' => 'Тип операции',
+    'cash_in' => 'Приход',
+    'cash_out' => 'Расход',
+    'complex_transaction' => 'Сложная операция',
+    'transaction_amount' => 'Сумма операции',
+    'transaction_description' => 'Описание операции',
+    'transaction_date' => 'Дата операции',
+    'total_cash_in' => 'Общий приход',
+    'total_cash_out' => 'Общий расход',
+    
+    // Валюты
+    'currency' => 'Валюта',
+    'uzs' => 'Узбекский сум',
+    'usd' => 'Доллар США',
+    'eur' => 'Евро',
+    'rub' => 'Российский рубль',
+    'multi_currency' => 'Мультивалютность',
+    'currency_balance' => 'Баланс валюты',
+    'exchange_rate' => 'Курс обмена',
+    
+    // Балансы
+    'balance' => 'Баланс',
+    'current_balance' => 'Текущий баланс',
+    'beginning_saldo' => 'Начальный остаток',
+    'ending_saldo' => 'Конечный остаток',
+    'expected_balance' => 'Ожидаемый баланс',
+    'counted_balance' => 'Пересчитанный баланс',
+    'net_balance' => 'Чистый баланс',
+    'discrepancy' => 'Расхождение',
+    'discrepancy_reason' => 'Причина расхождения',
+    
+    // Отчеты
+    'reports' => 'Отчеты',
+    'daily_summary' => 'Дневная сводка',
+    'shift_performance' => 'Производительность смен',
+    'multi_currency_report' => 'Мультивалютный отчет',
+    'transaction_analysis' => 'Анализ операций',
+    
+    // Общие действия
+    'create' => 'Создать',
+    'edit' => 'Редактировать',
+    'delete' => 'Удалить',
+    'view' => 'Просмотр',
+    'save' => 'Сохранить',
+    'cancel' => 'Отмена',
+    'confirm' => 'Подтвердить',
+    'close' => 'Закрыть',
+    'submit' => 'Отправить',
+    'search' => 'Поиск',
+    'filter' => 'Фильтр',
+    'export' => 'Экспорт',
+    'import' => 'Импорт',
+    
+    // Статусные сообщения
+    'success' => 'Успех',
+    'error' => 'Ошибка',
+    'warning' => 'Предупреждение',
+    'info' => 'Информация',
+    'operation_successful' => 'Операция выполнена успешно',
+    'operation_failed' => 'Операция не выполнена',
+    'data_saved' => 'Данные сохранены успешно',
+    'data_updated' => 'Данные обновлены успешно',
+    'data_deleted' => 'Данные удалены успешно',
+    
+    // Сообщения валидации
+    'required_field' => 'Это поле обязательно',
+    'invalid_amount' => 'Неверная сумма',
+    'amount_must_be_positive' => 'Сумма должна быть положительной',
+    'currency_required' => 'Валюта обязательна',
+    'drawer_required' => 'Кассовый аппарат обязателен',
+    
+    // Панель управления
+    'dashboard' => 'Панель управления',
+    'welcome' => 'Добро пожаловать',
+    'total_transactions' => 'Всего операций',
+    'active_shifts' => 'Активные смены',
+    'today_summary' => 'Сводка за день',
+    'recent_activity' => 'Последняя активность',
+    
+    // Пользователи и роли
+    'user' => 'Пользователь',
+    'cashier' => 'Кассир',
+    'manager' => 'Менеджер',
+    'admin' => 'Администратор',
+    'super_admin' => 'Супер администратор',
+    'role' => 'Роль',
+    'permissions' => 'Разрешения',
+    
+    // Время и дата
+    'today' => 'Сегодня',
+    'yesterday' => 'Вчера',
+    'this_week' => 'На этой неделе',
+    'this_month' => 'В этом месяце',
+    'opened_at' => 'Открыто в',
+    'closed_at' => 'Закрыто в',
+    'created_at' => 'Создано в',
+    'updated_at' => 'Обновлено в',
+    'notes' => 'Примечания',
+    'language' => 'Язык',
+    'set_for_each_currency' => 'Установить для каждой валюты',
+    'amount' => 'Сумма',
+    'duration' => 'Длительность',
+    'hours' => 'Часы',
+    'category' => 'Категория',
+    'sale' => 'Продажа',
+    'refund' => 'Возврат',
+    'expense' => 'Расход',
+    'deposit' => 'Депозит',
+    'change' => 'Сдача',
+    'other' => 'Другое',
+    'reference' => 'Ссылка',
+    'created_by' => 'Создано',
+];

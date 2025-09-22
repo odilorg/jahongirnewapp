@@ -44,6 +44,7 @@ class AdminPanelProvider extends PanelProvider
                 \App\Filament\Widgets\CurrentShiftWidget::class,
                 \App\Filament\Widgets\DrawerBalanceWidget::class,
                 \App\Filament\Widgets\MultiCurrencyBalanceWidget::class,
+                \App\Filament\Widgets\CompactLanguageSwitcher::class,
             ])
             ->middleware([
                 EncryptCookies::class,
@@ -55,6 +56,7 @@ class AdminPanelProvider extends PanelProvider
                 SubstituteBindings::class,
                 DisableBladeIconComponents::class,
                 DispatchServingFilamentEvent::class,
+                \App\Http\Middleware\SetLocale::class,
             ])
             ->plugins([
                 FilamentShieldPlugin::make(),

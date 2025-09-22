@@ -150,7 +150,7 @@
                                 </div>
                             @else
                                 <div class="text-center py-4">
-                                    <x-heroicon-o-exclamation-circle class="mx-auto h-8 w-8 text-gray-400" />
+                                    <x-heroicon-o-exclamation-circle class="mx-auto h-6 w-6 text-gray-400" />
                                     <p class="mt-2 text-sm text-gray-500 dark:text-gray-400">
                                         No currency activity in this shift
                                     </p>
@@ -160,7 +160,7 @@
                     @endforeach
                 @else
                     <div class="text-center py-8">
-                        <x-heroicon-o-stop class="mx-auto h-12 w-12 text-gray-400" />
+                        <x-heroicon-o-stop class="mx-auto h-6 w-6 text-gray-400" />
                         <h3 class="mt-2 text-sm font-medium text-gray-900 dark:text-white">No Open Shifts</h3>
                         <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
                             This drawer currently has no active shifts.

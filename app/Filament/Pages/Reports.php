@@ -29,6 +29,36 @@ class Reports extends Page implements HasTable
 
     public ?array $reportData = null;
 
+    /**
+     * Check if the current user can access this page
+     */
+    public static function canAccess(): bool
+    {
+        $user = auth()->user();
+        return $user && $user->hasAnyRole(['super_admin', 'admin', 'manager']);
+    }
+
+    /**
+     * Check if the current user can view this page in navigation
+     */
+    public static function shouldRegisterNavigation(): bool
+    {
+        $user = auth()->user();
+        return $user && $user->hasAnyRole(['super_admin', 'admin', 'manager']);
+    }
+
+    /**
+     * Initialize the page and check access
+     */
+    public function mount(): void
+    {
+        // Check if user has permission to access reports
+        $user = auth()->user();
+        if (!$user || !$user->hasAnyRole(['super_admin', 'admin', 'manager'])) {
+            abort(403, 'You do not have permission to access cash management reports.');
+        }
+    }
+
     public function table(Table $table): Table
     {
         return $table
