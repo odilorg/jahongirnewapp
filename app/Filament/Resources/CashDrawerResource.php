@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources;
 
+use App\Enums\Currency;
 use App\Filament\Resources\CashDrawerResource\Pages;
 use App\Models\CashDrawer;
 use Filament\Forms;
@@ -54,7 +55,7 @@ class CashDrawerResource extends Resource
                        Tables\Columns\TextColumn::make('active_currencies')
                            ->label('Active Currencies')
                            ->getStateUsing(function ($record) {
-                               $openShifts = $record->openShifts;
+                               $openShifts = $record->openShifts()->with('beginningSaldos')->get();
 
                                if ($openShifts->isEmpty()) {
                                    return 'None';
@@ -62,7 +63,18 @@ class CashDrawerResource extends Resource
 
                                $allCurrencies = collect();
                                foreach ($openShifts as $shift) {
-                                   $allCurrencies = $allCurrencies->merge($shift->getUsedCurrencies());
+                                   // Get currencies from both transactions AND beginning saldos
+                                   $transactionCurrencies = $shift->getUsedCurrencies();
+                                   $beginningSaldoCurrencies = $shift->beginningSaldos->pluck('currency');
+                                   
+                                   // Also include UZS if there's a legacy beginning_saldo
+                                   $shiftCurrencies = $transactionCurrencies->merge($beginningSaldoCurrencies);
+                                   if ($shift->beginning_saldo > 0) {
+                                       $shiftCurrencies = $shiftCurrencies->push(Currency::UZS);
+                                   }
+                                   
+                                   // Combine both sets of currencies
+                                   $allCurrencies = $allCurrencies->merge($shiftCurrencies);
                                }
 
                                $uniqueCurrencies = $allCurrencies->unique();
@@ -77,7 +89,7 @@ class CashDrawerResource extends Resource
                        Tables\Columns\TextColumn::make('multi_currency_balance')
                            ->label('Current Balances')
                            ->getStateUsing(function ($record) {
-                               $openShifts = $record->openShifts()->with('transactions')->get();
+                               $openShifts = $record->openShifts()->with(['transactions', 'beginningSaldos'])->get();
 
                                if ($openShifts->isEmpty()) {
                                    return 'No open shifts';
@@ -85,8 +97,18 @@ class CashDrawerResource extends Resource
 
                                $balancesByCurrency = [];
                                foreach ($openShifts as $shift) {
-                                   $usedCurrencies = $shift->getUsedCurrencies();
-                                   foreach ($usedCurrencies as $currency) {
+                                   // Get currencies from both transactions AND beginning saldos
+                                   $transactionCurrencies = $shift->getUsedCurrencies();
+                                   $beginningSaldoCurrencies = $shift->beginningSaldos->pluck('currency');
+                                   
+                                   // Also include UZS if there's a legacy beginning_saldo
+                                   $allCurrencies = $transactionCurrencies->merge($beginningSaldoCurrencies);
+                                   if ($shift->beginning_saldo > 0) {
+                                       $allCurrencies = $allCurrencies->push(Currency::UZS);
+                                   }
+                                   $allCurrencies = $allCurrencies->unique();
+                                   
+                                   foreach ($allCurrencies as $currency) {
                                        $netBalance = $shift->getNetBalanceForCurrency($currency);
                                        
                                        if (!isset($balancesByCurrency[$currency->value])) {

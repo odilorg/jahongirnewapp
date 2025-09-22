@@ -80,3 +80,4 @@ class ExchangeRateSeeder extends Seeder
     }
 }
 
+

@@ -4,6 +4,7 @@ namespace App\Filament\Resources\CashierShiftResource\Pages;
 
 use App\Actions\CloseShiftAction;
 use App\Filament\Resources\CashierShiftResource;
+use App\Enums\Currency;
 use Filament\Actions;
 use Filament\Resources\Pages\ViewRecord;
 use Filament\Notifications\Notification;
@@ -26,11 +27,46 @@ class CloseShift extends ViewRecord
                 ->requiresConfirmation()
                 ->action(function () {
                     try {
+                        // Get all currencies used in this shift
+                        $usedCurrencies = $this->record->getUsedCurrencies();
+                        $beginningSaldoCurrencies = $this->record->beginningSaldos->pluck('currency');
+                        $allCurrencies = $usedCurrencies->merge($beginningSaldoCurrencies)->unique();
+                        
+                        $countedEndSaldos = [];
+                        
+                        foreach ($allCurrencies as $currency) {
+                            $balance = $this->record->getNetBalanceForCurrency($currency);
+                            
+                            // Only create denominations for UZS (other currencies don't need denominations)
+                            $denominations = [];
+                            if ($currency === Currency::UZS) {
+                                $remaining = $balance;
+                                $commonDenominations = [100000, 50000, 20000, 10000, 5000, 1000, 500, 100];
+                                
+                                foreach ($commonDenominations as $denomination) {
+                                    if ($remaining >= $denomination) {
+                                        $qty = floor($remaining / $denomination);
+                                        if ($qty > 0) {
+                                            $denominations[] = ['denomination' => $denomination, 'qty' => $qty];
+                                            $remaining -= $denomination * $qty;
+                                        }
+                                    }
+                                }
+                                
+                                if ($remaining > 0) {
+                                    $denominations[] = ['denomination' => 100, 'qty' => $remaining / 100];
+                                }
+                            }
+                            
+                            $countedEndSaldos[] = [
+                                'currency' => $currency->value,
+                                'counted_end_saldo' => $balance,
+                                'denominations' => $denominations,
+                            ];
+                        }
+                        
                         $data = [
-                            'counted_end_saldo' => $this->record->calculateExpectedEndSaldo(),
-                            'denominations' => [
-                                ['denomination' => 100, 'qty' => 1],
-                            ],
+                            'counted_end_saldos' => $countedEndSaldos,
                             'notes' => 'Closed via simplified interface',
                         ];
                         

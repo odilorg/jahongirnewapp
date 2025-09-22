@@ -3,9 +3,12 @@
 namespace App\Filament\Resources\CashierShiftResource\Pages;
 
 use App\Filament\Resources\CashierShiftResource;
+use App\Models\BeginningSaldo;
+use App\Enums\Currency;
 use Filament\Actions;
 use Filament\Resources\Pages\CreateRecord;
 use Filament\Notifications\Notification;
+use Illuminate\Support\Facades\DB;
 
 class CreateCashierShift extends CreateRecord
 {
@@ -42,7 +45,7 @@ class CreateCashierShift extends CreateRecord
 
         // Set default beginning_saldo if not set
         if (empty($data['beginning_saldo'])) {
-            $data['beginning_saldo'] = 0;
+            $data['beginning_saldo'] = $data['beginning_saldo_uzs'] ?? 0;
         }
 
         // Set opened_at if not set
@@ -51,5 +54,27 @@ class CreateCashierShift extends CreateRecord
         }
 
         return $data;
+    }
+
+    protected function afterCreate(): void
+    {
+        // Create beginning saldos for each currency
+        $currencies = [
+            'uzs' => Currency::UZS,
+            'usd' => Currency::USD,
+            'eur' => Currency::EUR,
+            'rub' => Currency::RUB,
+        ];
+
+        foreach ($currencies as $key => $currency) {
+            $amount = $this->data["beginning_saldo_{$key}"] ?? 0;
+            if ($amount > 0) {
+                BeginningSaldo::create([
+                    'cashier_shift_id' => $this->record->id,
+                    'currency' => $currency,
+                    'amount' => $amount,
+                ]);
+            }
+        }
     }
 }

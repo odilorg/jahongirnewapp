@@ -28,3 +28,4 @@ class CurrentShiftWidget extends Widget
     }
 }
 
+

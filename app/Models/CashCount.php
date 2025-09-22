@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\Currency;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -12,12 +13,14 @@ class CashCount extends Model
 
     protected $fillable = [
         'cashier_shift_id',
+        'currency',
         'denominations',
         'total',
         'notes',
     ];
 
     protected $casts = [
+        'currency' => Currency::class,
         'denominations' => 'array',
         'total' => 'decimal:2',
     ];
@@ -70,4 +73,5 @@ class CashCount extends Model
         return $formatted;
     }
 }
+
 

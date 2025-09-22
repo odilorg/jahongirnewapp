@@ -77,3 +77,4 @@ enum Currency: string implements HasLabel, HasColor
     }
 }
 
+

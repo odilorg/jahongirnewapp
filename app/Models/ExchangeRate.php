@@ -102,3 +102,4 @@ class ExchangeRate extends Model
     }
 }
 
+

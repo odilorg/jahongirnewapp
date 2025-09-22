@@ -30,42 +30,70 @@ class CashTransactionResource extends Resource
     {
         return $form
             ->schema([
-                       Forms\Components\Select::make('cashier_shift_id')
-                           ->relationship('shift', 'id')
-                           ->getOptionLabelFromRecordUsing(fn ($record) => "Shift #{$record->id} - " . ($record->cashDrawer?->name ?? 'Unknown Drawer'))
-                           ->required()
-                           ->searchable()
-                           ->preload()
-                           ->reactive()
-                           ->afterStateUpdated(function ($state, $set) {
-                               // Clear amount when shift changes to force re-render
-                               $set('amount', '');
-                           })
-                           ->options(function () {
-                               return \App\Models\CashierShift::with('cashDrawer')
-                                   ->where('status', 'open')
-                                   ->get()
-                                   ->mapWithKeys(fn ($shift) => [
-                                       $shift->id => "Shift #{$shift->id} - " . ($shift->cashDrawer?->name ?? 'Unknown Drawer')
-                                   ]);
-                           }),
-                Forms\Components\Select::make('type')
-                    ->options([
-                        'in' => 'Cash In',
-                        'out' => 'Cash Out',
-                    ])
+                Forms\Components\Select::make('cashier_shift_id')
+                    ->label('Cashier Shift')
+                    ->relationship('shift', 'id')
+                    ->getOptionLabelFromRecordUsing(fn ($record) => "Shift #{$record->id} - " . ($record->cashDrawer?->name ?? 'Unknown Drawer'))
                     ->required()
-                    ->reactive(),
+                    ->searchable()
+                    ->preload()
+                    ->reactive()
+                    ->afterStateUpdated(function ($state, $set) {
+                        // Clear amount when shift changes to force re-render
+                        $set('amount', '');
+                    })
+                    ->options(function () {
+                        $user = auth()->user();
+                        
+                        // For managers/admins, show all open shifts
+                        return \App\Models\CashierShift::with('cashDrawer', 'user')
+                            ->where('status', 'open')
+                            ->get()
+                            ->mapWithKeys(fn ($shift) => [
+                                $shift->id => "Shift #{$shift->id} - " . ($shift->cashDrawer?->name ?? 'Unknown Drawer') . " ({$shift->user->name})"
+                            ]);
+                    })
+                    ->default(function () {
+                        $user = auth()->user();
+                        
+                        // Auto-select user's open shift if they're a cashier
+                        if ($user->hasRole('cashier')) {
+                            $userShift = \App\Models\CashierShift::getUserOpenShift($user->id);
+                            return $userShift?->id;
+                        }
+                        
+                        return null;
+                    })
+                    ->visible(function () {
+                        $user = auth()->user();
+                        
+                        // Hide field completely for cashiers (they don't need to see it)
+                        if ($user->hasRole('cashier')) {
+                            return false;
+                        }
+                        
+                        return true; // Always show for managers/admins
+                    }),
+                Forms\Components\Select::make('type')
+                    ->options(TransactionType::class)
+                    ->required()
+                    ->reactive()
+                    ->afterStateUpdated(function ($state, $set) {
+                        // Clear amount when type changes
+                        $set('amount', '');
+                        $set('out_currency', '');
+                        $set('out_amount', '');
+                    }),
                        Forms\Components\Group::make([
                            Forms\Components\Select::make('currency')
-                               ->label('Currency')
+                               ->label('Currency In')
                                ->options(Currency::class)
                                ->default(Currency::UZS)
                                ->required()
                                ->searchable()
                                ->columnSpan(1),
                            Forms\Components\TextInput::make('amount')
-                               ->label('Amount')
+                               ->label('Amount In')
                                ->numeric()
                                ->required()
                                ->minValue(0.01)
@@ -73,6 +101,23 @@ class CashTransactionResource extends Resource
                        ])
                        ->columns(3)
                        ->reactive(),
+                       
+                // Dynamic fields for In-Out transactions
+                Forms\Components\Group::make([
+                    Forms\Components\Select::make('out_currency')
+                        ->label('Currency Out')
+                        ->options(Currency::class)
+                        ->searchable()
+                        ->columnSpan(1),
+                    Forms\Components\TextInput::make('out_amount')
+                        ->label('Amount Out')
+                        ->numeric()
+                        ->minValue(0.01)
+                        ->columnSpan(2),
+                ])
+                ->columns(3)
+                ->visible(fn ($get) => $get('type') === TransactionType::IN_OUT->value)
+                ->reactive(),
                 Forms\Components\Select::make('category')
                     ->options([
                         'sale' => 'Sale',

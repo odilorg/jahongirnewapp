@@ -65,15 +65,52 @@ class StartShift extends Page
                     ->required()
                     ->searchable()
                     ->preload(),
-                       Forms\Components\TextInput::make('beginning_saldo')
-                           ->label('Beginning Cash Amount')
-                           ->numeric()
-                           ->prefix('UZS')
-                           ->required()
-                           ->minValue(0)
-                           ->default(0)
-                           ->visible($isManagerOrAdmin) // Only managers/admins can set beginning saldo
-                           ->helperText($isManagerOrAdmin ? 'Set the opening cash amount' : 'Beginning saldo will be calculated automatically'),
+                
+                // Multi-currency beginning saldos
+                Forms\Components\Section::make('Beginning Cash Amounts')
+                    ->description('Set the opening cash amount for each currency')
+                    ->schema([
+                        Forms\Components\TextInput::make('beginning_saldo_uzs')
+                            ->label('UZS Amount')
+                            ->numeric()
+                            ->prefix('UZS')
+                            ->minValue(0)
+                            ->default(0)
+                            ->visible($isManagerOrAdmin),
+                        Forms\Components\TextInput::make('beginning_saldo_usd')
+                            ->label('USD Amount')
+                            ->numeric()
+                            ->prefix('$')
+                            ->minValue(0)
+                            ->default(0)
+                            ->visible($isManagerOrAdmin),
+                        Forms\Components\TextInput::make('beginning_saldo_eur')
+                            ->label('EUR Amount')
+                            ->numeric()
+                            ->prefix('€')
+                            ->minValue(0)
+                            ->default(0)
+                            ->visible($isManagerOrAdmin),
+                        Forms\Components\TextInput::make('beginning_saldo_rub')
+                            ->label('RUB Amount')
+                            ->numeric()
+                            ->prefix('₽')
+                            ->minValue(0)
+                            ->default(0)
+                            ->visible($isManagerOrAdmin),
+                    ])
+                    ->visible($isManagerOrAdmin)
+                    ->collapsible(),
+                
+                // Legacy field for backward compatibility
+                Forms\Components\TextInput::make('beginning_saldo')
+                    ->label('Beginning Cash Amount (UZS)')
+                    ->numeric()
+                    ->prefix('UZS')
+                    ->minValue(0)
+                    ->default(0)
+                    ->visible($isManagerOrAdmin)
+                    ->helperText('Legacy field - use multi-currency section above'),
                 Forms\Components\Textarea::make('notes')
                     ->label('Notes (Optional)')
                     ->maxLength(1000),

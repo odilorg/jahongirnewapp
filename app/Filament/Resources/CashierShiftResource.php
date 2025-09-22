@@ -54,11 +54,49 @@ class CashierShiftResource extends Resource
                                'closed' => 'Closed',
                            ])
                            ->required(),
+                // Multi-currency beginning saldos
+                Forms\Components\Section::make('Beginning Cash Amounts')
+                    ->description('Set the opening cash amount for each currency')
+                    ->schema([
+                        Forms\Components\TextInput::make('beginning_saldo_uzs')
+                            ->label('UZS Amount')
+                            ->numeric()
+                            ->prefix('UZS')
+                            ->minValue(0)
+                            ->default(0)
+                            ->visible(fn () => auth()->user()->hasAnyRole(['super_admin', 'admin', 'manager'])),
+                        Forms\Components\TextInput::make('beginning_saldo_usd')
+                            ->label('USD Amount')
+                            ->numeric()
+                            ->prefix('$')
+                            ->minValue(0)
+                            ->default(0)
+                            ->visible(fn () => auth()->user()->hasAnyRole(['super_admin', 'admin', 'manager'])),
+                        Forms\Components\TextInput::make('beginning_saldo_eur')
+                            ->label('EUR Amount')
+                            ->numeric()
+                            ->prefix('€')
+                            ->minValue(0)
+                            ->default(0)
+                            ->visible(fn () => auth()->user()->hasAnyRole(['super_admin', 'admin', 'manager'])),
+                        Forms\Components\TextInput::make('beginning_saldo_rub')
+                            ->label('RUB Amount')
+                            ->numeric()
+                            ->prefix('₽')
+                            ->minValue(0)
+                            ->default(0)
+                            ->visible(fn () => auth()->user()->hasAnyRole(['super_admin', 'admin', 'manager'])),
+                    ])
+                    ->visible(fn () => auth()->user()->hasAnyRole(['super_admin', 'admin', 'manager']))
+                    ->collapsible(),
+                
+                // Legacy field for backward compatibility
                 Forms\Components\TextInput::make('beginning_saldo')
+                    ->label('Beginning Saldo (UZS) - Legacy')
                     ->numeric()
                     ->prefix('UZS')
-                    ->required()
-                    ->visible(fn () => auth()->user()->hasAnyRole(['super_admin', 'admin', 'manager'])),
+                    ->visible(fn () => auth()->user()->hasAnyRole(['super_admin', 'admin', 'manager']))
+                    ->helperText('Legacy field - use multi-currency section above'),
                 Forms\Components\TextInput::make('expected_end_saldo')
                     ->numeric()
                     ->prefix('UZS')
@@ -98,6 +136,20 @@ class CashierShiftResource extends Resource
                 Tables\Columns\TextColumn::make('beginning_saldo')
                     ->money('UZS')
                     ->sortable(),
+                Tables\Columns\TextColumn::make('multi_currency_beginning_saldos')
+                    ->label('Beginning Saldos')
+                    ->getStateUsing(function (CashierShift $record): string {
+                        $saldos = $record->beginningSaldos;
+                        if ($saldos->isEmpty()) {
+                            return 'None';
+                        }
+                        
+                        return $saldos->map(function ($saldo) {
+                            return $saldo->formatted_amount;
+                        })->join(', ');
+                    })
+                    ->badge()
+                    ->color('info'),
                 Tables\Columns\TextColumn::make('expected_end_saldo')
                     ->money('UZS')
                     ->sortable(),
