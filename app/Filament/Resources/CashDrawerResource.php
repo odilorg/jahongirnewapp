@@ -52,87 +52,87 @@ class CashDrawerResource extends Resource
                 Tables\Columns\IconColumn::make('is_active')
                     ->boolean()
                     ->label('Active'),
-                       Tables\Columns\TextColumn::make('active_currencies')
-                           ->label('Active Currencies')
-                           ->getStateUsing(function ($record) {
-                               $openShifts = $record->openShifts()->with('beginningSaldos')->get();
+                Tables\Columns\TextColumn::make('active_currencies')
+                    ->label('Active Currencies')
+                    ->getStateUsing(function ($record) {
+                        $openShifts = $record->openShifts()->with('beginningSaldos')->get();
 
-                               if ($openShifts->isEmpty()) {
-                                   return 'None';
-                               }
+                        if ($openShifts->isEmpty()) {
+                            return 'None';
+                        }
 
-                               $allCurrencies = collect();
-                               foreach ($openShifts as $shift) {
-                                   // Get currencies from both transactions AND beginning saldos
-                                   $transactionCurrencies = $shift->getUsedCurrencies();
-                                   $beginningSaldoCurrencies = $shift->beginningSaldos->pluck('currency');
-                                   
-                                   // Also include UZS if there's a legacy beginning_saldo
-                                   $shiftCurrencies = $transactionCurrencies->merge($beginningSaldoCurrencies);
-                                   if ($shift->beginning_saldo > 0) {
-                                       $shiftCurrencies = $shiftCurrencies->push(Currency::UZS);
-                                   }
-                                   
-                                   // Combine both sets of currencies
-                                   $allCurrencies = $allCurrencies->merge($shiftCurrencies);
-                               }
+                        $allCurrencies = collect();
+                        foreach ($openShifts as $shift) {
+                            // Get currencies from both transactions AND beginning saldos
+                            $transactionCurrencies = $shift->getUsedCurrencies();
+                            $beginningSaldoCurrencies = $shift->beginningSaldos->pluck('currency');
+                            
+                            // Also include UZS if there's a legacy beginning_saldo
+                            $shiftCurrencies = $transactionCurrencies->merge($beginningSaldoCurrencies);
+                            if ($shift->beginning_saldo > 0) {
+                                $shiftCurrencies = $shiftCurrencies->push(Currency::UZS);
+                            }
+                            
+                            // Combine both sets of currencies
+                            $allCurrencies = $allCurrencies->merge($shiftCurrencies);
+                        }
 
-                               $uniqueCurrencies = $allCurrencies->unique();
-                               if ($uniqueCurrencies->isEmpty()) {
-                                   return 'No transactions yet';
-                               }
+                        $uniqueCurrencies = $allCurrencies->unique();
+                        if ($uniqueCurrencies->isEmpty()) {
+                            return 'No transactions yet';
+                        }
 
-                               return $uniqueCurrencies->map(fn($currency) => $currency->value)->join(', ');
-                           })
-                           ->badge()
-                           ->color('info'),
-                       Tables\Columns\TextColumn::make('multi_currency_balance')
-                           ->label('Current Balances')
-                           ->getStateUsing(function ($record) {
-                               $openShifts = $record->openShifts()->with(['transactions', 'beginningSaldos'])->get();
+                        return $uniqueCurrencies->map(fn($currency) => $currency->value)->join(', ');
+                    })
+                    ->badge()
+                    ->color('info'),
+                Tables\Columns\TextColumn::make('multi_currency_balance')
+                    ->label('Current Balances')
+                    ->getStateUsing(function ($record) {
+                        $openShifts = $record->openShifts()->with(['transactions', 'beginningSaldos'])->get();
 
-                               if ($openShifts->isEmpty()) {
-                                   return 'No open shifts';
-                               }
+                        if ($openShifts->isEmpty()) {
+                            return 'No open shifts';
+                        }
 
-                               $balancesByCurrency = [];
-                               foreach ($openShifts as $shift) {
-                                   // Get currencies from both transactions AND beginning saldos
-                                   $transactionCurrencies = $shift->getUsedCurrencies();
-                                   $beginningSaldoCurrencies = $shift->beginningSaldos->pluck('currency');
-                                   
-                                   // Also include UZS if there's a legacy beginning_saldo
-                                   $allCurrencies = $transactionCurrencies->merge($beginningSaldoCurrencies);
-                                   if ($shift->beginning_saldo > 0) {
-                                       $allCurrencies = $allCurrencies->push(Currency::UZS);
-                                   }
-                                   $allCurrencies = $allCurrencies->unique();
-                                   
-                                   foreach ($allCurrencies as $currency) {
-                                       $netBalance = $shift->getNetBalanceForCurrency($currency);
-                                       
-                                       if (!isset($balancesByCurrency[$currency->value])) {
-                                           $balancesByCurrency[$currency->value] = [
-                                               'currency' => $currency,
-                                               'balance' => 0,
-                                           ];
-                                       }
-                                       $balancesByCurrency[$currency->value]['balance'] += $netBalance;
-                                   }
-                               }
+                        $balancesByCurrency = [];
+                        foreach ($openShifts as $shift) {
+                            // Get currencies from both transactions AND beginning saldos
+                            $transactionCurrencies = $shift->getUsedCurrencies();
+                            $beginningSaldoCurrencies = $shift->beginningSaldos->pluck('currency');
+                            
+                            // Also include UZS if there's a legacy beginning_saldo
+                            $allCurrencies = $transactionCurrencies->merge($beginningSaldoCurrencies);
+                            if ($shift->beginning_saldo > 0) {
+                                $allCurrencies = $allCurrencies->push(Currency::UZS);
+                            }
+                            $allCurrencies = $allCurrencies->unique();
+                            
+                            foreach ($allCurrencies as $currency) {
+                                $netBalance = $shift->getNetBalanceForCurrency($currency);
+                                
+                                if (!isset($balancesByCurrency[$currency->value])) {
+                                    $balancesByCurrency[$currency->value] = [
+                                        'currency' => $currency,
+                                        'balance' => 0,
+                                    ];
+                                }
+                                $balancesByCurrency[$currency->value]['balance'] += $netBalance;
+                            }
+                        }
 
-                               if (empty($balancesByCurrency)) {
-                                   return 'No transactions yet';
-                               }
+                        if (empty($balancesByCurrency)) {
+                            return 'No transactions yet';
+                        }
 
-                               $balanceStrings = [];
-                               foreach ($balancesByCurrency as $data) {
-                                   $balanceStrings[] = $data['currency']->formatAmount($data['balance']);
-                               }
+                        $balanceStrings = [];
+                        foreach ($balancesByCurrency as $data) {
+                            $balanceStrings[] = $data['currency']->formatAmount($data['balance']);
+                        }
 
-                               return implode(', ', $balanceStrings);
-                           })
-                           ->html(),
+                        return implode(', ', $balanceStrings);
+                    })
+                    ->html(),
                 Tables\Columns\TextColumn::make('shifts_count')
                     ->counts('shifts')
                     ->label('Total Shifts'),
