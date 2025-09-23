@@ -30,8 +30,11 @@ class StartShiftAction
         ])->validate();
 
         return DB::transaction(function () use ($user, $drawer, $validated) {
-            // Check if user already has ANY open shift (across all drawers)
-            $existingShift = CashierShift::getUserOpenShift($user->id);
+            // Check if user already has ANY open shift (across all drawers) with row lock
+            $existingShift = CashierShift::where('user_id', $user->id)
+                ->where('status', ShiftStatus::OPEN)
+                ->lockForUpdate()
+                ->first();
 
             if ($existingShift) {
                 throw ValidationException::withMessages([
@@ -46,15 +49,37 @@ class StartShiftAction
                 ]);
             }
 
-            // Create the shift
-            $shift = CashierShift::create([
-                'cash_drawer_id' => $drawer->id,
-                'user_id' => $user->id,
-                'status' => ShiftStatus::OPEN,
-                'beginning_saldo' => $validated['beginning_saldo'] ?? $validated['beginning_saldo_uzs'] ?? 0,
-                'opened_at' => now(),
-                'notes' => $validated['notes'] ?? null,
-            ]);
+            // Check for existing open shift on this specific drawer-user combination
+            $existingDrawerShift = CashierShift::where('cash_drawer_id', $drawer->id)
+                ->where('user_id', $user->id)
+                ->where('status', ShiftStatus::OPEN)
+                ->lockForUpdate()
+                ->first();
+
+            if ($existingDrawerShift) {
+                throw ValidationException::withMessages([
+                    'shift' => "You already have an open shift on drawer '{$drawer->name}'. Please close it before starting a new shift."
+                ]);
+            }
+
+            // Create the shift with constraint violation handling
+            try {
+                $shift = CashierShift::create([
+                    'cash_drawer_id' => $drawer->id,
+                    'user_id' => $user->id,
+                    'status' => ShiftStatus::OPEN,
+                    'beginning_saldo' => $validated['beginning_saldo'] ?? $validated['beginning_saldo_uzs'] ?? 0,
+                    'opened_at' => now(),
+                    'notes' => $validated['notes'] ?? null,
+                ]);
+            } catch (\Illuminate\Database\QueryException $e) {
+                if ($e->getCode() == 23000) { // Integrity constraint violation
+                    throw ValidationException::withMessages([
+                        'shift' => "Unable to start shift. You may already have an open shift on this drawer. Please check your existing shifts."
+                    ]);
+                }
+                throw $e;
+            }
 
             // Create beginning saldos for each currency
             $currencies = [
