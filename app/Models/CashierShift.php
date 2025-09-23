@@ -73,21 +73,6 @@ class CashierShift extends Model
         return $this->hasOne(CashCount::class);
     }
 
-    /**
-     * Get beginning saldos for this shift
-     */
-    public function beginningSaldos(): HasMany
-    {
-        return $this->hasMany(BeginningSaldo::class);
-    }
-
-    /**
-     * Get end saldos for this shift
-     */
-    public function endSaldos(): HasMany
-    {
-        return $this->hasMany(EndSaldo::class);
-    }
 
     /**
      * Scope for open shifts
@@ -143,7 +128,7 @@ class CashierShift extends Model
     public function getTotalCashInAttribute(): float
     {
         return $this->transactions()
-            ->whereIn('type', [TransactionType::IN, TransactionType::IN_OUT])
+            ->where('type', TransactionType::IN)
             ->sum('amount');
     }
 
@@ -211,7 +196,7 @@ class CashierShift extends Model
     public function getTotalCashInForCurrency(Currency $currency): float
     {
         return $this->transactions()
-            ->whereIn('type', [TransactionType::IN, TransactionType::IN_OUT])
+            ->where('type', TransactionType::IN)
             ->where('currency', $currency)
             ->sum('amount');
     }
@@ -290,28 +275,4 @@ class CashierShift extends Model
         return 0;
     }
 
-    /**
-     * Get all beginning saldos as a collection with currency info
-     */
-    public function getBeginningSaldosWithCurrency(): Collection
-    {
-        return $this->beginningSaldos->map(function ($saldo) {
-            return [
-                'currency' => $saldo->currency,
-                'amount' => $saldo->amount,
-                'formatted' => $saldo->formatted_amount,
-            ];
-        });
-    }
-
-    /**
-     * Set beginning saldo for a specific currency
-     */
-    public function setBeginningSaldoForCurrency(Currency $currency, float $amount): void
-    {
-        $this->beginningSaldos()->updateOrCreate(
-            ['currency' => $currency->value],
-            ['amount' => $amount]
-        );
-    }
 }

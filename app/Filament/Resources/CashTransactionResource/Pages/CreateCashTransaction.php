@@ -56,27 +56,6 @@ class CreateCashTransaction extends CreateRecord
 
     protected function afterCreate(): void
     {
-        $data = $this->data;
-        
-        // Handle complex In-Out transactions
-        if ($data['type'] === TransactionType::IN_OUT->value && !empty($data['out_currency']) && !empty($data['out_amount'])) {
-            // Create the second transaction (Cash Out)
-            \App\Models\CashTransaction::create([
-                'cashier_shift_id' => $this->record->cashier_shift_id,
-                'type' => 'out',
-                'currency' => $data['out_currency'],
-                'amount' => $data['out_amount'],
-                'category' => $data['category'] ?? 'change',
-                'reference' => $data['reference'] ?? $this->record->reference,
-                'notes' => ($data['notes'] ?? '') . ' (Part 2 of complex transaction)',
-                'occurred_at' => $data['occurred_at'] ?? now(),
-                'created_by' => $data['created_by'] ?? auth()->id(),
-            ]);
-            
-            // Update the original transaction notes to indicate it's part 1
-            $this->record->update([
-                'notes' => ($this->record->notes ?? '') . ' (Part 1 of complex transaction)',
-            ]);
-        }
+        // Simple transaction created - no additional processing needed
     }
 }

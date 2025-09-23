@@ -137,7 +137,6 @@ class CashTransactionResource extends Resource
                         ->columnSpan(2),
                 ])
                 ->columns(3)
-                ->visible(fn ($get) => $get('type') === TransactionType::IN_OUT->value)
                 ->reactive(),
                 Forms\Components\Select::make('category')
                     ->label(__c('category'))

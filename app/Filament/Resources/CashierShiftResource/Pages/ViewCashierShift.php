@@ -66,23 +66,10 @@ class ViewCashierShift extends ViewRecord
 
                 Infolists\Components\Section::make('Beginning Cash Amounts')
                     ->schema([
-                        Infolists\Components\RepeatableEntry::make('beginningSaldos')
-                            ->schema([
-                                Infolists\Components\TextEntry::make('currency')
-                                    ->badge()
-                                    ->color('primary'),
-                                Infolists\Components\TextEntry::make('amount')
-                                    ->label('Amount')
-                                    ->money(fn ($record) => $record->currency->value)
-                                    ->weight(FontWeight::Bold),
-                            ])
-                            ->columns(2)
-                            ->visible(fn ($record) => $record->beginningSaldos->isNotEmpty()),
                         Infolists\Components\TextEntry::make('beginning_saldo')
-                            ->label('Legacy UZS Beginning Saldo')
+                            ->label('Beginning Saldo')
                             ->money('UZS')
-                            ->weight(FontWeight::Bold)
-                            ->visible(fn ($record) => $record->beginning_saldo > 0 && $record->beginningSaldos->isEmpty()),
+                            ->weight(FontWeight::Bold),
                     ]),
 
                 Infolists\Components\Section::make('Transaction Summary')
@@ -94,19 +81,14 @@ class ViewCashierShift extends ViewRecord
                             ->color('info'),
                         Infolists\Components\TextEntry::make('cash_in_count')
                             ->label('Cash In Transactions')
-                            ->getStateUsing(fn ($record) => $record->transactions->whereIn('type', [TransactionType::IN, TransactionType::IN_OUT])->count())
+                            ->getStateUsing(fn ($record) => $record->transactions->where('type', TransactionType::IN)->count())
                             ->badge()
                             ->color('success'),
                         Infolists\Components\TextEntry::make('cash_out_count')
                             ->label('Cash Out Transactions')
-                            ->getStateUsing(fn ($record) => $record->transactions->whereIn('type', [TransactionType::OUT, TransactionType::IN_OUT])->count())
+                            ->getStateUsing(fn ($record) => $record->transactions->where('type', TransactionType::OUT)->count())
                             ->badge()
                             ->color('danger'),
-                        Infolists\Components\TextEntry::make('complex_transactions_count')
-                            ->label('Complex Transactions')
-                            ->getStateUsing(fn ($record) => $record->transactions->where('type', TransactionType::IN_OUT)->count())
-                            ->badge()
-                            ->color('warning'),
                     ])
                     ->columns(4),
 
@@ -118,8 +100,7 @@ class ViewCashierShift extends ViewRecord
                             ->getStateUsing(function ($record) {
                                 // Get currencies from transactions
                                 $transactionCurrencies = $record->getUsedCurrencies();
-                                $beginningSaldoCurrencies = $record->beginningSaldos->pluck('currency');
-                                $allCurrencies = $transactionCurrencies->merge($beginningSaldoCurrencies)->unique();
+                                $allCurrencies = $transactionCurrencies;
                                 
                                 // Also include UZS if there's a legacy beginning_saldo
                                 if ($record->beginning_saldo > 0) {
