@@ -30,18 +30,6 @@ class StartShiftAction
         ])->validate();
 
         return DB::transaction(function () use ($user, $drawer, $validated) {
-            // Check if user already has ANY open shift (across all drawers) with row lock
-            $existingShift = CashierShift::where('user_id', $user->id)
-                ->where('status', ShiftStatus::OPEN)
-                ->lockForUpdate()
-                ->first();
-
-            if ($existingShift) {
-                throw ValidationException::withMessages([
-                    'shift' => "You already have an open shift on drawer '{$existingShift->cashDrawer->name}'. Please close it before starting a new shift."
-                ]);
-            }
-
             // Check if drawer is active
             if (!$drawer->is_active) {
                 throw ValidationException::withMessages([
@@ -49,16 +37,33 @@ class StartShiftAction
                 ]);
             }
 
-            // Check for existing open shift on this specific drawer-user combination
-            $existingDrawerShift = CashierShift::where('cash_drawer_id', $drawer->id)
-                ->where('user_id', $user->id)
-                ->where('status', ShiftStatus::OPEN)
-                ->lockForUpdate()
-                ->first();
+            // Use raw SQL to check for existing open shifts with proper locking
+            $existingShift = DB::selectOne("
+                SELECT id, cash_drawer_id, user_id, status 
+                FROM cashier_shifts 
+                WHERE user_id = ? AND cash_drawer_id = ? AND status = ? 
+                FOR UPDATE
+            ", [$user->id, $drawer->id, ShiftStatus::OPEN->value]);
 
-            if ($existingDrawerShift) {
+            if ($existingShift) {
                 throw ValidationException::withMessages([
                     'shift' => "You already have an open shift on drawer '{$drawer->name}'. Please close it before starting a new shift."
+                ]);
+            }
+
+            // Also check for any open shift by this user across all drawers
+            $anyExistingShift = DB::selectOne("
+                SELECT id, cash_drawer_id 
+                FROM cashier_shifts 
+                WHERE user_id = ? AND status = ? 
+                FOR UPDATE
+            ", [$user->id, ShiftStatus::OPEN->value]);
+
+            if ($anyExistingShift) {
+                // Get drawer name for better error message
+                $drawerName = CashDrawer::find($anyExistingShift->cash_drawer_id)?->name ?? 'Unknown';
+                throw ValidationException::withMessages([
+                    'shift' => "You already have an open shift on drawer '{$drawerName}'. Please close it before starting a new shift."
                 ]);
             }
 
@@ -74,8 +79,21 @@ class StartShiftAction
                 ]);
             } catch (\Illuminate\Database\QueryException $e) {
                 if ($e->getCode() == 23000) { // Integrity constraint violation
+                    // Try to find the conflicting shift for better error message
+                    $conflictingShift = DB::selectOne("
+                        SELECT id, cash_drawer_id 
+                        FROM cashier_shifts 
+                        WHERE user_id = ? AND cash_drawer_id = ? AND status = ?
+                    ", [$user->id, $drawer->id, ShiftStatus::OPEN->value]);
+                    
+                    if ($conflictingShift) {
+                        throw ValidationException::withMessages([
+                            'shift' => "Unable to start shift. You already have an open shift on drawer '{$drawer->name}' (Shift ID: {$conflictingShift->id}). Please close it first."
+                        ]);
+                    }
+                    
                     throw ValidationException::withMessages([
-                        'shift' => "Unable to start shift. You may already have an open shift on this drawer. Please check your existing shifts."
+                        'shift' => "Unable to start shift. You may already have an open shift. Please check your existing shifts."
                     ]);
                 }
                 throw $e;
