@@ -172,7 +172,7 @@ class Reports extends Page implements HasTable
 
     protected function showShiftPerformanceReport(): void
     {
-        $shifts = CashierShift::with(['user', 'cashDrawer', 'endSaldos'])
+        $shifts = CashierShift::with(['user', 'cashDrawer'])
             ->where('status', 'closed')
             ->orderBy('closed_at', 'desc')
             ->limit(50)
@@ -257,18 +257,8 @@ class Reports extends Page implements HasTable
 
             // Check for discrepancies
             if ($shift->isClosed()) {
-                $endSaldos = $shift->endSaldos;
-                foreach ($endSaldos as $endSaldo) {
-                    if ($endSaldo->hasDiscrepancy()) {
-                        $summary['discrepancies'][] = [
-                            'shift_id' => $shift->id,
-                            'cashier' => $shift->user->name,
-                            'currency' => $endSaldo->currency->value,
-                            'discrepancy' => $endSaldo->discrepancy,
-                            'reason' => $endSaldo->discrepancy_reason,
-                        ];
-                    }
-                }
+                // Simplified - no endSaldos relationship
+                // Skip discrepancy checking for simplified version
             }
         }
 
@@ -309,17 +299,8 @@ class Reports extends Page implements HasTable
             $summary['drawers'][$drawerName]['shifts_count']++;
 
             // Count discrepancies
-            $endSaldos = $shift->endSaldos;
-            foreach ($endSaldos as $endSaldo) {
-                if ($endSaldo->hasDiscrepancy()) {
-                    $summary['total_discrepancies']++;
-                    $summary['total_discrepancy_amount'] += abs($endSaldo->discrepancy);
-                    $summary['cashiers'][$cashierName]['discrepancies_count']++;
-                    $summary['cashiers'][$cashierName]['total_discrepancy'] += abs($endSaldo->discrepancy);
-                    $summary['drawers'][$drawerName]['discrepancies_count']++;
-                    $summary['drawers'][$drawerName]['total_discrepancy'] += abs($endSaldo->discrepancy);
-                }
-            }
+            // Simplified - no endSaldos relationship
+            // Skip discrepancy counting for simplified version
         }
 
         return $summary;

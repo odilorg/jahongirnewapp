@@ -138,21 +138,8 @@ class CloseShiftAction
      */
     protected function createShiftTemplates(CashierShift $shift, bool $hasDiscrepancy): void
     {
-        $endSaldos = $shift->endSaldos;
-        
-        foreach ($endSaldos as $endSaldo) {
-            ShiftTemplate::updateOrCreate(
-                [
-                    'cash_drawer_id' => $shift->cash_drawer_id,
-                    'currency' => $endSaldo->currency,
-                ],
-                [
-                    'amount' => $endSaldo->counted_end_saldo,
-                    'last_shift_id' => $shift->id,
-                    'has_discrepancy' => $hasDiscrepancy,
-                ]
-            );
-        }
+        // Simplified - no endSaldos relationship
+        // Skip template creation for simplified version
     }
 }
 

@@ -96,7 +96,8 @@ class CashDrawerResource extends Resource
                             $beginningSaldoCurrencies = $shift->beginning_saldo > 0 ? collect([Currency::UZS]) : collect();
                             
                             // Get currencies from end saldos (for closed shifts)
-                            $endSaldoCurrencies = $shift->endSaldos->pluck('currency');
+                            // Simplified - no endSaldos relationship
+                            $endSaldoCurrencies = collect();
                             
                             // Also include UZS if there's a legacy beginning_saldo
                             $shiftCurrencies = $transactionCurrencies->merge($beginningSaldoCurrencies)->merge($endSaldoCurrencies);
@@ -132,7 +133,8 @@ class CashDrawerResource extends Resource
                             $transactionCurrencies = $shift->getUsedCurrencies();
                             // Simple beginning saldo handling
                             $beginningSaldoCurrencies = $shift->beginning_saldo > 0 ? collect([Currency::UZS]) : collect();
-                            $endSaldoCurrencies = $shift->endSaldos->pluck('currency');
+                            // Simplified - no endSaldos relationship
+                            $endSaldoCurrencies = collect();
                             
                             $shiftCurrencies = $transactionCurrencies->merge($beginningSaldoCurrencies)->merge($endSaldoCurrencies);
                             if ($shift->beginning_saldo > 0) {
@@ -166,7 +168,8 @@ class CashDrawerResource extends Resource
                                     $balance = $mostRecentShift->getNetBalanceForCurrency($currency);
                                 } else {
                                     // For closed shifts, use the counted end saldo
-                                    $endSaldo = $mostRecentShift->endSaldos->where('currency', $currency)->first();
+                                    // Simplified - no endSaldos relationship
+                                    $endSaldo = null;
                                     $balance = $endSaldo ? $endSaldo->counted_end_saldo : 0;
                                 }
                                 

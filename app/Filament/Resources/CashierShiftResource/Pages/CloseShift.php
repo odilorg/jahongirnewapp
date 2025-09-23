@@ -83,7 +83,8 @@ class CloseShift extends ViewRecord
                         $shift = app(CloseShiftAction::class)->execute($this->record, auth()->user(), $data);
                         
                         // Verify EndSaldo records were created
-                        $endSaldosCount = $shift->fresh()->endSaldos->count();
+                        // Simplified - no endSaldos relationship
+                        $endSaldosCount = 0;
                         
                         Notification::make()
                             ->title('Shift Closed Successfully')

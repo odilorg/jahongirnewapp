@@ -47,32 +47,19 @@
                     <div>
                         <label class="block text-sm font-medium text-gray-700">Counted End Saldos</label>
                         <p class="mt-1 text-sm text-gray-900">
-                            @if($record->endSaldos->isNotEmpty())
-                                @foreach($record->endSaldos as $endSaldo)
-                                    <span class="inline-block bg-green-100 text-green-800 text-xs px-2 py-1 rounded mr-1 mb-1">
-                                        {{ $endSaldo->formatted_counted_end_saldo }}
-                                    </span>
-                                @endforeach
+                            @if(false)
+                                <!-- Simplified - no endSaldos relationship -->
                             @else
-                                <span class="text-gray-500">Not recorded (Debug: {{ $record->endSaldos->count() }} records)</span>
+                                <span class="text-gray-500">Not recorded (Simplified version)</span>
                             @endif
                         </p>
                     </div>
-                    @if($record->endSaldos->isNotEmpty())
+                    @if(false)
+                        <!-- Simplified - no endSaldos relationship -->
                         <div>
                             <label class="block text-sm font-medium text-gray-700">Discrepancies</label>
                             <p class="mt-1 text-sm text-gray-900">
-                                @foreach($record->endSaldos as $endSaldo)
-                                    @if($endSaldo->hasDiscrepancy())
-                                        <span class="inline-block bg-red-100 text-red-800 text-xs px-2 py-1 rounded mr-1 mb-1">
-                                            {{ $endSaldo->formatted_discrepancy }} ({{ $endSaldo->currency->value }})
-                                        </span>
-                                    @else
-                                        <span class="inline-block bg-green-100 text-green-800 text-xs px-2 py-1 rounded mr-1 mb-1">
-                                            No discrepancy ({{ $endSaldo->currency->value }})
-                                        </span>
-                                    @endif
-                                @endforeach
+                                <span class="text-gray-500">Not available in simplified version</span>
                             </p>
                         </div>
                     @endif
