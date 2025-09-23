@@ -21,8 +21,8 @@ class CloseShift extends ViewRecord
     {
         parent::mount($record);
         
-        // Load relationships to ensure endSaldos are available
-        $this->record = $this->record->load(['endSaldos', 'beginningSaldos', 'transactions', 'user', 'cashDrawer']);
+        // Load relationships
+        $this->record = $this->record->load(['transactions', 'user', 'cashDrawer']);
     }
 
     protected function getHeaderActions(): array
@@ -36,12 +36,11 @@ class CloseShift extends ViewRecord
                 ->action(function () {
                     try {
                         // Ensure we have the latest data with relationships
-                        $this->record = $this->record->fresh(['endSaldos', 'beginningSaldos', 'transactions']);
+                        $this->record = $this->record->fresh(['transactions']);
                         
                         // Get all currencies used in this shift
                         $usedCurrencies = $this->record->getUsedCurrencies();
-                        $beginningSaldoCurrencies = $this->record->beginningSaldos->pluck('currency');
-                        $allCurrencies = $usedCurrencies->merge($beginningSaldoCurrencies)->unique();
+                        $allCurrencies = $usedCurrencies;
                         
                         $countedEndSaldos = [];
                         
