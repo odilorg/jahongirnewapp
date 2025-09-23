@@ -28,12 +28,12 @@
                 <div>
                     <label class="block text-sm font-medium text-gray-700">Multi-Currency Beginning Saldos</label>
                     <div class="mt-1 text-sm text-gray-900">
-                        @if($record->beginningSaldos->isNotEmpty())
-                            @foreach($record->beginningSaldos as $saldo)
+                        @if($record->beginning_saldo > 0)
+                            <div class="flex items-center justify-between p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
                                 <span class="inline-block bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded mr-1 mb-1">
-                                    {{ $saldo->formatted_amount }}
+                                    UZS {{ number_format($record->beginning_saldo, 2) }}
                                 </span>
-                            @endforeach
+                            </div>
                         @else
                             <span class="text-gray-500">None set</span>
                         @endif

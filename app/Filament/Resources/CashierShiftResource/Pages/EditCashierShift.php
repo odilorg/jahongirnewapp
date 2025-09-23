@@ -22,11 +22,9 @@ class EditCashierShift extends EditRecord
     protected function mutateFormDataBeforeFill(array $data): array
     {
         // Load existing beginning saldos into form data
-        $beginningSaldos = $this->record->beginningSaldos;
-        
-        foreach ($beginningSaldos as $saldo) {
-            $data["beginning_saldo_{$saldo->currency->value}"] = $saldo->amount;
-        }
+        // Simple beginning saldo handling - no complex relationships
+        $beginningSaldo = $this->record->beginning_saldo;
+        $data["beginning_saldo_UZS"] = $beginningSaldo;
 
         return $data;
     }

@@ -41,7 +41,8 @@ class CloseShiftAction
 
             // Get all currencies used in this shift
             $usedCurrencies = $shift->getUsedCurrencies();
-            $beginningSaldoCurrencies = $shift->beginningSaldos->pluck('currency');
+            // Simple currency handling - just use UZS for beginning saldo
+            $beginningSaldoCurrencies = collect([Currency::UZS]);
             $allCurrencies = $usedCurrencies->merge($beginningSaldoCurrencies)->unique();
 
             // Validate that all currencies have counted end saldos

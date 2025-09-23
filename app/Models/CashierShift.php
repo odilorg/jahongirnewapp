@@ -254,20 +254,11 @@ class CashierShift extends Model
     }
 
     /**
-     * Get beginning saldo for a specific currency
+     * Get beginning saldo for a specific currency (simplified version)
      */
     public function getBeginningSaldoForCurrency(Currency $currency): float
     {
-        // First check the multi-currency beginning saldos table
-        $beginningSaldo = $this->beginningSaldos()
-            ->where('currency', $currency->value)
-            ->first();
-            
-        if ($beginningSaldo) {
-            return $beginningSaldo->amount;
-        }
-        
-        // Fall back to legacy beginning_saldo field for UZS currency
+        // Only support UZS currency for beginning saldo in simplified version
         if ($currency === Currency::UZS) {
             return $this->beginning_saldo ?? 0;
         }

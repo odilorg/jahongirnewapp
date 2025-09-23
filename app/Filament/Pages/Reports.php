@@ -190,7 +190,7 @@ class Reports extends Page implements HasTable
 
     protected function showMultiCurrencyReport(): void
     {
-        $drawers = CashDrawer::with(['openShifts.transactions', 'openShifts.beginningSaldos'])->get();
+        $drawers = CashDrawer::with(['openShifts.transactions'])->get();
         
         $this->reportData = [
             'type' => 'multi_currency',
@@ -230,7 +230,8 @@ class Reports extends Page implements HasTable
 
         foreach ($shifts as $shift) {
             $usedCurrencies = $shift->getUsedCurrencies();
-            $beginningSaldoCurrencies = $shift->beginningSaldos->pluck('currency');
+            // Simple beginning saldo handling
+            $beginningSaldoCurrencies = $shift->beginning_saldo > 0 ? collect([Currency::UZS]) : collect();
             $allCurrencies = $usedCurrencies->merge($beginningSaldoCurrencies)->unique();
 
             foreach ($allCurrencies as $currency) {
@@ -337,7 +338,8 @@ class Reports extends Page implements HasTable
             
             foreach ($openShifts as $shift) {
                 $usedCurrencies = $shift->getUsedCurrencies();
-                $beginningSaldoCurrencies = $shift->beginningSaldos->pluck('currency');
+                // Simple beginning saldo handling
+            $beginningSaldoCurrencies = $shift->beginning_saldo > 0 ? collect([Currency::UZS]) : collect();
                 $allCurrencies = $usedCurrencies->merge($beginningSaldoCurrencies)->unique();
 
                 foreach ($allCurrencies as $currency) {

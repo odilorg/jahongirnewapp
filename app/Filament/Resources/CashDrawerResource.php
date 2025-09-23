@@ -80,7 +80,7 @@ class CashDrawerResource extends Resource
                     ->label(__('cash.active_currencies'))
                     ->getStateUsing(function ($record) {
                         // Get all shifts (open and closed) to find all currencies ever used
-                        $allShifts = $record->shifts()->with(['transactions', 'beginningSaldos', 'endSaldos'])->get();
+                        $allShifts = $record->shifts()->with(['transactions'])->get();
 
                         if ($allShifts->isEmpty()) {
                             return 'None';
@@ -92,7 +92,8 @@ class CashDrawerResource extends Resource
                             $transactionCurrencies = $shift->getUsedCurrencies();
                             
                             // Get currencies from beginning saldos
-                            $beginningSaldoCurrencies = $shift->beginningSaldos->pluck('currency');
+                            // Simple beginning saldo handling
+                            $beginningSaldoCurrencies = $shift->beginning_saldo > 0 ? collect([Currency::UZS]) : collect();
                             
                             // Get currencies from end saldos (for closed shifts)
                             $endSaldoCurrencies = $shift->endSaldos->pluck('currency');
@@ -119,7 +120,7 @@ class CashDrawerResource extends Resource
                     ->label(__('cash.current_balance'))
                     ->getStateUsing(function ($record) {
                         // Get all shifts to find the most recent state
-                        $allShifts = $record->shifts()->with(['transactions', 'beginningSaldos', 'endSaldos'])->get();
+                        $allShifts = $record->shifts()->with(['transactions'])->get();
 
                         if ($allShifts->isEmpty()) {
                             return 'No shifts yet';
@@ -129,7 +130,8 @@ class CashDrawerResource extends Resource
                         $allCurrencies = collect();
                         foreach ($allShifts as $shift) {
                             $transactionCurrencies = $shift->getUsedCurrencies();
-                            $beginningSaldoCurrencies = $shift->beginningSaldos->pluck('currency');
+                            // Simple beginning saldo handling
+                            $beginningSaldoCurrencies = $shift->beginning_saldo > 0 ? collect([Currency::UZS]) : collect();
                             $endSaldoCurrencies = $shift->endSaldos->pluck('currency');
                             
                             $shiftCurrencies = $transactionCurrencies->merge($beginningSaldoCurrencies)->merge($endSaldoCurrencies);
@@ -148,8 +150,8 @@ class CashDrawerResource extends Resource
                             $mostRecentShift = null;
                             foreach ($allShifts->sortByDesc('created_at') as $shift) {
                                 $hasCurrency = $shift->getUsedCurrencies()->contains($currency) ||
-                                             $shift->beginningSaldos->pluck('currency')->contains($currency) ||
-                                             $shift->endSaldos->pluck('currency')->contains($currency) ||
+                                             ($shift->beginning_saldo > 0 && $currency === Currency::UZS) ||
+                                             false || // endSaldos not used in simplified version
                                              ($currency === Currency::UZS && $shift->beginning_saldo > 0);
                                 
                                 if ($hasCurrency) {

@@ -167,14 +167,13 @@ class CashierShiftResource extends Resource
                 Tables\Columns\TextColumn::make('multi_currency_beginning_saldos')
                     ->label(__c('beginning_saldo'))
                     ->getStateUsing(function (CashierShift $record): string {
-                        $saldos = $record->beginningSaldos;
-                        if ($saldos->isEmpty()) {
+                        // Simple beginning saldo display
+                        $beginningSaldo = $record->beginning_saldo;
+                        if ($beginningSaldo <= 0) {
                             return 'None';
                         }
                         
-                        return $saldos->map(function ($saldo) {
-                            return $saldo->formatted_amount;
-                        })->join(', ');
+                        return 'UZS ' . number_format($beginningSaldo, 2);
                     })
                     ->badge()
                     ->color('info'),

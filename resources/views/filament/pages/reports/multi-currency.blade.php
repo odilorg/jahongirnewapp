@@ -92,22 +92,15 @@
                             </div>
 
                             <!-- Beginning Saldos -->
-                            @if($shift->beginningSaldos->isNotEmpty())
+                            @if($shift->beginning_saldo > 0)
                                 <div class="mb-4">
                                     <h6 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                                         Beginning Saldos:
                                     </h6>
                                     <div class="flex flex-wrap gap-2">
-                                        @foreach($shift->beginningSaldos as $saldo)
-                                            <span class="inline-flex px-3 py-1 text-sm bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 rounded-full">
-                                                {{ $saldo->formatted_amount }}
-                                            </span>
-                                        @endforeach
-                                        @if($shift->beginning_saldo > 0)
-                                            <span class="inline-flex px-3 py-1 text-sm bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 rounded-full">
-                                                {{ \App\Enums\Currency::UZS->formatAmount($shift->beginning_saldo) }}
-                                            </span>
-                                        @endif
+                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
+                                            UZS {{ number_format($shift->beginning_saldo, 2) }}
+                                        </span>
                                     </div>
                                 </div>
                             @endif
@@ -115,7 +108,8 @@
                             <!-- Current Balances -->
                             @php
                                 $usedCurrencies = $shift->getUsedCurrencies();
-                                $beginningSaldoCurrencies = $shift->beginningSaldos->pluck('currency');
+                                // Simple beginning saldo handling
+                                $beginningSaldoCurrencies = $shift->beginning_saldo > 0 ? collect([\App\Enums\Currency::UZS]) : collect();
                                 $allCurrencies = $usedCurrencies->merge($beginningSaldoCurrencies)->unique();
                                 
                                 // Include UZS if there's a legacy beginning_saldo
