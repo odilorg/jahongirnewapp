@@ -41,9 +41,7 @@ class AdminPanelProvider extends PanelProvider
             ->widgets([
                 Widgets\AccountWidget::class,
                 Widgets\FilamentInfoWidget::class,
-                \App\Filament\Widgets\CurrentShiftWidget::class,
                 \App\Filament\Widgets\DrawerBalanceWidget::class,
-                \App\Filament\Widgets\MultiCurrencyBalanceWidget::class,
                 \App\Filament\Widgets\CompactLanguageSwitcher::class,
             ])
             ->middleware([
