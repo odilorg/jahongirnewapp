@@ -49,10 +49,10 @@ class DrawerBalanceWidget extends BaseWidget
             }
             
             // Use the primary currency for the main stat (or UZS if no open shifts)
-            $primaryCurrency = $hasOpenShift ? 
+            $primaryCurrency = ($hasOpenShift && !empty($balancesByCurrency)) ? 
                 $balancesByCurrency[array_key_first($balancesByCurrency)]['currency'] : 
                 Currency::UZS;
-            $primaryBalance = $hasOpenShift ? 
+            $primaryBalance = ($hasOpenShift && !empty($balancesByCurrency)) ? 
                 $balancesByCurrency[array_key_first($balancesByCurrency)]['balance'] : 
                 0;
             
