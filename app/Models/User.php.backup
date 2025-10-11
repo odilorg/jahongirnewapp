@@ -20,7 +20,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class User extends Authenticatable implements FilamentUser
 {
-    use HasApiTokens, HasFactory, Notifiable;
+    use HasApiTokens, HasFactory, Notifiable, HasRoles;
 
 
     public function canAccessPanel(Panel $panel): bool
@@ -114,21 +114,5 @@ class User extends Authenticatable implements FilamentUser
     public function getCurrentOpenShift(): ?CashierShift
     {
         return $this->openShifts()->first();
-    }
-
-    // Temporary stub methods to replace HasRoles functionality
-    public function hasRole($role)
-    {
-        return true; // Temporarily allow all roles
-    }
-    
-    public function hasAnyRole($roles)
-    {
-        return true; // Temporarily allow all roles
-    }
-    
-    public function hasPermission($permission)
-    {
-        return true; // Temporarily allow all permissions
     }
 }

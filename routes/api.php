@@ -44,3 +44,8 @@ Route::post('/telegram/driver_guide_signup', [TelegramDriverGuideSignUpControlle
 
 Route::post('/webhook/tour-booking', [WebhookController::class, 'handleTourBooking']);
 
+
+// Telegram Bot Availability Routes
+Route::post('/telegram/bot/webhook', [\App\Http\Controllers\TelegramWebhookController::class, 'handle'])->name('telegram.webhook');
+Route::post('/telegram/bot/set-webhook', [\App\Http\Controllers\TelegramWebhookController::class, 'setWebhook'])->middleware('auth:sanctum');
+Route::get('/telegram/bot/webhook-info', [\App\Http\Controllers\TelegramWebhookController::class, 'getWebhookInfo'])->middleware('auth:sanctum');
