@@ -27,6 +27,11 @@ return [
     ],
 
     'telegram_bot' => [
+    'beds24' => [
+        'api_token' => env('BEDS24_API_TOKEN'),
+        'api_v2_token' => env('BEDS24_API_V2_TOKEN'),
+        'api_v2_refresh_token' => env('BEDS24_API_V2_REFRESH_TOKEN'),
+    ],
         'token' => env('TELEGRAM_BOT_TOKEN'),
         'bot_token' => env('TELEGRAM_BOT_TOKEN_DRIVER_GUIDE'), 
         // Bot token from the .env file
