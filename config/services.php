@@ -22,6 +22,9 @@ return [
         'tsp_id'  => env('OCTO_TSP_ID'),  // if needed
     ],
 
+    'telegram' => [
+        'bot_token' => env('TELEGRAM_BOT_TOKEN'),
+    ],
 
     'telegram_bot' => [
         'token' => env('TELEGRAM_BOT_TOKEN'),
