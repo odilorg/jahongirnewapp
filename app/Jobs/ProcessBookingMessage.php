@@ -157,13 +157,12 @@ class ProcessBookingMessage implements ShouldQueue
 
             // Check which rooms are booked (queries both properties)
             $availability = $beds24->checkAvailability($checkIn, $checkOut, $propertyIds);
-            $bookedRoomIds = $availability['bookedRoomIds'] ?? [];
+            $unavailableRoomIds = $availability["unavailableRoomIds"] ?? [];
 
-            // Filter out booked rooms - convert room_id to string for proper comparison
-            $availableRooms = $rooms->filter(function($room) use ($bookedRoomIds) {
-                return !in_array((string)$room->room_id, $bookedRoomIds, true);
+            // Filter out unavailable room types
+            $availableRooms = $rooms->filter(function($room) use ($unavailableRoomIds) {
+                return !in_array((string)$room->room_id, $unavailableRoomIds, true);
             });
-
             if ($availableRooms->isEmpty()) {
                 return "No rooms available\n" .
                        "Check-in: {$checkIn}\n" .

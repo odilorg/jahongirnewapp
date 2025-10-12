@@ -125,27 +125,26 @@ class Beds24BookingService
                 $propertyIds = ['41097', '172793']; // Jahongir Hotel, Jahongir Premium
             }
 
-            $roomBookingCounts = []; // Count bookings per room type
-            $totalBookings = 0;
+            $unavailableRoomIds = []; // Room types that are NOT available
 
             // Query each property separately
             foreach ($propertyIds as $propertyId) {
                 $params = [
-                    'arrival' => $checkIn,
-                    'departure' => $checkOut,
                     'propertyId' => $propertyId,
+                    'startDate' => $checkIn,
+                    'endDate' => $checkIn, // Check only the check-in date
                 ];
 
-                Log::info('Beds24 Check Availability Request', ['params' => $params]);
+                Log::info('Beds24 Inventory Availability Request', ['params' => $params]);
 
                 $response = Http::withHeaders([
                     'token' => $this->token,
                     'accept' => 'application/json',
-                ])->timeout(30)->get($this->apiUrl . '/bookings', $params);
+                ])->timeout(30)->get($this->apiUrl . '/inventory/rooms/availability', $params);
 
                 $result = $response->json();
 
-                Log::info('Beds24 Check Availability Response', [
+                Log::info('Beds24 Inventory Availability Response', [
                     'property_id' => $propertyId,
                     'response' => $result
                 ]);
@@ -155,22 +154,23 @@ class Beds24BookingService
                     continue; // Skip this property but continue with others
                 }
 
-                // Count bookings per room type
+                // Parse availability: empty value means NOT available
                 if (isset($result['data']) && is_array($result['data'])) {
-                    foreach ($result['data'] as $booking) {
-                        if (isset($booking['roomId'])) {
-                            $roomId = (string) $booking['roomId'];
-                            $roomBookingCounts[$roomId] = ($roomBookingCounts[$roomId] ?? 0) + 1;
+                    foreach ($result['data'] as $room) {
+                        $roomId = (string) $room['roomId'];
+                        $availability = $room['availability'][$checkIn] ?? 0;
+                        
+                        // If availability is 0 or empty, mark room as unavailable
+                        if (empty($availability)) {
+                            $unavailableRoomIds[] = $roomId;
                         }
                     }
-                    $totalBookings += $result['count'] ?? 0;
                 }
             }
 
             return [
                 'success' => true,
-                'roomBookingCounts' => $roomBookingCounts,
-                'totalBookings' => $totalBookings
+                'unavailableRoomIds' => array_unique($unavailableRoomIds),
             ];
 
         } catch (\Exception $e) {
@@ -179,10 +179,14 @@ class Beds24BookingService
                 'check_in' => $checkIn,
                 'check_out' => $checkOut
             ]);
-            throw $e;
+
+            return [
+                'success' => false,
+                'unavailableRoomIds' => [],
+                'error' => $e->getMessage()
+            ];
         }
     }
-
     /**
      * Extract first name from full name
      */
