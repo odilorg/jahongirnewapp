@@ -122,6 +122,9 @@ class ProcessBookingMessage implements ShouldQueue
             case 'view_bookings':
                 return 'Viewing bookings feature coming soon!';
 
+            case 'modify_booking':
+                return $this->handleModifyBooking($parsed, $staff, $beds24);
+
             case 'cancel_booking':
                 return $this->handleCancelBooking($parsed, $staff, $beds24);
 
@@ -471,4 +474,206 @@ class ProcessBookingMessage implements ShouldQueue
                    "Please check the booking ID and try again, or cancel manually in Beds24.";
         }
     }
+    protected function handleModifyBooking(array $parsed, $staff, $beds24): string
+    {
+        // Extract booking ID
+        $bookingId = $parsed['booking_id'] ?? null;
+
+        if (!$bookingId) {
+            return "Please provide a booking ID to modify.\n\n" .
+                   "Example: change booking #123456 to jan 5-7\n" .
+                   "Or: modify booking #123456 guest name to Jane Smith\n" .
+                   "Or: update booking #123456 phone to +998123456789";
+        }
+
+        try {
+            // First, get the current booking details
+            Log::info('Fetching booking details for modification', ['booking_id' => $bookingId]);
+
+            $getResult = $beds24->getBooking($bookingId);
+
+            if (!isset($getResult['data']) || empty($getResult['data'])) {
+                return "❌ Booking Not Found\n\n" .
+                       "Booking ID: #{$bookingId}\n" .
+                       "Could not find this booking. Please check the ID and try again.";
+            }
+
+            $currentBooking = $getResult['data'][0] ?? $getResult['data'];
+
+            // Build the changes array
+            $changes = [];
+            $changesSummary = [];
+
+            // Check for date changes
+            $dates = $parsed['dates'] ?? null;
+            if ($dates) {
+                if (!empty($dates['check_in'])) {
+                    $changes['arrival'] = $dates['check_in'];
+                    $changesSummary[] = "Check-in: " . ($currentBooking['arrival'] ?? 'N/A') . " → " . $dates['check_in'];
+                }
+                if (!empty($dates['check_out'])) {
+                    $changes['departure'] = $dates['check_out'];
+                    $changesSummary[] = "Check-out: " . ($currentBooking['departure'] ?? 'N/A') . " → " . $dates['check_out'];
+                }
+            }
+
+            // Check for guest info changes
+            $guest = $parsed['guest'] ?? null;
+            if ($guest) {
+                if (!empty($guest['name'])) {
+                    // Parse full name into first and last
+                    $nameParts = explode(' ', $guest['name'], 2);
+                    $changes['firstName'] = $nameParts[0];
+                    if (isset($nameParts[1])) {
+                        $changes['lastName'] = $nameParts[1];
+                    }
+                    $changesSummary[] = "Guest: " . ($currentBooking['guestName'] ?? 'N/A') . " → " . $guest['name'];
+                }
+                if (!empty($guest['phone'])) {
+                    $changes['mobile'] = $guest['phone'];
+                    $changesSummary[] = "Phone: " . ($currentBooking['mobile'] ?? 'N/A') . " → " . $guest['phone'];
+                }
+                if (!empty($guest['email'])) {
+                    $changes['email'] = $guest['email'];
+                    $changesSummary[] = "Email: " . ($currentBooking['email'] ?? 'N/A') . " → " . $guest['email'];
+                }
+            }
+
+            // Check for room change
+            $room = $parsed['room'] ?? null;
+            if ($room && !empty($room['unit_name'])) {
+                $unitName = $room['unit_name'];
+                $propertyHint = $parsed['property'] ?? null;
+
+                // Build query for room lookup
+                $query = RoomUnitMapping::where('unit_name', $unitName);
+
+                // Apply property filter if specified
+                if ($propertyHint) {
+                    if (stripos($propertyHint, 'premium') !== false) {
+                        $query->where('property_id', '172793');
+                    } elseif (stripos($propertyHint, 'hotel') !== false) {
+                        $query->where('property_id', '41097');
+                    }
+                }
+
+                $matchingRooms = $query->get();
+
+                if ($matchingRooms->isEmpty()) {
+                    return "❌ Modification Failed\n\n" .
+                           "Room {$unitName} not found. Please check the room number.";
+                }
+
+                if ($matchingRooms->count() > 1) {
+                    $propertyList = $matchingRooms->map(function($r) {
+                        return $r->property_name . ' (Unit ' . $r->unit_name . ')';
+                    })->join("\n");
+
+                    return "Multiple rooms found with unit {$unitName}:\n\n" .
+                           $propertyList . "\n\n" .
+                           "Please specify the property.\n" .
+                           "Example: change booking #{$bookingId} to room {$unitName} at Premium";
+                }
+
+                $roomMapping = $matchingRooms->first();
+                $changes['roomId'] = (int) $roomMapping->room_id;
+                $changesSummary[] = "Room: " . ($currentBooking['roomName'] ?? 'N/A') . " → Unit {$unitName} ({$roomMapping->room_name})";
+            }
+
+            // Check if there are any changes
+            if (empty($changes)) {
+                return "No changes detected.\n\n" .
+                       "Please specify what you want to modify:\n" .
+                       "- Dates: change booking #{$bookingId} to jan 5-7\n" .
+                       "- Guest name: modify booking #{$bookingId} guest name to Jane Smith\n" .
+                       "- Phone: update booking #{$bookingId} phone to +998123456789\n" .
+                       "- Room: change booking #{$bookingId} to room 14";
+            }
+
+            // If changing dates, validate availability (optional but recommended)
+            if (isset($changes['arrival']) || isset($changes['departure'])) {
+                $newArrival = $changes['arrival'] ?? $currentBooking['arrival'];
+                $newDeparture = $changes['departure'] ?? $currentBooking['departure'];
+
+                // Basic date validation
+                if ($newArrival >= $newDeparture) {
+                    return "❌ Invalid Dates\n\n" .
+                           "Check-in date must be before check-out date.\n" .
+                           "Requested: {$newArrival} to {$newDeparture}";
+                }
+            }
+
+            // Perform the modification
+            Log::info('Modifying booking', [
+                'booking_id' => $bookingId,
+                'changes' => $changes,
+                'staff' => $staff->full_name
+            ]);
+
+            $result = $beds24->modifyBooking($bookingId, $changes);
+
+            Log::info('Modify booking API response', ['result' => $result]);
+
+            // Check if modification was successful
+            $success = false;
+            if (is_array($result)) {
+                if (isset($result['success']) && $result['success']) {
+                    $success = true;
+                } elseif (isset($result[0]['success']) && $result[0]['success']) {
+                    $success = true;
+                } elseif (isset($result[0]) && !isset($result[0]['error'])) {
+                    $success = true;
+                }
+            }
+
+            if ($success) {
+                $response = "✅ Booking Modified Successfully\n\n";
+                $response .= "Booking ID: #{$bookingId}\n\n";
+                $response .= "Changes:\n";
+                foreach ($changesSummary as $change) {
+                    $response .= "  • {$change}\n";
+                }
+                $response .= "\n";
+
+                // Add current booking info
+                if (isset($changes['arrival']) || isset($changes['departure'])) {
+                    $response .= "New Dates: " . ($changes['arrival'] ?? $currentBooking['arrival']) .
+                                 " to " . ($changes['departure'] ?? $currentBooking['departure']) . "\n";
+                }
+                if (!isset($changes['firstName'])) {
+                    $response .= "Guest: " . ($currentBooking['guestName'] ?? 'N/A') . "\n";
+                }
+                if (isset($currentBooking['roomName']) && !isset($changes['roomId'])) {
+                    $response .= "Room: " . $currentBooking['roomName'] . "\n";
+                }
+
+                $response .= "\nThe booking has been updated in Beds24.";
+
+                return $response;
+            } else {
+                // Check for specific error messages
+                $errorMsg = 'Unknown error';
+                if (isset($result['error'])) {
+                    $errorMsg = $result['error'];
+                } elseif (isset($result[0]['error'])) {
+                    $errorMsg = $result[0]['error'];
+                }
+
+                throw new \Exception($errorMsg);
+            }
+
+        } catch (\Exception $e) {
+            Log::error('Booking modification failed', [
+                'booking_id' => $bookingId,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return "❌ Booking Modification Failed\n\n" .
+                   "Booking ID: #{$bookingId}\n" .
+                   "Error: {$e->getMessage()}\n\n" .
+                   "Please check the details and try again, or modify manually in Beds24.";
+        }
+    }
+
 }
