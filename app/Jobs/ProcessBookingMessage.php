@@ -155,43 +155,98 @@ class ProcessBookingMessage implements ShouldQueue
             // Get property IDs for availability check
             $propertyIds = $rooms->pluck('property_id')->unique()->toArray();
 
-            // Check which rooms are booked (queries both properties)
+            // Check availability using calendar endpoint
             $availability = $beds24->checkAvailability($checkIn, $checkOut, $propertyIds);
-            $unavailableRoomIds = $availability["unavailableRoomIds"] ?? [];
-
-            // Filter out unavailable room types
-            $availableRooms = $rooms->filter(function($room) use ($unavailableRoomIds) {
-                return !in_array((string)$room->room_id, $unavailableRoomIds, true);
-            });
-            if ($availableRooms->isEmpty()) {
-                return "No rooms available\n" .
-                       "Check-in: {$checkIn}\n" .
-                       "Check-out: {$checkOut}\n\n" .
-                       "All rooms are booked for these dates.";
+            
+            if (!$availability['success']) {
+                throw new \Exception($availability['error'] ?? 'API request failed');
             }
 
-            // Group rooms by property for better organization
-            $roomsByProperty = $availableRooms->groupBy('property_name');
+            $availableRoomsApi = $availability['availableRooms'] ?? [];
+            $nights = $availability['nights'] ?? [];
+            $nightCount = count($nights);
 
-            $response = "Available Rooms\n" .
-                        "Check-in: {$checkIn}\n" .
-                        "Check-out: {$checkOut}\n" .
-                        "Total: " . $availableRooms->count() . " rooms\n\n";
+            // Map API room data to our room units
+            $availableUnits = [];
+            foreach ($availableRoomsApi as $apiRoom) {
+                $roomId = $apiRoom['roomId'];
+                $quantity = $apiRoom['quantity'];
+                $roomName = $apiRoom['roomName'];
+                $propertyId = $apiRoom['propertyId'];
 
-            foreach ($roomsByProperty as $propertyName => $propertyRooms) {
+                // Find units for this room type - only take as many as available quantity
+                $units = $rooms->where('room_id', $roomId)
+                                ->where('property_id', $propertyId)
+                                ->sortBy('unit_name')
+                                ->take($quantity); // Only take N units where N = quantity available
+                
+                foreach ($units as $unit) {
+                    $availableUnits[] = [
+                        'unit' => $unit,
+                        'quantity' => $quantity,
+                        'roomName' => $roomName,
+                    ];
+                }
+            }
+
+            // Format output according to spec
+            if (empty($availableUnits)) {
+                return "No rooms available for the entire stay.\n" .
+                       "Check-in: {$checkIn}\n" .
+                       "Check-out: {$checkOut}\n\n" .
+                       "All rooms are booked for at least one night in this period.";
+            }
+
+            // Calculate date range for display (e.g., "Oct 16–19")
+            $checkInDt = new \DateTimeImmutable($checkIn);
+            $checkOutDt = new \DateTimeImmutable($checkOut);
+            $monthName = $checkInDt->format('M');
+            $startDay = $checkInDt->format('j');
+            $endDay = $checkOutDt->format('j');
+            $dateRange = "{$monthName} {$startDay}–{$endDay}";
+
+            // Determine night text
+            if ($nightCount == 1) {
+                $nightText = 'night';
+            } elseif ($nightCount == 2) {
+                $nightText = 'both nights';
+            } elseif ($nightCount == 3) {
+                $nightText = 'all three nights';
+            } else {
+                $nightText = "all {$nightCount} nights";
+            }
+
+            // Build response
+            $response = "Rooms available for the entire stay ({$nightText}):\n\n";
+
+            // Group by property for organization
+            $byProperty = collect($availableUnits)->groupBy(function($item) {
+                return $item['unit']->property_name;
+            });
+
+            foreach ($byProperty as $propertyName => $propertyUnits) {
                 $response .= "━━━━━ " . strtoupper($propertyName) . " ━━━━━\n\n";
                 
-                foreach ($propertyRooms as $room) {
-                    $response .= "Room {$room->unit_name} - {$room->room_name}\n";
-                    $response .= "Type: " . ucfirst($room->room_type) . " | Max: {$room->max_guests} guests\n";
-                    if ($room->base_price > 0) {
-                        $response .= "Price: $" . $room->base_price . "/night
-";
+                // Group by room type
+                $byRoomType = $propertyUnits->groupBy('roomName');
+                
+                foreach ($byRoomType as $roomTypeName => $typeUnits) {
+                    $totalQty = $typeUnits->first()['quantity'];
+                    $units = $typeUnits->pluck('unit');
+                    
+                    $response .= "{$roomTypeName} — {$totalQty} " . ($totalQty == 1 ? 'room' : 'rooms') . "\n";
+                    $response .= "Units: " . $units->pluck('unit_name')->sort()->implode(', ') . "\n";
+                    
+                    $firstUnit = $units->first();
+                    $response .= "Type: " . ucfirst($firstUnit->room_type) . " | Max: {$firstUnit->max_guests} guests\n";
+                    if ($firstUnit->base_price > 0) {
+                        $response .= "Price: $" . $firstUnit->base_price . "/night\n";
                     }
                     $response .= "\n";
                 }
             }
 
+            $response .= "All other room types break on at least one night, so they're not available for the whole {$dateRange} stay.\n\n";
             $response .= "To book, use: book room [NUMBER] under [NAME] {$checkIn} to {$checkOut} tel [PHONE] email [EMAIL]";
 
             return $response;
@@ -199,20 +254,8 @@ class ProcessBookingMessage implements ShouldQueue
         } catch (\Exception $e) {
             Log::error('Availability check failed', ['error' => $e->getMessage()]);
 
-            // Fallback to showing all rooms if API fails
-            $response = "Available Rooms (API unavailable)\n" .
-                        "Check-in: {$checkIn}\n" .
-                        "Check-out: {$checkOut}\n\n";
-
-            foreach ($rooms as $room) {
-                $response .= "Room {$room->unit_name} - {$room->room_name}\n";
-                $response .= "Type: " . ucfirst($room->room_type) . "\n";
-                $response .= "Price: \${$room->base_price}/night\n\n";
-            }
-
-            $response .= "To book, use: book room [NUMBER] under [NAME] {$checkIn} to {$checkOut} tel [PHONE] email [EMAIL]";
-
-            return $response;
+            return "Error checking availability: " . $e->getMessage() . "\n\n" .
+                   "Please try again or contact support.";
         }
     }
 
@@ -235,12 +278,40 @@ class ProcessBookingMessage implements ShouldQueue
         }
 
         $unitName = $room['unit_name'];
-        $roomMapping = RoomUnitMapping::where('unit_name', $unitName)->first();
-
-        if (!$roomMapping) {
-            return 'Room ' . $unitName . ' not found. Available rooms: ' .
-                   RoomUnitMapping::pluck('unit_name')->join(', ');
+        $propertyHint = $parsed['property'] ?? null;
+        
+        // Build query for room lookup
+        $query = RoomUnitMapping::where('unit_name', $unitName);
+        
+        // Apply property filter if specified
+        if ($propertyHint) {
+            if (stripos($propertyHint, 'premium') !== false) {
+                $query->where('property_id', '172793'); // Jahongir Premium
+            } elseif (stripos($propertyHint, 'hotel') !== false) {
+                $query->where('property_id', '41097'); // Jahongir Hotel
+            }
         }
+        
+        $matchingRooms = $query->get();
+        
+        if ($matchingRooms->isEmpty()) {
+            return 'Room ' . $unitName . ' not found. Please check the room number and try again.';
+        }
+        
+        // If multiple rooms with same unit name, need to disambiguate by property
+        if ($matchingRooms->count() > 1) {
+            $propertyList = $matchingRooms->map(function($r) {
+                return $r->property_name . ' (Unit ' . $r->unit_name . ' - ' . $r->room_name . ')';
+            })->join("\n");
+            
+            return "Multiple rooms found with unit number {$unitName}:\n\n" .
+                   $propertyList . "\n\n" .
+                   "Please specify the property in your booking command.\n" .
+                   "Example: book room {$unitName} at Premium under [NAME]...\n" .
+                   "Or: book room {$unitName} at Hotel under [NAME]...";
+        }
+        
+        $roomMapping = $matchingRooms->first();
 
         $guestName = $guest['name'];
         $phone = $guest['phone'] ?? '';

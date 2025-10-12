@@ -39,6 +39,10 @@ Output ONLY valid JSON, no additional text:
     "unit_name": "12",
     "room_type": "double"
   },
+  "rooms": [
+    {"unit_name": "12", "property": "jahongir_hotel"},
+    {"unit_name": "14", "property": "jahongir_premium"}
+  ],
   "guest": {
     "name": "Full Name",
     "phone": "+1234567890",
@@ -49,12 +53,25 @@ Output ONLY valid JSON, no additional text:
   "notes": "special requests"
 }
 
+Property names:
+- "Jahongir Hotel" or "Hotel" or "jahongir hotel" → property: "jahongir_hotel"
+- "Jahongir Premium" or "Premium" or "jahongir premium" → property: "jahongir_premium"
+
 Examples:
 - "book room 12 under John Walker jan 2-3 tel +1234567890 email ok@ok.com"
   → intent: create_booking, room.unit_name: "12", guest.name: "John Walker", dates: jan 2-3
   
+- "book room 12 at Premium under John Walker jan 2-3 tel +123"
+  → intent: create_booking, room.unit_name: "12", property: "jahongir_premium", guest.name: "John Walker"
+  
+- "book room 14 at Hotel under Jane Doe jan 5-6 tel +456"
+  → intent: create_booking, room.unit_name: "14", property: "jahongir_hotel", guest.name: "Jane Doe"
+  
 - "check avail jan 5-7"
   → intent: check_availability, dates: jan 5-7
+  
+- "book rooms 12 and 14 under John Walker jan 5-7 tel +123"
+  → intent: create_booking, rooms: [{unit_name: "12"}, {unit_name: "14"}]
   
 - "cancel booking 12345"
   → intent: cancel_booking, booking_id: "12345"

@@ -28,12 +28,11 @@ class Beds24BookingService
             'firstName' => $this->extractFirstName($data['guest_name']),
             'lastName' => $this->extractLastName($data['guest_name']),
             'email' => $data['guest_email'] ?? '',
-            'phone' => $data['guest_phone'] ?? '',
+            'mobile' => $data['guest_phone'] ?? '',
             'numAdult' => $data['num_adults'] ?? 2,
             'numChild' => $data['num_children'] ?? 0,
-            'price' => $data['price'] ?? null,
-            'status' => 1, // Confirmed
-            'infoText' => $data['notes'] ?? 'Created via Telegram Bot',
+            'status' => 'confirmed',
+            'notes' => $data['notes'] ?? 'Created via Telegram Bot',
         ]];
 
         Log::info('Beds24 Create Booking Request', ['payload' => $payload]);
@@ -49,11 +48,34 @@ class Beds24BookingService
 
             Log::info('Beds24 Create Booking Response', ['response' => $result]);
 
-            if (!$response->successful() || (isset($result['success']) && !$result['success'])) {
-                throw new \Exception('Beds24 API error: ' . json_encode($result));
+            if (!$response->successful()) {
+                throw new \Exception('Beds24 API HTTP error: ' . $response->status());
             }
 
-            return $result;
+            // Response is an array of booking results
+            // For single booking: [{success: true, new: {id: 123, ...}}]
+            if (is_array($result) && count($result) > 0) {
+                $firstResult = $result[0];
+                
+                if (isset($firstResult['success']) && $firstResult['success']) {
+                    // Extract booking ID from 'new' or 'id' field
+                    $bookingId = $firstResult['new']['id'] ?? $firstResult['id'] ?? null;
+                    
+                    return [
+                        'success' => true,
+                        'bookingId' => $bookingId,
+                        'bookId' => $bookingId, // Alias for compatibility
+                        'data' => $firstResult,
+                    ];
+                }
+                
+                // Check for errors
+                if (isset($firstResult['errors'])) {
+                    throw new \Exception('Beds24 API errors: ' . json_encode($firstResult['errors']));
+                }
+            }
+
+            throw new \Exception('Unexpected API response: ' . json_encode($result));
         } catch (\Exception $e) {
             Log::error('Beds24 Booking Error', ['error' => $e->getMessage()]);
             throw $e;
@@ -82,9 +104,11 @@ class Beds24BookingService
     {
         $payload = [[
             'id' => (int) $bookingId,
-            'status' => 5, // Cancelled status
-            'infoText' => 'Cancelled: ' . $reason,
+            'status' => 'cancelled',
+            'comment' => $reason ? 'Cancelled: ' . $reason : 'Cancelled via Telegram Bot',
         ]];
+
+        Log::info('Beds24 Cancel Booking Request', ['payload' => $payload]);
 
         $response = Http::withHeaders([
             'token' => $this->token,
@@ -92,7 +116,11 @@ class Beds24BookingService
             'accept' => 'application/json',
         ])->timeout(30)->post($this->apiUrl . '/bookings', $payload);
 
-        return $response->json();
+        $result = $response->json();
+        
+        Log::info('Beds24 Cancel Booking Response', ['response' => $result]);
+
+        return $result;
     }
 
     /**
@@ -113,9 +141,14 @@ class Beds24BookingService
         return $response->json();
     }
 
-    /**
-     * Check availability by getting existing bookings for the date range
-     * Returns array of booked room IDs
+        /**
+     * Check availability using calendar endpoint
+     * Implements the exact algorithm specified:
+     * 1. Get calendar data for each property
+     * 2. Expand date ranges into byDate map
+     * 3. Build nights array [arrival..checkout-1]
+     * 4. Calculate minimum availability across all nights
+     * 5. Return rooms with quantity info
      */
     public function checkAvailability(string $checkIn, string $checkOut, ?array $propertyIds = null): array
     {
@@ -125,52 +158,130 @@ class Beds24BookingService
                 $propertyIds = ['41097', '172793']; // Jahongir Hotel, Jahongir Premium
             }
 
-            $unavailableRoomIds = []; // Room types that are NOT available
+            // Validate and swap dates if needed
+            if ($checkIn > $checkOut) {
+                Log::warning('checkAvailability: from > to, swapping dates', [
+                    'original_checkIn' => $checkIn,
+                    'original_checkOut' => $checkOut
+                ]);
+                [$checkIn, $checkOut] = [$checkOut, $checkIn];
+            }
+
+            $allRoomsData = [];
 
             // Query each property separately
             foreach ($propertyIds as $propertyId) {
+                // For the calendar endpoint, we need to subtract 1 day from checkout for the endDate
+                // because we're checking nights, not the checkout day itself
+                $checkoutDate = new \DateTimeImmutable($checkOut);
+                $endDate = $checkoutDate->modify('-1 day')->format('Y-m-d');
+
                 $params = [
                     'propertyId' => $propertyId,
                     'startDate' => $checkIn,
-                    'endDate' => $checkIn, // Check only the check-in date
+                    'endDate' => $endDate,
+                    'includeNumAvail' => 'true',
+                    'includePrices' => 'true',
                 ];
 
-                Log::info('Beds24 Inventory Availability Request', ['params' => $params]);
+                Log::info('Beds24 Inventory Calendar Request', ['params' => $params]);
 
                 $response = Http::withHeaders([
                     'token' => $this->token,
                     'accept' => 'application/json',
-                ])->timeout(30)->get($this->apiUrl . '/inventory/rooms/availability', $params);
+                ])->timeout(30)->get($this->apiUrl . '/inventory/rooms/calendar', $params);
 
                 $result = $response->json();
 
-                Log::info('Beds24 Inventory Availability Response', [
+                Log::info('Beds24 Inventory Calendar Response', [
                     'property_id' => $propertyId,
                     'response' => $result
                 ]);
 
-                if (!$response->successful()) {
+                if (!$response->successful() || (isset($result['success']) && !$result['success'])) {
                     Log::warning('Beds24 API error for property ' . $propertyId, ['error' => $result]);
                     continue; // Skip this property but continue with others
                 }
 
-                // Parse availability: empty value means NOT available
                 if (isset($result['data']) && is_array($result['data'])) {
-                    foreach ($result['data'] as $room) {
-                        $roomId = (string) $room['roomId'];
-                        $availability = $room['availability'][$checkIn] ?? 0;
-                        
-                        // If availability is 0 or empty, mark room as unavailable
-                        if (empty($availability)) {
-                            $unavailableRoomIds[] = $roomId;
-                        }
+                    foreach ($result['data'] as $roomData) {
+                        $allRoomsData[] = array_merge($roomData, ['propertyId' => $propertyId]);
                     }
                 }
             }
 
+            // Build nights array [arrival..checkout-1]
+            $nights = [];
+            $current = new \DateTimeImmutable($checkIn);
+            $checkoutDt = new \DateTimeImmutable($checkOut);
+            while ($current < $checkoutDt) {
+                $nights[] = $current->format('Y-m-d');
+                $current = $current->modify('+1 day');
+            }
+
+            // Process each room
+            $availableRooms = [];
+            
+            foreach ($allRoomsData as $room) {
+                $roomId = (string) $room['roomId'];
+                $roomName = $room['name'];
+                $propertyId = $room['propertyId'];
+
+                // Step 2: Expand ranges into byDate map
+                $byDate = [];
+                if (isset($room['calendar']) && is_array($room['calendar'])) {
+                    foreach ($room['calendar'] as $range) {
+                        $from = $range['from'];
+                        $to = $range['to'];
+                        $numAvail = max(0, $range['numAvail'] ?? 0); // Clamp negatives to 0
+
+                        // Expand the inclusive range
+                        $start = new \DateTimeImmutable($from);
+                        $end = new \DateTimeImmutable($to);
+                        $current = $start;
+                        
+                        while ($current <= $end) {
+                            $dateKey = $current->format('Y-m-d');
+                            $byDate[$dateKey] = $numAvail; // Later ranges override earlier ones
+                            $current = $current->modify('+1 day');
+                        }
+                    }
+                }
+
+                // Step 4: Calculate minimum availability across all nights
+                $minAvail = PHP_INT_MAX;
+                foreach ($nights as $night) {
+                    $avail = $byDate[$night] ?? 0; // Default to 0 if missing
+                    $minAvail = min($minAvail, $avail);
+                }
+
+                // If minAvail is still PHP_INT_MAX, set it to 0
+                if ($minAvail === PHP_INT_MAX) {
+                    $minAvail = 0;
+                }
+
+                // Room qualifies if min >= 1
+                if ($minAvail >= 1) {
+                    $availableRooms[] = [
+                        'roomId' => $roomId,
+                        'roomName' => $roomName,
+                        'propertyId' => $propertyId,
+                        'quantity' => $minAvail,
+                    ];
+                }
+            }
+
+            // Step 5: Sort by room name (stable sort)
+            usort($availableRooms, function($a, $b) {
+                return strcmp($a['roomName'], $b['roomName']);
+            });
+
             return [
                 'success' => true,
-                'unavailableRoomIds' => array_unique($unavailableRoomIds),
+                'checkIn' => $checkIn,
+                'checkOut' => $checkOut,
+                'nights' => $nights,
+                'availableRooms' => $availableRooms,
             ];
 
         } catch (\Exception $e) {
@@ -182,9 +293,70 @@ class Beds24BookingService
 
             return [
                 'success' => false,
-                'unavailableRoomIds' => [],
+                'availableRooms' => [],
                 'error' => $e->getMessage()
             ];
+        }
+    }
+
+
+    /**
+     * Create multiple bookings (e.g., for group reservations)
+     * When makeGroup is true, all bookings will be linked together
+     */
+    public function createMultipleBookings(array $bookingsData, bool $makeGroup = false): array
+    {
+        $payload = [];
+        
+        foreach ($bookingsData as $data) {
+            $booking = [
+                'propertyId' => (int) $data['property_id'],
+                'roomId' => (int) $data['room_id'],
+                'arrival' => $data['check_in'],
+                'departure' => $data['check_out'],
+                'firstName' => $this->extractFirstName($data['guest_name']),
+                'lastName' => $this->extractLastName($data['guest_name']),
+                'email' => $data['guest_email'] ?? '',
+                'mobile' => $data['guest_phone'] ?? '',
+                'numAdult' => $data['num_adults'] ?? 2,
+                'numChild' => $data['num_children'] ?? 0,
+                'status' => 'confirmed',
+                'notes' => $data['notes'] ?? 'Created via Telegram Bot',
+            ];
+            
+            // Add group action if requested
+            if ($makeGroup) {
+                $booking['actions'] = ['makeGroup' => true];
+            }
+            
+            $payload[] = $booking;
+        }
+
+        Log::info('Beds24 Create Multiple Bookings Request', [
+            'payload' => $payload,
+            'count' => count($payload),
+            'makeGroup' => $makeGroup
+        ]);
+
+        try {
+            $response = Http::withHeaders([
+                'token' => $this->token,
+                'Content-Type' => 'application/json',
+                'accept' => 'application/json',
+            ])->timeout(30)->post($this->apiUrl . '/bookings', $payload);
+
+            $result = $response->json();
+
+            Log::info('Beds24 Create Multiple Bookings Response', ['response' => $result]);
+
+            if (!$response->successful() || (isset($result['success']) && !$result['success'])) {
+                throw new \Exception('Beds24 API error: ' . json_encode($result));
+            }
+
+            return $result;
+        } catch (\Exception $e) {
+            Log::error('Beds24 Multiple Booking Error', ['error' => $e->getMessage()]);
+            throw $e;
         }
     }
     /**
