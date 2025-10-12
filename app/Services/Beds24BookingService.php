@@ -117,48 +117,59 @@ class Beds24BookingService
      * Check availability by getting existing bookings for the date range
      * Returns array of booked room IDs
      */
-    public function checkAvailability(string $checkIn, string $checkOut, ?array $roomIds = null): array
+    public function checkAvailability(string $checkIn, string $checkOut, ?array $propertyIds = null): array
     {
         try {
-            $params = [
-                'arrival' => $checkIn,
-                'departure' => $checkOut,
-            ];
-
-            if ($roomIds) {
-                $params['roomId'] = implode(',', $roomIds);
+            // Query both properties by default
+            if (empty($propertyIds)) {
+                $propertyIds = ['41097', '172793']; // Jahongir Hotel, Jahongir Premium
             }
 
-            Log::info('Beds24 Check Availability Request', ['params' => $params]);
+            $allBookedRoomIds = [];
+            $totalBookings = 0;
 
-            // Get existing bookings for these dates
-            $response = Http::withHeaders([
-                'token' => $this->token,
-                'accept' => 'application/json',
-            ])->timeout(30)->get($this->apiUrl . '/bookings', $params);
+            // Query each property separately
+            foreach ($propertyIds as $propertyId) {
+                $params = [
+                    'arrival' => $checkIn,
+                    'departure' => $checkOut,
+                    'propertyId' => $propertyId,
+                ];
 
-            $result = $response->json();
+                Log::info('Beds24 Check Availability Request', ['params' => $params]);
 
-            Log::info('Beds24 Check Availability Response', ['response' => $result]);
+                $response = Http::withHeaders([
+                    'token' => $this->token,
+                    'accept' => 'application/json',
+                ])->timeout(30)->get($this->apiUrl . '/bookings', $params);
 
-            if (!$response->successful()) {
-                throw new \Exception('Beds24 API error: ' . json_encode($result));
-            }
+                $result = $response->json();
 
-            // Extract booked room IDs
-            $bookedRoomIds = [];
-            if (isset($result['data']) && is_array($result['data'])) {
-                foreach ($result['data'] as $booking) {
-                    if (isset($booking['roomId'])) {
-                        $bookedRoomIds[] = (string) $booking['roomId'];
+                Log::info('Beds24 Check Availability Response', [
+                    'property_id' => $propertyId,
+                    'response' => $result
+                ]);
+
+                if (!$response->successful()) {
+                    Log::warning('Beds24 API error for property ' . $propertyId, ['error' => $result]);
+                    continue; // Skip this property but continue with others
+                }
+
+                // Extract booked room IDs from this property
+                if (isset($result['data']) && is_array($result['data'])) {
+                    foreach ($result['data'] as $booking) {
+                        if (isset($booking['roomId'])) {
+                            $allBookedRoomIds[] = (string) $booking['roomId'];
+                        }
                     }
+                    $totalBookings += $result['count'] ?? 0;
                 }
             }
 
             return [
                 'success' => true,
-                'bookedRoomIds' => array_unique($bookedRoomIds),
-                'totalBookings' => $result['count'] ?? 0
+                'bookedRoomIds' => array_unique($allBookedRoomIds),
+                'totalBookings' => $totalBookings
             ];
 
         } catch (\Exception $e) {

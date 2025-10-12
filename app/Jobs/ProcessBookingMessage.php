@@ -152,11 +152,11 @@ class ProcessBookingMessage implements ShouldQueue
         }
 
         try {
-            // Get room IDs for availability check
-            $roomIds = $rooms->pluck('room_id')->unique()->toArray();
+            // Get property IDs for availability check
+            $propertyIds = $rooms->pluck('property_id')->unique()->toArray();
 
-            // Check which rooms are booked
-            $availability = $beds24->checkAvailability($checkIn, $checkOut, $roomIds);
+            // Check which rooms are booked (queries both properties)
+            $availability = $beds24->checkAvailability($checkIn, $checkOut, $propertyIds);
             $bookedRoomIds = $availability['bookedRoomIds'] ?? [];
 
             // Filter out booked rooms
