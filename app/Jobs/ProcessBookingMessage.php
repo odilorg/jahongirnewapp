@@ -603,6 +603,56 @@ class ProcessBookingMessage implements ShouldQueue
                 }
             }
 
+                // Check if dates are actually changing - prevent overbooking
+                $currentArrival = $currentBooking['arrival'];
+                $currentDeparture = $currentBooking['departure'];
+                $datesChanged = ($newArrival != $currentArrival) || ($newDeparture != $currentDeparture);
+
+                if ($datesChanged) {
+                    $roomId = $currentBooking['roomId'] ?? null;
+                    $propertyId = $currentBooking['propertyId'] ?? null;
+
+                    if ($roomId && $propertyId) {
+                        try {
+                            Log::info('Checking room availability for date change', [
+                                'booking_id' => $bookingId,
+                                'room_id' => $roomId,
+                                'current' => [$currentArrival, $currentDeparture],
+                                'new' => [$newArrival, $newDeparture]
+                            ]);
+
+                            $availability = $beds24->checkAvailability($newArrival, $newDeparture, [$propertyId]);
+
+                            if ($availability['success']) {
+                                $availableRooms = $availability['availableRooms'] ?? [];
+                                $roomAvailable = false;
+
+                                foreach ($availableRooms as $availRoom) {
+                                    if ($availRoom['roomId'] == $roomId && $availRoom['quantity'] > 0) {
+                                        $roomAvailable = true;
+                                        break;
+                                    }
+                                }
+
+                                if (!$roomAvailable) {
+                                    $roomName = $currentBooking['roomName'] ?? 'Room';
+                                    return "Room Not Available\n\n" .
+                                           "Cannot extend/modify booking #{$bookingId}\n" .
+                                           "Room: {$roomName}\n" .
+                                           "Requested: {$newArrival} to {$newDeparture}\n\n" .
+                                           "This room is booked by another guest during the new period.\n" .
+                                           "Please choose different dates or cancel and rebook.";
+                                }
+
+                                Log::info('Room available - proceeding with modification');
+                            }
+                        } catch (\Exception $e) {
+                            Log::warning('Availability check failed: ' . $e->getMessage());
+                        }
+                    }
+                }
+
+
             // Perform the modification
             Log::info('Modifying booking', [
                 'booking_id' => $bookingId,
