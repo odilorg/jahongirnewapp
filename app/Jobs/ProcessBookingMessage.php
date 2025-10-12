@@ -123,12 +123,13 @@ class ProcessBookingMessage implements ShouldQueue
                 return 'Viewing bookings feature coming soon!';
 
             case 'cancel_booking':
-                return 'Cancel booking feature coming soon!';
+                return $this->handleCancelBooking($parsed, $staff, $beds24);
 
             default:
                 return "I did not quite understand that. Try:\n\n" .
                        "- check avail jan 2-3\n" .
                        "- book room 12 under John Walker jan 2-3 tel +1234567890 email ok@ok.com\n" .
+                       "- cancel booking #123456\n" .
                        "- help";
         }
     }
@@ -157,7 +158,7 @@ class ProcessBookingMessage implements ShouldQueue
 
             // Check availability using calendar endpoint
             $availability = $beds24->checkAvailability($checkIn, $checkOut, $propertyIds);
-            
+
             if (!$availability['success']) {
                 throw new \Exception($availability['error'] ?? 'API request failed');
             }
@@ -179,7 +180,7 @@ class ProcessBookingMessage implements ShouldQueue
                                 ->where('property_id', $propertyId)
                                 ->sortBy('unit_name')
                                 ->take($quantity); // Only take N units where N = quantity available
-                
+
                 foreach ($units as $unit) {
                     $availableUnits[] = [
                         'unit' => $unit,
@@ -226,17 +227,17 @@ class ProcessBookingMessage implements ShouldQueue
 
             foreach ($byProperty as $propertyName => $propertyUnits) {
                 $response .= "━━━━━ " . strtoupper($propertyName) . " ━━━━━\n\n";
-                
+
                 // Group by room type
                 $byRoomType = $propertyUnits->groupBy('roomName');
-                
+
                 foreach ($byRoomType as $roomTypeName => $typeUnits) {
                     $totalQty = $typeUnits->first()['quantity'];
                     $units = $typeUnits->pluck('unit');
-                    
+
                     $response .= "{$roomTypeName} — {$totalQty} " . ($totalQty == 1 ? 'room' : 'rooms') . "\n";
                     $response .= "Units: " . $units->pluck('unit_name')->sort()->implode(', ') . "\n";
-                    
+
                     $firstUnit = $units->first();
                     $response .= "Type: " . ucfirst($firstUnit->room_type) . " | Max: {$firstUnit->max_guests} guests\n";
                     if ($firstUnit->base_price > 0) {
@@ -279,10 +280,10 @@ class ProcessBookingMessage implements ShouldQueue
 
         $unitName = $room['unit_name'];
         $propertyHint = $parsed['property'] ?? null;
-        
+
         // Build query for room lookup
         $query = RoomUnitMapping::where('unit_name', $unitName);
-        
+
         // Apply property filter if specified
         if ($propertyHint) {
             if (stripos($propertyHint, 'premium') !== false) {
@@ -291,26 +292,26 @@ class ProcessBookingMessage implements ShouldQueue
                 $query->where('property_id', '41097'); // Jahongir Hotel
             }
         }
-        
+
         $matchingRooms = $query->get();
-        
+
         if ($matchingRooms->isEmpty()) {
             return 'Room ' . $unitName . ' not found. Please check the room number and try again.';
         }
-        
+
         // If multiple rooms with same unit name, need to disambiguate by property
         if ($matchingRooms->count() > 1) {
             $propertyList = $matchingRooms->map(function($r) {
                 return $r->property_name . ' (Unit ' . $r->unit_name . ' - ' . $r->room_name . ')';
             })->join("\n");
-            
+
             return "Multiple rooms found with unit number {$unitName}:\n\n" .
                    $propertyList . "\n\n" .
                    "Please specify the property in your booking command.\n" .
                    "Example: book room {$unitName} at Premium under [NAME]...\n" .
                    "Or: book room {$unitName} at Hotel under [NAME]...";
         }
-        
+
         $roomMapping = $matchingRooms->first();
 
         $guestName = $guest['name'];
@@ -363,6 +364,111 @@ class ProcessBookingMessage implements ShouldQueue
                    "Dates: {$checkIn} to {$checkOut}\n\n" .
                    "Error: {$e->getMessage()}\n\n" .
                    "Please check the details and try again or create manually in Beds24.";
+        }
+    }
+
+    protected function handleCancelBooking(array $parsed, $staff, $beds24): string
+    {
+        // Extract booking ID from parsed data
+        $bookingId = $parsed['booking_id'] ?? null;
+
+        // If not in parsed data, try to extract from raw text (fallback)
+        if (!$bookingId && isset($parsed['_raw_message'])) {
+            // Try to extract booking ID from message like "cancel booking #123456" or "cancel 123456"
+            if (preg_match('/#?(\d+)/', $parsed['_raw_message'], $matches)) {
+                $bookingId = $matches[1];
+            }
+        }
+
+        if (!$bookingId) {
+            return "Please provide a booking ID to cancel.\n\n" .
+                   "Example: cancel booking #123456\n" .
+                   "Or: cancel booking 123456";
+        }
+
+        try {
+            // First, try to get the booking details to show in confirmation
+            Log::info('Fetching booking details before cancellation', ['booking_id' => $bookingId]);
+
+            $bookingDetails = null;
+            try {
+                $getResult = $beds24->getBooking($bookingId);
+                if (isset($getResult['data']) && !empty($getResult['data'])) {
+                    $bookingDetails = $getResult['data'][0] ?? $getResult['data'];
+                }
+            } catch (\Exception $e) {
+                Log::warning('Could not fetch booking details', ['error' => $e->getMessage()]);
+                // Continue with cancellation even if we can't get details
+            }
+
+            // Cancel the booking
+            Log::info('Cancelling booking', [
+                'booking_id' => $bookingId,
+                'staff' => $staff->full_name
+            ]);
+
+            $reason = 'Cancelled by ' . $staff->full_name . ' via Telegram Bot';
+            $result = $beds24->cancelBooking($bookingId, $reason);
+
+            Log::info('Cancel booking API response', ['result' => $result]);
+
+            // Check if cancellation was successful
+            // Beds24 API returns array format: [{"success": true, ...}]
+            $success = false;
+            if (is_array($result)) {
+                if (isset($result['success']) && $result['success']) {
+                    $success = true;
+                } elseif (isset($result[0]['success']) && $result[0]['success']) {
+                    $success = true;
+                } elseif (isset($result[0]) && !isset($result[0]['error'])) {
+                    // Sometimes success is implied by no error
+                    $success = true;
+                }
+            }
+
+            if ($success) {
+                $response = "✅ Booking Cancelled Successfully\n\n";
+                $response .= "Booking ID: #{$bookingId}\n";
+
+                // Add booking details if we got them
+                if ($bookingDetails) {
+                    if (isset($bookingDetails['roomName'])) {
+                        $response .= "Room: {$bookingDetails['roomName']}\n";
+                    }
+                    if (isset($bookingDetails['guestName'])) {
+                        $response .= "Guest: {$bookingDetails['guestName']}\n";
+                    }
+                    if (isset($bookingDetails['arrival']) && isset($bookingDetails['departure'])) {
+                        $response .= "Dates: {$bookingDetails['arrival']} to {$bookingDetails['departure']}\n";
+                    }
+                }
+
+                $response .= "\nThe booking has been cancelled in Beds24.";
+
+                return $response;
+            } else {
+                // Check for specific error messages
+                $errorMsg = 'Unknown error';
+                if (isset($result['error'])) {
+                    $errorMsg = $result['error'];
+                } elseif (isset($result[0]['error'])) {
+                    $errorMsg = $result[0]['error'];
+                }
+
+                throw new \Exception($errorMsg);
+            }
+
+        } catch (\Exception $e) {
+            Log::error('Booking cancellation failed', [
+                'booking_id' => $bookingId,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return "❌ Booking Cancellation Failed\n\n" .
+                   "Booking ID: #{$bookingId}\n" .
+                   "Error: {$e->getMessage()}\n\n" .
+                   "Please check the booking ID and try again, or cancel manually in Beds24.";
         }
     }
 }
