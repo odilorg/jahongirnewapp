@@ -107,6 +107,10 @@ Route::get('/', function () {
     return redirect('/admin/login');
 });
 
+Route::get('/login', function () {
+    return redirect()->route('filament.admin.auth.login');
+})->name('login');
+
 // Language switching route
 Route::post('/language/switch', [App\Http\Controllers\LanguageController::class, 'switch'])
     ->name('language.switch')

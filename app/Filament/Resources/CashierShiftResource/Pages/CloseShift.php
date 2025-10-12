@@ -6,6 +6,7 @@ use App\Actions\CloseShiftAction;
 use App\Filament\Resources\CashierShiftResource;
 use App\Enums\Currency;
 use Filament\Actions;
+use Filament\Forms;
 use Filament\Resources\Pages\ViewRecord;
 use Filament\Notifications\Notification;
 
@@ -32,68 +33,98 @@ class CloseShift extends ViewRecord
                 ->label('Close Shift')
                 ->color('danger')
                 ->icon('heroicon-o-stop')
-                ->requiresConfirmation()
-                ->action(function () {
+                ->form([
+                    Forms\Components\Repeater::make('counted_end_saldos')
+                        ->label('Counted Balances')
+                        ->default(fn () => $this->getDefaultCountedEndSaldos())
+                        ->columns(1)
+                        ->disableItemCreation()
+                        ->disableItemDeletion()
+                        ->schema([
+                            Forms\Components\Select::make('currency')
+                                ->label(__c('currency'))
+                                ->options(fn () => $this->getCurrencyOptions())
+                                ->required()
+                                ->disabled()
+                                ->dehydrated(),
+                            Forms\Components\TextInput::make('counted_end_saldo')
+                                ->label(__c('counted_balance'))
+                                ->numeric()
+                                ->required()
+                                ->minValue(0),
+                            Forms\Components\Repeater::make('denominations')
+                                ->label('Denominations (optional)')
+                                ->schema([
+                                    Forms\Components\TextInput::make('denomination')
+                                        ->label('Denomination')
+                                        ->numeric()
+                                        ->minValue(0.01)
+                                        ->required(),
+                                    Forms\Components\TextInput::make('qty')
+                                        ->label('Quantity')
+                                        ->numeric()
+                                        ->integer()
+                                        ->minValue(0)
+                                        ->required(),
+                                ])
+                                ->columns(2)
+                                ->collapsed()
+                                ->defaultItems(0),
+                        ])
+                        ->required(),
+                    Forms\Components\Textarea::make('notes')
+                        ->label(__c('notes'))
+                        ->maxLength(1000),
+                    Forms\Components\Textarea::make('discrepancy_reason')
+                        ->label(__c('discrepancy_reason'))
+                        ->maxLength(1000),
+                ])
+                ->action(function (array $data) {
                     try {
-                        // Ensure we have the latest data with relationships
                         $this->record = $this->record->fresh(['endSaldos', 'beginningSaldos', 'transactions']);
-                        
-                        // Get all currencies used in this shift
-                        $usedCurrencies = $this->record->getUsedCurrencies();
-                        $beginningSaldoCurrencies = $this->record->beginningSaldos->pluck('currency');
-                        $allCurrencies = $usedCurrencies->merge($beginningSaldoCurrencies)->unique();
-                        
-                        $countedEndSaldos = [];
-                        
-                        foreach ($allCurrencies as $currency) {
-                            $balance = $this->record->getNetBalanceForCurrency($currency);
-                            
-                            // Only create denominations for UZS (other currencies don't need denominations)
-                            $denominations = [];
-                            if ($currency === Currency::UZS) {
-                                $remaining = $balance;
-                                $commonDenominations = [100000, 50000, 20000, 10000, 5000, 1000, 500, 100];
-                                
-                                foreach ($commonDenominations as $denomination) {
-                                    if ($remaining >= $denomination) {
-                                        $qty = floor($remaining / $denomination);
-                                        if ($qty > 0) {
-                                            $denominations[] = ['denomination' => $denomination, 'qty' => $qty];
-                                            $remaining -= $denomination * $qty;
-                                        }
-                                    }
+
+                        $counted = collect($data['counted_end_saldos'] ?? [])
+                            ->map(function (array $entry) {
+                                $entry['counted_end_saldo'] = (float) ($entry['counted_end_saldo'] ?? 0);
+
+                                if (!empty($entry['denominations'])) {
+                                    $entry['denominations'] = collect($entry['denominations'])
+                                        ->filter(fn ($row) => isset($row['denomination'], $row['qty']) && $row['denomination'] !== null && $row['qty'] !== null)
+                                        ->map(function ($row) {
+                                            return [
+                                                'denomination' => (float) $row['denomination'],
+                                                'qty' => (int) $row['qty'],
+                                            ];
+                                        })
+                                        ->values()
+                                        ->all();
+                                } else {
+                                    $entry['denominations'] = [];
                                 }
-                                
-                                if ($remaining > 0) {
-                                    $denominations[] = ['denomination' => 100, 'qty' => $remaining / 100];
-                                }
-                            }
-                            
-                            $countedEndSaldos[] = [
-                                'currency' => $currency->value,
-                                'counted_end_saldo' => $balance,
-                                'denominations' => $denominations,
-                            ];
-                        }
-                        
-                        $data = [
-                            'counted_end_saldos' => $countedEndSaldos,
-                            'notes' => 'Closed via simplified interface',
+
+                                return $entry;
+                            })
+                            ->values()
+                            ->all();
+
+                        $payload = [
+                            'counted_end_saldos' => $counted,
+                            'notes' => $data['notes'] ?? null,
+                            'discrepancy_reason' => $data['discrepancy_reason'] ?? null,
                         ];
-                        
-                        $shift = app(CloseShiftAction::class)->execute($this->record, auth()->user(), $data);
-                        
-                        // Verify EndSaldo records were created
+
+                        $shift = app(CloseShiftAction::class)->execute($this->record, auth()->user(), $payload);
+
                         $endSaldosCount = $shift->fresh()->endSaldos->count();
-                        
+
                         Notification::make()
                             ->title('Shift Closed Successfully')
                             ->body("Shift #{$shift->id} has been closed with {$endSaldosCount} end saldo records")
                             ->success()
                             ->send();
-                            
+
                         return redirect()->route('filament.admin.resources.cashier-shifts.index');
-                    } catch (\Exception $e) {
+                    } catch (\Throwable $e) {
                         Notification::make()
                             ->title('Error Closing Shift')
                             ->body($e->getMessage())
@@ -103,4 +134,48 @@ class CloseShift extends ViewRecord
                 }),
         ];
     }
+
+
+    protected function getDefaultCountedEndSaldos(): array
+    {
+        return collect($this->getShiftCurrencies())
+            ->map(fn (Currency $currency) => [
+                'currency' => $currency->value,
+                'counted_end_saldo' => $this->record->getNetBalanceForCurrency($currency),
+                'denominations' => [],
+            ])
+            ->values()
+            ->all();
+    }
+
+    protected function getCurrencyOptions(): array
+    {
+        return collect($this->getShiftCurrencies())
+            ->mapWithKeys(fn (Currency $currency) => [$currency->value => $currency->getLabel()])
+            ->all();
+    }
+
+    protected function getShiftCurrencies(): array
+    {
+        $currencies = collect($this->record->getUsedCurrencies());
+        $beginning = $this->record->beginningSaldos->pluck('currency');
+
+        if ($this->record->beginning_saldo > 0) {
+            $currencies = $currencies->push(Currency::UZS);
+        }
+
+        $merged = $currencies
+            ->merge($beginning)
+            ->filter()
+            ->map(fn ($currency) => $currency instanceof Currency ? $currency : Currency::from($currency))
+            ->unique()
+            ->values();
+
+        if ($merged->isEmpty()) {
+            return [Currency::UZS];
+        }
+
+        return $merged->all();
+    }
+
 }

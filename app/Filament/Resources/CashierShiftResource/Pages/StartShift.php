@@ -3,10 +3,9 @@
 namespace App\Filament\Resources\CashierShiftResource\Pages;
 
 use App\Actions\StartShiftAction;
-use App\Enums\Currency;
 use App\Filament\Resources\CashierShiftResource;
 use App\Models\CashDrawer;
-use App\Models\ShiftTemplate;
+use App\Models\CashierShift;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\Pages\CreateRecord;
@@ -26,8 +25,7 @@ class StartShift extends CreateRecord
         parent::mount();
         
         $user = Auth::user();
-        $isManagerOrAdmin = $user->hasAnyRole(['super_admin', 'admin', 'manager']);
-        
+
         // Check if user already has an open shift
         $existingShift = \App\Models\CashierShift::getUserOpenShift($user->id);
             
@@ -46,6 +44,10 @@ class StartShift extends CreateRecord
         $formData = [
             'user_id' => $user->id, // Always set current user
             'beginning_saldo' => 0, // Default to 0 for everyone
+            'beginning_saldo_uzs' => 0,
+            'beginning_saldo_usd' => 0,
+            'beginning_saldo_eur' => 0,
+            'beginning_saldo_rub' => 0,
         ];
         
         $this->form->fill($formData);
@@ -54,8 +56,7 @@ class StartShift extends CreateRecord
     public function form(Form $form): Form
     {
         $user = Auth::user();
-        $isManagerOrAdmin = $user->hasAnyRole(['super_admin', 'admin', 'manager']);
-        
+
         return $form
             ->schema([
                 Forms\Components\Hidden::make('user_id')
@@ -75,7 +76,37 @@ class StartShift extends CreateRecord
                     ->minValue(0)
                     ->default(0)
                     ->helperText(__c('beginning_saldo') . ' ' . __('cash.uzs')),
-                
+
+                Forms\Components\Section::make(__c('multi_currency'))
+                    ->description(__c('set_for_each_currency'))
+                    ->schema([
+                        Forms\Components\TextInput::make('beginning_saldo_uzs')
+                            ->label(__c('uzs') . ' ' . __c('amount'))
+                            ->numeric()
+                            ->prefix('UZS')
+                            ->minValue(0)
+                            ->default(0),
+                        Forms\Components\TextInput::make('beginning_saldo_usd')
+                            ->label(__c('usd') . ' ' . __c('amount'))
+                            ->numeric()
+                            ->prefix('$')
+                            ->minValue(0)
+                            ->default(0),
+                        Forms\Components\TextInput::make('beginning_saldo_eur')
+                            ->label(__c('eur') . ' ' . __c('amount'))
+                            ->numeric()
+                            ->prefix('€')
+                            ->minValue(0)
+                            ->default(0),
+                        Forms\Components\TextInput::make('beginning_saldo_rub')
+                            ->label(__c('rub') . ' ' . __c('amount'))
+                            ->numeric()
+                            ->prefix('₽')
+                            ->minValue(0)
+                            ->default(0),
+                    ])
+                    ->columns(2),
+
                 Forms\Components\Textarea::make('notes')
                     ->label(__c('notes'))
                     ->rows(3)
@@ -84,32 +115,19 @@ class StartShift extends CreateRecord
             ->statePath('data');
     }
 
-    protected function mutateFormDataBeforeCreate(array $data): array
+
+    protected function handleRecordCreation(array $data): CashierShift
     {
         $user = Auth::user();
-        
-        // Ensure user_id and beginning_saldo are set
-        $data['user_id'] = $user->id;
-        $data['beginning_saldo'] = $data['beginning_saldo'] ?? $data['beginning_saldo_uzs'] ?? 0;
-        $data['opened_at'] = now();
-        
-        return $data;
+        $drawer = CashDrawer::query()->findOrFail($data['cash_drawer_id']);
+
+        return app(StartShiftAction::class)->execute($user, $drawer, $data);
     }
 
     protected function afterCreate(): void
     {
         $shift = $this->record;
-        
-        // Create beginning saldo for UZS if amount is provided
-        $uzsAmount = $shift->beginning_saldo ?? 0;
-        if ($uzsAmount > 0) {
-            \App\Models\BeginningSaldo::create([
-                'cashier_shift_id' => $shift->id,
-                'currency' => Currency::UZS,
-                'amount' => $uzsAmount,
-            ]);
-        }
-        
+
         Notification::make()
             ->title(__c('operation_successful'))
             ->body("New shift started on drawer '{$shift->cashDrawer->name}'")

@@ -47,15 +47,15 @@ class UserSeeder extends Seeder
         $manager = User::where('email', 'manager@jahongir.com')->first();
         $cashier = User::where('email', 'cashier@jahongir.com')->first();
 
-        if ($admin) {
+        if ($admin && method_exists($admin, 'assignRole')) {
             $admin->assignRole('super_admin');
         }
 
-        if ($manager) {
+        if ($manager && method_exists($manager, 'assignRole')) {
             $manager->assignRole('manager');
         }
 
-        if ($cashier) {
+        if ($cashier && method_exists($cashier, 'assignRole')) {
             $cashier->assignRole('cashier');
         }
     }

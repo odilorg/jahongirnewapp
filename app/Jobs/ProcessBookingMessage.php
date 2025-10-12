@@ -159,9 +159,9 @@ class ProcessBookingMessage implements ShouldQueue
             $availability = $beds24->checkAvailability($checkIn, $checkOut, $propertyIds);
             $bookedRoomIds = $availability['bookedRoomIds'] ?? [];
 
-            // Filter out booked rooms
-            $availableRooms = $rooms->reject(function($room) use ($bookedRoomIds) {
-                return in_array($room->room_id, $bookedRoomIds);
+            // Filter out booked rooms - convert room_id to string for proper comparison
+            $availableRooms = $rooms->filter(function($room) use ($bookedRoomIds) {
+                return !in_array((string)$room->room_id, $bookedRoomIds, true);
             });
 
             if ($availableRooms->isEmpty()) {
@@ -171,14 +171,26 @@ class ProcessBookingMessage implements ShouldQueue
                        "All rooms are booked for these dates.";
             }
 
+            // Group rooms by property for better organization
+            $roomsByProperty = $availableRooms->groupBy('property_name');
+
             $response = "Available Rooms\n" .
                         "Check-in: {$checkIn}\n" .
-                        "Check-out: {$checkOut}\n\n";
+                        "Check-out: {$checkOut}\n" .
+                        "Total: " . $availableRooms->count() . " rooms\n\n";
 
-            foreach ($availableRooms as $room) {
-                $response .= "Room {$room->unit_name} - {$room->room_name}\n";
-                $response .= "Type: " . ucfirst($room->room_type) . "\n";
-                $response .= "Price: \${$room->base_price}/night\n\n";
+            foreach ($roomsByProperty as $propertyName => $propertyRooms) {
+                $response .= "━━━━━ " . strtoupper($propertyName) . " ━━━━━\n\n";
+                
+                foreach ($propertyRooms as $room) {
+                    $response .= "Room {$room->unit_name} - {$room->room_name}\n";
+                    $response .= "Type: " . ucfirst($room->room_type) . " | Max: {$room->max_guests} guests\n";
+                    if ($room->base_price > 0) {
+                        $response .= "Price: $" . $room->base_price . "/night
+";
+                    }
+                    $response .= "\n";
+                }
             }
 
             $response .= "To book, use: book room [NUMBER] under [NAME] {$checkIn} to {$checkOut} tel [PHONE] email [EMAIL]";

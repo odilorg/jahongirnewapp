@@ -13,9 +13,6 @@ class CashDrawerSeeder extends Seeder
      */
     public function run(): void
     {
-        // Clear existing drawers first (soft delete)
-        CashDrawer::query()->delete();
-
         $drawers = [
             [
                 'name' => 'Jahongir Hotel',
@@ -28,6 +25,9 @@ class CashDrawerSeeder extends Seeder
                 'is_active' => true,
             ],
         ];
+
+        // Clear existing drawers (force delete to avoid unique constraints with soft deletes)
+        CashDrawer::withTrashed()->whereIn('name', array_column($drawers, 'name'))->forceDelete();
 
         foreach ($drawers as $drawer) {
             CashDrawer::create($drawer);

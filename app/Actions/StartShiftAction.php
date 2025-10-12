@@ -39,6 +39,18 @@ class StartShiftAction
                 ]);
             }
 
+            // Prevent multiple open shifts on the same drawer
+            $drawerOpenShift = CashierShift::query()
+                ->where('cash_drawer_id', $drawer->id)
+                ->where('status', ShiftStatus::OPEN)
+                ->first();
+
+            if ($drawerOpenShift) {
+                throw ValidationException::withMessages([
+                    'cash_drawer_id' => "Drawer '{$drawer->name}' already has an open shift (Shift #{$drawerOpenShift->id}). Close the existing shift before opening another.",
+                ]);
+            }
+
             // Check if drawer is active
             if (!$drawer->is_active) {
                 throw ValidationException::withMessages([
