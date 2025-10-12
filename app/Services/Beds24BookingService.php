@@ -125,7 +125,7 @@ class Beds24BookingService
                 $propertyIds = ['41097', '172793']; // Jahongir Hotel, Jahongir Premium
             }
 
-            $allBookedRoomIds = [];
+            $roomBookingCounts = []; // Count bookings per room type
             $totalBookings = 0;
 
             // Query each property separately
@@ -155,11 +155,12 @@ class Beds24BookingService
                     continue; // Skip this property but continue with others
                 }
 
-                // Extract booked room IDs from this property
+                // Count bookings per room type
                 if (isset($result['data']) && is_array($result['data'])) {
                     foreach ($result['data'] as $booking) {
                         if (isset($booking['roomId'])) {
-                            $allBookedRoomIds[] = (string) $booking['roomId'];
+                            $roomId = (string) $booking['roomId'];
+                            $roomBookingCounts[$roomId] = ($roomBookingCounts[$roomId] ?? 0) + 1;
                         }
                     }
                     $totalBookings += $result['count'] ?? 0;
@@ -168,7 +169,7 @@ class Beds24BookingService
 
             return [
                 'success' => true,
-                'bookedRoomIds' => array_unique($allBookedRoomIds),
+                'roomBookingCounts' => $roomBookingCounts,
                 'totalBookings' => $totalBookings
             ];
 
