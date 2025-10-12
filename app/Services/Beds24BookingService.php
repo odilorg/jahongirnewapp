@@ -46,7 +46,7 @@ class Beds24BookingService
             ])->timeout(30)->post($this->apiUrl . '/bookings', $payload);
 
             $result = $response->json();
-            
+
             Log::info('Beds24 Create Booking Response', ['response' => $result]);
 
             if (!$response->successful() || (isset($result['success']) && !$result['success'])) {
@@ -111,6 +111,64 @@ class Beds24BookingService
         ])->timeout(30)->post($this->apiUrl . '/bookings', [$payload]);
 
         return $response->json();
+    }
+
+    /**
+     * Check availability by getting existing bookings for the date range
+     * Returns array of booked room IDs
+     */
+    public function checkAvailability(string $checkIn, string $checkOut, ?array $roomIds = null): array
+    {
+        try {
+            $params = [
+                'arrival' => $checkIn,
+                'departure' => $checkOut,
+            ];
+
+            if ($roomIds) {
+                $params['roomId'] = implode(',', $roomIds);
+            }
+
+            Log::info('Beds24 Check Availability Request', ['params' => $params]);
+
+            // Get existing bookings for these dates
+            $response = Http::withHeaders([
+                'token' => $this->token,
+                'accept' => 'application/json',
+            ])->timeout(30)->get($this->apiUrl . '/bookings', $params);
+
+            $result = $response->json();
+
+            Log::info('Beds24 Check Availability Response', ['response' => $result]);
+
+            if (!$response->successful()) {
+                throw new \Exception('Beds24 API error: ' . json_encode($result));
+            }
+
+            // Extract booked room IDs
+            $bookedRoomIds = [];
+            if (isset($result['data']) && is_array($result['data'])) {
+                foreach ($result['data'] as $booking) {
+                    if (isset($booking['roomId'])) {
+                        $bookedRoomIds[] = (string) $booking['roomId'];
+                    }
+                }
+            }
+
+            return [
+                'success' => true,
+                'bookedRoomIds' => array_unique($bookedRoomIds),
+                'totalBookings' => $result['count'] ?? 0
+            ];
+
+        } catch (\Exception $e) {
+            Log::error('Beds24 Availability Check Error', [
+                'error' => $e->getMessage(),
+                'check_in' => $checkIn,
+                'check_out' => $checkOut
+            ]);
+            throw $e;
+        }
     }
 
     /**

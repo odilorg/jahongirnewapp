@@ -13,7 +13,7 @@ class TelegramBotService
 
     public function __construct()
     {
-        $this->botToken = BotConfiguration::get('telegram_bot_token', config('services.telegram.bot_token'));
+        $this->botToken = config("services.telegram.bot_token", env("TELEGRAM_BOT_TOKEN"));
     }
 
     public function sendMessage(int $chatId, string $text, array $options = []): array
@@ -21,7 +21,7 @@ class TelegramBotService
         $params = array_merge([
             'chat_id' => $chatId,
             'text' => $text,
-            'parse_mode' => 'Markdown',
+            // 'parse_mode' => 'Markdown', // Disabled to prevent markdown parsing errors
         ], $options);
 
         try {
