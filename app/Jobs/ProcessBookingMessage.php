@@ -9,6 +9,7 @@ use App\Services\BookingIntentParser;
 use App\Services\StaffAuthorizationService;
 use App\Services\TelegramBotService;
 use App\Services\StaffResponseFormatter;
+use App\Services\TelegramKeyboardService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -29,9 +30,16 @@ class ProcessBookingMessage implements ShouldQueue
         BookingIntentParser $parser,
         TelegramBotService $telegram,
         StaffResponseFormatter $formatter,
-        Beds24BookingService $beds24
+        Beds24BookingService $beds24,
+        TelegramKeyboardService $keyboard
     ): void {
         try {
+            // Handle callback queries (button presses)
+            if (isset($this->update['callback_query'])) {
+                $this->handleCallbackQuery($this->update['callback_query'], $authService, $telegram, $beds24, $keyboard);
+                return;
+            }
+
             $message = $this->update['message'] ?? null;
 
             if (!$message) {
@@ -64,9 +72,14 @@ class ProcessBookingMessage implements ShouldQueue
                 return;
             }
 
-            // Handle help command
-            if (in_array(strtolower($text), ['help', '/help', '/start'])) {
-                $telegram->sendMessage($chatId, $formatter->formatHelp());
+            // Handle help command - show main menu with buttons
+            if (in_array(strtolower($text), ['help', '/help', '/start', 'menu'])) {
+                $welcomeMessage = "🏨 Booking Bot Menu\n\n" .
+                                "Choose an option below or type your command:";
+
+                $telegram->sendMessage($chatId, $welcomeMessage, [
+                    'reply_markup' => $keyboard->formatForApi($keyboard->getMainMenu())
+                ]);
                 return;
             }
 
@@ -882,6 +895,89 @@ class ProcessBookingMessage implements ShouldQueue
                    "Booking ID: #{$bookingId}\n" .
                    "Error: {$e->getMessage()}\n\n" .
                    "Please check the details and try again, or modify manually in Beds24.";
+        }
+    }
+
+    protected function handleCallbackQuery($callbackQuery, $authService, $telegram, $beds24, $keyboard): void
+    {
+        $chatId = $callbackQuery['message']['chat']['id'];
+        $messageId = $callbackQuery['message']['message_id'];
+        $callbackData = $callbackQuery['callback_data'];
+        $callbackQueryId = $callbackQuery['id'];
+
+        // Check authorization
+        $staff = $authService->verifyTelegramUser(['callback_query' => $callbackQuery]);
+
+        if (!$staff) {
+            $telegram->answerCallbackQuery($callbackQueryId, [
+                'text' => 'You are not authorized to use this bot.',
+                'show_alert' => true
+            ]);
+            return;
+        }
+
+        // Answer the callback query immediately to remove loading state
+        $telegram->answerCallbackQuery($callbackQueryId);
+
+        // Handle different button actions
+        switch ($callbackData) {
+            case 'main_menu':
+                $telegram->editMessageText($chatId, $messageId, "🏨 Booking Bot Menu\n\nChoose an option below:", [
+                    'reply_markup' => $keyboard->formatForApi($keyboard->getMainMenu())
+                ]);
+                break;
+
+            case 'view_arrivals_today':
+                $response = $this->handleViewBookings(['filter_type' => 'arrivals_today'], $beds24);
+                $telegram->editMessageText($chatId, $messageId, $response, [
+                    'reply_markup' => $keyboard->formatForApi($keyboard->getBackButton())
+                ]);
+                break;
+
+            case 'view_departures_today':
+                $response = $this->handleViewBookings(['filter_type' => 'departures_today'], $beds24);
+                $telegram->editMessageText($chatId, $messageId, $response, [
+                    'reply_markup' => $keyboard->formatForApi($keyboard->getBackButton())
+                ]);
+                break;
+
+            case 'view_current':
+                $response = $this->handleViewBookings(['filter_type' => 'current'], $beds24);
+                $telegram->editMessageText($chatId, $messageId, $response, [
+                    'reply_markup' => $keyboard->formatForApi($keyboard->getBackButton())
+                ]);
+                break;
+
+            case 'view_new':
+                $response = $this->handleViewBookings(['filter_type' => 'new'], $beds24);
+                $telegram->editMessageText($chatId, $messageId, $response, [
+                    'reply_markup' => $keyboard->formatForApi($keyboard->getBackButton())
+                ]);
+                break;
+
+            case 'search_guest':
+            case 'check_availability':
+            case 'create_booking':
+            case 'modify_booking':
+            case 'cancel_booking':
+                $instructions = match($callbackData) {
+                    'search_guest' => "Please type the guest name to search.\n\nExample: search for John Smith",
+                    'check_availability' => "Please type dates to check availability.\n\nExample: check avail jan 15-17",
+                    'create_booking' => "Please type booking details.\n\nExample: book room 12 under John Smith jan 15-17 tel +1234567890 email john@email.com",
+                    'modify_booking' => "Please type booking ID and changes.\n\nExample: modify booking #123456 to jan 15-17",
+                    'cancel_booking' => "Please type booking ID to cancel.\n\nExample: cancel booking #123456",
+                };
+
+                $telegram->editMessageText($chatId, $messageId, $instructions, [
+                    'reply_markup' => $keyboard->formatForApi($keyboard->getBackButton())
+                ]);
+                break;
+
+            default:
+                $telegram->editMessageText($chatId, $messageId, "Unknown action. Please try again.", [
+                    'reply_markup' => $keyboard->formatForApi($keyboard->getMainMenu())
+                ]);
+                break;
         }
     }
 

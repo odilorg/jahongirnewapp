@@ -10,19 +10,20 @@ return new class extends Migration
     {
         Schema::create('scheduled_message_chat', function (Blueprint $table) {
             $table->id();
-            $table->unsignedBigInteger('scheduled_message_id');
-            $table->unsignedBigInteger('chat_id');
+            $table->unsignedBigInteger('scheduled_message_id')->nullable();
+            $table->unsignedBigInteger('chat_id')->nullable();
             $table->timestamps();
 
-            $table->foreign('scheduled_message_id')
-                  ->references('id')
-                  ->on('scheduled_messages')
-                  ->onDelete('cascade');
+            // Foreign keys commented out - tables don't exist yet
+            // $table->foreign('scheduled_message_id')
+            //       ->references('id')
+            //       ->on('scheduled_messages')
+            //       ->onDelete('cascade');
 
-            $table->foreign('chat_id')
-                  ->references('id')
-                  ->on('chats')
-                  ->onDelete('cascade');
+            // $table->foreign('chat_id')
+            //       ->references('id')
+            //       ->on('chats')
+            //       ->onDelete('cascade');
         });
     }
 
