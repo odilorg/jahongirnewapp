@@ -39,11 +39,16 @@ class UserResource extends Resource
                             ->password()
                             ->required()
                             ->maxLength(255),
-                        Forms\Components\Select::make('roles')
-                            ->relationship('roles', 'name')
-                            ->multiple()
-                            ->preload()
-                            ->searchable(),
+                        Forms\Components\Select::make('role')
+                            ->options([
+                                'super_admin' => 'Super Admin',
+                                'admin' => 'Admin',
+                                'manager' => 'Manager',
+                                'cashier' => 'Cashier',
+                                'staff' => 'Staff',
+                            ])
+                            ->searchable()
+                            ->placeholder('Select a role'),
                     ])
                     ->columns(2),
 
