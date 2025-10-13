@@ -120,7 +120,7 @@ class ProcessBookingMessage implements ShouldQueue
                 return $this->handleCreateBooking($parsed, $staff, $beds24);
 
             case 'view_bookings':
-                return 'Viewing bookings feature coming soon!';
+                return $this->handleViewBookings($parsed, $beds24);
 
             case 'modify_booking':
                 return $this->handleModifyBooking($parsed, $staff, $beds24);
@@ -367,6 +367,150 @@ class ProcessBookingMessage implements ShouldQueue
                    "Dates: {$checkIn} to {$checkOut}\n\n" .
                    "Error: {$e->getMessage()}\n\n" .
                    "Please check the details and try again or create manually in Beds24.";
+        }
+    }
+
+
+    protected function handleViewBookings(array $parsed, $beds24): string
+    {
+        try {
+            // Build filters based on parsed intent
+            $filters = [];
+            $filterType = $parsed['filter_type'] ?? null;
+
+            // Get all configured room properties
+            $rooms = RoomUnitMapping::all();
+            $propertyIds = $rooms->pluck('property_id')->unique()->toArray();
+            $filters['propertyId'] = $propertyIds;
+
+            // Determine filter type from parsed data
+            if ($filterType) {
+                switch ($filterType) {
+                    case 'arrivals_today':
+                        $filters['filter'] = 'arrivals';
+                        $filters['arrival'] = date('Y-m-d');
+                        $title = "Arrivals Today (" . date('M j, Y') . ")";
+                        break;
+
+                    case 'departures_today':
+                        $filters['filter'] = 'departures';
+                        $filters['departure'] = date('Y-m-d');
+                        $title = "Departures Today (" . date('M j, Y') . ")";
+                        break;
+
+                    case 'current':
+                        $filters['filter'] = 'current';
+                        $title = "Current Bookings (In-House)";
+                        break;
+
+                    case 'new':
+                        $filters['filter'] = 'new';
+                        $title = "New Bookings (Unconfirmed)";
+                        break;
+
+                    default:
+                        $filters['filter'] = 'current';
+                        $title = "Current Bookings";
+                }
+            } else {
+                // Default: show current bookings
+                $filters['filter'] = 'current';
+                $title = "Current Bookings";
+            }
+
+            // Check for search string (guest name search)
+            if (isset($parsed['search_string']) && !empty($parsed['search_string'])) {
+                $filters['searchString'] = $parsed['search_string'];
+                $title = "Search Results: " . $parsed['search_string'];
+            }
+
+            // Check for date range filters
+            $dates = $parsed['dates'] ?? null;
+            if ($dates) {
+                if (!empty($dates['check_in'])) {
+                    $filters['arrivalFrom'] = $dates['check_in'];
+                }
+                if (!empty($dates['check_out'])) {
+                    $filters['arrivalTo'] = $dates['check_out'];
+                }
+            }
+
+            Log::info('Fetching bookings', ['filters' => $filters]);
+
+            // Get bookings from Beds24
+            $result = $beds24->getBookings($filters);
+
+            if (!isset($result['data']) || empty($result['data'])) {
+                return "No Bookings Found\n\n" .
+                       "Filter: {$title}\n" .
+                       "No bookings match your search criteria.";
+            }
+
+            $bookings = $result['data'];
+            $count = count($bookings);
+
+            // Build response
+            $response = "{$title}\n";
+            $response .= "━━━━━━━━━━━━━━━━━━━━\n";
+            $response .= "Found {$count} " . ($count == 1 ? 'booking' : 'bookings') . "\n\n";
+
+            // Limit to first 10 bookings to avoid message length issues
+            $displayCount = min($count, 10);
+
+            for ($i = 0; $i < $displayCount; $i++) {
+                $booking = $bookings[$i];
+
+                $response .= "#{$booking['id']}\n";
+                $response .= "Guest: " . ($booking['guestName'] ?? 'N/A') . "\n";
+                $response .= "Room: " . ($booking['roomName'] ?? 'N/A') . "\n";
+                $response .= "Dates: " . ($booking['arrival'] ?? 'N/A') . " → " . ($booking['departure'] ?? 'N/A') . "\n";
+
+                if (isset($booking['status'])) {
+                    $statusEmoji = match($booking['status']) {
+                        'confirmed' => '✅',
+                        'request' => '❓',
+                        'cancelled' => '❌',
+                        'new' => '🆕',
+                        default => '•'
+                    };
+                    $response .= "Status: {$statusEmoji} " . ucfirst($booking['status']) . "\n";
+                }
+
+                if (isset($booking['numAdult']) || isset($booking['numChild'])) {
+                    $adults = $booking['numAdult'] ?? 0;
+                    $children = $booking['numChild'] ?? 0;
+                    $response .= "Guests: {$adults} " . ($adults == 1 ? 'adult' : 'adults');
+                    if ($children > 0) {
+                        $response .= ", {$children} " . ($children == 1 ? 'child' : 'children');
+                    }
+                    $response .= "\n";
+                }
+
+                if (isset($booking['price'])) {
+                    $response .= "Price: $" . number_format($booking['price'], 2) . "\n";
+                }
+
+                $response .= "\n";
+            }
+
+            if ($count > 10) {
+                $response .= "... and " . ($count - 10) . " more bookings\n";
+                $response .= "(Showing first 10 results)\n";
+            }
+
+            $response .= "\nTo modify: modify booking #[ID]\n";
+            $response .= "To cancel: cancel booking #[ID]";
+
+            return $response;
+
+        } catch (\Exception $e) {
+            Log::error('View bookings failed', [
+                'error' => $e->getMessage(),
+                'parsed' => $parsed
+            ]);
+
+            return "Error fetching bookings: " . $e->getMessage() . "\n\n" .
+                   "Please try again or contact support.";
         }
     }
 
