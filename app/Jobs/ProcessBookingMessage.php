@@ -902,7 +902,7 @@ class ProcessBookingMessage implements ShouldQueue
     {
         $chatId = $callbackQuery['message']['chat']['id'];
         $messageId = $callbackQuery['message']['message_id'];
-        $callbackData = $callbackQuery['callback_data'];
+        $callbackData = $callbackQuery['data']; // Fixed: it's 'data' not 'callback_data'
         $callbackQueryId = $callbackQuery['id'];
 
         // Check authorization
