@@ -4,8 +4,10 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use App\Enums\Currency;
 
 class CashDrawer extends Model
 {
@@ -14,12 +16,23 @@ class CashDrawer extends Model
     protected $fillable = [
         'name',
         'location',
+        'location_id',
         'is_active',
+        'balances',
     ];
 
     protected $casts = [
         'is_active' => 'boolean',
+        'balances' => 'array',
     ];
+
+    /**
+     * Get the location that owns this drawer
+     */
+    public function location(): BelongsTo
+    {
+        return $this->belongsTo(Location::class);
+    }
 
     /**
      * Get all shifts for this drawer
@@ -87,5 +100,70 @@ class CashDrawer extends Model
     public function getCurrentOpenShift(): ?CashierShift
     {
         return $this->openShifts()->first();
+    }
+
+    /**
+     * Get balance for a specific currency
+     */
+    public function getBalanceForCurrency(string $currency): float
+    {
+        $balances = $this->balances ?? [];
+        return $balances[$currency] ?? 0;
+    }
+
+    /**
+     * Set balance for a specific currency
+     */
+    public function setBalanceForCurrency(string $currency, float $amount): void
+    {
+        $balances = $this->balances ?? [];
+        $balances[$currency] = $amount;
+        $this->balances = $balances;
+        $this->save();
+    }
+
+    /**
+     * Update balance for a specific currency (add/subtract)
+     */
+    public function updateBalanceForCurrency(string $currency, float $amount): void
+    {
+        $currentBalance = $this->getBalanceForCurrency($currency);
+        $this->setBalanceForCurrency($currency, $currentBalance + $amount);
+    }
+
+    /**
+     * Get all balances with formatting
+     */
+    public function getFormattedBalances(): array
+    {
+        $balances = $this->balances ?? [];
+        $formatted = [];
+
+        foreach ($balances as $currency => $amount) {
+            try {
+                $currencyEnum = Currency::from($currency);
+                $formatted[] = $currencyEnum->formatAmount($amount);
+            } catch (\Exception $e) {
+                $formatted[] = "$amount $currency";
+            }
+        }
+
+        return $formatted;
+    }
+
+    /**
+     * Initialize balances from closed shift
+     */
+    public function initializeBalancesFromShift(CashierShift $shift): void
+    {
+        $balances = [];
+
+        // Get end saldos from closed shift
+        foreach ($shift->endSaldos as $endSaldo) {
+            $balances[$endSaldo->currency->value] = (float) $endSaldo->counted_end_saldo;
+        }
+
+        $this->balances = $balances;
+        $this->save();
     }
 }

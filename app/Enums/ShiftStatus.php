@@ -6,12 +6,14 @@ enum ShiftStatus: string
 {
     case OPEN = 'open';
     case CLOSED = 'closed';
+    case UNDER_REVIEW = 'under_review';
 
     public function label(): string
     {
         return match ($this) {
             self::OPEN => 'Open',
             self::CLOSED => 'Closed',
+            self::UNDER_REVIEW => 'Under Review',
         };
     }
 
@@ -20,6 +22,7 @@ enum ShiftStatus: string
         return match ($this) {
             self::OPEN => 'success',
             self::CLOSED => 'gray',
+            self::UNDER_REVIEW => 'warning',
         };
     }
 
@@ -28,6 +31,7 @@ enum ShiftStatus: string
         return match ($this) {
             self::OPEN => 'heroicon-o-play',
             self::CLOSED => 'heroicon-o-stop',
+            self::UNDER_REVIEW => 'heroicon-o-exclamation-triangle',
         };
     }
 }

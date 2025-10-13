@@ -19,6 +19,8 @@ class CashTransaction extends Model
         'type',
         'amount',
         'currency',
+        'related_currency',
+        'related_amount',
         'category',
         'reference',
         'notes',
@@ -30,6 +32,7 @@ class CashTransaction extends Model
         'type' => TransactionType::class,
         'category' => TransactionCategory::class,
         'amount' => 'decimal:2',
+        'related_amount' => 'decimal:2',
         'occurred_at' => 'datetime',
     ];
 
@@ -123,5 +126,50 @@ class CashTransaction extends Model
         } else {
             $this->attributes['currency'] = $value;
         }
+    }
+
+    /**
+     * Get related currency as enum
+     */
+    public function getRelatedCurrencyAttribute($value): ?Currency
+    {
+        return $value ? Currency::from($value) : null;
+    }
+
+    /**
+     * Set related currency from enum
+     */
+    public function setRelatedCurrencyAttribute($value): void
+    {
+        if ($value instanceof Currency) {
+            $this->attributes['related_currency'] = $value->value;
+        } elseif ($value) {
+            $this->attributes['related_currency'] = $value;
+        } else {
+            $this->attributes['related_currency'] = null;
+        }
+    }
+
+    /**
+     * Check if this is an exchange transaction
+     */
+    public function isExchange(): bool
+    {
+        return $this->type === TransactionType::IN_OUT && !empty($this->related_currency);
+    }
+
+    /**
+     * Get formatted exchange details
+     */
+    public function getExchangeDetails(): ?string
+    {
+        if (!$this->isExchange()) {
+            return null;
+        }
+
+        $inCurrency = $this->currency;
+        $outCurrency = $this->related_currency;
+
+        return "{$inCurrency->formatAmount($this->amount)} → {$outCurrency->formatAmount($this->related_amount)}";
     }
 }
