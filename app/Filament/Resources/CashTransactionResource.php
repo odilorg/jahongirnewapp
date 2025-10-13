@@ -212,11 +212,12 @@ class CashTransactionResource extends Resource
                        Tables\Columns\TextColumn::make('exchange_details')
                            ->label('Exchange Details')
                            ->getStateUsing(function ($record) {
+                               if (!$record) return null;
                                return $record->getExchangeDetails();
                            })
                            ->badge()
                            ->color('warning')
-                           ->visible(fn ($record) => $record->isExchange()),
+                           ->visible(fn ($record) => $record && $record->isExchange()),
 
                        Tables\Columns\TextColumn::make('shift.cashDrawer.location.name')
                            ->label('Location')
