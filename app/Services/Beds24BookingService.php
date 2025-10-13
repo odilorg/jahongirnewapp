@@ -9,10 +9,53 @@ class Beds24BookingService
 {
     protected string $apiUrl = 'https://api.beds24.com/v2';
     protected string $token;
+    protected string $refreshToken;
 
     public function __construct()
     {
-        $this->token = config('services.telegram_bot.beds24.api_v2_token', env('BEDS24_API_V2_TOKEN'));
+        $this->refreshToken = config('services.telegram_bot.beds24.api_v2_refresh_token', env('BEDS24_API_V2_REFRESH_TOKEN'));
+        $this->token = $this->getValidToken();
+    }
+
+    /**
+     * Get a valid access token using refresh token
+     */
+    protected function getValidToken(): string
+    {
+        $cacheKey = 'beds24_access_token';
+
+        // Try to get cached token
+        $cachedToken = cache($cacheKey);
+        if ($cachedToken) {
+            return $cachedToken;
+        }
+
+        // Get new token from refresh token
+        try {
+            $response = Http::withHeaders([
+                'refreshToken' => $this->refreshToken,
+                'accept' => 'application/json',
+            ])->get('https://beds24.com/api/v2/authentication/token');
+
+            $result = $response->json();
+
+            if (isset($result['token'])) {
+                $token = $result['token'];
+                $expiresIn = $result['expiresIn'] ?? 86400; // Default 24 hours
+
+                // Cache for slightly less than expiry time (subtract 5 minutes for safety)
+                cache([$cacheKey => $token], now()->addSeconds($expiresIn - 300));
+
+                Log::info('Beds24 Access Token Refreshed', ['expires_in' => $expiresIn]);
+
+                return $token;
+            }
+
+            throw new \Exception('Failed to get access token: ' . json_encode($result));
+        } catch (\Exception $e) {
+            Log::error('Beds24 Token Refresh Error', ['error' => $e->getMessage()]);
+            throw $e;
+        }
     }
 
     /**
