@@ -160,7 +160,7 @@ class Beds24BookingService
 
             // Convert propertyId array to string if needed
             if (isset($filters['propertyId']) && is_array($filters['propertyId'])) {
-                $filters['propertyId'] = implode(',', $filters['propertyId']);
+                $filters['propertyId'] = implode(',', array_values($filters['propertyId']));
             }
 
             // Convert status array to string if needed
@@ -176,8 +176,11 @@ class Beds24BookingService
             $result = $response->json();
 
             Log::info('Beds24 Get Bookings Response', [
+                'status_code' => $response->status(),
                 'count' => $result['count'] ?? 0,
-                'success' => $response->successful()
+                'success' => $response->successful(),
+                'has_data' => isset($result['data']),
+                'result' => $result
             ]);
 
             if ($response->successful() && isset($result['data'])) {
