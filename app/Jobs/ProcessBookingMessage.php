@@ -2,7 +2,7 @@
 
 namespace App\Jobs;
 
-use App\Models\AuthorizedStaff;
+use App\Models\User;
 use App\Models\RoomUnitMapping;
 use App\Services\Beds24BookingService;
 use App\Services\BookingIntentParser;
@@ -355,7 +355,7 @@ class ProcessBookingMessage implements ShouldQueue
                 'guest_name' => $guestName,
                 'guest_phone' => $phone,
                 'guest_email' => $email,
-                'notes' => 'Created by ' . $staff->full_name . ' via Telegram Bot'
+                'notes' => 'Created by ' . $staff->name . ' via Telegram Bot'
             ];
 
             Log::info('Creating Beds24 booking', ['data' => $bookingData]);
@@ -608,10 +608,10 @@ class ProcessBookingMessage implements ShouldQueue
             // Cancel the booking
             Log::info('Cancelling booking', [
                 'booking_id' => $bookingId,
-                'staff' => $staff->full_name
+                'staff' => $staff->name
             ]);
 
-            $reason = 'Cancelled by ' . $staff->full_name . ' via Telegram Bot';
+            $reason = 'Cancelled by ' . $staff->name . ' via Telegram Bot';
             $result = $beds24->cancelBooking($bookingId, $reason);
 
             Log::info('Cancel booking API response', ['result' => $result]);
@@ -858,7 +858,7 @@ class ProcessBookingMessage implements ShouldQueue
             Log::info('Modifying booking', [
                 'booking_id' => $bookingId,
                 'changes' => $changes,
-                'staff' => $staff->full_name
+                'staff' => $staff->name
             ]);
 
             $result = $beds24->modifyBooking($bookingId, $changes);

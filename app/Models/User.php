@@ -41,7 +41,11 @@ class User extends Authenticatable implements FilamentUser
         'name',
         'email',
         'password',
-        'role'
+        'role',
+        'phone_number',
+        'telegram_user_id',
+        'telegram_username',
+        'last_active_at'
     ];
 
     /**
@@ -63,6 +67,8 @@ class User extends Authenticatable implements FilamentUser
     protected $casts = [
         'email_verified_at' => 'datetime',
         'password' => 'hashed',
+        'telegram_user_id' => 'integer',
+        'last_active_at' => 'datetime',
     ];
 
     // Role check methods now use Spatie Permission
@@ -121,14 +127,38 @@ class User extends Authenticatable implements FilamentUser
     {
         return true; // Temporarily allow all roles
     }
-    
+
     public function hasAnyRole($roles)
     {
         return true; // Temporarily allow all roles
     }
-    
+
     public function hasPermission($permission)
     {
         return true; // Temporarily allow all permissions
+    }
+
+    /**
+     * Check if phone number is authorized for Telegram bot
+     */
+    public static function isPhoneAuthorized(string $phoneNumber): bool
+    {
+        return self::where('phone_number', $phoneNumber)->exists();
+    }
+
+    /**
+     * Find user by Telegram user ID
+     */
+    public static function findByTelegramId(int $telegramUserId): ?self
+    {
+        return self::where('telegram_user_id', $telegramUserId)->first();
+    }
+
+    /**
+     * Update last active timestamp
+     */
+    public function touchLastActive(): void
+    {
+        $this->update(['last_active_at' => now()]);
     }
 }

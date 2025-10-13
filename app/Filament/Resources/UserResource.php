@@ -26,24 +26,53 @@ class UserResource extends Resource
     {
         return $form
             ->schema([
-                Forms\Components\TextInput::make('name')
-                    ->required()
-                    ->maxLength(255),
-                Forms\Components\TextInput::make('email')
-                    ->email()
-                    ->required()
-                    ->maxLength(255),
-               //Forms\Components\DateTimePicker::make('email_verified_at'),
-                Forms\Components\TextInput::make('password')
-                    ->password()
-                    ->required()
-                    ->maxLength(255),
-                // Using Select Component
-Forms\Components\Select::make('roles')
-    ->relationship('roles', 'name')
-    ->multiple()
-    ->preload()
-    ->searchable(),  
+                Forms\Components\Section::make('User Information')
+                    ->schema([
+                        Forms\Components\TextInput::make('name')
+                            ->required()
+                            ->maxLength(255),
+                        Forms\Components\TextInput::make('email')
+                            ->email()
+                            ->required()
+                            ->maxLength(255),
+                        Forms\Components\TextInput::make('password')
+                            ->password()
+                            ->required()
+                            ->maxLength(255),
+                        Forms\Components\Select::make('roles')
+                            ->relationship('roles', 'name')
+                            ->multiple()
+                            ->preload()
+                            ->searchable(),
+                    ])
+                    ->columns(2),
+
+                Forms\Components\Section::make('Telegram Bot Access')
+                    ->schema([
+                        Forms\Components\TextInput::make('phone_number')
+                            ->label('Phone Number')
+                            ->tel()
+                            ->maxLength(50)
+                            ->placeholder('+998XXXXXXXXX')
+                            ->helperText('Users with phone numbers can authorize the Telegram bot'),
+                        Forms\Components\TextInput::make('telegram_user_id')
+                            ->label('Telegram User ID')
+                            ->numeric()
+                            ->disabled()
+                            ->dehydrated(false)
+                            ->helperText('Auto-populated when user authorizes via bot'),
+                        Forms\Components\TextInput::make('telegram_username')
+                            ->label('Telegram Username')
+                            ->disabled()
+                            ->dehydrated(false)
+                            ->helperText('Auto-populated when user authorizes via bot'),
+                        Forms\Components\DateTimePicker::make('last_active_at')
+                            ->label('Last Active (Bot)')
+                            ->disabled()
+                            ->dehydrated(false),
+                    ])
+                    ->columns(2)
+                    ->collapsible(),
             ]);
     }
 
@@ -52,12 +81,38 @@ Forms\Components\Select::make('roles')
         return $table
             ->columns([
                 Tables\Columns\TextColumn::make('name')
-                    ->searchable(),
+                    ->searchable()
+                    ->sortable(),
                 Tables\Columns\TextColumn::make('email')
-                    ->searchable(),
+                    ->searchable()
+                    ->sortable(),
                 Tables\Columns\TextColumn::make('role')
-                    ->searchable(),    
-               
+                    ->searchable()
+                    ->badge()
+                    ->color(fn (string $state): string => match ($state) {
+                        'super_admin', 'admin' => 'success',
+                        'manager' => 'warning',
+                        'cashier' => 'info',
+                        default => 'gray',
+                    }),
+                Tables\Columns\TextColumn::make('phone_number')
+                    ->label('Phone')
+                    ->searchable()
+                    ->copyable()
+                    ->icon('heroicon-o-phone')
+                    ->placeholder('No phone'),
+                Tables\Columns\TextColumn::make('telegram_username')
+                    ->label('Telegram')
+                    ->searchable()
+                    ->icon('heroicon-o-chat-bubble-left-right')
+                    ->placeholder('Not linked'),
+                Tables\Columns\TextColumn::make('last_active_at')
+                    ->label('Last Bot Activity')
+                    ->dateTime()
+                    ->sortable()
+                    ->since()
+                    ->placeholder('Never')
+                    ->toggleable(),
                 Tables\Columns\TextColumn::make('created_at')
                     ->dateTime()
                     ->sortable()
@@ -68,7 +123,24 @@ Forms\Components\Select::make('roles')
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
-                //
+                Tables\Filters\TernaryFilter::make('phone_number')
+                    ->label('Bot Access')
+                    ->placeholder('All users')
+                    ->trueLabel('Has phone (can use bot)')
+                    ->falseLabel('No phone')
+                    ->queries(
+                        true: fn (Builder $query) => $query->whereNotNull('phone_number'),
+                        false: fn (Builder $query) => $query->whereNull('phone_number'),
+                    ),
+                Tables\Filters\TernaryFilter::make('telegram_user_id')
+                    ->label('Bot Status')
+                    ->placeholder('All users')
+                    ->trueLabel('Linked to Telegram')
+                    ->falseLabel('Not linked')
+                    ->queries(
+                        true: fn (Builder $query) => $query->whereNotNull('telegram_user_id'),
+                        false: fn (Builder $query) => $query->whereNull('telegram_user_id'),
+                    ),
             ])
             ->actions([
                 Tables\Actions\ViewAction::make(),
