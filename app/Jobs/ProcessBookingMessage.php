@@ -89,7 +89,17 @@ class ProcessBookingMessage implements ShouldQueue
             // Handle command
             $response = $this->handleCommand($parsed, $staff, $beds24);
 
-            $telegram->sendMessage($chatId, $response);
+            // Send response with back button for view and check commands
+            $intent = $parsed['intent'] ?? 'unknown';
+            $needsBackButton = in_array($intent, ['view_bookings', 'check_availability']);
+
+            if ($needsBackButton) {
+                $telegram->sendMessage($chatId, $response, [
+                    'reply_markup' => $keyboard->formatForApi($keyboard->getBackButton())
+                ]);
+            } else {
+                $telegram->sendMessage($chatId, $response);
+            }
 
         } catch (\Exception $e) {
             Log::error('Process Booking Message Error', [
