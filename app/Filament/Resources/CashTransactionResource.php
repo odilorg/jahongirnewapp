@@ -168,7 +168,9 @@ class CashTransactionResource extends Resource
                 Forms\Components\DateTimePicker::make('occurred_at')
                     ->label(__c('transaction_date'))
                     ->default(now())
-                    ->required(),
+                    ->required()
+                    ->visible(fn () => auth()->user()->hasAnyRole(['super_admin', 'admin', 'manager']))
+                    ->helperText('Auto-set on creation (managers can override)'),
             ]);
     }
 
@@ -206,6 +208,21 @@ class CashTransactionResource extends Resource
                                return $record->currency->formatAmount($state);
                            })
                            ->sortable(),
+
+                       Tables\Columns\TextColumn::make('exchange_details')
+                           ->label('Exchange Details')
+                           ->getStateUsing(function ($record) {
+                               return $record->getExchangeDetails();
+                           })
+                           ->badge()
+                           ->color('warning')
+                           ->visible(fn ($record) => $record->isExchange()),
+
+                       Tables\Columns\TextColumn::make('shift.cashDrawer.location.name')
+                           ->label('Location')
+                           ->searchable()
+                           ->sortable()
+                           ->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\BadgeColumn::make('category')
                     ->label(__c('category'))
                     ->colors([

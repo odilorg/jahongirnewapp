@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources;
 
+use App\Actions\ApproveShiftAction;
 use App\Actions\CloseShiftAction;
 use App\Actions\StartShiftAction;
 use App\Enums\ShiftStatus;
@@ -159,6 +160,7 @@ class CashierShiftResource extends Resource
                     ->colors([
                         'success' => 'open',
                         'gray' => 'closed',
+                        'warning' => 'under_review',
                     ]),
                 Tables\Columns\TextColumn::make('beginning_saldo')
                     ->label(__c('beginning_saldo'))
@@ -209,6 +211,7 @@ class CashierShiftResource extends Resource
                     ->options([
                         'open' => 'Open',
                         'closed' => 'Closed',
+                        'under_review' => 'Under Review',
                     ]),
                 Tables\Filters\SelectFilter::make('cash_drawer_id')
                     ->relationship('cashDrawer', 'name')
@@ -238,6 +241,7 @@ class CashierShiftResource extends Resource
             ->actions([
                 Tables\Actions\ViewAction::make(),
                 Tables\Actions\EditAction::make(),
+
                 Tables\Actions\Action::make('close')
                     ->label('Close Shift')
                     ->icon('heroicon-o-stop')
@@ -247,6 +251,50 @@ class CashierShiftResource extends Resource
                     ->action(function (CashierShift $record) {
                         return redirect()->route('filament.admin.resources.cashier-shifts.close-shift', ['record' => $record->id]);
                     }),
+
+                Tables\Actions\Action::make('approve')
+                    ->label('Approve')
+                    ->icon('heroicon-o-check-circle')
+                    ->color('success')
+                    ->visible(fn (CashierShift $record) =>
+                        $record->isUnderReview() && auth()->user()->hasAnyRole(['super_admin', 'admin', 'manager'])
+                    )
+                    ->form([
+                        Forms\Components\Textarea::make('approval_notes')
+                            ->label('Approval Notes')
+                            ->rows(3)
+                            ->placeholder('Optional notes about this approval'),
+                    ])
+                    ->action(function (CashierShift $record, array $data) {
+                        $approver = new ApproveShiftAction();
+                        $approver->approve($record, auth()->user(), $data['approval_notes'] ?? null);
+
+                        return redirect()->route('filament.admin.resources.cashier-shifts.index');
+                    })
+                    ->successNotificationTitle('Shift approved successfully'),
+
+                Tables\Actions\Action::make('reject')
+                    ->label('Reject')
+                    ->icon('heroicon-o-x-circle')
+                    ->color('danger')
+                    ->visible(fn (CashierShift $record) =>
+                        $record->isUnderReview() && auth()->user()->hasAnyRole(['super_admin', 'admin', 'manager'])
+                    )
+                    ->form([
+                        Forms\Components\Textarea::make('rejection_reason')
+                            ->label('Rejection Reason')
+                            ->required()
+                            ->rows(3)
+                            ->placeholder('Explain why this shift needs to be recounted'),
+                    ])
+                    ->requiresConfirmation()
+                    ->action(function (CashierShift $record, array $data) {
+                        $approver = new ApproveShiftAction();
+                        $approver->reject($record, auth()->user(), $data['rejection_reason']);
+
+                        return redirect()->route('filament.admin.resources.cashier-shifts.index');
+                    })
+                    ->successNotificationTitle('Shift rejected - cashier will need to recount'),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
