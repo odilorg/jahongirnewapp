@@ -909,9 +909,18 @@ class ProcessBookingMessage implements ShouldQueue
         $staff = $authService->verifyTelegramUser(['callback_query' => $callbackQuery]);
 
         if (!$staff) {
-            $telegram->answerCallbackQuery($callbackQueryId, [
-                'text' => 'You are not authorized to use this bot.',
-                'show_alert' => true
+            // Answer callback query first
+            $telegram->answerCallbackQuery($callbackQueryId);
+
+            // Send authorization request with phone button
+            $telegram->sendMessage($chatId, $authService->getAuthorizationRequestMessage(), [
+                'reply_markup' => json_encode([
+                    'keyboard' => [[
+                        ['text' => '📱 Share Phone Number', 'request_contact' => true]
+                    ]],
+                    'one_time_keyboard' => true,
+                    'resize_keyboard' => true
+                ])
             ]);
             return;
         }
