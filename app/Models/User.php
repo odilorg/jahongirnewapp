@@ -107,6 +107,30 @@ class User extends Authenticatable implements FilamentUser
     }
 
     /**
+     * Get all locations assigned to this user
+     */
+    public function locations()
+    {
+        return $this->belongsToMany(Location::class)->withTimestamps();
+    }
+
+    /**
+     * Get assigned location IDs for this user
+     */
+    public function getAssignedLocationIds(): array
+    {
+        return $this->locations()->pluck('locations.id')->toArray();
+    }
+
+    /**
+     * Check if user is assigned to a specific location
+     */
+    public function isAssignedToLocation(int $locationId): bool
+    {
+        return $this->locations()->where('locations.id', $locationId)->exists();
+    }
+
+    /**
      * Check if user has any open shifts
      */
     public function hasOpenShifts(): bool

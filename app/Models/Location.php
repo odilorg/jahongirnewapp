@@ -56,6 +56,26 @@ class Location extends Model
     }
 
     /**
+     * Get all users (cashiers) assigned to this location
+     */
+    public function users()
+    {
+        return $this->belongsToMany(User::class)->withTimestamps();
+    }
+
+    /**
+     * Get all cashiers assigned to this location
+     */
+    public function cashiers()
+    {
+        return $this->belongsToMany(User::class)
+            ->whereHas('roles', function ($query) {
+                $query->where('name', 'cashier');
+            })
+            ->withTimestamps();
+    }
+
+    /**
      * Scope for active locations
      */
     public function scopeActive($query)
