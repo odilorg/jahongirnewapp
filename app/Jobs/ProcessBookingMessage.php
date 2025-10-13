@@ -498,9 +498,24 @@ class ProcessBookingMessage implements ShouldQueue
             for ($i = 0; $i < $displayCount; $i++) {
                 $booking = $bookings[$i];
 
+                // Build guest name from firstName and lastName
+                $guestName = trim(($booking['firstName'] ?? '') . ' ' . ($booking['lastName'] ?? ''));
+                if (empty($guestName)) {
+                    $guestName = 'N/A';
+                }
+
+                // Look up room name from roomId
+                $roomName = 'N/A';
+                if (isset($booking['roomId'])) {
+                    $roomMapping = $rooms->where('room_id', $booking['roomId'])->first();
+                    if ($roomMapping) {
+                        $roomName = $roomMapping->room_name . ' (Unit ' . $roomMapping->unit_name . ')';
+                    }
+                }
+
                 $response .= "#{$booking['id']}\n";
-                $response .= "Guest: " . ($booking['guestName'] ?? 'N/A') . "\n";
-                $response .= "Room: " . ($booking['roomName'] ?? 'N/A') . "\n";
+                $response .= "Guest: {$guestName}\n";
+                $response .= "Room: {$roomName}\n";
                 $response .= "Dates: " . ($booking['arrival'] ?? 'N/A') . " → " . ($booking['departure'] ?? 'N/A') . "\n";
 
                 if (isset($booking['status'])) {
