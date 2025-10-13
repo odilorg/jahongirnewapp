@@ -12,7 +12,7 @@ class Beds24BookingService
 
     public function __construct()
     {
-        $this->token = config('services.beds24.api_v2_token', env('BEDS24_API_V2_TOKEN'));
+        $this->token = config('services.telegram_bot.beds24.api_v2_token', env('BEDS24_API_V2_TOKEN'));
     }
 
     /**
