@@ -13,7 +13,16 @@ class ListCashierShifts extends ListRecords
     protected function getHeaderActions(): array
     {
         return [
-            Actions\CreateAction::make(),
+            Actions\Action::make('startShift')
+                ->label('Start Shift')
+                ->icon('heroicon-o-play')
+                ->color('success')
+                ->size('lg')
+                ->url(route('filament.admin.resources.cashier-shifts.start-shift'))
+                ->visible(fn () => !auth()->user()->hasAnyRole(['super_admin', 'admin', 'manager'])),
+
+            Actions\CreateAction::make()
+                ->visible(fn () => auth()->user()->hasAnyRole(['super_admin', 'admin', 'manager'])),
         ];
     }
 }
