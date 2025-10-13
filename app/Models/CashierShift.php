@@ -29,6 +29,12 @@ class CashierShift extends Model
         'opened_at',
         'closed_at',
         'notes',
+        'approved_by',
+        'approved_at',
+        'approval_notes',
+        'rejected_by',
+        'rejected_at',
+        'rejection_reason',
     ];
 
     protected $casts = [
@@ -39,6 +45,8 @@ class CashierShift extends Model
         'discrepancy' => 'decimal:2',
         'opened_at' => 'datetime',
         'closed_at' => 'datetime',
+        'approved_at' => 'datetime',
+        'rejected_at' => 'datetime',
     ];
 
     /**
@@ -55,6 +63,22 @@ class CashierShift extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    /**
+     * Get the manager who approved this shift
+     */
+    public function approver(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'approved_by');
+    }
+
+    /**
+     * Get the manager who rejected this shift
+     */
+    public function rejecter(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'rejected_by');
     }
 
     /**
@@ -135,6 +159,14 @@ class CashierShift extends Model
     public function isClosed(): bool
     {
         return $this->status === ShiftStatus::CLOSED;
+    }
+
+    /**
+     * Check if shift is under review
+     */
+    public function isUnderReview(): bool
+    {
+        return $this->status === ShiftStatus::UNDER_REVIEW;
     }
 
     /**
@@ -313,5 +345,57 @@ class CashierShift extends Model
             ['currency' => $currency->value],
             ['amount' => $amount]
         );
+    }
+
+    /**
+     * Get running balance for a specific currency (real-time calculation)
+     * Formula: Beginning Balance + Cash In - Cash Out
+     */
+    public function getRunningBalanceForCurrency(Currency $currency): float
+    {
+        $beginning = $this->getBeginningSaldoForCurrency($currency);
+        $cashIn = $this->getTotalCashInForCurrency($currency);
+        $cashOut = $this->getTotalCashOutForCurrency($currency);
+
+        return $beginning + $cashIn - $cashOut;
+    }
+
+    /**
+     * Get all running balances (for all currencies used in this shift)
+     */
+    public function getAllRunningBalances(): array
+    {
+        $balances = [];
+
+        // Get all currencies with beginning saldos
+        $beginningCurrencies = $this->beginningSaldos->pluck('currency')->unique();
+
+        // Get all currencies with transactions
+        $transactionCurrencies = $this->transactions->pluck('currency')->unique();
+
+        // Merge and get unique currencies
+        $allCurrencies = $beginningCurrencies->merge($transactionCurrencies)->unique();
+
+        foreach ($allCurrencies as $currency) {
+            $balance = $this->getRunningBalanceForCurrency($currency);
+
+            if ($balance != 0 || $this->getBeginningSaldoForCurrency($currency) > 0) {
+                $balances[] = [
+                    'currency' => $currency,
+                    'balance' => $balance,
+                    'formatted' => $currency->formatAmount($balance),
+                ];
+            }
+        }
+
+        return $balances;
+    }
+
+    /**
+     * Get expected end saldo for a currency (same as running balance)
+     */
+    public function getExpectedEndSaldoForCurrency(Currency $currency): float
+    {
+        return $this->getRunningBalanceForCurrency($currency);
     }
 }

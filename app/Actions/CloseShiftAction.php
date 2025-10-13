@@ -102,11 +102,12 @@ class CloseShiftAction
                 ]);
             }
 
-            // Update the shift status
+            // Update the shift status (UNDER_REVIEW if discrepancy, CLOSED otherwise)
             $shift->update([
-                'status' => ShiftStatus::CLOSED,
+                'status' => $hasDiscrepancy ? ShiftStatus::UNDER_REVIEW : ShiftStatus::CLOSED,
                 'closed_at' => now(),
                 'notes' => $validated['notes'] ?? $shift->notes,
+                'discrepancy_reason' => $hasDiscrepancy ? $validated['discrepancy_reason'] : null,
             ]);
 
             // Create cash count records for currencies with denominations
@@ -125,6 +126,9 @@ class CloseShiftAction
                 }
             }
 
+            // Update drawer balances with counted amounts
+            $this->updateDrawerBalances($shift);
+
             // Create shift templates for next shift (only if no discrepancies)
             $this->createShiftTemplates($shift, $hasDiscrepancy);
 
@@ -133,12 +137,28 @@ class CloseShiftAction
     }
 
     /**
+     * Update drawer balances with counted end saldos
+     */
+    protected function updateDrawerBalances(CashierShift $shift): void
+    {
+        $drawer = $shift->cashDrawer;
+        $balances = [];
+
+        foreach ($shift->endSaldos as $endSaldo) {
+            $balances[$endSaldo->currency->value] = (float) $endSaldo->counted_end_saldo;
+        }
+
+        $drawer->balances = $balances;
+        $drawer->save();
+    }
+
+    /**
      * Create shift templates for the next shift based on current end saldos
      */
     protected function createShiftTemplates(CashierShift $shift, bool $hasDiscrepancy): void
     {
         $endSaldos = $shift->endSaldos;
-        
+
         foreach ($endSaldos as $endSaldo) {
             ShiftTemplate::updateOrCreate(
                 [

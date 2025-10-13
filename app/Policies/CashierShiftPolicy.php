@@ -56,8 +56,13 @@ class CashierShiftPolicy
      */
     public function update(User $user, CashierShift $cashierShift): bool
     {
-        // Only managers and admins can update shifts
-        return $user->hasAnyRole(['super_admin', 'admin', 'manager']);
+        // Managers and admins can always update
+        if ($user->hasAnyRole(['super_admin', 'admin', 'manager'])) {
+            return true;
+        }
+
+        // Cashiers can only update their own OPEN shifts
+        return $user->id === $cashierShift->user_id && $cashierShift->isOpen();
     }
 
     /**
@@ -89,6 +94,24 @@ class CashierShiftPolicy
      */
     public function managerAdjustment(User $user, CashierShift $cashierShift): bool
     {
+        return $user->hasAnyRole(['super_admin', 'admin', 'manager']);
+    }
+
+    /**
+     * Determine whether the user can approve a shift under review.
+     */
+    public function approve(User $user, CashierShift $cashierShift): bool
+    {
+        // Only managers and admins can approve shifts
+        return $user->hasAnyRole(['super_admin', 'admin', 'manager']);
+    }
+
+    /**
+     * Determine whether the user can reject a shift under review.
+     */
+    public function reject(User $user, CashierShift $cashierShift): bool
+    {
+        // Only managers and admins can reject shifts
         return $user->hasAnyRole(['super_admin', 'admin', 'manager']);
     }
 }

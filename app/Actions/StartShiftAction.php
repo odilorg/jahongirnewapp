@@ -16,6 +16,33 @@ use Illuminate\Validation\ValidationException;
 class StartShiftAction
 {
     /**
+     * Quick start a shift with auto-detection and carry-over balances
+     * This is the ONE-CLICK method that does everything automatically
+     */
+    public function quickStart(User $user): CashierShift
+    {
+        return DB::transaction(function () use ($user) {
+            // 1. Auto-select drawer based on user's assigned locations
+            $drawer = $this->autoSelectDrawer($user);
+
+            if (!$drawer) {
+                throw ValidationException::withMessages([
+                    'location' => 'You are not assigned to any locations. Please contact your manager.'
+                ]);
+            }
+
+            // 2. Get previous shift's ending balances
+            $previousShift = $this->getPreviousShift($drawer);
+
+            // 3. Prepare beginning balances (carry over from previous or use defaults)
+            $beginningBalances = $this->prepareBeginningBalances($drawer, $previousShift);
+
+            // 4. Start the shift
+            return $this->execute($user, $drawer, $beginningBalances);
+        });
+    }
+
+    /**
      * Start a new shift for a user on a specific drawer
      */
     public function execute(User $user, CashDrawer $drawer, array $data): CashierShift
@@ -104,6 +131,88 @@ class StartShiftAction
             ->first();
 
         return $template ? $template->amount : 0;
+    }
+
+    /**
+     * Auto-select drawer based on user's assigned locations
+     * Priority: If user has only 1 location, auto-select a drawer from that location
+     */
+    protected function autoSelectDrawer(User $user): ?CashDrawer
+    {
+        // Get user's assigned locations
+        $locations = $user->locations;
+
+        if ($locations->isEmpty()) {
+            return null;
+        }
+
+        // If user has only 1 location, auto-select the first active drawer
+        if ($locations->count() === 1) {
+            $location = $locations->first();
+            return CashDrawer::where('location_id', $location->id)
+                ->where('is_active', true)
+                ->whereDoesntHave('openShifts') // No open shifts
+                ->first();
+        }
+
+        // If multiple locations, try to find any available drawer
+        // Prefer drawers with no open shifts
+        return CashDrawer::whereIn('location_id', $locations->pluck('id'))
+            ->where('is_active', true)
+            ->whereDoesntHave('openShifts')
+            ->first();
+    }
+
+    /**
+     * Get the most recent closed shift for this drawer
+     */
+    protected function getPreviousShift(CashDrawer $drawer): ?CashierShift
+    {
+        return CashierShift::where('cash_drawer_id', $drawer->id)
+            ->where('status', ShiftStatus::CLOSED)
+            ->orderBy('closed_at', 'desc')
+            ->with('endSaldos')
+            ->first();
+    }
+
+    /**
+     * Prepare beginning balances from previous shift or use defaults
+     */
+    protected function prepareBeginningBalances(CashDrawer $drawer, ?CashierShift $previousShift): array
+    {
+        $balances = [];
+
+        $currencies = ['uzs', 'usd', 'eur', 'rub'];
+        $currencyEnums = [
+            'uzs' => Currency::UZS,
+            'usd' => Currency::USD,
+            'eur' => Currency::EUR,
+            'rub' => Currency::RUB,
+        ];
+
+        if ($previousShift && $previousShift->endSaldos->isNotEmpty()) {
+            // Carry over from previous shift's ending balances
+            foreach ($currencies as $key) {
+                $currency = $currencyEnums[$key];
+                $endSaldo = $previousShift->endSaldos->where('currency', $currency)->first();
+
+                if ($endSaldo) {
+                    $balances["beginning_saldo_{$key}"] = $endSaldo->counted_end_saldo ?? $endSaldo->expected_end_saldo;
+                } else {
+                    $balances["beginning_saldo_{$key}"] = 0;
+                }
+            }
+        } else {
+            // Use drawer's current balances or defaults
+            $drawerBalances = $drawer->balances ?? [];
+
+            foreach ($currencies as $key) {
+                $currency = $currencyEnums[$key];
+                $balances["beginning_saldo_{$key}"] = $drawerBalances[$currency->value] ?? 0;
+            }
+        }
+
+        return $balances;
     }
 }
 

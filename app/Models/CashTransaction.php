@@ -14,6 +14,26 @@ class CashTransaction extends Model
 {
     use HasFactory, SoftDeletes;
 
+    /**
+     * Boot method - Auto-set timestamps and user
+     */
+    protected static function boot()
+    {
+        parent::boot();
+
+        static::creating(function ($transaction) {
+            // Auto-set occurred_at if not provided
+            if (!$transaction->occurred_at) {
+                $transaction->occurred_at = now();
+            }
+
+            // Auto-set created_by if not provided
+            if (!$transaction->created_by && auth()->check()) {
+                $transaction->created_by = auth()->id();
+            }
+        });
+    }
+
     protected $fillable = [
         'cashier_shift_id',
         'type',

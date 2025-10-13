@@ -52,18 +52,19 @@ class CashTransactionPolicy
      */
     public function update(User $user, CashTransaction $cashTransaction): bool
     {
-        // Cashiers can edit their own transactions only if:
-        // 1. They created the transaction
-        // 2. The shift is still open
-        // 3. It's within a reasonable time window (e.g., 30 minutes)
-        if ($user->id === $cashTransaction->created_by && 
-            $cashTransaction->shift->isOpen() &&
-            $cashTransaction->created_at->diffInMinutes(now()) <= 30) {
+        // Managers and admins can always edit
+        if ($user->hasAnyRole(['super_admin', 'admin', 'manager'])) {
             return true;
         }
 
-        // Managers and admins can always edit
-        return $user->hasAnyRole(['super_admin', 'admin', 'manager']);
+        // Cashiers can edit their own transactions only if:
+        // 1. They created the transaction
+        // 2. The shift is still open
+        if ($user->id === $cashTransaction->created_by && $cashTransaction->shift->isOpen()) {
+            return true;
+        }
+
+        return false;
     }
 
     /**
