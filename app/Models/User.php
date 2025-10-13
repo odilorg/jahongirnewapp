@@ -13,7 +13,6 @@ use Spatie\Permission\Traits\HasRoles;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
- * @property string $role
  * @method bool hasRole(string $role)
  * @method bool hasAnyRole(array $roles)
  */
@@ -22,26 +21,24 @@ class User extends Authenticatable implements FilamentUser
 {
     use HasApiTokens, HasFactory, Notifiable, HasRoles;
 
+    protected $guard_name = 'web';
 
     public function canAccessPanel(Panel $panel): bool
     {
         // Allow access if user has any role or is super admin
-        return $this->hasAnyRole(['super_admin', 'admin', 'manager', 'cashier']) || 
+        return $this->hasAnyRole(['super_admin', 'admin', 'manager', 'cashier']) ||
                $this->hasRole(config('filament-shield.super_admin.name'));
     }
+
     /**
      * The attributes that are mass assignable.
      *
      * @var array<int, string>
      */
-
-    protected $guard_name = 'web';   // add this if you use multiple guards
-
     protected $fillable = [
         'name',
         'email',
         'password',
-        'role',
         'phone_number',
         'telegram_user_id',
         'telegram_username',
