@@ -247,7 +247,8 @@ class Beds24BookingService
                     'count' => $result['count'] ?? 0,
                     'success' => $response->successful(),
                     'has_data' => isset($result['data']),
-                    'data_count' => isset($result['data']) ? count($result['data']) : 0
+                    'data_count' => isset($result['data']) ? count($result['data']) : 0,
+                    'sample_booking' => isset($result['data'][0]) ? array_keys($result['data'][0]) : []
                 ]);
 
                 if ($response->successful() && isset($result['data']) && is_array($result['data'])) {
