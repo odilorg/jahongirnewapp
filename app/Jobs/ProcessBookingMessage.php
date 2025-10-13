@@ -543,6 +543,10 @@ class ProcessBookingMessage implements ShouldQueue
                     $response .= "Price: $" . number_format($booking['price'], 2) . "\n";
                 }
 
+                // Add separator line between bookings (except for last one)
+                if ($i < $displayCount - 1) {
+                    $response .= "─────────────────────\n";
+                }
                 $response .= "\n";
             }
 
