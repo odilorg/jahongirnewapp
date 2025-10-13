@@ -50,6 +50,8 @@ Output ONLY valid JSON, no additional text:
   },
   "property": "jahongir",
   "booking_id": "12345",
+  "filter_type": "arrivals_today|departures_today|current|new",
+  "search_string": "guest name to search",
   "notes": "special requests"
 }
 
@@ -75,6 +77,24 @@ Examples:
   
 - "cancel booking 12345"
   → intent: cancel_booking, booking_id: "12345"
+
+- "view today's arrivals" or "show arrivals today" or "today arrivals"
+  → intent: view_bookings, filter_type: "arrivals_today"
+
+- "view today's departures" or "show departures today" or "today departures"
+  → intent: view_bookings, filter_type: "departures_today"
+
+- "view current bookings" or "show current" or "in-house guests"
+  → intent: view_bookings, filter_type: "current"
+
+- "view new bookings" or "show new" or "unconfirmed bookings"
+  → intent: view_bookings, filter_type: "new"
+
+- "search for John Smith" or "find booking John Smith"
+  → intent: view_bookings, search_string: "John Smith"
+
+- "modify booking 12345 to jan 5-7"
+  → intent: modify_booking, booking_id: "12345", dates: jan 5-7
 PROMPT;
 
         try {

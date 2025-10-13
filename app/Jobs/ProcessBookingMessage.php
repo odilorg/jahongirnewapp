@@ -387,35 +387,42 @@ class ProcessBookingMessage implements ShouldQueue
             if ($filterType) {
                 switch ($filterType) {
                     case 'arrivals_today':
-                        $filters['filter'] = 'arrivals';
-                        $filters['arrival'] = date('Y-m-d');
+                        $today = date('Y-m-d');
+                        $filters['arrivalFrom'] = $today;
+                        $filters['arrivalTo'] = $today;
                         $title = "Arrivals Today (" . date('M j, Y') . ")";
                         break;
 
                     case 'departures_today':
-                        $filters['filter'] = 'departures';
-                        $filters['departure'] = date('Y-m-d');
+                        $today = date('Y-m-d');
+                        $filters['departureFrom'] = $today;
+                        $filters['departureTo'] = $today;
                         $title = "Departures Today (" . date('M j, Y') . ")";
                         break;
 
                     case 'current':
-                        $filters['filter'] = 'current';
+                        // In-house guests: arrival before or on today, departure after today
+                        $today = date('Y-m-d');
+                        $filters['arrivalTo'] = $today;
+                        $filters['departureFrom'] = date('Y-m-d', strtotime('+1 day'));
                         $title = "Current Bookings (In-House)";
                         break;
 
                     case 'new':
-                        $filters['filter'] = 'new';
+                        // New/unconfirmed bookings - use status filter
+                        $filters['status'] = ['new', 'request'];
                         $title = "New Bookings (Unconfirmed)";
                         break;
 
                     default:
-                        $filters['filter'] = 'current';
-                        $title = "Current Bookings";
+                        // Default: show upcoming bookings (arrivals from today onwards)
+                        $filters['arrivalFrom'] = date('Y-m-d');
+                        $title = "Upcoming Bookings";
                 }
             } else {
-                // Default: show current bookings
-                $filters['filter'] = 'current';
-                $title = "Current Bookings";
+                // Default: show upcoming bookings
+                $filters['arrivalFrom'] = date('Y-m-d');
+                $title = "Upcoming Bookings";
             }
 
             // Check for search string (guest name search)
@@ -435,14 +442,22 @@ class ProcessBookingMessage implements ShouldQueue
                 }
             }
 
-            Log::info('Fetching bookings', ['filters' => $filters]);
+            Log::info('Fetching bookings', ['filters' => $filters, 'title' => $title]);
 
             // Get bookings from Beds24
             $result = $beds24->getBookings($filters);
 
+            Log::info('Bookings result', [
+                'success' => $result['success'] ?? false,
+                'count' => $result['count'] ?? 0,
+                'has_data' => isset($result['data']),
+                'data_empty' => empty($result['data'])
+            ]);
+
             if (!isset($result['data']) || empty($result['data'])) {
-                return "No Bookings Found\n\n" .
+                return "📭 No Bookings Found\n\n" .
                        "Filter: {$title}\n" .
+                       "Date: " . date('M j, Y') . "\n\n" .
                        "No bookings match your search criteria.";
             }
 

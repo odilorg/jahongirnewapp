@@ -139,6 +139,7 @@ class Beds24BookingService
         ])->timeout(30)->post($this->apiUrl . '/bookings', [$payload]);
 
         return $response->json();
+    }
 
     /**
      * Get bookings list with filters
@@ -160,6 +161,11 @@ class Beds24BookingService
             // Convert propertyId array to string if needed
             if (isset($filters['propertyId']) && is_array($filters['propertyId'])) {
                 $filters['propertyId'] = implode(',', $filters['propertyId']);
+            }
+
+            // Convert status array to string if needed
+            if (isset($filters['status']) && is_array($filters['status'])) {
+                $filters['status'] = implode(',', $filters['status']);
             }
 
             $response = Http::withHeaders([
