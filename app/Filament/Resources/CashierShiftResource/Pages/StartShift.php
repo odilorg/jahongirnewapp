@@ -18,8 +18,8 @@ class StartShift extends Page
 
     protected static ?string $title = 'Start New Shift';
 
-    public ?CashierShift $existingShift = null;
-    public ?array $autoSelectedInfo = null;
+    public $existingShift = null;
+    public $autoSelectedInfo = null;
 
     public function mount(): void
     {
