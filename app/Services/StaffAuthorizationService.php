@@ -12,8 +12,9 @@ class StaffAuthorizationService
      */
     public function verifyTelegramUser(array $update): ?AuthorizedStaff
     {
-        $from = $update['message']['from'] ?? null;
-        
+        // Handle both regular messages and callback queries (button clicks)
+        $from = $update['message']['from'] ?? $update['callback_query']['from'] ?? null;
+
         if (!$from) {
             return null;
         }
