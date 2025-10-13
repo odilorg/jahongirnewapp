@@ -15,15 +15,12 @@ class LocationSeeder extends Seeder
      */
     public function run(): void
     {
-        // Get the first hotel (or create one if none exists)
+        // Get the first hotel
         $hotel = Hotel::first();
 
         if (!$hotel) {
-            $hotel = Hotel::create([
-                'name' => 'Grand Hotel',
-                'address' => '123 Main Street',
-                'phone' => '+998901234567',
-            ]);
+            echo "No hotel found in database. Please create a hotel first.\n";
+            return;
         }
 
         // Create sample locations
