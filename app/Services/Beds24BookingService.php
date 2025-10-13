@@ -139,6 +139,67 @@ class Beds24BookingService
         ])->timeout(30)->post($this->apiUrl . '/bookings', [$payload]);
 
         return $response->json();
+
+    /**
+     * Get bookings list with filters
+     *
+     * @param array $filters Available filters:
+     *   - filter: 'arrivals', 'departures', 'current', 'new'
+     *   - propertyId: array or string
+     *   - arrival: YYYY-MM-DD
+     *   - arrivalFrom/To, departureFrom/To
+     *   - status: array of statuses
+     *   - searchString: search in guest name, email
+     * @return array
+     */
+    public function getBookings(array $filters = []): array
+    {
+        try {
+            Log::info('Beds24 Get Bookings Request', ['filters' => $filters]);
+
+            // Convert propertyId array to string if needed
+            if (isset($filters['propertyId']) && is_array($filters['propertyId'])) {
+                $filters['propertyId'] = implode(',', $filters['propertyId']);
+            }
+
+            $response = Http::withHeaders([
+                'token' => $this->token,
+                'accept' => 'application/json',
+            ])->timeout(30)->get($this->apiUrl . '/bookings', $filters);
+
+            $result = $response->json();
+
+            Log::info('Beds24 Get Bookings Response', [
+                'count' => $result['count'] ?? 0,
+                'success' => $response->successful()
+            ]);
+
+            if ($response->successful() && isset($result['data'])) {
+                return [
+                    'success' => true,
+                    'data' => $result['data'],
+                    'count' => $result['count'] ?? count($result['data'])
+                ];
+            }
+
+            return [
+                'success' => false,
+                'error' => 'Failed to fetch bookings',
+                'data' => []
+            ];
+
+        } catch (\Exception $e) {
+            Log::error('Beds24 Get Bookings Error', [
+                'error' => $e->getMessage(),
+                'filters' => $filters
+            ]);
+
+            return [
+                'success' => false,
+                'error' => $e->getMessage(),
+                'data' => []
+            ];
+        }
     }
 
         /**
