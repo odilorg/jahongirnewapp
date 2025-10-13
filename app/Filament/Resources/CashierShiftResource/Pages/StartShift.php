@@ -4,136 +4,141 @@ namespace App\Filament\Resources\CashierShiftResource\Pages;
 
 use App\Actions\StartShiftAction;
 use App\Filament\Resources\CashierShiftResource;
-use App\Models\CashDrawer;
 use App\Models\CashierShift;
-use Filament\Forms;
-use Filament\Forms\Form;
-use Filament\Resources\Pages\CreateRecord;
+use Filament\Resources\Pages\Page;
 use Filament\Notifications\Notification;
 use Illuminate\Support\Facades\Auth;
+use Filament\Actions\Action;
 
-class StartShift extends CreateRecord
+class StartShift extends Page
 {
     protected static string $resource = CashierShiftResource::class;
 
+    protected static string $view = 'filament.resources.cashier-shift-resource.pages.start-shift';
+
     protected static ?string $title = 'Start New Shift';
 
-    public ?array $data = [];
+    public ?CashierShift $existingShift = null;
+    public ?array $autoSelectedInfo = null;
 
     public function mount(): void
     {
-        parent::mount();
-        
         $user = Auth::user();
 
         // Check if user already has an open shift
-        $existingShift = \App\Models\CashierShift::getUserOpenShift($user->id);
-            
-        if ($existingShift) {
-            Notification::make()
-                ->title('Cannot Start New Shift')
-                ->body("You already have an open shift on drawer '{$existingShift->cashDrawer->name}'. Please close it before starting a new shift.")
-                ->warning()
-                ->persistent()
-                ->send();
-                
-            $this->redirect(route('filament.admin.resources.cashier-shifts.view', ['record' => $existingShift->id]));
+        $this->existingShift = CashierShift::getUserOpenShift($user->id);
+
+        if ($this->existingShift) {
+            return; // Show warning in the view
+        }
+
+        // Get auto-selected drawer info for preview
+        $locations = $user->locations;
+
+        if ($locations->isEmpty()) {
+            $this->autoSelectedInfo = [
+                'error' => 'You are not assigned to any locations. Please contact your manager.'
+            ];
             return;
         }
-        
-        $formData = [
-            'user_id' => $user->id, // Always set current user
-            'beginning_saldo' => 0, // Default to 0 for everyone
-            'beginning_saldo_uzs' => 0,
-            'beginning_saldo_usd' => 0,
-            'beginning_saldo_eur' => 0,
-            'beginning_saldo_rub' => 0,
+
+        // Preview what will be auto-selected
+        if ($locations->count() === 1) {
+            $location = $locations->first();
+            $drawer = \App\Models\CashDrawer::where('location_id', $location->id)
+                ->where('is_active', true)
+                ->whereDoesntHave('openShifts')
+                ->first();
+
+            if ($drawer) {
+                // Get previous shift to show what balances will be carried over
+                $previousShift = CashierShift::where('cash_drawer_id', $drawer->id)
+                    ->where('status', \App\Enums\ShiftStatus::CLOSED)
+                    ->orderBy('closed_at', 'desc')
+                    ->with('endSaldos')
+                    ->first();
+
+                $balances = [];
+                if ($previousShift && $previousShift->endSaldos->isNotEmpty()) {
+                    foreach ($previousShift->endSaldos as $endSaldo) {
+                        $balances[$endSaldo->currency->value] = $endSaldo->currency->formatAmount($endSaldo->counted_end_saldo);
+                    }
+                }
+
+                $this->autoSelectedInfo = [
+                    'location' => $location->name,
+                    'drawer' => $drawer->name,
+                    'balances' => $balances,
+                    'has_previous_shift' => $previousShift !== null,
+                ];
+            } else {
+                $this->autoSelectedInfo = [
+                    'error' => "No available drawers at {$location->name}. All drawers have open shifts."
+                ];
+            }
+        } else {
+            $this->autoSelectedInfo = [
+                'location' => 'Multiple locations',
+                'drawer' => 'Auto-selected from: ' . $locations->pluck('name')->join(', '),
+                'balances' => [],
+                'has_previous_shift' => false,
+            ];
+        }
+    }
+
+    protected function getHeaderActions(): array
+    {
+        return [
+            Action::make('quickStart')
+                ->label('Start Shift')
+                ->icon('heroicon-o-play')
+                ->color('success')
+                ->size('lg')
+                ->visible(fn() => !$this->existingShift && !isset($this->autoSelectedInfo['error']))
+                ->requiresConfirmation()
+                ->modalHeading('Start Your Shift?')
+                ->modalDescription(function () {
+                    if (!$this->autoSelectedInfo) {
+                        return 'Starting shift...';
+                    }
+
+                    $location = $this->autoSelectedInfo['location'] ?? 'Unknown';
+                    $drawer = $this->autoSelectedInfo['drawer'] ?? 'Unknown';
+                    $balances = $this->autoSelectedInfo['balances'] ?? [];
+
+                    $balanceText = empty($balances)
+                        ? 'Starting with zero balances (no previous shift)'
+                        : 'Carrying over balances: ' . implode(', ', $balances);
+
+                    return "Location: {$location}\nDrawer: {$drawer}\n\n{$balanceText}";
+                })
+                ->modalSubmitActionLabel('Yes, Start Shift')
+                ->action(function () {
+                    try {
+                        $user = Auth::user();
+                        $shift = app(StartShiftAction::class)->quickStart($user);
+
+                        Notification::make()
+                            ->title('Shift Started Successfully')
+                            ->body("Your shift has been started on drawer '{$shift->cashDrawer->name}' at {$shift->cashDrawer->location->name}.")
+                            ->success()
+                            ->send();
+
+                        $this->redirect(route('filament.admin.resources.cashier-shifts.view', ['record' => $shift->id]));
+                    } catch (\Illuminate\Validation\ValidationException $e) {
+                        Notification::make()
+                            ->title('Cannot Start Shift')
+                            ->body($e->getMessage())
+                            ->danger()
+                            ->send();
+                    } catch (\Exception $e) {
+                        Notification::make()
+                            ->title('Error Starting Shift')
+                            ->body($e->getMessage())
+                            ->danger()
+                            ->send();
+                    }
+                }),
         ];
-        
-        $this->form->fill($formData);
-    }
-
-    public function form(Form $form): Form
-    {
-        $user = Auth::user();
-
-        return $form
-            ->schema([
-                Forms\Components\Hidden::make('user_id')
-                    ->default(auth()->id()),
-                Forms\Components\Select::make('cash_drawer_id')
-                    ->label(__c('cash_drawer'))
-                    ->options(CashDrawer::active()->pluck('name', 'id'))
-                    ->required()
-                    ->searchable()
-                    ->preload(),
-                
-                // Legacy beginning saldo for UZS
-                Forms\Components\TextInput::make('beginning_saldo')
-                    ->label(__c('beginning_saldo') . ' (UZS)')
-                    ->numeric()
-                    ->prefix('UZS')
-                    ->minValue(0)
-                    ->default(0)
-                    ->helperText(__c('beginning_saldo') . ' ' . __('cash.uzs')),
-
-                Forms\Components\Section::make(__c('multi_currency'))
-                    ->description(__c('set_for_each_currency'))
-                    ->schema([
-                        Forms\Components\TextInput::make('beginning_saldo_uzs')
-                            ->label(__c('uzs') . ' ' . __c('amount'))
-                            ->numeric()
-                            ->prefix('UZS')
-                            ->minValue(0)
-                            ->default(0),
-                        Forms\Components\TextInput::make('beginning_saldo_usd')
-                            ->label(__c('usd') . ' ' . __c('amount'))
-                            ->numeric()
-                            ->prefix('$')
-                            ->minValue(0)
-                            ->default(0),
-                        Forms\Components\TextInput::make('beginning_saldo_eur')
-                            ->label(__c('eur') . ' ' . __c('amount'))
-                            ->numeric()
-                            ->prefix('€')
-                            ->minValue(0)
-                            ->default(0),
-                        Forms\Components\TextInput::make('beginning_saldo_rub')
-                            ->label(__c('rub') . ' ' . __c('amount'))
-                            ->numeric()
-                            ->prefix('₽')
-                            ->minValue(0)
-                            ->default(0),
-                    ])
-                    ->columns(2),
-
-                Forms\Components\Textarea::make('notes')
-                    ->label(__c('notes'))
-                    ->rows(3)
-                    ->maxLength(1000),
-            ])
-            ->statePath('data');
-    }
-
-
-    protected function handleRecordCreation(array $data): CashierShift
-    {
-        $user = Auth::user();
-        $drawer = CashDrawer::query()->findOrFail($data['cash_drawer_id']);
-
-        return app(StartShiftAction::class)->execute($user, $drawer, $data);
-    }
-
-    protected function afterCreate(): void
-    {
-        $shift = $this->record;
-
-        Notification::make()
-            ->title(__c('operation_successful'))
-            ->body("New shift started on drawer '{$shift->cashDrawer->name}'")
-            ->success()
-            ->send();
-            
-        $this->redirect(route('filament.admin.resources.cashier-shifts.view', ['record' => $shift->id]));
     }
 }
