@@ -156,44 +156,74 @@ class Beds24BookingService
     public function getBookings(array $filters = []): array
     {
         try {
-            Log::info('Beds24 Get Bookings Request', ['filters' => $filters]);
-
-            // Convert propertyId array to string if needed
-            if (isset($filters['propertyId']) && is_array($filters['propertyId'])) {
-                $filters['propertyId'] = implode(',', array_values($filters['propertyId']));
+            // Extract and prepare propertyId for multiple requests
+            $propertyIds = [];
+            if (isset($filters['propertyId'])) {
+                if (is_array($filters['propertyId'])) {
+                    $propertyIds = array_values($filters['propertyId']);
+                } else {
+                    $propertyIds = [$filters['propertyId']];
+                }
+                unset($filters['propertyId']); // Remove from filters, will be added per request
             }
 
-            // Convert status array to string if needed
+            // Convert status array to comma-separated string if needed
             if (isset($filters['status']) && is_array($filters['status'])) {
                 $filters['status'] = implode(',', $filters['status']);
             }
 
-            $response = Http::withHeaders([
-                'token' => $this->token,
-                'accept' => 'application/json',
-            ])->timeout(30)->get($this->apiUrl . '/bookings', $filters);
+            // If no properties specified, return empty
+            if (empty($propertyIds)) {
+                return [
+                    'success' => false,
+                    'error' => 'No properties specified',
+                    'data' => []
+                ];
+            }
 
-            $result = $response->json();
+            // Query each property separately and merge results
+            $allBookings = [];
+            foreach ($propertyIds as $propertyId) {
+                $propertyFilters = array_merge($filters, ['propertyId' => (int)$propertyId]);
 
-            Log::info('Beds24 Get Bookings Response', [
-                'status_code' => $response->status(),
-                'count' => $result['count'] ?? 0,
-                'success' => $response->successful(),
-                'has_data' => isset($result['data']),
-                'result' => $result
-            ]);
+                Log::info('Beds24 Get Bookings Request', [
+                    'propertyId' => $propertyId,
+                    'filters' => $propertyFilters
+                ]);
 
-            if ($response->successful() && isset($result['data'])) {
+                $response = Http::withHeaders([
+                    'token' => $this->token,
+                    'accept' => 'application/json',
+                ])->timeout(30)->get($this->apiUrl . '/bookings', $propertyFilters);
+
+                $result = $response->json();
+
+                Log::info('Beds24 Get Bookings Response', [
+                    'propertyId' => $propertyId,
+                    'status_code' => $response->status(),
+                    'count' => $result['count'] ?? 0,
+                    'success' => $response->successful(),
+                    'has_data' => isset($result['data']),
+                    'data_count' => isset($result['data']) ? count($result['data']) : 0
+                ]);
+
+                if ($response->successful() && isset($result['data']) && is_array($result['data'])) {
+                    $allBookings = array_merge($allBookings, $result['data']);
+                }
+            }
+
+            // Return merged results
+            if (!empty($allBookings)) {
                 return [
                     'success' => true,
-                    'data' => $result['data'],
-                    'count' => $result['count'] ?? count($result['data'])
+                    'data' => $allBookings,
+                    'count' => count($allBookings)
                 ];
             }
 
             return [
                 'success' => false,
-                'error' => 'Failed to fetch bookings',
+                'error' => 'No bookings found',
                 'data' => []
             ];
 
