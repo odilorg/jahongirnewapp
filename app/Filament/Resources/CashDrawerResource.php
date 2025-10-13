@@ -27,15 +27,35 @@ class CashDrawerResource extends Resource
     {
         return $form
             ->schema([
-                Forms\Components\TextInput::make('name')
-                    ->required()
-                    ->unique(ignoreRecord: true)
-                    ->maxLength(255),
-                Forms\Components\TextInput::make('location')
-                    ->maxLength(255),
-                Forms\Components\Toggle::make('is_active')
-                    ->default(true)
-                    ->label('Active'),
+                Forms\Components\Section::make('Drawer Details')
+                    ->schema([
+                        Forms\Components\Select::make('location_id')
+                            ->relationship('location', 'name')
+                            ->required()
+                            ->searchable()
+                            ->preload()
+                            ->columnSpan(1),
+
+                        Forms\Components\TextInput::make('name')
+                            ->required()
+                            ->unique(ignoreRecord: true)
+                            ->maxLength(255)
+                            ->columnSpan(1),
+                    ])
+                    ->columns(2),
+
+                Forms\Components\Section::make('Configuration')
+                    ->schema([
+                        Forms\Components\TextInput::make('location')
+                            ->label('Physical Location (Legacy)')
+                            ->maxLength(255)
+                            ->helperText('Optional: e.g., "Near entrance", "Counter #3"'),
+
+                        Forms\Components\Toggle::make('is_active')
+                            ->default(true)
+                            ->label('Active')
+                            ->helperText('Inactive drawers cannot be used for shifts'),
+                    ]),
             ]);
     }
 
@@ -43,12 +63,21 @@ class CashDrawerResource extends Resource
     {
         return $table
             ->columns([
+                Tables\Columns\TextColumn::make('location.name')
+                    ->label('Location')
+                    ->searchable()
+                    ->sortable(),
+
                 Tables\Columns\TextColumn::make('name')
                     ->searchable()
                     ->sortable(),
+
                 Tables\Columns\TextColumn::make('location')
+                    ->label('Physical Location')
                     ->searchable()
-                    ->sortable(),
+                    ->sortable()
+                    ->toggleable(isToggledHiddenByDefault: true),
+
                 Tables\Columns\IconColumn::make('is_active')
                     ->boolean()
                     ->label('Active'),
@@ -169,6 +198,11 @@ class CashDrawerResource extends Resource
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
+                Tables\Filters\SelectFilter::make('location')
+                    ->relationship('location', 'name')
+                    ->searchable()
+                    ->preload(),
+
                 Tables\Filters\TernaryFilter::make('is_active')
                     ->label('Active Status'),
             ])
