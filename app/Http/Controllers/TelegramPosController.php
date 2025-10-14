@@ -144,21 +144,12 @@ class TelegramPosController extends Controller
                 return $this->handleCloseShift($chatId, $session);
                 
             default:
+                Log::info('Unknown command, showing main menu', ['text' => $text]);
                 // Handle conversation states
                 if ($session) {
                     return $this->handleConversationState($session, $text);
                 }
                 
-                $lang = $session ? $session->language : 'en';
-                $this->sendMessage(
-                    $chatId,
-                    $this->formatter->formatMainMenu($lang),
-                    $this->keyboard->mainMenuKeyboard($lang)
-                );
-                break;
-                
-            default:
-                Log::info('Unknown command, showing main menu', ['text' => $text]);
                 $lang = $session ? $session->language : 'en';
                 $this->sendMessage(
                     $chatId,
