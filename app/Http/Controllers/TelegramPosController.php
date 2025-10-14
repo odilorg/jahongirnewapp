@@ -231,9 +231,29 @@ class TelegramPosController extends Controller
                 __('telegram_pos.language_changed', [], $language),
                 $this->keyboard->mainMenuKeyboard($language)
             );
+            
+            return response('OK');
         }
         
-        // More callback handlers will be added in Phase 2 & 3
+        // Handle transaction type selection
+        if (str_starts_with($callbackData, 'txn_type:')) {
+            return $this->handleTransactionTypeSelection($session, $callbackData, $chatId);
+        }
+        
+        // Handle currency selection
+        if (str_starts_with($callbackData, 'currency:')) {
+            return $this->handleCurrencySelection($session, $callbackData, $chatId);
+        }
+        
+        // Handle category selection
+        if (str_starts_with($callbackData, 'category:')) {
+            return $this->handleCategorySelection($session, $callbackData, $chatId);
+        }
+        
+        // Handle notes skip
+        if ($callbackData === 'notes:skip') {
+            return $this->handleNotesSkip($session, $chatId);
+        }
         
         return response('OK');
     }
@@ -365,13 +385,41 @@ class TelegramPosController extends Controller
     }
     
     /**
-     * Handle record transaction (placeholder for Phase 3)
+     * Handle record transaction - initiate transaction flow
      */
     protected function handleRecordTransaction(int $chatId, $session)
     {
+        if (!$session || !$session->user_id) {
+            $this->sendMessage($chatId, $this->formatter->formatError(__('telegram_pos.unauthorized'), 'en'));
+            return response('OK');
+        }
+        
+        $lang = $session->language;
+        $user = $session->user;
+        
+        // Check if user has open shift
+        $shift = CashierShift::getUserOpenShift($user->id);
+        
+        if (!$shift) {
+            $this->sendMessage(
+                $chatId,
+                $this->formatter->formatError(__('telegram_pos.shift_not_open', [], $lang), $lang)
+            );
+            return response('OK');
+        }
+        
+        // Start transaction recording flow
+        $session->setState('recording_transaction');
+        $session->setData('shift_id', $shift->id);
+        $session->setData('transaction_step', 'type');
+        $session->setData('transaction_data', []);
+        
+        // Ask for transaction type
         $this->sendMessage(
             $chatId,
-            "🔜 Record transaction feature coming in Phase 3!"
+            __('telegram_pos.select_transaction_type', [], $lang),
+            $this->keyboard->transactionTypeKeyboard($lang),
+            'inline'
         );
         
         return response('OK');
@@ -472,6 +520,11 @@ class TelegramPosController extends Controller
         // Handle closing shift flow
         if ($state === 'closing_shift') {
             return $this->handleCloseShiftFlow($session, $text);
+        }
+        
+        // Handle transaction recording flow
+        if ($state === 'recording_transaction') {
+            return $this->handleTransactionRecordingFlow($session, $text);
         }
         
         return response('OK');
@@ -580,6 +633,267 @@ class TelegramPosController extends Controller
         }
         
         return response('OK');
+    }
+    
+    /**
+     * Handle transaction type selection
+     */
+    protected function handleTransactionTypeSelection($session, string $callbackData, int $chatId)
+    {
+        $lang = $session->language;
+        $type = substr($callbackData, 9); // Remove 'txn_type:'
+        
+        if ($type === 'cancel') {
+            $this->resetTransactionFlow($session);
+            $this->sendMessage($chatId, __('telegram_pos.cancelled', [], $lang), $this->keyboard->mainMenuKeyboard($lang));
+            return response('OK');
+        }
+        
+        $transactionData = $session->getData('transaction_data', []);
+        $transactionData['type'] = $type;
+        $session->setData('transaction_data', $transactionData);
+        $session->setData('transaction_step', 'amount');
+        
+        // Ask for amount
+        $this->sendMessage($chatId, __('telegram_pos.enter_amount', [], $lang), $this->keyboard->cancelKeyboard($lang));
+        
+        return response('OK');
+    }
+    
+    /**
+     * Handle currency selection
+     */
+    protected function handleCurrencySelection($session, string $callbackData, int $chatId)
+    {
+        $lang = $session->language;
+        $currency = substr($callbackData, 9); // Remove 'currency:'
+        
+        if ($currency === 'cancel') {
+            $this->resetTransactionFlow($session);
+            $this->sendMessage($chatId, __('telegram_pos.cancelled', [], $lang), $this->keyboard->mainMenuKeyboard($lang));
+            return response('OK');
+        }
+        
+        $transactionData = $session->getData('transaction_data', []);
+        $step = $session->getData('transaction_step');
+        
+        if ($step === 'currency') {
+            $transactionData['currency'] = $currency;
+            $session->setData('transaction_data', $transactionData);
+            
+            // Check if complex transaction
+            if ($transactionData['type'] === 'in_out') {
+                $session->setData('transaction_step', 'out_amount');
+                $this->sendMessage($chatId, __('telegram_pos.enter_out_amount', [], $lang), $this->keyboard->cancelKeyboard($lang));
+            } else {
+                $session->setData('transaction_step', 'category');
+                $this->sendMessage($chatId, __('telegram_pos.select_category', [], $lang), $this->keyboard->categorySelectionKeyboard($lang), 'inline');
+            }
+        } elseif ($step === 'out_currency') {
+            $transactionData['out_currency'] = $currency;
+            $session->setData('transaction_data', $transactionData);
+            $session->setData('transaction_step', 'category');
+            $this->sendMessage($chatId, __('telegram_pos.select_category', [], $lang), $this->keyboard->categorySelectionKeyboard($lang), 'inline');
+        }
+        
+        return response('OK');
+    }
+    
+    /**
+     * Handle category selection
+     */
+    protected function handleCategorySelection($session, string $callbackData, int $chatId)
+    {
+        $lang = $session->language;
+        $category = substr($callbackData, 9); // Remove 'category:'
+        
+        if ($category === 'cancel') {
+            $this->resetTransactionFlow($session);
+            $this->sendMessage($chatId, __('telegram_pos.cancelled', [], $lang), $this->keyboard->mainMenuKeyboard($lang));
+            return response('OK');
+        }
+        
+        $transactionData = $session->getData('transaction_data', []);
+        $transactionData['category'] = $category;
+        $session->setData('transaction_data', $transactionData);
+        $session->setData('transaction_step', 'notes');
+        
+        // Ask for notes
+        $this->sendMessage(
+            $chatId,
+            __('telegram_pos.add_notes', [], $lang),
+            $this->keyboard->skipNotesKeyboard($lang),
+            'inline'
+        );
+        
+        return response('OK');
+    }
+    
+    /**
+     * Handle notes skip
+     */
+    protected function handleNotesSkip($session, int $chatId)
+    {
+        $lang = $session->language;
+        
+        // Record transaction without notes
+        return $this->recordTransaction($session, $chatId, null);
+    }
+    
+    /**
+     * Handle transaction recording flow - text input
+     */
+    protected function handleTransactionRecordingFlow($session, string $text)
+    {
+        $chatId = $session->chat_id;
+        $lang = $session->language;
+        $user = $session->user;
+        $step = $session->getData('transaction_step');
+        $transactionData = $session->getData('transaction_data', []);
+        
+        switch ($step) {
+            case 'amount':
+                // Validate amount
+                if (!is_numeric($text) || $text <= 0) {
+                    $this->sendMessage($chatId, __('telegram_pos.invalid_amount', [], $lang));
+                    return response('OK');
+                }
+                
+                $transactionData['amount'] = (float) $text;
+                $session->setData('transaction_data', $transactionData);
+                $session->setData('transaction_step', 'currency');
+                
+                // Ask for currency
+                $this->sendMessage($chatId, __('telegram_pos.select_currency', [], $lang), $this->keyboard->currencySelectionKeyboard($lang), 'inline');
+                break;
+                
+            case 'out_amount':
+                // Validate out amount for complex transaction
+                if (!is_numeric($text) || $text <= 0) {
+                    $this->sendMessage($chatId, __('telegram_pos.invalid_amount', [], $lang));
+                    return response('OK');
+                }
+                
+                $transactionData['out_amount'] = (float) $text;
+                $session->setData('transaction_data', $transactionData);
+                $session->setData('transaction_step', 'out_currency');
+                
+                // Ask for out currency
+                $this->sendMessage($chatId, __('telegram_pos.select_out_currency', [], $lang), $this->keyboard->currencySelectionKeyboard($lang), 'inline');
+                break;
+                
+            case 'notes':
+                // Record transaction with notes
+                return $this->recordTransaction($session, $chatId, $text);
+                
+            default:
+                $this->sendMessage($chatId, __('telegram_pos.error_occurred', [], $lang));
+                $this->resetTransactionFlow($session);
+        }
+        
+        return response('OK');
+    }
+    
+    /**
+     * Record the transaction using RecordTransactionAction
+     */
+    protected function recordTransaction($session, int $chatId, ?string $notes)
+    {
+        $lang = $session->language;
+        $user = $session->user;
+        $shiftId = $session->getData('shift_id');
+        $transactionData = $session->getData('transaction_data', []);
+        
+        $shift = CashierShift::find($shiftId);
+        
+        if (!$shift || !$shift->isOpen()) {
+            $this->sendMessage($chatId, $this->formatter->formatError(__('telegram_pos.shift_not_open', [], $lang), $lang));
+            $this->resetTransactionFlow($session);
+            return response('OK');
+        }
+        
+        // Prepare transaction data for RecordTransactionAction
+        $data = [
+            'type' => $transactionData['type'],
+            'amount' => $transactionData['amount'],
+            'currency' => $transactionData['currency'],
+            'category' => $transactionData['category'] ?? null,
+            'notes' => $notes,
+        ];
+        
+        // Add out currency and amount for complex transactions
+        if ($transactionData['type'] === 'in_out') {
+            $data['out_amount'] = $transactionData['out_amount'] ?? null;
+            $data['out_currency'] = $transactionData['out_currency'] ?? null;
+        }
+        
+        try {
+            // Record the transaction using existing action
+            $this->posService->logActivity($user->id, 'transaction_started', 'Recording transaction via Telegram', $session->telegram_user_id);
+            
+            $transaction = app(RecordTransactionAction::class)->execute($shift, $user, $data);
+            
+            // Send success message
+            $message = __('telegram_pos.transaction_recorded', [], $lang) . "\n\n";
+            $message .= "🆔 ID: {$transaction->id}\n";
+            $message .= "📝 " . __('telegram_pos.' . $transactionData['type'] === 'in' ? 'cash_in' : ($transactionData['type'] === 'out' ? 'cash_out' : 'complex_transaction'), [], $lang) . "\n";
+            $message .= "💰 {$transactionData['amount']} {$transactionData['currency']}\n";
+            
+            if ($transactionData['type'] === 'in_out') {
+                $message .= "💸 {$transactionData['out_amount']} {$transactionData['out_currency']}\n";
+            }
+            
+            if (isset($transactionData['category'])) {
+                $message .= "📂 " . ucfirst($transactionData['category']) . "\n";
+            }
+            
+            if ($notes) {
+                $message .= "📝 {$notes}\n";
+            }
+            
+            // Show updated running balance
+            $message .= "\n💵 " . __('telegram_pos.running_balance', [], $lang) . ":\n";
+            $balances = $shift->fresh()->getAllRunningBalances();
+            foreach ($balances as $balance) {
+                $message .= "  {$balance['formatted']}\n";
+            }
+            
+            $this->sendMessage($chatId, $message, $this->keyboard->mainMenuKeyboard($lang));
+            
+            // Log success
+            $this->posService->logActivity($user->id, 'transaction_recorded', "Transaction #{$transaction->id} recorded via Telegram", $session->telegram_user_id);
+            
+            // Reset flow
+            $this->resetTransactionFlow($session);
+            
+        } catch (\Exception $e) {
+            $this->sendMessage(
+                $chatId,
+                $this->formatter->formatError(__('telegram_pos.transaction_failed', ['reason' => $e->getMessage()], $lang), $lang),
+                $this->keyboard->mainMenuKeyboard($lang)
+            );
+            
+            Log::error('Telegram POS: Record transaction failed', [
+                'user_id' => $user->id,
+                'shift_id' => $shiftId,
+                'error' => $e->getMessage()
+            ]);
+            
+            $this->resetTransactionFlow($session);
+        }
+        
+        return response('OK');
+    }
+    
+    /**
+     * Reset transaction recording flow
+     */
+    protected function resetTransactionFlow($session)
+    {
+        $session->setState('authenticated');
+        $session->setData('shift_id', null);
+        $session->setData('transaction_step', null);
+        $session->setData('transaction_data', null);
     }
     
     /**
