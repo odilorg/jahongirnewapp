@@ -74,6 +74,7 @@ return [
     // Buttons
     'confirm' => '✅ Tasdiqlash',
     'cancel' => '❌ Bekor qilish',
+    'cancelled' => 'Bekor qilindi',
     'back' => '⬅️ Orqaga',
     'next' => '➡️ Keyingi',
     'done' => '✅ Tayyor',

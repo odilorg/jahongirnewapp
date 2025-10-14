@@ -74,6 +74,7 @@ return [
     // Buttons
     'confirm' => '✅ Confirm',
     'cancel' => '❌ Cancel',
+    'cancelled' => 'Cancelled',
     'back' => '⬅️ Back',
     'next' => '➡️ Next',
     'done' => '✅ Done',

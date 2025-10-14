@@ -5,6 +5,10 @@ namespace App\Http\Controllers;
 use App\Services\TelegramPosService;
 use App\Services\TelegramMessageFormatter;
 use App\Services\TelegramKeyboardBuilder;
+use App\Actions\StartShiftAction;
+use App\Actions\CloseShiftAction;
+use App\Models\CashierShift;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -16,7 +20,9 @@ class TelegramPosController extends Controller
     public function __construct(
         protected TelegramPosService $posService,
         protected TelegramMessageFormatter $formatter,
-        protected TelegramKeyboardBuilder $keyboard
+        protected TelegramKeyboardBuilder $keyboard,
+        protected StartShiftAction $startShiftAction,
+        protected CloseShiftAction $closeShiftAction
     ) {
         $this->botToken = config('services.telegram_pos_bot.token');
     }
@@ -265,31 +271,95 @@ class TelegramPosController extends Controller
     }
     
     /**
-     * Handle start shift (placeholder for Phase 2)
+     * Handle start shift
      */
     protected function handleStartShift(int $chatId, $session)
     {
-        $lang = $session ? $session->language : 'en';
+        if (!$session || !$session->user_id) {
+            $this->sendMessage($chatId, $this->formatter->formatError(__('telegram_pos.unauthorized'), 'en'));
+            return response('OK');
+        }
         
-        $this->sendMessage(
-            $chatId,
-            "🔜 Start shift feature coming in Phase 2!"
-        );
+        $lang = $session->language;
+        $user = $session->user;
+        
+        // Check if user already has an open shift
+        $existingShift = CashierShift::getUserOpenShift($user->id);
+        
+        if ($existingShift) {
+            $this->sendMessage(
+                $chatId,
+                $this->formatter->formatError(
+                    __('telegram_pos.shift_already_open', ['drawer' => $existingShift->cashDrawer->name], $lang),
+                    $lang
+                )
+            );
+            return response('OK');
+        }
+        
+        try {
+            // Use the existing StartShiftAction to start shift
+            $shift = $this->startShiftAction->quickStart($user);
+            
+            // Send success message with shift details
+            $this->sendMessage(
+                $chatId,
+                $this->formatter->formatShiftStarted($shift, $lang)
+            );
+            
+            // Log activity
+            $this->posService->logActivity($user->id, 'shift_started', "Shift #{$shift->id} started via Telegram", $session->telegram_user_id);
+            
+        } catch (\Exception $e) {
+            $this->sendMessage(
+                $chatId,
+                $this->formatter->formatError(
+                    __('telegram_pos.shift_start_failed', ['reason' => $e->getMessage()], $lang),
+                    $lang
+                )
+            );
+            
+            Log::error('Telegram POS: Start shift failed', [
+                'user_id' => $user->id,
+                'error' => $e->getMessage()
+            ]);
+        }
         
         return response('OK');
     }
     
     /**
-     * Handle my shift (placeholder for Phase 2)
+     * Handle my shift - show current shift status
      */
     protected function handleMyShift(int $chatId, $session)
     {
-        $lang = $session ? $session->language : 'en';
+        if (!$session || !$session->user_id) {
+            $this->sendMessage($chatId, $this->formatter->formatError(__('telegram_pos.unauthorized'), 'en'));
+            return response('OK');
+        }
         
+        $lang = $session->language;
+        $user = $session->user;
+        
+        // Get user's open shift
+        $shift = CashierShift::getUserOpenShift($user->id);
+        
+        if (!$shift) {
+            $this->sendMessage(
+                $chatId,
+                $this->formatter->formatNoOpenShift($lang)
+            );
+            return response('OK');
+        }
+        
+        // Send shift details with running balances
         $this->sendMessage(
             $chatId,
-            "🔜 My shift feature coming in Phase 2!"
+            $this->formatter->formatShiftDetails($shift, $lang)
         );
+        
+        // Log activity
+        $this->posService->logActivity($user->id, 'shift_viewed', "Viewed shift #{$shift->id} via Telegram", $session->telegram_user_id);
         
         return response('OK');
     }
@@ -308,24 +378,207 @@ class TelegramPosController extends Controller
     }
     
     /**
-     * Handle close shift (placeholder for Phase 2)
+     * Handle close shift - initiate multi-step flow
      */
     protected function handleCloseShift(int $chatId, $session)
     {
-        $this->sendMessage(
-            $chatId,
-            "🔜 Close shift feature coming in Phase 2!"
-        );
+        if (!$session || !$session->user_id) {
+            $this->sendMessage($chatId, $this->formatter->formatError(__('telegram_pos.unauthorized'), 'en'));
+            return response('OK');
+        }
+        
+        $lang = $session->language;
+        $user = $session->user;
+        
+        // Get user's open shift
+        $shift = CashierShift::getUserOpenShift($user->id);
+        
+        if (!$shift) {
+            $this->sendMessage(
+                $chatId,
+                $this->formatter->formatNoOpenShift($lang)
+            );
+            return response('OK');
+        }
+        
+        // Get all currencies used in this shift
+        $usedCurrencies = $shift->getUsedCurrencies();
+        $beginningSaldos = $shift->beginningSaldos->pluck('currency');
+        $allCurrencies = $usedCurrencies->merge($beginningSaldos)->unique();
+        
+        if ($allCurrencies->isEmpty()) {
+            // No currencies, just close the shift
+            try {
+                $this->closeShiftAction->execute($shift, $user, [
+                    'counted_end_saldos' => [],
+                    'notes' => 'Closed via Telegram - No transactions'
+                ]);
+                
+                $this->sendMessage($chatId, __('telegram_pos.shift_closed', [], $lang));
+                $this->posService->logActivity($user->id, 'shift_closed', "Shift #{$shift->id} closed via Telegram", $session->telegram_user_id);
+                
+            } catch (\Exception $e) {
+                $this->sendMessage($chatId, $this->formatter->formatError($e->getMessage(), $lang));
+            }
+            
+            return response('OK');
+        }
+        
+        // Start close shift flow - store shift and currencies in session
+        $session->setState('closing_shift');
+        $session->setData('shift_id', $shift->id);
+        $session->setData('currencies', $allCurrencies->values()->toArray());
+        $session->setData('current_currency_index', 0);
+        $session->setData('counted_amounts', []);
+        
+        // Ask for first currency amount
+        $firstCurrency = $allCurrencies->first();
+        $expectedAmount = $shift->getNetBalanceForCurrency($firstCurrency);
+        
+        $message = __('telegram_pos.enter_counted_amount', ['currency' => $firstCurrency->value], $lang);
+        $message .= "\n\n💰 " . __('telegram_pos.running_balance', [], $lang) . ": " . $firstCurrency->formatAmount($expectedAmount);
+        
+        $this->sendMessage($chatId, $message, $this->keyboard->cancelKeyboard($lang));
         
         return response('OK');
     }
     
     /**
-     * Handle conversation states (placeholder for Phase 2 & 3)
+     * Handle conversation states for multi-step flows
      */
     protected function handleConversationState($session, string $text)
     {
-        // Will be implemented in Phase 2 & 3
+        $chatId = $session->chat_id;
+        $lang = $session->language;
+        $state = $session->state;
+        
+        // Handle cancel
+        if (in_array(strtolower($text), ['cancel', 'отмена', 'bekor qilish', '❌ cancel', '❌ отмена', '❌ bekor qilish'])) {
+            $session->setState('authenticated');
+            $session->setData('shift_id', null);
+            $session->setData('currencies', null);
+            $session->setData('current_currency_index', null);
+            $session->setData('counted_amounts', null);
+            
+            $this->sendMessage(
+                $chatId,
+                __('telegram_pos.cancelled', [], $lang) ?? 'Cancelled',
+                $this->keyboard->mainMenuKeyboard($lang)
+            );
+            
+            return response('OK');
+        }
+        
+        // Handle closing shift flow
+        if ($state === 'closing_shift') {
+            return $this->handleCloseShiftFlow($session, $text);
+        }
+        
+        return response('OK');
+    }
+    
+    /**
+     * Handle close shift flow - collecting counted amounts
+     */
+    protected function handleCloseShiftFlow($session, string $text)
+    {
+        $chatId = $session->chat_id;
+        $lang = $session->language;
+        $user = $session->user;
+        
+        $shiftId = $session->getData('shift_id');
+        $currencies = collect($session->getData('currencies'));
+        $currentIndex = $session->getData('current_currency_index');
+        $countedAmounts = $session->getData('counted_amounts', []);
+        
+        // Get shift
+        $shift = CashierShift::find($shiftId);
+        
+        if (!$shift) {
+            $this->sendMessage($chatId, $this->formatter->formatError(__('telegram_pos.shift_not_found', [], $lang) ?? 'Shift not found', $lang));
+            $session->setState('authenticated');
+            return response('OK');
+        }
+        
+        // Validate amount input
+        $amount = trim($text);
+        if (!is_numeric($amount) || $amount < 0) {
+            $this->sendMessage($chatId, __('telegram_pos.invalid_amount', [], $lang));
+            return response('OK');
+        }
+        
+        // Store counted amount for current currency
+        $currentCurrency = $currencies[$currentIndex];
+        $countedAmounts[] = [
+            'currency' => is_string($currentCurrency) ? $currentCurrency : $currentCurrency->value,
+            'counted_end_saldo' => (float) $amount,
+            'denominations' => [], // Can be extended later for denomination breakdown
+        ];
+        
+        $session->setData('counted_amounts', $countedAmounts);
+        
+        // Move to next currency
+        $nextIndex = $currentIndex + 1;
+        
+        if ($nextIndex < $currencies->count()) {
+            // Ask for next currency
+            $session->setData('current_currency_index', $nextIndex);
+            
+            $nextCurrency = $currencies[$nextIndex];
+            $currencyEnum = is_string($nextCurrency) ? \App\Enums\Currency::from($nextCurrency) : $nextCurrency;
+            $expectedAmount = $shift->getNetBalanceForCurrency($currencyEnum);
+            
+            $message = __('telegram_pos.enter_counted_amount', ['currency' => $currencyEnum->value], $lang);
+            $message .= "\n\n💰 " . __('telegram_pos.running_balance', [], $lang) . ": " . $currencyEnum->formatAmount($expectedAmount);
+            
+            $this->sendMessage($chatId, $message, $this->keyboard->cancelKeyboard($lang));
+        } else {
+            // All amounts collected, close the shift
+            try {
+                $closedShift = $this->closeShiftAction->execute($shift, $user, [
+                    'counted_end_saldos' => $countedAmounts,
+                    'notes' => 'Closed via Telegram Bot',
+                ]);
+                
+                // Send success message
+                $this->sendMessage(
+                    $chatId,
+                    $this->formatter->formatShiftClosed($closedShift, $lang),
+                    $this->keyboard->mainMenuKeyboard($lang)
+                );
+                
+                // Log activity
+                $this->posService->logActivity($user->id, 'shift_closed', "Shift #{$shift->id} closed via Telegram", $session->telegram_user_id);
+                
+                // Reset session state
+                $session->setState('authenticated');
+                $session->setData('shift_id', null);
+                $session->setData('currencies', null);
+                $session->setData('current_currency_index', null);
+                $session->setData('counted_amounts', null);
+                
+            } catch (\Exception $e) {
+                $this->sendMessage(
+                    $chatId,
+                    $this->formatter->formatError($e->getMessage(), $lang),
+                    $this->keyboard->mainMenuKeyboard($lang)
+                );
+                
+                Log::error('Telegram POS: Close shift failed', [
+                    'user_id' => $user->id,
+                    'shift_id' => $shiftId,
+                    'error' => $e->getMessage()
+                ]);
+                
+                // Reset session state
+                $session->setState('authenticated');
+                $session->setData('shift_id', null);
+                $session->setData('currencies', null);
+                $session->setData('current_currency_index', null);
+                $session->setData('counted_amounts', null);
+            }
+        }
+        
         return response('OK');
     }
     

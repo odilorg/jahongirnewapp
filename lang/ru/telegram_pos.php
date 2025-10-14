@@ -74,6 +74,7 @@ return [
     // Buttons
     'confirm' => '✅ Подтвердить',
     'cancel' => '❌ Отмена',
+    'cancelled' => 'Отменено',
     'back' => '⬅️ Назад',
     'next' => '➡️ Далее',
     'done' => '✅ Готово',
