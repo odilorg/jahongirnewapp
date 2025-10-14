@@ -142,4 +142,9 @@ return [
     'other' => 'Other',
     'reference' => 'Reference',
     'created_by' => 'Created By',
+    'drawer_name' => 'Drawer Name',
+    'drawer_location' => 'Drawer Location',
+    'active' => 'Active',
+    'active_currencies' => 'Used Currencies',
+    'total_shifts' => 'Total Shifts',
 ];

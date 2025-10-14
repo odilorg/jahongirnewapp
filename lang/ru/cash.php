@@ -142,4 +142,9 @@ return [
     'other' => 'Другое',
     'reference' => 'Ссылка',
     'created_by' => 'Создано',
+    'drawer_name' => 'Название аппарата',
+    'drawer_location' => 'Местоположение аппарата',
+    'active' => 'Активный',
+    'active_currencies' => 'Используемые валюты',
+    'total_shifts' => 'Всего смен',
 ];
