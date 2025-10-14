@@ -201,7 +201,7 @@ Authenticate → Start Shift → Record Transactions → Close Shift
 
 Add to `.env`:
 ```env
-TELEGRAM_POS_BOT_TOKEN=8443847020:AAEv_a3g9Ak5kZbeGfE0Dv59XVPddyix08M
+TELEGRAM_POS_BOT_TOKEN=[YOUR_BOT_TOKEN]
 TELEGRAM_POS_WEBHOOK_URL=https://yourdomain.com/api/telegram/pos/webhook
 TELEGRAM_POS_SESSION_TIMEOUT=15
 ```

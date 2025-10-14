@@ -45,7 +45,7 @@
 ## ⚙️ Configuration
 
 Your bot is configured with:
-- **Token:** `8443847020:AAEv_a3g9Ak5kZbeGfE0Dv59XVPddyix08M`
+- **Token:** `[YOUR_BOT_TOKEN]`
 - **Webhook:** Will be set to your domain URL
 - **Session Timeout:** 15 minutes
 
@@ -126,7 +126,7 @@ Full setup guide available in: `TELEGRAM_POS_BOT_SETUP.md`
 ### Bot not responding
 1. Check webhook status:
    ```bash
-   curl https://api.telegram.org/bot8443847020:AAEv_a3g9Ak5kZbeGfE0Dv59XVPddyix08M/getWebhookInfo
+   curl https://api.telegram.org/bot[YOUR_BOT_TOKEN]/getWebhookInfo
    ```
 
 2. Check Laravel logs:

@@ -13,15 +13,18 @@ class ListCashierShifts extends ListRecords
     protected function getHeaderActions(): array
     {
         return [
+            // Quick Start Shift - Available to everyone (but not if they already have an open shift)
             Actions\Action::make('startShift')
-                ->label('Start Shift')
+                ->label('Quick Start Shift')
                 ->icon('heroicon-o-play')
                 ->color('success')
                 ->size('lg')
                 ->url(route('filament.admin.resources.cashier-shifts.start-shift'))
-                ->visible(fn () => !auth()->user()->hasAnyRole(['super_admin', 'admin', 'manager'])),
+                ->visible(fn () => !auth()->user()->hasOpenShifts()),
 
+            // Detailed Create Form - Available to managers/admins for advanced setup
             Actions\CreateAction::make()
+                ->label('Create Shift (Advanced)')
                 ->visible(fn () => auth()->user()->hasAnyRole(['super_admin', 'admin', 'manager'])),
         ];
     }
