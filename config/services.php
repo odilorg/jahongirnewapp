@@ -54,4 +54,11 @@ return [
         'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
     ],
 
+    'telegram_pos_bot' => [
+        'token' => env('TELEGRAM_POS_BOT_TOKEN'),
+        'webhook_url' => env('TELEGRAM_POS_WEBHOOK_URL'),
+        'session_timeout' => env('TELEGRAM_POS_SESSION_TIMEOUT', 15), // minutes
+        'secret_token' => env('TELEGRAM_POS_SECRET_TOKEN'), // optional secret for webhook validation
+    ],
+
 ];

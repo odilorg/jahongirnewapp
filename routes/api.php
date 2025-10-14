@@ -52,3 +52,14 @@ Route::get('/telegram/bot/webhook-info', [\App\Http\Controllers\TelegramWebhookC
 
 // Booking Bot Webhook
 Route::post('/booking/bot/webhook', [\App\Http\Controllers\BookingWebhookController::class, 'handle'])->name('booking.bot.webhook');
+
+// Telegram POS Bot Routes
+Route::post('/telegram/pos/webhook', [\App\Http\Controllers\TelegramPosController::class, 'handleWebhook'])
+    ->middleware(\App\Http\Middleware\ValidateTelegramRequest::class)
+    ->name('telegram.pos.webhook');
+
+Route::post('/telegram/pos/set-webhook', [\App\Http\Controllers\TelegramPosController::class, 'setWebhook'])
+    ->middleware('auth:sanctum');
+
+Route::get('/telegram/pos/webhook-info', [\App\Http\Controllers\TelegramPosController::class, 'getWebhookInfo'])
+    ->middleware('auth:sanctum');
