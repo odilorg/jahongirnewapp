@@ -105,8 +105,10 @@ class TelegramPosController extends Controller
         }
         
         // Route commands
+        Log::info('Routing command', ['text' => $text, 'lowercase_text' => strtolower($text)]);
         switch (strtolower($text)) {
             case '/start':
+                Log::info('Handling /start command');
                 return $this->handleStart($chatId, $telegramUserId, $languageCode);
                 
             case '/language':
@@ -153,6 +155,17 @@ class TelegramPosController extends Controller
                     $this->formatter->formatMainMenu($lang),
                     $this->keyboard->mainMenuKeyboard($lang)
                 );
+                break;
+                
+            default:
+                Log::info('Unknown command, showing main menu', ['text' => $text]);
+                $lang = $session ? $session->language : 'en';
+                $this->sendMessage(
+                    $chatId,
+                    $this->formatter->formatMainMenu($lang),
+                    $this->keyboard->mainMenuKeyboard($lang)
+                );
+                break;
         }
         
         return response('OK');
