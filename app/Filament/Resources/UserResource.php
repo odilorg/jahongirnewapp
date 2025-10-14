@@ -52,6 +52,20 @@ class UserResource extends Resource
                     ])
                     ->columns(2),
 
+                Forms\Components\Section::make('Location Assignment')
+                    ->description('Assign locations where this user can work (for cashiers/staff)')
+                    ->schema([
+                        Forms\Components\Select::make('locations')
+                            ->label('Assigned Locations')
+                            ->relationship('locations', 'name')
+                            ->multiple()
+                            ->preload()
+                            ->searchable()
+                            ->helperText('Select one or more locations where this user can start shifts'),
+                    ])
+                    ->collapsible()
+                    ->collapsed(fn ($record) => $record?->locations->isEmpty() ?? true),
+
                 Forms\Components\Section::make('Telegram Bot Access')
                     ->schema([
                         Forms\Components\TextInput::make('phone_number')
@@ -100,6 +114,14 @@ class UserResource extends Resource
                         'cashier' => 'info',
                         default => 'gray',
                     }),
+                Tables\Columns\TextColumn::make('locations.name')
+                    ->label('Assigned Locations')
+                    ->badge()
+                    ->separator(',')
+                    ->searchable()
+                    ->placeholder('No locations assigned')
+                    ->color('primary')
+                    ->toggleable(),
                 Tables\Columns\TextColumn::make('phone_number')
                     ->label('Phone')
                     ->searchable()
@@ -128,6 +150,11 @@ class UserResource extends Resource
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
+                Tables\Filters\SelectFilter::make('locations')
+                    ->label('Filter by Location')
+                    ->relationship('locations', 'name')
+                    ->multiple()
+                    ->preload(),
                 Tables\Filters\TernaryFilter::make('phone_number')
                     ->label('Bot Access')
                     ->placeholder('All users')

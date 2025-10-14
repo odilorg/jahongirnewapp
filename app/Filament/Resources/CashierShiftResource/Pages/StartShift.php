@@ -23,10 +23,8 @@ class StartShift extends Page
     public $existingShift = null;
     public $autoSelectedInfo = null;
 
-    public static function canAccess(array $parameters = []): bool
-    {
-        return true; // Allow all authenticated users
-    }
+    // Allow all authenticated users to access this page
+    // Removed canAccess() method to use parent's implementation
 
     public function mount(): void
     {
@@ -124,6 +122,9 @@ class StartShift extends Page
                     try {
                         $user = Auth::user();
                         $shift = app(StartShiftAction::class)->quickStart($user);
+
+                        // Fresh reload to ensure relationships are properly loaded
+                        $shift = $shift->fresh(['cashDrawer.location']);
 
                         Notification::make()
                             ->title('Shift Started Successfully')

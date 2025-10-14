@@ -106,7 +106,7 @@ class StartShiftAction
             foreach ($currencies as $key => $currency) {
                 // Use provided amount or get from shift template
                 $amount = $validated["beginning_saldo_{$key}"] ?? $this->getTemplateAmount($drawer, $currency);
-                
+
                 if ($amount > 0) {
                     BeginningSaldo::create([
                         'cashier_shift_id' => $shift->id,
@@ -115,6 +115,9 @@ class StartShiftAction
                     ]);
                 }
             }
+
+            // Load relationships for proper access
+            $shift->load('cashDrawer.location', 'beginningSaldos');
 
             return $shift;
         });
@@ -149,7 +152,8 @@ class StartShiftAction
         // If user has only 1 location, auto-select the first active drawer
         if ($locations->count() === 1) {
             $location = $locations->first();
-            return CashDrawer::where('location_id', $location->id)
+            return CashDrawer::with('location')
+                ->where('location_id', $location->id)
                 ->where('is_active', true)
                 ->whereDoesntHave('openShifts') // No open shifts
                 ->first();
@@ -157,7 +161,8 @@ class StartShiftAction
 
         // If multiple locations, try to find any available drawer
         // Prefer drawers with no open shifts
-        return CashDrawer::whereIn('location_id', $locations->pluck('id'))
+        return CashDrawer::with('location')
+            ->whereIn('location_id', $locations->pluck('id'))
             ->where('is_active', true)
             ->whereDoesntHave('openShifts')
             ->first();

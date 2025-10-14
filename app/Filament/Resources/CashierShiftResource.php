@@ -308,9 +308,9 @@ class CashierShiftResource extends Resource
         return [
             'index' => Pages\ListCashierShifts::route('/'),
             'create' => Pages\CreateCashierShift::route('/create'),
+            'start-shift' => Pages\StartShift::route('/start-shift'),  // MUST be before /{record} routes
             'view' => Pages\ViewCashierShift::route('/{record}'),
             'edit' => Pages\EditCashierShift::route('/{record}/edit'),
-            'start-shift' => Pages\StartShift::route('/start-shift'),
             'close-shift' => Pages\CloseShift::route('/{record}/close-shift'),
             'shift-report' => Pages\ShiftReport::route('/{record}/shift-report'),
         ];
