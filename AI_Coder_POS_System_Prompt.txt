@@ -1,0 +1,176 @@
+# 🧠 AI Coder Prompt: Hotel POS System (Laravel + Filament v4)
+
+## ⚠️ System Instruction
+Before coding, **read the Filament v3 → v4 differences document** included in this project.  
+Follow all v4 conventions for resource registration, relation managers, panels, and table actions.
+
+---
+
+## 🏗️ Overview
+
+We are building a **Hotel Point of Sale (POS)** system using **Laravel + Filament v4**, designed to mimic a real-life multi-location cashier workflow.
+
+Each cashier works in a **specific location** (e.g., restaurant, front desk, bar) within a **hotel**, handles **multi-currency transactions**, and operates through defined **shifts**.
+
+---
+
+## 🧩 Entities & Relationships
+
+### 1. Hotel
+- `id`
+- `name`
+- `address`
+- `status` (active/inactive)
+- hasMany `locations`
+
+### 2. Location
+- `id`
+- `hotel_id` → belongsTo Hotel
+- `name`
+- `status` (active/inactive)
+- hasMany `shifts`
+- hasMany `transactions`
+
+### 3. Cash Drawer (CD)
+- `id`
+- `location_id` → belongsTo Location
+- `name`
+- `status` (active/inactive)
+- hasMany `shifts`
+- JSON column `balances` → stores cumulative balances per currency (e.g. `{ "UZS": 250000, "USD": 50, "EUR": 10 }`)
+
+### 4. Shift
+- `id`
+- `cash_drawer_id` → belongsTo CashDrawer
+- `cashier_id` → belongsTo User
+- `opened_at` / `closed_at`
+- `opening_balances` (JSON per currency)
+- `closing_balances` (JSON per currency)
+- `status` (open, closed, under_review)
+- hasMany `transactions`
+
+### 5. Transaction
+- `id`
+- `shift_id` → belongsTo Shift
+- `type` (payment, expense, exchange, deposit)
+- `direction` (in/out)
+- `amount`
+- `currency`
+- `related_currency` (for complex exchanges)
+- `related_amount`
+- `note`
+- auto `timestamp`
+- `created_by` user_id
+
+---
+
+## ⚙️ Business Logic & Rules
+
+### Shift Opening
+- Auto set `opened_at` = now()
+- Pre-fill `location` and `cash_drawer` based on cashier’s assignment
+- Carry over closing balances from previous shift as opening balances
+- Cashiers cannot edit system-generated fields
+
+### Transaction Logging
+- Auto timestamp each entry
+- Complex (multi-currency) type shows additional fields for related amounts/currencies
+- Adjusts balances live per currency
+- Supports "exchange" type (e.g., +10 EUR, -100,000 UZS)
+
+### Shift Closing
+- Auto calculate expected balances
+- Cashier enters counted amounts
+- If difference → mark `under_review`
+- Only Manager/Admin can approve or adjust closing balances
+
+### Discrepancy Handling
+- Record reason/note for mismatch
+- Only manager role can modify after closure
+
+### Roles & Permissions (via Filament Shield)
+| Role | Abilities |
+|------|------------|
+| Cashier | Create shifts, transactions, cannot edit closed shifts |
+| Manager | Approve discrepancies, view all shifts, edit if under review |
+| Admin | Manage all hotels, locations, users, currencies |
+
+---
+
+## 💱 Multi-Currency Handling
+- All balances stored in JSON per currency
+- Base currency = UZS
+- Allow arbitrary currencies (USD, EUR, RUB, etc.)
+- For reporting: sum by currency without conversion
+
+---
+
+## 📊 Filament v4 Resources
+
+### Resources to create
+- `HotelResource`
+- `LocationResource`
+- `CashDrawerResource`
+- `ShiftResource`
+- `TransactionResource`
+- `CurrencyResource` (optional)
+
+### Special Views
+- **Shift Dashboard Tab:** Running balances per currency (auto-updated)
+- **End of Shift Modal:** Expected vs. Counted amounts, difference alert
+- **Reports:** Totals by location/date/currency
+
+---
+
+## 👷 Example Workflow (John, Cashier)
+
+1. John logs in → assigned to Restaurant (auto-preselected)
+2. Opens Shift → opening balances carried from last shift
+3. Logs 3 transactions:
+   - +50 USD (Room Payment)
+   - -100,000 UZS (Expense: Bread)
+   - +10 EUR / -100,000 UZS (Exchange)
+4. System updates live balances:
+   - USD: +50, EUR: +10, UZS: -200,000
+5. Closes shift → inputs counted totals → matched ✅
+6. Shift marked closed → next cashier inherits balances
+
+---
+
+## 🧱 Technical Notes
+- Use `spatie/laravel-permission` + `filament-shield`
+- Use Livewire for balance recalculations
+- Use casted JSON fields for balances
+- Disable editing transactions after shift close
+- Add policies for access control
+- Use factories and seeders for initial data (currencies, hotels, roles)
+
+---
+
+## 🚀 Phases Summary
+
+### Phase 1 – Structure
+Create migrations, models, seeders, and relationships for all entities.
+
+### Phase 2 – Business Logic
+Implement shift lifecycle, transaction recalculations, and discrepancy handling.
+
+### Phase 3 – Filament UI
+Build Filament Resources, widgets, and dashboards per role.
+
+---
+
+## ✅ Deliverables Checklist
+- [ ] All migrations and models with relationships
+- [ ] Live balance recalculations per currency
+- [ ] Shift open/close logic with timestamps
+- [ ] Locked shifts after closing
+- [ ] Role-based access (via Shield)
+- [ ] Filament dashboards & reports
+- [ ] Multi-currency support with JSON storage
+- [ ] Unit & feature tests for shift lifecycle
+
+---
+
+**Author’s Note:**  
+Follow clean, modular Laravel conventions. Code must be PSR‑12 compliant and support Filament v4 structure.

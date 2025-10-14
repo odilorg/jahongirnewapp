@@ -18,8 +18,15 @@ class StartShift extends Page
 
     protected static ?string $title = 'Start New Shift';
 
+    protected static bool $shouldRegisterNavigation = false;
+
     public $existingShift = null;
     public $autoSelectedInfo = null;
+
+    public static function canAccess(array $parameters = []): bool
+    {
+        return true; // Allow all authenticated users
+    }
 
     public function mount(): void
     {
