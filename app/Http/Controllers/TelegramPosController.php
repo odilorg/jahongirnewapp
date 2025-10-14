@@ -121,26 +121,31 @@ class TelegramPosController extends Controller
             case 'ℹ️ help':
             case 'ℹ️ yordam':
             case 'ℹ️ помощь':
+            case 'ℹ️ Помощь':  // Capital П
                 return $this->showHelp($chatId, $session);
                 
             case '🟢 start shift':
             case '🟢 smenani boshlash':
             case '🟢 начать смену':
+            case '🟢 Начать смену':  // Capital N
                 return $this->handleStartShift($chatId, $session);
                 
             case '📊 my shift':
             case '📊 mening smenaim':
             case '📊 моя смена':
+            case '📊 Моя смена':  // Capital M
                 return $this->handleMyShift($chatId, $session);
                 
             case '💰 record transaction':
             case '💰 tranzaksiyani yozish':
             case '💰 записать транзакцию':
+            case '💰 Записать транзакцию':  // Capital З
                 return $this->handleRecordTransaction($chatId, $session);
                 
             case '🔴 close shift':
             case '🔴 smenani yopish':
             case '🔴 закрыть смену':
+            case '🔴 Закрыть смену':  // Capital З
                 return $this->handleCloseShift($chatId, $session);
                 
             default:
