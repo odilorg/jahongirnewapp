@@ -16,6 +16,30 @@ use Illuminate\Validation\ValidationException;
 class CloseShiftAction
 {
     /**
+     * Simple close a shift without cash count (for shifts with no transactions)
+     */
+    public function simpleClose(CashierShift $shift, User $user, string $notes = null): CashierShift
+    {
+        return DB::transaction(function () use ($shift, $user, $notes) {
+            // Check if shift is open
+            if (!$shift->isOpen()) {
+                throw ValidationException::withMessages([
+                    'shift' => 'This shift is already closed.'
+                ]);
+            }
+
+            // Simply close the shift
+            $shift->update([
+                'status' => ShiftStatus::CLOSED,
+                'closed_at' => now(),
+                'notes' => $notes ?? $shift->notes ?? 'Closed via Telegram - No transactions',
+            ]);
+
+            return $shift->fresh();
+        });
+    }
+
+    /**
      * Close a shift with multi-currency cash count and discrepancy handling
      */
     public function execute(CashierShift $shift, User $user, array $data): CashierShift

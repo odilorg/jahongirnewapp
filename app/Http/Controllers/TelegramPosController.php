@@ -7,6 +7,7 @@ use App\Services\TelegramMessageFormatter;
 use App\Services\TelegramKeyboardBuilder;
 use App\Actions\StartShiftAction;
 use App\Actions\CloseShiftAction;
+use App\Actions\RecordTransactionAction;
 use App\Models\CashierShift;
 use App\Models\User;
 use Illuminate\Http\Request;
@@ -22,7 +23,8 @@ class TelegramPosController extends Controller
         protected TelegramMessageFormatter $formatter,
         protected TelegramKeyboardBuilder $keyboard,
         protected StartShiftAction $startShiftAction,
-        protected CloseShiftAction $closeShiftAction
+        protected CloseShiftAction $closeShiftAction,
+        protected RecordTransactionAction $recordTransactionAction
     ) {
         $this->botToken = config('services.telegram_pos_bot.token');
     }
@@ -455,12 +457,9 @@ class TelegramPosController extends Controller
         $allCurrencies = $usedCurrencies->merge($beginningSaldos)->unique();
         
         if ($allCurrencies->isEmpty()) {
-            // No currencies, just close the shift
+            // No currencies, just close the shift simply
             try {
-                $this->closeShiftAction->execute($shift, $user, [
-                    'counted_end_saldos' => [],
-                    'notes' => 'Closed via Telegram - No transactions'
-                ]);
+                $this->closeShiftAction->simpleClose($shift, $user, 'Closed via Telegram - No transactions');
                 
                 $this->sendMessage($chatId, __('telegram_pos.shift_closed', [], $lang));
                 $this->posService->logActivity($user->id, 'shift_closed', "Shift #{$shift->id} closed via Telegram", $session->telegram_user_id);
@@ -831,7 +830,7 @@ class TelegramPosController extends Controller
             // Record the transaction using existing action
             $this->posService->logActivity($user->id, 'transaction_started', 'Recording transaction via Telegram', $session->telegram_user_id);
             
-            $transaction = app(RecordTransactionAction::class)->execute($shift, $user, $data);
+            $transaction = $this->recordTransactionAction->execute($shift, $user, $data);
             
             // Send success message
             $message = __('telegram_pos.transaction_recorded', [], $lang) . "\n\n";
