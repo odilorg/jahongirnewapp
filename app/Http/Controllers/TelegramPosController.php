@@ -36,18 +36,29 @@ class TelegramPosController extends Controller
     {
         Log::info('Telegram POS Webhook received', $request->all());
         
-        // Handle callback queries (inline button presses)
-        if ($callback = $request->input('callback_query')) {
-            return $this->handleCallbackQuery($callback);
+        try {
+            // Handle callback queries (inline button presses)
+            if ($callback = $request->input('callback_query')) {
+                Log::info('Processing callback query');
+                return $this->handleCallbackQuery($callback);
+            }
+            
+            // Handle contact sharing
+            if ($contact = $request->input('message.contact')) {
+                Log::info('Processing contact shared');
+                return $this->handleContactShared($contact, $request);
+            }
+            
+            // Handle text messages
+            Log::info('Processing text message');
+            return $this->processMessage($request);
+        } catch (\Exception $e) {
+            Log::error('Error in handleWebhook: ' . $e->getMessage(), [
+                'trace' => $e->getTraceAsString(),
+                'request' => $request->all()
+            ]);
+            return response('OK');
         }
-        
-        // Handle contact sharing
-        if ($contact = $request->input('message.contact')) {
-            return $this->handleContactShared($contact, $request);
-        }
-        
-        // Handle text messages
-        return $this->processMessage($request);
     }
     
     /**
