@@ -78,12 +78,22 @@ class TelegramPosController extends Controller
         $text = trim($message['text'] ?? '');
         $languageCode = $message['from']['language_code'] ?? 'en';
         
+        Log::info('Processing message details', [
+            'chatId' => $chatId,
+            'telegramUserId' => $telegramUserId,
+            'text' => $text,
+            'languageCode' => $languageCode
+        ]);
+        
         if (!$chatId || !$telegramUserId) {
+            Log::error('Missing chatId or telegramUserId');
             return response('OK');
         }
         
         // Get or create session
+        Log::info('Getting session for chatId: ' . $chatId);
         $session = $this->posService->getSession($chatId);
+        Log::info('Session result', ['session' => $session ? 'found' : 'not found']);
         
         // If no session, check for /start command
         if (!$session && strtolower($text) !== '/start') {
