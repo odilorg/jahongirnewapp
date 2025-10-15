@@ -41,6 +41,16 @@ class TelegramPosService
             ];
         }
         
+        // Check if POS bot access is enabled for this user
+        if (!$user->pos_bot_enabled) {
+            TelegramPosActivity::log($user->id, 'auth_failed', 'POS bot access disabled', $telegramUserId);
+            
+            return [
+                'success' => false,
+                'message' => 'POS bot access is disabled for your account',
+            ];
+        }
+        
         // Update or create session
         $session = TelegramPosSession::updateOrCreate(
             ['telegram_user_id' => $telegramUserId],

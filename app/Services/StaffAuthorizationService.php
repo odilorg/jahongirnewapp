@@ -30,6 +30,15 @@ class StaffAuthorizationService
         $user = User::findByBookingBotTelegramId($telegramUserId);
 
         if ($user) {
+            // Check if booking bot access is enabled for this user
+            if (!$user->booking_bot_enabled) {
+                Log::info('Booking bot access disabled for user', [
+                    'user_id' => $user->id,
+                    'telegram_id' => $telegramUserId
+                ]);
+                return null;
+            }
+            
             $user->touchLastActive();
             return $user;
         }
@@ -47,6 +56,16 @@ class StaffAuthorizationService
 
         if (!$user) {
             Log::warning('Unauthorized phone number attempted to link', [
+                'phone' => $phoneNumber,
+                'telegram_id' => $telegramUserId
+            ]);
+            return null;
+        }
+
+        // Check if booking bot access is enabled
+        if (!$user->booking_bot_enabled) {
+            Log::warning('Booking bot access disabled for user during link attempt', [
+                'user_id' => $user->id,
                 'phone' => $phoneNumber,
                 'telegram_id' => $telegramUserId
             ]);

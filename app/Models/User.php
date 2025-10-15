@@ -46,6 +46,8 @@ class User extends Authenticatable implements FilamentUser
         'telegram_pos_username',
         'telegram_booking_user_id',
         'telegram_booking_username',
+        'pos_bot_enabled',
+        'booking_bot_enabled',
         'last_active_at'
     ];
 
@@ -69,6 +71,10 @@ class User extends Authenticatable implements FilamentUser
         'email_verified_at' => 'datetime',
         'password' => 'hashed',
         'telegram_user_id' => 'integer',
+        'telegram_pos_user_id' => 'integer',
+        'telegram_booking_user_id' => 'integer',
+        'pos_bot_enabled' => 'boolean',
+        'booking_bot_enabled' => 'boolean',
         'last_active_at' => 'datetime',
     ];
 

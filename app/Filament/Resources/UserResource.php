@@ -66,32 +66,93 @@ class UserResource extends Resource
                     ->collapsible()
                     ->collapsed(fn ($record) => $record?->locations->isEmpty() ?? true),
 
-                Forms\Components\Section::make('Telegram Bot Access')
+                Forms\Components\Section::make('Phone Number')
+                    ->description('Required for both Telegram bots')
                     ->schema([
                         Forms\Components\TextInput::make('phone_number')
                             ->label('Phone Number')
                             ->tel()
                             ->maxLength(50)
-                            ->placeholder('+998XXXXXXXXX')
-                            ->helperText('Users with phone numbers can authorize the Telegram bot'),
-                        Forms\Components\TextInput::make('telegram_user_id')
-                            ->label('Telegram User ID')
-                            ->numeric()
-                            ->disabled()
-                            ->dehydrated(false)
-                            ->helperText('Auto-populated when user authorizes via bot'),
-                        Forms\Components\TextInput::make('telegram_username')
+                            ->placeholder('998901234567')
+                            ->helperText('Enter digits only, no spaces or + symbol. Required for Telegram bot authentication.')
+                            ->rule('regex:/^[0-9]+$/'),
+                    ])
+                    ->columns(1),
+
+                Forms\Components\Section::make('🟢 POS Bot Access')
+                    ->description('For cashiers to manage shifts and transactions via Telegram')
+                    ->schema([
+                        Forms\Components\Toggle::make('pos_bot_enabled')
+                            ->label('Enable POS Bot Access')
+                            ->helperText('User can authenticate and use POS bot features')
+                            ->default(false)
+                            ->live(),
+                        Forms\Components\Placeholder::make('pos_requirements')
+                            ->label('Requirements')
+                            ->content(function ($record) {
+                                if (!$record) return 'ℹ️ Save user first to see requirements';
+                                
+                                $checks = [];
+                                $checks[] = $record->phone_number ? '✅ Phone number set' : '❌ Phone number required';
+                                $checks[] = $record->hasAnyRole(['cashier', 'manager', 'super_admin']) 
+                                    ? '✅ Has required role (cashier/manager/super_admin)' 
+                                    : '⚠️ Needs role: cashier, manager, or super_admin';
+                                $checks[] = $record->locations->count() > 0 
+                                    ? '✅ Assigned to ' . $record->locations->count() . ' location(s)' 
+                                    : '⚠️ Must be assigned to at least one location';
+                                
+                                return implode("\n", $checks);
+                            }),
+                        Forms\Components\Placeholder::make('pos_auth_status')
+                            ->label('Authentication Status')
+                            ->content(fn ($record) => 
+                                $record?->telegram_pos_user_id 
+                                    ? '✅ Authenticated - Telegram ID: ' . $record->telegram_pos_user_id 
+                                    : '⏳ Not authenticated yet'
+                            ),
+                        Forms\Components\TextInput::make('telegram_pos_username')
                             ->label('Telegram Username')
                             ->disabled()
                             ->dehydrated(false)
-                            ->helperText('Auto-populated when user authorizes via bot'),
-                        Forms\Components\DateTimePicker::make('last_active_at')
-                            ->label('Last Active (Bot)')
-                            ->disabled()
-                            ->dehydrated(false),
+                            ->placeholder('Auto-populated after authentication'),
                     ])
                     ->columns(2)
-                    ->collapsible(),
+                    ->collapsible()
+                    ->collapsed(fn ($record) => !$record?->pos_bot_enabled),
+
+                Forms\Components\Section::make('🏨 Booking Bot Access')
+                    ->description('For staff to manage hotel reservations via Telegram')
+                    ->schema([
+                        Forms\Components\Toggle::make('booking_bot_enabled')
+                            ->label('Enable Booking Bot Access')
+                            ->helperText('User can authenticate and use booking bot features')
+                            ->default(false)
+                            ->live(),
+                        Forms\Components\Placeholder::make('booking_requirements')
+                            ->label('Requirements')
+                            ->content(function ($record) {
+                                if (!$record) return 'ℹ️ Save user first to see requirements';
+                                
+                                return $record->phone_number 
+                                    ? '✅ Phone number set - Ready to use!' 
+                                    : '❌ Phone number required';
+                            }),
+                        Forms\Components\Placeholder::make('booking_auth_status')
+                            ->label('Authentication Status')
+                            ->content(fn ($record) => 
+                                $record?->telegram_booking_user_id 
+                                    ? '✅ Authenticated - Telegram ID: ' . $record->telegram_booking_user_id 
+                                    : '⏳ Not authenticated yet'
+                            ),
+                        Forms\Components\TextInput::make('telegram_booking_username')
+                            ->label('Telegram Username')
+                            ->disabled()
+                            ->dehydrated(false)
+                            ->placeholder('Auto-populated after authentication'),
+                    ])
+                    ->columns(2)
+                    ->collapsible()
+                    ->collapsed(fn ($record) => !$record?->booking_bot_enabled),
             ]);
     }
 
@@ -128,11 +189,22 @@ class UserResource extends Resource
                     ->copyable()
                     ->icon('heroicon-o-phone')
                     ->placeholder('No phone'),
-                Tables\Columns\TextColumn::make('telegram_username')
-                    ->label('Telegram')
-                    ->searchable()
-                    ->icon('heroicon-o-chat-bubble-left-right')
-                    ->placeholder('Not linked'),
+                Tables\Columns\IconColumn::make('pos_bot_enabled')
+                    ->label('POS Bot')
+                    ->boolean()
+                    ->trueIcon('heroicon-o-check-circle')
+                    ->falseIcon('heroicon-o-x-circle')
+                    ->trueColor('success')
+                    ->falseColor('danger')
+                    ->toggleable(),
+                Tables\Columns\IconColumn::make('booking_bot_enabled')
+                    ->label('Booking Bot')
+                    ->boolean()
+                    ->trueIcon('heroicon-o-check-circle')
+                    ->falseIcon('heroicon-o-x-circle')
+                    ->trueColor('success')
+                    ->falseColor('danger')
+                    ->toggleable(),
                 Tables\Columns\TextColumn::make('last_active_at')
                     ->label('Last Bot Activity')
                     ->dateTime()
