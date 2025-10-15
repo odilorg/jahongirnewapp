@@ -37,18 +37,18 @@ class UserResource extends Resource
                             ->maxLength(255),
                         Forms\Components\TextInput::make('password')
                             ->password()
-                            ->required()
+                            ->required(fn (string $operation): bool => $operation === 'create')
+                            ->dehydrated(fn ($state) => filled($state))
                             ->maxLength(255),
-                        Forms\Components\Select::make('role')
-                            ->options([
-                                'super_admin' => 'Super Admin',
-                                'admin' => 'Admin',
-                                'manager' => 'Manager',
-                                'cashier' => 'Cashier',
-                                'staff' => 'Staff',
-                            ])
+                        Forms\Components\Select::make('roles')
+                            ->label('Roles')
+                            ->relationship('roles', 'name')
+                            ->multiple()
+                            ->preload()
                             ->searchable()
-                            ->placeholder('Select a role'),
+                            ->placeholder('Select one or more roles')
+                            ->helperText('Users can have multiple roles (e.g., Manager + Cashier)')
+                            ->required(),
                     ])
                     ->columns(2),
 
@@ -166,14 +166,17 @@ class UserResource extends Resource
                 Tables\Columns\TextColumn::make('email')
                     ->searchable()
                     ->sortable(),
-                Tables\Columns\TextColumn::make('role')
-                    ->searchable()
+                Tables\Columns\TextColumn::make('roles.name')
+                    ->label('Roles')
                     ->badge()
+                    ->separator(',')
+                    ->searchable()
                     ->color(fn (string $state): string => match ($state) {
                         'super_admin', 'admin' => 'success',
                         'manager' => 'warning',
                         'cashier' => 'info',
-                        default => 'gray',
+                        'staff' => 'gray',
+                        default => 'primary',
                     }),
                 Tables\Columns\TextColumn::make('locations.name')
                     ->label('Assigned Locations')
@@ -222,6 +225,11 @@ class UserResource extends Resource
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
+                Tables\Filters\SelectFilter::make('roles')
+                    ->label('Filter by Role')
+                    ->relationship('roles', 'name')
+                    ->multiple()
+                    ->preload(),
                 Tables\Filters\SelectFilter::make('locations')
                     ->label('Filter by Location')
                     ->relationship('locations', 'name')
