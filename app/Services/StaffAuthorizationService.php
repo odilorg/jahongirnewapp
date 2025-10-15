@@ -26,8 +26,8 @@ class StaffAuthorizationService
             return null;
         }
 
-        // Find by Telegram ID
-        $user = User::findByTelegramId($telegramUserId);
+        // Find by Booking Bot Telegram ID
+        $user = User::findByBookingBotTelegramId($telegramUserId);
 
         if ($user) {
             $user->touchLastActive();
@@ -53,14 +53,14 @@ class StaffAuthorizationService
             return null;
         }
 
-        // Link Telegram account
+        // Link Telegram account to Booking Bot
         $user->update([
-            'telegram_user_id' => $telegramUserId,
-            'telegram_username' => $telegramUsername,
+            'telegram_booking_user_id' => $telegramUserId,
+            'telegram_booking_username' => $telegramUsername,
             'last_active_at' => now(),
         ]);
 
-        Log::info('User account linked to Telegram', [
+        Log::info('User account linked to Telegram Booking Bot', [
             'user_id' => $user->id,
             'telegram_id' => $telegramUserId
         ]);

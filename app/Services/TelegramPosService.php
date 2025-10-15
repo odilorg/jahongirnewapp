@@ -54,9 +54,10 @@ class TelegramPosService
             ]
         );
         
-        // Update user's telegram info and last active timestamp
+        // Update user's POS bot telegram info and last active timestamp
         $user->update([
-            'telegram_user_id' => $telegramUserId,
+            'telegram_pos_user_id' => $telegramUserId,
+            'telegram_pos_username' => null, // Can be added if needed from Telegram update
             'last_active_at' => now(),
         ]);
         

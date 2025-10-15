@@ -42,6 +42,10 @@ class User extends Authenticatable implements FilamentUser
         'phone_number',
         'telegram_user_id',
         'telegram_username',
+        'telegram_pos_user_id',
+        'telegram_pos_username',
+        'telegram_booking_user_id',
+        'telegram_booking_username',
         'last_active_at'
     ];
 
@@ -152,11 +156,30 @@ class User extends Authenticatable implements FilamentUser
     }
 
     /**
-     * Find user by Telegram user ID
+     * Find user by Telegram user ID (generic - checks all bot fields)
      */
     public static function findByTelegramId(int $telegramUserId): ?self
     {
-        return self::where('telegram_user_id', $telegramUserId)->first();
+        return self::where('telegram_user_id', $telegramUserId)
+            ->orWhere('telegram_pos_user_id', $telegramUserId)
+            ->orWhere('telegram_booking_user_id', $telegramUserId)
+            ->first();
+    }
+
+    /**
+     * Find user by POS Bot Telegram ID
+     */
+    public static function findByPosBotTelegramId(int $telegramUserId): ?self
+    {
+        return self::where('telegram_pos_user_id', $telegramUserId)->first();
+    }
+
+    /**
+     * Find user by Booking Bot Telegram ID
+     */
+    public static function findByBookingBotTelegramId(int $telegramUserId): ?self
+    {
+        return self::where('telegram_booking_user_id', $telegramUserId)->first();
     }
 
     /**
