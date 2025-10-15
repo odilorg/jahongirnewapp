@@ -48,7 +48,8 @@ class UserResource extends Resource
                             ->searchable()
                             ->placeholder('Select one or more roles')
                             ->helperText('Users can have multiple roles (e.g., Manager + Cashier)')
-                            ->required(),
+                            ->required()
+                            ->columnSpanFull(),
                     ])
                     ->columns(2),
 
