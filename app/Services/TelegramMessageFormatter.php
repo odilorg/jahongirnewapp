@@ -59,8 +59,8 @@ class TelegramMessageFormatter
         
         $details = __('telegram_pos.shift_details', [
             'shift_id' => $shift->id,
-            'location' => $shift->cashDrawer->location->name ?? 'N/A',
-            'drawer' => $shift->cashDrawer->name,
+            'location' => $shift->cashDrawer?->location?->name ?? 'N/A',
+            'drawer' => $shift->cashDrawer?->name ?? 'N/A',
             'start_time' => $shift->opened_at->format('Y-m-d H:i'),
             'duration' => $duration,
         ], $language);
@@ -186,10 +186,12 @@ class TelegramMessageFormatter
         // Format with proper notation
         if ($transaction->type->value === 'in_out') {
             // Exchange transaction
-            $outCurrency = $transaction->out_currency->value ?? '';
+            $outCurrency = $transaction->out_currency ? $transaction->out_currency->value : '';
             $outAmount = $transaction->out_amount ?? 0;
             
-            return $this->formatAmount($amount, $currency) . ' → ' . $this->formatAmount($outAmount, $outCurrency);
+            if ($outCurrency) {
+                return $this->formatAmount($amount, $currency) . ' → ' . $this->formatAmount($outAmount, $outCurrency);
+            }
         }
         
         return $this->formatAmount($amount, $currency);
