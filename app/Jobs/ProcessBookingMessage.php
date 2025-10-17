@@ -122,6 +122,9 @@ class ProcessBookingMessage implements ShouldQueue
         $userId = $message['from']['id'];
         $username = $message['from']['username'] ?? '';
 
+        // Normalize phone number: remove + sign to match database format
+        $phoneNumber = ltrim($phoneNumber, '+');
+
         $staff = $authService->linkPhoneNumber($phoneNumber, $userId, $username);
 
         if ($staff) {
