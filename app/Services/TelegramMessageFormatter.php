@@ -80,8 +80,8 @@ class TelegramMessageFormatter
         $transactionCount = $shift->transactions()->count();
         $details .= "\n" . __('telegram_pos.total_transactions', ['count' => $transactionCount], $language);
         
-        // Add recent transactions
-        $transactions = $shift->transactions()->latest()->limit(10)->get();
+        // Add recent transactions (oldest to newest)
+        $transactions = $shift->transactions()->oldest()->limit(10)->get();
         
         if ($transactions->isNotEmpty()) {
             $details .= "\n\n" . __('telegram_pos.recent_transactions', [], $language) . ":\n";
