@@ -63,3 +63,10 @@ Route::post('/telegram/pos/set-webhook', [\App\Http\Controllers\TelegramPosContr
 
 Route::get('/telegram/pos/webhook-info', [\App\Http\Controllers\TelegramPosController::class, 'getWebhookInfo'])
     ->middleware('auth:sanctum');
+
+// Voice Agent API Routes
+Route::middleware('auth:sanctum')->prefix('voice-agent')->group(function () {
+    Route::post('/check-availability', [VoiceAgentController::class, 'checkAvailability']);
+    Route::post('/create-booking', [VoiceAgentController::class, 'createBooking']);
+    Route::get('/guest/{phone}', [VoiceAgentController::class, 'getGuestByPhone']);
+});
