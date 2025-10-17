@@ -58,6 +58,13 @@ return [
     'skip_notes' => 'O\'tkazib yuborish ⏭️',
     'confirm_transaction' => 'Tranzaksiyani tasdiqlaysizmi?',
     
+    // Transaction Display
+    'recent_transactions' => '📝 So\'nggi tranzaksiyalar (10 ta)',
+    'no_transactions' => 'Hozircha tranzaksiyalar yo\'q',
+    'txn_in' => 'KIRIM',
+    'txn_out' => 'CHIQIM',
+    'txn_exchange' => 'AYIRB.',
+    
     // Categories
     'category_sale' => '🛍️ Sotuv',
     'category_refund' => '↩️ Qaytarish',

@@ -58,6 +58,13 @@ return [
     'skip_notes' => 'Skip ⏭️',
     'confirm_transaction' => 'Confirm transaction?',
     
+    // Transaction Display
+    'recent_transactions' => '📝 Recent Transactions (Last 10)',
+    'no_transactions' => 'No transactions yet',
+    'txn_in' => 'IN',
+    'txn_out' => 'OUT',
+    'txn_exchange' => 'EXCH',
+    
     // Categories
     'category_sale' => '🛍️ Sale',
     'category_refund' => '↩️ Refund',

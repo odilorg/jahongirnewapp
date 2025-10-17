@@ -72,10 +72,7 @@ class TelegramMessageFormatter
             $details .= "\n\n" . __('telegram_pos.running_balance', [], $language) . ":\n";
             
             foreach ($balances as $balance) {
-                $details .= __('telegram_pos.currency_balance', [
-                    'currency' => $balance['currency']->value,
-                    'amount' => $balance['formatted'],
-                ], $language) . "\n";
+                $details .= "• " . $balance['formatted'] . "\n";
             }
         }
         
@@ -83,7 +80,137 @@ class TelegramMessageFormatter
         $transactionCount = $shift->transactions()->count();
         $details .= "\n" . __('telegram_pos.total_transactions', ['count' => $transactionCount], $language);
         
+        // Add recent transactions
+        $transactions = $shift->transactions()->latest()->limit(10)->get();
+        
+        if ($transactions->isNotEmpty()) {
+            $details .= "\n\n" . __('telegram_pos.recent_transactions', [], $language) . ":\n";
+            $details .= "━━━━━━━━━━━━━━━━━━━━\n";
+            
+            foreach ($transactions as $index => $transaction) {
+                $details .= $this->formatTransaction($transaction, $index + 1, $language);
+            }
+        } else {
+            $details .= "\n\n" . __('telegram_pos.no_transactions', [], $language);
+        }
+        
         return $details;
+    }
+    
+    /**
+     * Format a single transaction for display
+     */
+    protected function formatTransaction($transaction, int $number, string $language = 'en'): string
+    {
+        // Number emoji
+        $numberEmoji = $this->getNumberEmoji($number);
+        
+        // Time (24-hour format)
+        $time = $transaction->created_at->format('H:i');
+        
+        // Type icon and label
+        $typeInfo = $this->getTransactionTypeInfo($transaction->type->value, $language);
+        
+        // Amount formatting
+        $amount = $this->formatTransactionAmount($transaction);
+        
+        // Category (if available)
+        $category = $transaction->category ? __('telegram_pos.category_' . $transaction->category->value, [], $language) : '';
+        
+        // Build the line - compact format
+        $line = "{$numberEmoji} {$time} | {$typeInfo['icon']} {$typeInfo['label']} | {$amount}";
+        
+        if ($category) {
+            $line .= " | {$category}";
+        }
+        
+        $line .= "\n";
+        
+        // Add notes if available (truncated)
+        if ($transaction->notes) {
+            $notes = mb_strlen($transaction->notes) > 40 
+                ? mb_substr($transaction->notes, 0, 40) . '...' 
+                : $transaction->notes;
+            $line .= "   📝 {$notes}\n";
+        }
+        
+        return $line;
+    }
+    
+    /**
+     * Get number emoji (1️⃣-🔟)
+     */
+    protected function getNumberEmoji(int $number): string
+    {
+        $emojis = [
+            1 => '1️⃣', 2 => '2️⃣', 3 => '3️⃣', 4 => '4️⃣', 5 => '5️⃣',
+            6 => '6️⃣', 7 => '7️⃣', 8 => '8️⃣', 9 => '9️⃣', 10 => '🔟'
+        ];
+        
+        return $emojis[$number] ?? "{$number}.";
+    }
+    
+    /**
+     * Get transaction type icon and label
+     */
+    protected function getTransactionTypeInfo(string $type, string $language): array
+    {
+        return match($type) {
+            'in' => [
+                'icon' => '💵',
+                'label' => __('telegram_pos.txn_in', [], $language),
+            ],
+            'out' => [
+                'icon' => '💸',
+                'label' => __('telegram_pos.txn_out', [], $language),
+            ],
+            'in_out' => [
+                'icon' => '🔄',
+                'label' => __('telegram_pos.txn_exchange', [], $language),
+            ],
+            default => [
+                'icon' => '📝',
+                'label' => strtoupper($type),
+            ],
+        };
+    }
+    
+    /**
+     * Format transaction amount
+     */
+    protected function formatTransactionAmount($transaction): string
+    {
+        $currency = $transaction->currency->value;
+        $amount = $transaction->amount;
+        
+        // Format with proper notation
+        if ($transaction->type->value === 'in_out') {
+            // Exchange transaction
+            $outCurrency = $transaction->out_currency->value ?? '';
+            $outAmount = $transaction->out_amount ?? 0;
+            
+            return $this->formatAmount($amount, $currency) . ' → ' . $this->formatAmount($outAmount, $outCurrency);
+        }
+        
+        return $this->formatAmount($amount, $currency);
+    }
+    
+    /**
+     * Format amount with shorthand for large numbers
+     */
+    protected function formatAmount(float $amount, string $currency): string
+    {
+        // For UZS, use shorthand (K for thousands, M for millions)
+        if ($currency === 'UZS') {
+            if ($amount >= 1000000) {
+                return number_format($amount / 1000000, 2) . 'M ' . $currency;
+            } elseif ($amount >= 1000) {
+                return number_format($amount / 1000, 0) . 'K ' . $currency;
+            }
+        }
+        
+        // For other currencies, show with decimals
+        return number_format($amount, 2) . ' ' . $currency;
     }
     
     /**
