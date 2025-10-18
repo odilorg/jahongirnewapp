@@ -44,3 +44,6 @@ Route::post('/telegram/driver_guide_signup', [TelegramDriverGuideSignUpControlle
 
 Route::post('/webhook/tour-booking', [WebhookController::class, 'handleTourBooking']);
 
+
+// POS Telegram Bot
+Route::post('/telegram/pos/webhook', [App\Http\Controllers\TelegramPosController::class, 'handleWebhook']);
