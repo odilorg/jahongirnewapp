@@ -82,4 +82,12 @@ return [
     'total_locations' => 'Total Locations',
     'open' => 'Open',
     'active' => 'Active',
+    'active' => 'Active',
+    
+    // Report menu items
+    'financial_range' => 'Financial Range',
+    'executive_dashboard' => 'Executive Dashboard',
+    'currency_exchange' => 'Currency Exchange',
+    'transaction_report' => 'Transaction Report',
+    'multi_location' => 'Multi-Location Summary',
 ];

@@ -82,4 +82,11 @@ return [
     'total_locations' => 'Всего локаций',
     'open' => 'Открыто',
     'active' => 'Активно',
+    
+    // Report menu items
+    'financial_range' => 'Финансовый отчет',
+    'executive_dashboard' => 'Панель руководителя',
+    'currency_exchange' => 'Обмен валюты',
+    'transaction_report' => 'Отчет по транзакциям',
+    'multi_location' => 'Сводка по локациям',
 ];
