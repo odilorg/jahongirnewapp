@@ -82,4 +82,11 @@ return [
     'total_locations' => 'Jami filiallar',
     'open' => 'Ochiq',
     'active' => 'Faol',
+    
+    // Report menu items
+    'financial_range' => 'Moliyaviy hisobot',
+    'executive_dashboard' => 'Rahbar paneli',
+    'currency_exchange' => 'Valyuta almashinuvi',
+    'transaction_report' => 'Tranzaksiyalar hisoboti',
+    'multi_location' => 'Lokatsiyalar xulosasi',
 ];
