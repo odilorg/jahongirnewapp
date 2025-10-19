@@ -295,7 +295,8 @@ class TelegramReportService
         foreach ($locations as $location) {
             $drawerIds = CashDrawer::where('location_id', $location->id)->pluck('id');
 
-            $shifts = CashierShift::whereIn('cash_drawer_id', $drawerIds)
+            $shifts = CashierShift::withTrashed()
+                ->whereIn('cash_drawer_id', $drawerIds)
                 ->whereDate('opened_at', $today)
                 ->get();
 
@@ -356,7 +357,7 @@ class TelegramReportService
      */
     protected function getScopedShiftsQuery(User $manager): Builder
     {
-        $query = CashierShift::query();
+        $query = CashierShift::withTrashed();
 
         if (!$manager->hasRole('super_admin')) {
             $locationIds = $manager->locations()->pluck('id');

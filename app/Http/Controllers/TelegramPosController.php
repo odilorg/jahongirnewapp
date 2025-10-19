@@ -66,8 +66,13 @@ class TelegramPosController extends Controller
             return response('OK');
         }
 
+        // Handle contact sharing FIRST (before checking session)
+        if ($contact) {
+            return $this->handleContactShared($chatId, $contact);
+        }
+
         // Get or create session
-        $session = $this->getOrCreateSession($chatId, $contact);
+        $session = $this->getOrCreateSession($chatId);
 
         if (!$session) {
             $this->sendMessage($chatId, "Please share your contact to start.", $this->keyboard->phoneRequestKeyboard());
@@ -76,11 +81,6 @@ class TelegramPosController extends Controller
 
         $lang = $session->language ?? 'en';
         $user = $session->user;
-
-        // Handle contact sharing
-        if ($contact) {
-            return $this->handleContactShared($chatId, $contact);
-        }
 
         // Route commands
         $textLower = mb_strtolower($text);
@@ -305,18 +305,45 @@ class TelegramPosController extends Controller
     protected function handleContactShared(int $chatId, array $contact)
     {
         $phoneNumber = $contact['phone_number'] ?? null;
-        
-        if (!$phoneNumber) {
+        $telegramUserId = $contact['user_id'] ?? null;
+
+        if (!$phoneNumber && !$telegramUserId) {
             $this->sendMessage($chatId, "Invalid contact information.");
             return response('OK');
         }
 
-        // Find user by phone
-        $user = User::where('phone', $phoneNumber)->first();
-        
+        // Try to find user by Telegram ID first (most reliable)
+        $user = null;
+        if ($telegramUserId) {
+            $user = User::where('telegram_pos_user_id', $telegramUserId)->first();
+        }
+
+        // If not found, try by phone number (with variations)
+        if (!$user && $phoneNumber) {
+            // Try exact match first
+            $user = User::where('phone_number', $phoneNumber)->first();
+
+            // Try without + prefix
+            if (!$user) {
+                $phoneWithoutPlus = ltrim($phoneNumber, '+');
+                $user = User::where('phone_number', $phoneWithoutPlus)->first();
+            }
+
+            // Try with + prefix
+            if (!$user && !str_starts_with($phoneNumber, '+')) {
+                $user = User::where('phone_number', '+' . $phoneNumber)->first();
+            }
+        }
+
         if (!$user) {
-            $this->sendMessage($chatId, "User not found with this phone number.");
+            $this->sendMessage($chatId, "User not found. Please contact administrator.");
             return response('OK');
+        }
+
+        // Update Telegram user ID if not set
+        if ($telegramUserId && !$user->telegram_pos_user_id) {
+            $user->telegram_pos_user_id = $telegramUserId;
+            $user->save();
         }
 
         // Create or update session
@@ -334,7 +361,7 @@ class TelegramPosController extends Controller
     /**
      * Get or create session for chat
      */
-    protected function getOrCreateSession(int $chatId, ?array $contact = null)
+    protected function getOrCreateSession(int $chatId)
     {
         $session = DB::table('telegram_pos_sessions')
             ->where('chat_id', $chatId)

@@ -5,6 +5,21 @@ return [
     'welcome' => 'POS tizimiga xush kelibsiz!',
     'main_menu' => 'Asosiy menyu',
     'unauthorized' => 'Ruxsatsiz. Iltimos, avval kontaktingizni baham ko\'ring.',
+    'share_contact' => '📱 Kontaktni ulashish',
+    
+    // Main Menu Buttons
+    'start_shift' => '🟢 Smenani boshlash',
+    'my_shift' => '📊 Mening smenaim',
+    'record_transaction' => '💵 Tranzaksiyani yozish',
+    'close_shift' => '🔴 Smenani yopish',
+    'help' => '❓ Yordam',
+    'settings' => '⚙️ Sozlamalar',
+    'cancel' => '❌ Bekor qilish',
+    'back' => '◀️ Orqaga',
+    'confirm' => '✅ Tasdiqlash',
+    
+    // Language
+    'language_set' => 'Til muvaffaqiyatli o\'rnatildi!',
 
     // Reports
     'reports' => '📊 Hisobotlar',
@@ -67,5 +82,4 @@ return [
     'total_locations' => 'Jami filiallar',
     'open' => 'Ochiq',
     'active' => 'Faol',
-    'back' => 'Orqaga',
 ];

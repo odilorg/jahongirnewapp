@@ -5,6 +5,21 @@ return [
     'welcome' => 'Welcome to the POS system!',
     'main_menu' => 'Main Menu',
     'unauthorized' => 'Unauthorized. Please share your contact first.',
+    'share_contact' => '📱 Share Contact',
+    
+    // Main Menu Buttons
+    'start_shift' => '🟢 Start Shift',
+    'my_shift' => '📊 My Shift',
+    'record_transaction' => '💵 Record Transaction',
+    'close_shift' => '🔴 Close Shift',
+    'help' => '❓ Help',
+    'settings' => '⚙️ Settings',
+    'cancel' => '❌ Cancel',
+    'back' => '◀️ Back',
+    'confirm' => '✅ Confirm',
+    
+    // Language
+    'language_set' => 'Language has been set successfully!',
 
     // Reports
     'reports' => '📊 Reports',
@@ -67,5 +82,4 @@ return [
     'total_locations' => 'Total Locations',
     'open' => 'Open',
     'active' => 'Active',
-    'back' => 'Back',
 ];
