@@ -1,105 +1,85 @@
 <?php
 
 return [
-    // Welcome and Authentication
-    'welcome' => 'POS tizimiga xush kelibsiz! 🏪',
-    'welcome_back' => 'Xush kelibsiz, :name! 👋',
-    'auth_required' => 'Iltimos, autentifikatsiya qilish va POS funksiyalariga kirish uchun telefon raqamingizni ulashing.',
-    'auth_success' => 'Autentifikatsiya muvaffaqiyatli! Xush kelibsiz :name ✅',
-    'auth_failed' => 'Telefon raqami avtorizatsiya qilinmagan. Iltimos, menejeringiz bilan bog\'laning.',
-    'share_contact' => '📱 Telefon raqamini ulashish',
-    'session_expired' => 'Sessiyangiz muddati tugadi. Iltimos, qaytadan autentifikatsiya qiling.',
-    
-    // Main Menu
+    // Basic
+    'welcome' => 'POS tizimiga xush kelibsiz!',
     'main_menu' => 'Asosiy menyu',
-    'select_action' => 'Iltimos, harakatni tanlang:',
+    'unauthorized' => 'Ruxsatsiz. Iltimos, avval kontaktingizni baham ko\'ring.',
+    'share_contact' => '📱 Kontaktni ulashish',
+    
+    // Main Menu Buttons
     'start_shift' => '🟢 Smenani boshlash',
     'my_shift' => '📊 Mening smenaim',
-    'record_transaction' => '💰 Tranzaksiyani yozish',
+    'record_transaction' => '💵 Tranzaksiyani yozish',
     'close_shift' => '🔴 Smenani yopish',
-    'help' => 'ℹ️ Yordam',
+    'help' => '❓ Yordam',
     'settings' => '⚙️ Sozlamalar',
+    'cancel' => '❌ Bekor qilish',
+    'back' => '◀️ Orqaga',
+    'confirm' => '✅ Tasdiqlash',
     
     // Language
-    'language' => 'Til',
-    'language_changed' => 'Til muvaffaqiyatli o\'zgartirildi! 🌐',
-    'select_language' => 'Tilingizni tanlang:',
-    'lang_en' => '🇬🇧 English',
-    'lang_ru' => '🇷🇺 Русский',
-    'lang_uz' => '🇺🇿 O\'zbekcha',
-    
-    // Shift Management
-    'no_open_shift' => 'Sizda ochiq smena yo\'q.',
-    'shift_already_open' => 'Sizda :drawer kassada allaqachon ochiq smena bor',
-    'shift_started' => '✅ Smena muvaffaqiyatli boshlandi!',
-    'shift_start_failed' => 'Smenani boshlash amalga oshmadi. :reason',
-    'shift_closed' => '✅ Smena muvaffaqiyatli yopildi!',
-    'shift_details' => "📊 Smena tafsilotlari\n\nSmena ID: :shift_id\nJoylashuv: :location\nKassa: :drawer\nBoshlanish vaqti: :start_time\nDavomiyligi: :duration",
-    'no_location_assigned' => 'Siz hech qanday joyga tayinlanmagansiz. Iltimos, menejeringiz bilan bog\'laning.',
-    
-    // Running Balance
-    'running_balance' => '💰 Joriy balans',
-    'currency_balance' => ':currency: :amount',
-    'total_transactions' => 'Jami tranzaksiyalar: :count',
-    
-    // Transactions
-    'transaction_recorded' => '✅ Tranzaksiya muvaffaqiyatli yozildi!',
-    'transaction_failed' => 'Tranzaksiyani yozish amalga oshmadi. :reason',
-    'select_transaction_type' => 'Tranzaksiya turini tanlang:',
-    'cash_in' => '💵 Kirim',
-    'cash_out' => '💸 Chiqim',
-    'complex_transaction' => '🔄 Murakkab (Ayirboshlash)',
-    'enter_amount' => 'Summani kiriting:',
-    'enter_out_amount' => 'Beriladigan summani kiriting (ayirboshlash):',
-    'select_currency' => 'Valyutani tanlang:',
-    'select_out_currency' => 'Beriladigan summa valyutasini tanlang:',
-    'select_category' => 'Kategoriyani tanlang:',
-    'add_notes' => 'Eslatma qo\'shing (ixtiyoriy):',
-    'skip_notes' => 'O\'tkazib yuborish ⏭️',
-    'confirm_transaction' => 'Tranzaksiyani tasdiqlaysizmi?',
-    
-    // Transaction Display
-    'recent_transactions' => '📝 So\'nggi tranzaksiyalar (10 ta)',
-    'no_transactions' => 'Hozircha tranzaksiyalar yo\'q',
-    'txn_in' => 'KIRIM',
-    'txn_out' => 'CHIQIM',
-    'txn_exchange' => 'AYIRB.',
-    
-    // Categories
-    'category_sale' => '🛍️ Sotuv',
-    'category_refund' => '↩️ Qaytarish',
-    'category_expense' => '📤 Xarajat',
-    'category_deposit' => '📥 Depozit',
-    'category_change' => '💱 Qaytim',
-    'category_other' => '📝 Boshqa',
-    
-    // Close Shift
-    'close_shift_confirm' => 'Smenani yopishga aminmisiz?',
-    'enter_counted_amount' => ':currency uchun hisoblangan summani kiriting:',
-    'discrepancy_found' => '⚠️ Nomuvofiqlik topildi: :amount',
-    'enter_discrepancy_reason' => 'Iltimos, nomuvofiqlikni tushuntiring:',
-    'shift_under_review' => 'Smena yopildi va nomuvofiqlik tufayli ko\'rib chiqish uchun belgilandi.',
-    
-    // Buttons
-    'confirm' => '✅ Tasdiqlash',
-    'cancel' => '❌ Bekor qilish',
-    'cancelled' => 'Bekor qilindi',
-    'back' => '⬅️ Orqaga',
-    'next' => '➡️ Keyingi',
-    'done' => '✅ Tayyor',
-    
-    // Errors
-    'error_occurred' => 'Xatolik yuz berdi. Iltimos, qaytadan urinib ko\'ring.',
-    'invalid_amount' => 'Noto\'g\'ri summa. Iltimos, to\'g\'ri raqam kiriting.',
-    'shift_not_open' => 'Avval smenani boshlashingiz kerak.',
-    'unauthorized' => 'Sizda bu amalni bajarish huquqi yo\'q.',
-    
-    // Help
-    'help_text' => "📚 POS bot yordami\n\n🟢 Smenani boshlash - Kassir smenangizni boshlang\n📊 Mening smenaim - Joriy smena holati va balansini ko\'ring\n💰 Tranzaksiyani yozish - Naqd tranzaksiyani yozing\n🔴 Smenani yopish - Smenangizni yakunlang va pulni hisoblang\n\nYordam kerakmi? Menejeringiz bilan bog\'laning.",
-    
-    // Notifications
-    'manager_notified' => 'Menеjer xabardor qilindi.',
-    'shift_approved' => '✅ Smenangiz :manager tomonidan tasdiqlandi',
-    'shift_rejected' => '❌ Smenangiz rad etildi. Sabab: :reason',
-];
+    'language_set' => 'Til muvaffaqiyatli o\'rnatildi!',
 
+    // Reports
+    'reports' => '📊 Hisobotlar',
+    'select_report_type' => 'Hisobot turini tanlang:',
+    'today_summary' => '📅 Bugungi xulosa',
+    'shift_performance' => '👥 Smena natijalari',
+    'transaction_report' => '💰 Tranzaksiyalar',
+    'multi_location' => '🏢 Barcha filiallar',
+    'multi_location_summary' => '🏢 Barcha filiallar',
+    'manager_only' => 'Bu funksiya faqat menejerlar uchun mavjud.',
+
+    // Report Content
+    'date' => 'Sana',
+    'location' => 'Manzil',
+    'shifts' => 'SMENALAR',
+    'open_shifts' => 'Ochiq',
+    'closed_shifts' => 'Yopilgan',
+    'under_review' => 'Ko\'rib chiqilmoqda',
+    'total_shifts' => 'Jami',
+    'transactions' => 'tranzaksiyalar',
+    'cash_in' => 'Kirim',
+    'cash_out' => 'Chiqim',
+    'exchanges' => 'Almashinuvlar',
+    'totals_by_currency' => 'VALYUTA BO\'YICHA JAMI',
+    'net' => 'Sof',
+    'active_cashiers' => 'FAOL KASSIRLAR',
+    'currently_working' => 'hozir ishlayapti',
+    'discrepancies' => 'NOMUVOFIQLIKLAR',
+    'shifts_flagged_review' => 'ko\'rib chiqish uchun belgilangan smenalar',
+    'top_performer' => 'ENG YAXSHI NATIJA',
+    'summary' => 'XULOSA',
+    'total_transactions' => 'Jami tranzaksiyalar',
+    'avg_shift_duration' => 'O\'rtacha smena davomiyligi',
+    'no_shifts_found' => 'Ushbu davr uchun smenalar topilmadi.',
+    'shift' => 'Smena',
+    'cashier' => 'Kassir',
+    'drawer' => 'Kassa',
+    'opened' => 'Ochildi',
+    'closed' => 'Yopildi',
+    'duration' => 'Davomiylik',
+    'ongoing' => 'davom etmoqda',
+    'status' => 'Holat',
+    'status_open' => 'Ochiq',
+    'status_closed' => 'Yopilgan',
+    'status_under_review' => 'Ko\'rib chiqilmoqda',
+    'and_more' => 'va yana',
+    'shift_detail' => 'SMENA TAFSILOTLARI',
+    'shift_id' => 'Smena ID',
+    'balances' => 'BALANSLAR',
+    'discrepancy' => 'NOMUVOFIQLIK',
+    'expected' => 'Kutilayotgan',
+    'counted' => 'Hisoblangan',
+    'reason' => 'Sabab',
+    'recent_transactions' => 'SO\'NGGI TRANZAKSIYALAR',
+    'period' => 'Davr',
+    'total' => 'Jami',
+    'txns' => 'tr.',
+    'by_currency' => 'VALYUTA BO\'YICHA',
+    'top_cashiers' => 'ENG YAXSHI KASSIRLAR',
+    'total_locations' => 'Jami filiallar',
+    'open' => 'Ochiq',
+    'active' => 'Faol',
+];

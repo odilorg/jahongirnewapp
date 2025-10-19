@@ -22,41 +22,31 @@ class TelegramKeyboardBuilder
             'one_time_keyboard' => true,
         ];
     }
-
+    
     /**
      * Build main menu keyboard
      */
-    public function mainMenuKeyboard(string $language = 'en', ?\App\Models\User $user = null): array
+    public function mainMenuKeyboard(string $language = 'en'): array
     {
-        $buttons = [
-            [
-                ['text' => __('telegram_pos.start_shift', [], $language)],
-                ['text' => __('telegram_pos.my_shift', [], $language)],
-            ],
-            [
-                ['text' => __('telegram_pos.record_transaction', [], $language)],
-                ['text' => __('telegram_pos.close_shift', [], $language)],
-            ],
-        ];
-
-        // Add Reports button for managers
-        if ($user && $user->hasAnyRole(['manager', 'super_admin'])) {
-            $buttons[] = [
-                ['text' => __('telegram_pos.reports', [], $language)],
-            ];
-        }
-
-        $buttons[] = [
-            ['text' => __('telegram_pos.help', [], $language)],
-            ['text' => __('telegram_pos.settings', [], $language)],
-        ];
-
         return [
-            'keyboard' => $buttons,
+            'keyboard' => [
+                [
+                    ['text' => __('telegram_pos.start_shift', [], $language)],
+                    ['text' => __('telegram_pos.my_shift', [], $language)],
+                ],
+                [
+                    ['text' => __('telegram_pos.record_transaction', [], $language)],
+                    ['text' => __('telegram_pos.close_shift', [], $language)],
+                ],
+                [
+                    ['text' => __('telegram_pos.help', [], $language)],
+                    ['text' => __('telegram_pos.settings', [], $language)],
+                ],
+            ],
             'resize_keyboard' => true,
         ];
     }
-
+    
     /**
      * Build language selection inline keyboard
      */
@@ -74,7 +64,7 @@ class TelegramKeyboardBuilder
             ],
         ];
     }
-
+    
     /**
      * Build cancel keyboard
      */
@@ -90,7 +80,7 @@ class TelegramKeyboardBuilder
             'one_time_keyboard' => true,
         ];
     }
-
+    
     /**
      * Build confirmation keyboard
      */
@@ -105,7 +95,7 @@ class TelegramKeyboardBuilder
             ],
         ];
     }
-
+    
     /**
      * Build transaction type selection keyboard
      */
@@ -128,7 +118,7 @@ class TelegramKeyboardBuilder
             ],
         ];
     }
-
+    
     /**
      * Build currency selection keyboard
      */
@@ -150,7 +140,7 @@ class TelegramKeyboardBuilder
             ],
         ];
     }
-
+    
     /**
      * Build category selection keyboard
      */
@@ -176,7 +166,7 @@ class TelegramKeyboardBuilder
             ],
         ];
     }
-
+    
     /**
      * Build skip notes keyboard
      */
@@ -190,7 +180,7 @@ class TelegramKeyboardBuilder
             ],
         ];
     }
-
+    
     /**
      * Build back to main menu keyboard
      */
@@ -206,7 +196,7 @@ class TelegramKeyboardBuilder
             'one_time_keyboard' => true,
         ];
     }
-
+    
     /**
      * Remove keyboard
      */
@@ -216,42 +206,5 @@ class TelegramKeyboardBuilder
             'remove_keyboard' => true,
         ];
     }
-
-    /**
-     * Build manager reports menu keyboard
-     */
-    public function managerReportsKeyboard(string $language = 'en'): array
-    {
-        return [
-            'inline_keyboard' => [
-                [
-                    ['text' => '📊 ' . __('telegram_pos.today_summary', [], $language), 'callback_data' => 'report:today'],
-                ],
-                [
-                    ['text' => '💰 ' . __('telegram_pos.financial_range', [], $language), 'callback_data' => 'report:financial_range'],
-                ],
-                [
-                    ['text' => '⚠️ ' . __('telegram_pos.discrepancies', [], $language), 'callback_data' => 'report:discrepancies'],
-                ],
-                [
-                    ['text' => '📈 ' . __('telegram_pos.executive_dashboard', [], $language), 'callback_data' => 'report:executive'],
-                ],
-                [
-                    ['text' => '💱 ' . __('telegram_pos.currency_exchange', [], $language), 'callback_data' => 'report:currency_exchange'],
-                ],
-                [
-                    ['text' => '👥 ' . __('telegram_pos.shift_performance', [], $language), 'callback_data' => 'report:shifts'],
-                ],
-                [
-                    ['text' => '💼 ' . __('telegram_pos.transaction_report', [], $language), 'callback_data' => 'report:transactions'],
-                ],
-                [
-                    ['text' => '🏢 ' . __('telegram_pos.multi_location', [], $language), 'callback_data' => 'report:locations'],
-                ],
-                [
-                    ['text' => '« ' . __('telegram_pos.back', [], $language), 'callback_data' => 'report:back'],
-                ],
-            ],
-        ];
-    }
 }
+

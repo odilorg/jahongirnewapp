@@ -1,0 +1,77 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use Illuminate\Http\Request;
+use App\Services\Beds24BookingService;
+use App\Models\RoomUnitMapping;
+
+class VoiceAgentController extends Controller
+{
+    public function checkAvailability(Request $request)
+    {
+        // Reuse existing availability logic from Telegram bot
+        $validated = $request->validate([
+            'arrival_date' => 'required|date',
+            'departure_date' => 'required|date|after:arrival_date',
+            'number_of_guests' => 'integer|min:1',
+        ]);
+
+        $beds24Service = app(Beds24BookingService::class);
+
+        // Get all room IDs
+        $roomIds = RoomUnitMapping::pluck('room_id')->toArray();
+
+        // Check availability using existing method
+        $availability = $beds24Service->checkAvailability(
+            $validated['arrival_date'],
+            $validated['departure_date'],
+            $roomIds
+        );
+
+        // Get available rooms
+        $bookedRoomIds = $availability['bookedRoomIds'] ?? [];
+        $availableRooms = RoomUnitMapping::whereNotIn('room_id', $bookedRoomIds)->get();
+
+        return response()->json([
+            'success' => true,
+            'available_rooms' => $availableRooms,
+            'total_available' => $availableRooms->count(),
+            'total_rooms' => count($roomIds),
+        ]);
+    }
+
+    public function createBooking(Request $request)
+    {
+        // Reuse existing booking creation logic
+        $validated = $request->validate([
+            'check_in_date' => 'required|date',
+            'check_out_date' => 'required|date|after:check_in_date',
+            'hotel_name' => 'required|string',
+            'room_type' => 'required|string',
+            'guest_name' => 'required|string',
+            'guest_phone' => 'required|string',
+            'guest_email' => 'required|email',
+            'number_of_guests' => 'integer|min:1',
+            'special_requests' => 'nullable|string',
+        ]);
+
+        $beds24Service = app(Beds24BookingService::class);
+
+        // Use existing createBooking method
+        $result = $beds24Service->createBooking($validated);
+
+        return response()->json($result);
+    }
+
+    public function getGuestByPhone($phone)
+    {
+        // Reuse existing guest lookup logic
+        // This should match your Telegram bot's guest lookup
+
+        return response()->json([
+            'found' => false,
+            'message' => 'Guest lookup not implemented yet',
+        ]);
+    }
+}
