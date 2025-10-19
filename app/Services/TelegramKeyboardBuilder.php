@@ -225,19 +225,31 @@ class TelegramKeyboardBuilder
         return [
             'inline_keyboard' => [
                 [
-                    ['text' => __('telegram_pos.today_summary', [], $language), 'callback_data' => 'report:today'],
+                    ['text' => '📊 ' . __('telegram_pos.today_summary', [], $language), 'callback_data' => 'report:today'],
                 ],
                 [
-                    ['text' => __('telegram_pos.shift_performance', [], $language), 'callback_data' => 'report:shifts'],
+                    ['text' => '💰 ' . __('telegram_pos.financial_range', [], $language), 'callback_data' => 'report:financial_range'],
                 ],
                 [
-                    ['text' => __('telegram_pos.transaction_report', [], $language), 'callback_data' => 'report:transactions'],
+                    ['text' => '⚠️ ' . __('telegram_pos.discrepancies', [], $language), 'callback_data' => 'report:discrepancies'],
                 ],
                 [
-                    ['text' => __('telegram_pos.multi_location', [], $language), 'callback_data' => 'report:locations'],
+                    ['text' => '📈 ' . __('telegram_pos.executive_dashboard', [], $language), 'callback_data' => 'report:executive'],
                 ],
                 [
-                    ['text' => __('telegram_pos.back', [], $language), 'callback_data' => 'report:back'],
+                    ['text' => '💱 ' . __('telegram_pos.currency_exchange', [], $language), 'callback_data' => 'report:currency_exchange'],
+                ],
+                [
+                    ['text' => '👥 ' . __('telegram_pos.shift_performance', [], $language), 'callback_data' => 'report:shifts'],
+                ],
+                [
+                    ['text' => '💼 ' . __('telegram_pos.transaction_report', [], $language), 'callback_data' => 'report:transactions'],
+                ],
+                [
+                    ['text' => '🏢 ' . __('telegram_pos.multi_location', [], $language), 'callback_data' => 'report:locations'],
+                ],
+                [
+                    ['text' => '« ' . __('telegram_pos.back', [], $language), 'callback_data' => 'report:back'],
                 ],
             ],
         ];
