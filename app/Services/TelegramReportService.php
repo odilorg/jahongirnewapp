@@ -294,8 +294,7 @@ class TelegramReportService
         foreach ($locations as $locationName) {
             $drawerIds = CashDrawer::where('location', $locationName)->pluck('id');
 
-            $shifts = CashierShift::withTrashed()
-                ->whereIn('cash_drawer_id', $drawerIds)
+            $shifts = CashierShift::whereIn('cash_drawer_id', $drawerIds)
                 ->whereDate('opened_at', $today)
                 ->get();
 
@@ -350,7 +349,7 @@ class TelegramReportService
     {
         // For now, all managers can see all shifts since user-to-location
         // relationships don't exist (location is just a string field)
-        return CashierShift::withTrashed();
+        return CashierShift::query();
     }
 
     /**
