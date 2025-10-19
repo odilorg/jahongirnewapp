@@ -48,12 +48,13 @@ class TelegramReportService
         // Calculate totals by currency
         $currencyTotals = $this->calculateCurrencyTotals($transactions);
 
-        // Get active cashiers (users with open shifts)
-        $activeCashiers = (clone $shiftsQuery)
+        // Get active cashiers (users with currently open shifts, regardless of when opened)
+        $activeCashiers = $this->getScopedShiftsQuery($manager)
             ->where('status', ShiftStatus::OPEN)
             ->with('user')
             ->get()
-            ->pluck('user.name')
+            ->map(fn($s) => $s->user?->name)
+            ->filter()
             ->unique()
             ->count();
 
