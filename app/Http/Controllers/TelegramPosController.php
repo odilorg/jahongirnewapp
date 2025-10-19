@@ -215,6 +215,14 @@ class TelegramPosController extends Controller
                 return $this->handleTransactionsReport($chatId, $user, $lang);
             case 'locations':
                 return $this->handleLocationsReport($chatId, $user, $lang);
+            case 'financial_range':
+                return $this->handleFinancialRangeReport($chatId, $user, $lang);
+            case 'discrepancies':
+                return $this->handleDiscrepanciesReport($chatId, $user, $lang);
+            case 'executive':
+                return $this->handleExecutiveDashboard($chatId, $user, $lang);
+            case 'currency_exchange':
+                return $this->handleCurrencyExchangeReport($chatId, $user, $lang);
             case 'back':
                 $this->sendMessage($chatId, __('telegram_pos.main_menu', [], $lang), $this->keyboard->mainMenuKeyboard($lang, $user));
                 break;
@@ -450,11 +458,111 @@ class TelegramPosController extends Controller
     protected function answerCallbackQuery(string $callbackId, ?string $text = null)
     {
         $params = ['callback_query_id' => $callbackId];
-        
+
         if ($text) {
             $params['text'] = $text;
         }
 
         Http::post("https://api.telegram.org/bot{$this->botToken}/answerCallbackQuery", $params);
+    }
+
+    /**
+     * Handle Financial Range Report
+     */
+    protected function handleFinancialRangeReport(int $chatId, User $user, string $lang)
+    {
+        $service = app(\App\Services\AdvancedReportService::class);
+
+        // Default to this month
+        $data = $service->getDateRangeFinancialSummary(
+            $user,
+            \Carbon\Carbon::now()->startOfMonth(),
+            \Carbon\Carbon::now()->endOfMonth()
+        );
+
+        if (isset($data['error'])) {
+            $this->sendMessage($chatId, "❌ " . $data['error']);
+            return response('OK');
+        }
+
+        $formatter = app(\App\Services\TelegramReportFormatter::class);
+        $message = $formatter->formatFinancialRangeSummary($data, $lang);
+        $this->sendMessage($chatId, $message);
+
+        return response('OK');
+    }
+
+    /**
+     * Handle Discrepancies Report
+     */
+    protected function handleDiscrepanciesReport(int $chatId, User $user, string $lang)
+    {
+        $service = app(\App\Services\AdvancedReportService::class);
+
+        // Default to this month
+        $data = $service->getDiscrepancyVarianceReport(
+            $user,
+            \Carbon\Carbon::now()->startOfMonth(),
+            \Carbon\Carbon::now()->endOfMonth()
+        );
+
+        if (isset($data['error'])) {
+            $this->sendMessage($chatId, "❌ " . $data['error']);
+            return response('OK');
+        }
+
+        $formatter = app(\App\Services\TelegramReportFormatter::class);
+        $message = $formatter->formatDiscrepancyReport($data, $lang);
+        $this->sendMessage($chatId, $message);
+
+        return response('OK');
+    }
+
+    /**
+     * Handle Executive Dashboard
+     */
+    protected function handleExecutiveDashboard(int $chatId, User $user, string $lang)
+    {
+        $service = app(\App\Services\AdvancedReportService::class);
+
+        // Default to today
+        $data = $service->getExecutiveSummaryDashboard($user, \App\Enums\ReportPeriod::TODAY);
+
+        if (isset($data['error'])) {
+            $this->sendMessage($chatId, "❌ " . $data['error']);
+            return response('OK');
+        }
+
+        $formatter = app(\App\Services\TelegramReportFormatter::class);
+        $message = $formatter->formatExecutiveDashboard($data, $lang);
+        $this->sendMessage($chatId, $message);
+
+        return response('OK');
+    }
+
+    /**
+     * Handle Currency Exchange Report
+     */
+    protected function handleCurrencyExchangeReport(int $chatId, User $user, string $lang)
+    {
+        $service = app(\App\Services\AdvancedReportService::class);
+
+        // Default to this week
+        $data = $service->getCurrencyExchangeReport(
+            $user,
+            \Carbon\Carbon::now()->startOfWeek(),
+            \Carbon\Carbon::now()->endOfWeek()
+        );
+
+        if (isset($data['error'])) {
+            $this->sendMessage($chatId, "❌ " . $data['error']);
+            return response('OK');
+        }
+
+        $formatter = app(\App\Services\TelegramReportFormatter::class);
+        $message = $formatter->formatCurrencyExchangeReport($data, $lang);
+        $this->sendMessage($chatId, $message);
+
+        return response('OK');
     }
 }

@@ -348,4 +348,255 @@ class TelegramReportFormatter
             TransactionType::IN_OUT => '🔄',
         };
     }
+
+    /**
+     * Format Financial Range Summary Report
+     */
+    public function formatFinancialRangeSummary(array $data, string $lang): string
+    {
+        $message = "📊 <b>FINANCIAL SUMMARY</b>\n";
+        $message .= "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n";
+
+        // Period info
+        $message .= "📅 Period: {$data['period']['start']->format('M d')} - {$data['period']['end']->format('M d, Y')}\n";
+        $message .= "📍 Location: " . ($data['location'] ?? 'All') . "\n\n";
+
+        // Revenue section
+        $message .= "💰 <b>REVENUE</b>\n";
+        $message .= "   Total: " . number_format($data['summary']['revenue'], 0) . " UZS\n";
+        if (isset($data['comparison']['revenue_change_pct']) && $data['comparison']['revenue_change_pct'] != 0) {
+            $arrow = $data['comparison']['revenue_change_pct'] > 0 ? '↗️' : '↘️';
+            $sign = $data['comparison']['revenue_change_pct'] > 0 ? '+' : '';
+            $message .= "   Change: {$arrow} {$sign}" . number_format($data['comparison']['revenue_change_pct'], 1) . "%\n";
+        }
+        $message .= "\n";
+
+        // Expenses section
+        $message .= "💸 <b>EXPENSES</b>\n";
+        $message .= "   Total: " . number_format($data['summary']['expenses'], 0) . " UZS\n";
+        if (isset($data['comparison']['expenses_change_pct']) && $data['comparison']['expenses_change_pct'] != 0) {
+            $arrow = $data['comparison']['expenses_change_pct'] > 0 ? '↗️' : '↘️';
+            $sign = $data['comparison']['expenses_change_pct'] > 0 ? '+' : '';
+            $message .= "   Change: {$arrow} {$sign}" . number_format($data['comparison']['expenses_change_pct'], 1) . "%\n";
+        }
+        $message .= "\n";
+
+        // Net cash flow
+        $netFlow = $data['summary']['net_cash_flow'];
+        $netIcon = $netFlow >= 0 ? '✅' : '⚠️';
+        $message .= "{$netIcon} <b>NET CASH FLOW</b>\n";
+        $message .= "   " . number_format($netFlow, 0) . " UZS\n\n";
+
+        // By currency
+        if (!empty($data['by_currency'])) {
+            $message .= "💵 <b>BY CURRENCY</b>\n";
+            foreach ($data['by_currency'] as $currencyCode => $amounts) {
+                $revenue = number_format($amounts['revenue'], 0);
+                $message .= "   {$currencyCode}: {$revenue}\n";
+            }
+            $message .= "\n";
+        }
+
+        // Transactions
+        $message .= "🔢 <b>TRANSACTIONS</b>\n";
+        $message .= "   Total: {$data['summary']['total_transactions']}\n";
+        $message .= "   Cash In: {$data['summary']['cash_in_count']}\n";
+        $message .= "   Cash Out: {$data['summary']['cash_out_count']}\n";
+        $message .= "   Exchanges: {$data['summary']['exchange_count']}\n\n";
+
+        // Daily average
+        if (isset($data['daily_average'])) {
+            $message .= "📈 <b>DAILY AVERAGE</b>\n";
+            $message .= "   Revenue: " . number_format($data['daily_average']['revenue'], 0) . " UZS\n";
+            $message .= "   Transactions: {$data['daily_average']['transactions']}\n";
+        }
+
+        return $message;
+    }
+
+    /**
+     * Format Discrepancy/Variance Report
+     */
+    public function formatDiscrepancyReport(array $data, string $lang): string
+    {
+        $message = "⚠️ <b>DISCREPANCY REPORT</b>\n";
+        $message .= "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n";
+
+        // Period info
+        $message .= "📅 Period: {$data['period']['start']->format('M d')} - {$data['period']['end']->format('M d, Y')}\n";
+        $message .= "📍 Location: " . ($data['location'] ?? 'All') . "\n\n";
+
+        // Summary
+        $message .= "📊 <b>SUMMARY</b>\n";
+        $message .= "   Total Shifts: {$data['summary']['total_shifts']}\n";
+        $message .= "   With Discrepancies: {$data['summary']['shifts_with_discrepancies']}\n";
+
+        $accuracyIcon = $data['summary']['accuracy_rate'] >= 95 ? '✅' : ($data['summary']['accuracy_rate'] >= 90 ? '⚠️' : '❌');
+        $message .= "   {$accuracyIcon} Accuracy Rate: " . number_format($data['summary']['accuracy_rate'], 1) . "%\n\n";
+
+        // Total discrepancy amount
+        $totalDisc = $data['summary']['total_discrepancy_amount'];
+        $discIcon = abs($totalDisc) > 1000000 ? '❌' : (abs($totalDisc) > 100000 ? '⚠️' : '✅');
+        $message .= "{$discIcon} <b>TOTAL DISCREPANCY</b>\n";
+        $message .= "   " . number_format($totalDisc, 0) . " UZS\n\n";
+
+        // By cashier
+        if (!empty($data['by_cashier'])) {
+            $message .= "👥 <b>BY CASHIER</b>\n";
+            $count = 1;
+            foreach ($data['by_cashier'] as $cashierName => $stats) {
+                if ($count > 5) {
+                    $message .= "   ... and " . (count($data['by_cashier']) - 5) . " more\n";
+                    break;
+                }
+
+                $accuracyIcon = $stats['accuracy_rate'] >= 95 ? '✅' : ($stats['accuracy_rate'] >= 90 ? '⚠️' : '❌');
+                $message .= "   {$accuracyIcon} {$cashierName}\n";
+                $message .= "      Accuracy: " . number_format($stats['accuracy_rate'], 1) . "%\n";
+                $message .= "      Discrepancies: {$stats['discrepancy_count']} shifts\n";
+
+                $count++;
+            }
+            $message .= "\n";
+        }
+
+        // Top 5 largest discrepancies
+        if (!empty($data['largest_discrepancies'])) {
+            $message .= "🔝 <b>LARGEST DISCREPANCIES</b>\n";
+            foreach (array_slice($data['largest_discrepancies'], 0, 5) as $disc) {
+                $amount = number_format(abs($disc['amount']), 0);
+                $message .= "   • Shift #{$disc['shift_id']} ({$disc['cashier']})\n";
+                $message .= "     {$amount} {$disc['currency']}\n";
+            }
+        }
+
+        return $message;
+    }
+
+    /**
+     * Format Executive Dashboard
+     */
+    public function formatExecutiveDashboard(array $data, string $lang): string
+    {
+        $message = "📊 <b>EXECUTIVE DASHBOARD</b>\n";
+        $message .= "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n";
+
+        // Period info
+        $message .= "📅 Period: {$data['period']}\n";
+        $message .= "🕐 Generated: " . now()->format('M d, Y H:i') . "\n\n";
+
+        // Financial KPIs
+        $message .= "💰 <b>FINANCIAL</b>\n";
+        $message .= "   Revenue: " . number_format($data['financial']['revenue'], 0) . " UZS\n";
+
+        if (isset($data['financial']['revenue_change_pct'])) {
+            $change = $data['financial']['revenue_change_pct'];
+            $arrow = $change > 0 ? '↗️' : ($change < 0 ? '↘️' : '➡️');
+            $sign = $change > 0 ? '+' : '';
+            $message .= "   Change: {$arrow} {$sign}" . number_format($change, 1) . "%\n";
+        }
+
+        $message .= "   Transactions: {$data['financial']['total_transactions']}\n";
+
+        if (isset($data['financial']['txn_change_pct'])) {
+            $change = $data['financial']['txn_change_pct'];
+            $arrow = $change > 0 ? '↗️' : ($change < 0 ? '↘️' : '➡️');
+            $sign = $change > 0 ? '+' : '';
+            $message .= "   Change: {$arrow} {$sign}" . number_format($change, 1) . "%\n";
+        }
+        $message .= "\n";
+
+        // Operations
+        $message .= "⚙️ <b>OPERATIONS</b>\n";
+        $message .= "   Total Shifts: {$data['operations']['total_shifts']}\n";
+        $message .= "   Active Now: {$data['operations']['active_shifts']}\n";
+        $message .= "   Avg Duration: " . $this->formatDuration($data['operations']['avg_shift_duration']) . "\n";
+        $message .= "   Avg Transactions/Shift: " . number_format($data['operations']['avg_transactions_per_shift'], 1) . "\n\n";
+
+        // Quality metrics
+        $qualityScore = $data['quality']['quality_score'];
+        $qualityIcon = $qualityScore >= 95 ? '✅' : ($qualityScore >= 90 ? '⚠️' : '❌');
+        $message .= "{$qualityIcon} <b>QUALITY</b>\n";
+        $message .= "   Score: " . number_format($qualityScore, 1) . "/100\n";
+        $message .= "   Accuracy: " . number_format($data['quality']['accuracy_rate'], 1) . "%\n";
+        $message .= "   Discrepancies: {$data['quality']['discrepancy_count']}\n\n";
+
+        // Top performers
+        if (!empty($data['top_performers'])) {
+            $message .= "🏆 <b>TOP PERFORMERS</b>\n";
+            $rank = 1;
+            foreach (array_slice($data['top_performers'], 0, 5) as $performer) {
+                $revenue = number_format($performer['revenue'], 0);
+                $message .= "   {$rank}. {$performer['name']}\n";
+                $message .= "      {$revenue} UZS • {$performer['transaction_count']} txns\n";
+                $rank++;
+            }
+            $message .= "\n";
+        }
+
+        // Alerts
+        if (!empty($data['alerts'])) {
+            $message .= "🚨 <b>ALERTS</b>\n";
+            foreach (array_slice($data['alerts'], 0, 5) as $alert) {
+                $message .= "   • {$alert['message']}\n";
+            }
+        }
+
+        return $message;
+    }
+
+    /**
+     * Format Currency Exchange Report
+     */
+    public function formatCurrencyExchangeReport(array $data, string $lang): string
+    {
+        $message = "💱 <b>CURRENCY EXCHANGE REPORT</b>\n";
+        $message .= "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n";
+
+        // Period info
+        $message .= "📅 Period: {$data['period']['start']->format('M d')} - {$data['period']['end']->format('M d, Y')}\n";
+        $message .= "📍 Location: " . ($data['location'] ?? 'All') . "\n\n";
+
+        // Summary
+        $message .= "📊 <b>SUMMARY</b>\n";
+        $message .= "   Total Exchanges: {$data['summary']['total_exchanges']}\n";
+        $message .= "   Total Value: " . number_format($data['summary']['total_value_uzs'], 0) . " UZS\n";
+        $message .= "   Avg Amount: " . number_format($data['summary']['avg_exchange_amount'], 0) . " UZS\n\n";
+
+        // By currency pair
+        if (!empty($data['by_currency'])) {
+            $message .= "💵 <b>BY CURRENCY</b>\n";
+            foreach ($data['by_currency'] as $currencyCode => $stats) {
+                $message .= "   <b>{$currencyCode}</b>\n";
+                $message .= "      Count: {$stats['count']}\n";
+                $message .= "      Volume: " . number_format($stats['total_amount'], 0) . "\n";
+                $message .= "      Avg: " . number_format($stats['avg_amount'], 0) . "\n";
+            }
+            $message .= "\n";
+        }
+
+        // Hourly pattern
+        if (!empty($data['hourly_pattern'])) {
+            $message .= "🕐 <b>PEAK HOURS</b>\n";
+            $topHours = array_slice($data['hourly_pattern'], 0, 3, true);
+            foreach ($topHours as $hour => $count) {
+                $hourFormatted = str_pad($hour, 2, '0', STR_PAD_LEFT) . ":00";
+                $message .= "   {$hourFormatted} - {$count} exchanges\n";
+            }
+            $message .= "\n";
+        }
+
+        // Largest exchanges
+        if (!empty($data['largest_exchanges'])) {
+            $message .= "🔝 <b>LARGEST EXCHANGES</b>\n";
+            foreach (array_slice($data['largest_exchanges'], 0, 5) as $exchange) {
+                $amount = number_format($exchange['amount'], 0);
+                $time = $exchange['occurred_at']->format('M d, H:i');
+                $message .= "   • {$amount} {$exchange['currency']}\n";
+                $message .= "     {$time} - {$exchange['cashier']}\n";
+            }
+        }
+
+        return $message;
+    }
 }
