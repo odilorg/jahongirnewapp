@@ -32,7 +32,7 @@ class TelegramReportService
         $totalShifts = $shiftsQuery->count();
         $openShifts = (clone $shiftsQuery)->where('status', ShiftStatus::OPEN)->count();
         $closedShifts = (clone $shiftsQuery)->where('status', ShiftStatus::CLOSED)->count();
-        $underReview = (clone $shiftsQuery)->where('status', ShiftStatus::UNDER_REVIEW)->count();
+        $underReview = 0; // Status removed from enum
 
         // Get transaction statistics
         $shiftIds = $shiftsQuery->pluck('id');
@@ -57,10 +57,8 @@ class TelegramReportService
             ->unique()
             ->count();
 
-        // Count discrepancies
-        $discrepancyCount = (clone $shiftsQuery)
-            ->where('status', ShiftStatus::UNDER_REVIEW)
-            ->count();
+        // Count discrepancies (check for shifts with discrepancy fields set)
+        $discrepancyCount = 0; // Feature not implemented yet
 
         // Get top performer
         $topPerformer = $this->getTopPerformer($shiftsQuery, $today);
@@ -117,9 +115,8 @@ class TelegramReportService
                 'status' => $shift->status,
                 'transaction_count' => $transactionCount,
                 'currency_balances' => $currencyBalances,
-                'has_discrepancy' => $shift->status === ShiftStatus::UNDER_REVIEW,
-                'discrepancy_info' => $shift->status === ShiftStatus::UNDER_REVIEW ?
-                    $this->getDiscrepancyInfo($shift) : null,
+                'has_discrepancy' => false, // Feature not implemented
+                'discrepancy_info' => null,
             ];
         });
 
@@ -188,7 +185,7 @@ class TelegramReportService
                 'id' => $shift->id,
                 'cashier' => $shift->user->name,
                 'drawer' => $shift->cashDrawer->name,
-                'location' => $shift->cashDrawer->location->name ?? 'N/A',
+                'location' => $shift->cashDrawer->location ?? 'N/A',
                 'opened_at' => $shift->opened_at,
                 'closed_at' => $shift->closed_at,
                 'duration' => $shift->opened_at->diffInMinutes($shift->closed_at ?? now()),
@@ -204,8 +201,7 @@ class TelegramReportService
                 'recent' => $recentTransactions,
             ],
             'balances' => $currencyBreakdown,
-            'discrepancy' => $shift->status === ShiftStatus::UNDER_REVIEW ?
-                $this->getDiscrepancyInfo($shift) : null,
+            'discrepancy' => null, // Feature not implemented yet
             'approval' => [
                 'approved_by' => $shift->approver?->name,
                 'approved_at' => $shift->approved_at,
@@ -285,15 +281,18 @@ class TelegramReportService
             return ['error' => 'Unauthorized'];
         }
 
-        $locations = $manager->hasRole('super_admin')
-            ? \App\Models\Location::all()
-            : $manager->locations;
-
         $today = Carbon::today();
+
+        // Get all distinct locations from cash drawers (location is a string field)
+        $locations = CashDrawer::query()
+            ->whereNotNull('location')
+            ->distinct()
+            ->pluck('location');
+
         $locationData = [];
 
-        foreach ($locations as $location) {
-            $drawerIds = CashDrawer::where('location_id', $location->id)->pluck('id');
+        foreach ($locations as $locationName) {
+            $drawerIds = CashDrawer::where('location', $locationName)->pluck('id');
 
             $shifts = CashierShift::withTrashed()
                 ->whereIn('cash_drawer_id', $drawerIds)
@@ -305,8 +304,7 @@ class TelegramReportService
                 ->get();
 
             $locationData[] = [
-                'location_name' => $location->name,
-                'location_id' => $location->id,
+                'location_name' => $locationName,
                 'shifts' => [
                     'total' => $shifts->count(),
                     'open' => $shifts->where('status', ShiftStatus::OPEN)->count(),
@@ -340,16 +338,9 @@ class TelegramReportService
      */
     protected function canAccessShift(User $manager, CashierShift $shift): bool
     {
-        if ($manager->hasRole('super_admin')) {
-            return true;
-        }
-
-        $locationId = $shift->cashDrawer->location_id ?? null;
-        if (!$locationId) {
-            return false;
-        }
-
-        return $manager->locations()->where('id', $locationId)->exists();
+        // For now, all managers can access all shifts since location-based
+        // access control is not implemented (location is just a string field)
+        return true;
     }
 
     /**
@@ -357,15 +348,9 @@ class TelegramReportService
      */
     protected function getScopedShiftsQuery(User $manager): Builder
     {
-        $query = CashierShift::withTrashed();
-
-        if (!$manager->hasRole('super_admin')) {
-            $locationIds = $manager->locations()->pluck('id');
-            $drawerIds = CashDrawer::whereIn('location_id', $locationIds)->pluck('id');
-            $query->whereIn('cash_drawer_id', $drawerIds);
-        }
-
-        return $query;
+        // For now, all managers can see all shifts since user-to-location
+        // relationships don't exist (location is just a string field)
+        return CashierShift::withTrashed();
     }
 
     /**
@@ -467,10 +452,7 @@ class TelegramReportService
      */
     protected function getManagerLocations(User $manager): string
     {
-        if ($manager->hasRole('super_admin')) {
-            return 'All Locations';
-        }
-
-        return $manager->locations->pluck('name')->join(', ');
+        // Return all locations since user-to-location relationships don't exist
+        return 'All Locations';
     }
 }

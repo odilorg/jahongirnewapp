@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>LiveKit WebSocket Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 50px auto; padding: 20px; }
+        button { background: #4CAF50; color: white; border: none; padding: 12px 24px; 
+                 font-size: 16px; cursor: pointer; border-radius: 4px; margin: 10px 0; }
+        button:hover { background: #45a049; }
+        #result { margin-top: 20px; padding: 15px; border-radius: 4px; background: #f5f5f5; }
+        .success { color: green; font-weight: bold; }
+        .error { color: red; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <h1>🔌 LiveKit WebSocket Connection Test</h1>
+    <p>This page tests the WebSocket connection to the LiveKit server through nginx proxy.</p>
+    
+    <button onclick="testWebSocket()">Test WebSocket Connection</button>
+    <button onclick="testHttp()">Test HTTP Connection</button>
+    
+    <div id="result"></div>
+
+    <script>
+        function log(message, type = 'info') {
+            const resultDiv = document.getElementById('result');
+            const timestamp = new Date().toLocaleTimeString();
+            const className = type === 'success' ? 'success' : type === 'error' ? 'error' : '';
+            resultDiv.innerHTML += `[${timestamp}] <span class="${className}">${message}</span><br>`;
+        }
+
+        function testHttp() {
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = '<h3>Testing HTTP Connection...</h3>';
+            
+            fetch('https://jahongir-app.uz/livekit/')
+                .then(response => {
+                    log(`HTTP Status: ${response.status} ${response.statusText}`, 'success');
+                    return response.text();
+                })
+                .then(data => {
+                    log(`HTTP Response: ${data}`, 'success');
+                    log('✓ HTTP connection to LiveKit proxy is working!', 'success');
+                })
+                .catch(error => {
+                    log(`✗ HTTP connection failed: ${error.message}`, 'error');
+                });
+        }
+
+        function testWebSocket() {
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = '<h3>Testing WebSocket Connections...</h3>';
+
+            // Test the proxied WSS connection
+            const urls = [
+                { url: 'wss://jahongir-app.uz/livekit', desc: 'Proxied WSS (via nginx)' },
+                { url: 'ws://62.72.22.205:7880/', desc: 'Direct WS (port 7880)' }
+            ];
+
+            urls.forEach(({url, desc}) => {
+                log(`Testing ${desc}: ${url}`, 'info');
+                try {
+                    const ws = new WebSocket(url);
+                    
+                    const timeout = setTimeout(() => {
+                        ws.close();
+                        log(`✗ ${desc}: Connection timeout`, 'error');
+                    }, 5000);
+
+                    ws.onopen = () => {
+                        clearTimeout(timeout);
+                        log(`✓ ${desc}: CONNECTED!`, 'success');
+                        ws.close();
+                    };
+
+                    ws.onerror = (error) => {
+                        clearTimeout(timeout);
+                        log(`✗ ${desc}: Connection error`, 'error');
+                    };
+
+                    ws.onclose = (event) => {
+                        if (event.wasClean) {
+                            log(`${desc}: Connection closed cleanly (code=${event.code})`, 'info');
+                        }
+                    };
+                } catch (error) {
+                    log(`✗ ${desc}: Exception - ${error.message}`, 'error');
+                }
+            });
+        }
+    </script>
+</body>
+</html>
