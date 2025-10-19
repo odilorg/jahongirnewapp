@@ -2,1036 +2,567 @@
 
 namespace App\Http\Controllers;
 
-use App\Services\TelegramPosService;
-use App\Services\TelegramMessageFormatter;
+use App\Models\User;
+use App\Models\CashierShift;
 use App\Services\TelegramKeyboardBuilder;
+use App\Services\TelegramReportService;
+use App\Services\TelegramReportFormatter;
 use App\Actions\StartShiftAction;
 use App\Actions\CloseShiftAction;
 use App\Actions\RecordTransactionAction;
-use App\Models\CashierShift;
-use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\DB;
+use Carbon\Carbon;
 
 class TelegramPosController extends Controller
 {
-    protected $botToken;
-    
+    protected string $botToken;
+    protected int $sessionTimeout = 15; // minutes
+
     public function __construct(
-        protected TelegramPosService $posService,
-        protected TelegramMessageFormatter $formatter,
         protected TelegramKeyboardBuilder $keyboard,
         protected StartShiftAction $startShiftAction,
         protected CloseShiftAction $closeShiftAction,
-        protected RecordTransactionAction $recordTransactionAction
+        protected RecordTransactionAction $recordTransactionAction,
+        protected TelegramReportService $reportService,
+        protected TelegramReportFormatter $reportFormatter
     ) {
         $this->botToken = config('services.telegram_pos_bot.token');
+        $this->sessionTimeout = config('services.telegram_pos_bot.session_timeout', 15);
     }
-    
+
     /**
      * Handle incoming webhook from Telegram
      */
     public function handleWebhook(Request $request)
     {
-        Log::info('Telegram POS Webhook received', $request->all());
-        
-        try {
-            // Handle callback queries (inline button presses)
-            if ($callback = $request->input('callback_query')) {
-                Log::info('Processing callback query');
-                return $this->handleCallbackQuery($callback);
-            }
-            
-            // Handle contact sharing
-            if ($contact = $request->input('message.contact')) {
-                Log::info('Processing contact shared');
-                return $this->handleContactShared($contact, $request);
-            }
-            
-            // Handle text messages
-            Log::info('Processing text message');
-            return $this->processMessage($request);
-        } catch (\Exception $e) {
-            Log::error('Error in handleWebhook: ' . $e->getMessage(), [
-                'trace' => $e->getTraceAsString(),
-                'request' => $request->all()
-            ]);
-            return response('OK');
+        Log::info('POS Bot Webhook', ['data' => $request->all()]);
+
+        // Handle callback query (inline keyboard buttons)
+        if ($callback = $request->input('callback_query')) {
+            return $this->handleCallbackQuery($callback);
         }
+
+        // Handle regular message
+        if ($message = $request->input('message')) {
+            return $this->processMessage($message);
+        }
+
+        return response('OK');
     }
-    
+
     /**
-     * Process text messages
+     * Process incoming messages
      */
-    protected function processMessage(Request $request)
+    protected function processMessage(array $message)
     {
-        $message = $request->input('message');
-        
-        if (!$message) {
-            Log::error('No message in webhook payload');
-            return response('OK');
-        }
-        
         $chatId = $message['chat']['id'] ?? null;
-        $telegramUserId = $message['from']['id'] ?? null;
         $text = trim($message['text'] ?? '');
-        $languageCode = $message['from']['language_code'] ?? 'en';
-        
-        Log::info('Processing message details', [
-            'chatId' => $chatId,
-            'telegramUserId' => $telegramUserId,
-            'text' => $text,
-            'languageCode' => $languageCode
-        ]);
-        
-        if (!$chatId || !$telegramUserId) {
-            Log::error('Missing chatId or telegramUserId');
+        $contact = $message['contact'] ?? null;
+
+        if (!$chatId) {
             return response('OK');
         }
-        
+
+        // Handle contact sharing FIRST (before checking session)
+        if ($contact) {
+            return $this->handleContactShared($chatId, $contact);
+        }
+
         // Get or create session
-        Log::info('Getting session for chatId: ' . $chatId);
-        $session = $this->posService->getSession($chatId);
-        Log::info('Session result', ['session' => $session ? 'found' : 'not found']);
-        
-        // If no session, check for /start command
-        if (!$session && strtolower($text) !== '/start') {
-            $this->sendMessage(
-                $chatId,
-                $this->formatter->formatError(__('telegram_pos.session_expired', [], 'en'), 'en')
-            );
+        $session = $this->getOrCreateSession($chatId);
+
+        if (!$session) {
+            $this->sendMessage($chatId, "Please share your contact to start.", $this->keyboard->phoneRequestKeyboard());
             return response('OK');
         }
-        
+
+        $lang = $session->language ?? 'en';
+        $user = $session->user;
+
         // Route commands
-        Log::info('Routing command', ['text' => $text, 'lowercase_text' => strtolower($text)]);
-        switch (strtolower($text)) {
+        $textLower = mb_strtolower($text);
+
+        switch ($textLower) {
             case '/start':
-                Log::info('Handling /start command');
-                return $this->handleStart($chatId, $telegramUserId, $languageCode);
-                
-            case '/language':
-            case '⚙️ settings':
-            case '⚙️ sozlamalar':
-            case '⚙️ настройки':
-                return $this->showLanguageSelection($chatId, $session);
-                
-            case '/help':
-            case 'ℹ️ help':
-            case 'ℹ️ yordam':
-            case 'ℹ️ помощь':
-            case 'ℹ️ Помощь':  // Capital П
-                return $this->showHelp($chatId, $session);
-                
-            case '🟢 start shift':
-            case '🟢 smenani boshlash':
-            case '🟢 начать смену':
-            case '🟢 Начать смену':  // Capital N
-                return $this->handleStartShift($chatId, $session);
-                
-            case '📊 my shift':
-            case '📊 mening smenaim':
-            case '📊 моя смена':
-            case '📊 Моя смена':  // Capital M
-                return $this->handleMyShift($chatId, $session);
-                
-            case '💰 record transaction':
-            case '💰 tranzaksiyani yozish':
-            case '💰 записать транзакцию':
-            case '💰 Записать транзакцию':  // Capital З
-                return $this->handleRecordTransaction($chatId, $session);
-                
-            case '🔴 close shift':
-            case '🔴 smenani yopish':
-            case '🔴 закрыть смену':
-            case '🔴 Закрыть смену':  // Capital З
-                return $this->handleCloseShift($chatId, $session);
-                
+                return $this->handleStart($chatId, $session);
+
+            case '📊 reports':
+            case '📊 hisobotlar':
+            case '📊 отчеты':
+                return $this->showReportsMenu($chatId, $session);
+
             default:
-                Log::info('Unknown command, showing main menu', ['text' => $text]);
-                // Handle conversation states
-                if ($session) {
-                    return $this->handleConversationState($session, $text);
-                }
-                
-                $lang = $session ? $session->language : 'en';
+                // Show main menu
                 $this->sendMessage(
                     $chatId,
-                    $this->formatter->formatMainMenu($lang),
-                    $this->keyboard->mainMenuKeyboard($lang)
+                    __('telegram_pos.main_menu', [], $lang),
+                    $this->keyboard->mainMenuKeyboard($lang, $user)
                 );
                 break;
         }
-        
+
         return response('OK');
     }
-    
+
     /**
-     * Handle /start command
-     */
-    protected function handleStart(int $chatId, int $telegramUserId, string $languageCode = 'en')
-    {
-        // Check if already authenticated
-        $session = $this->posService->getSessionByTelegramId($telegramUserId);
-        
-        if ($session && $session->user_id) {
-            // Already authenticated
-            $lang = $session->language;
-            $this->sendMessage(
-                $chatId,
-                $this->formatter->formatWelcome($session->user->name, $lang),
-                $this->keyboard->mainMenuKeyboard($lang)
-            );
-        } else {
-            // Create guest session and request phone
-            $session = $this->posService->createGuestSession($telegramUserId, $chatId, $languageCode);
-            $lang = $session->language;
-            
-            $this->sendMessage(
-                $chatId,
-                $this->formatter->formatAuthRequest($lang),
-                $this->keyboard->phoneRequestKeyboard($lang)
-            );
-        }
-        
-        return response('OK');
-    }
-    
-    /**
-     * Handle contact sharing (authentication)
-     */
-    protected function handleContactShared(array $contact, Request $request)
-    {
-        $chatId = $request->input('message.chat.id');
-        $telegramUserId = $request->input('message.from.id');
-        $phoneNumber = $contact['phone_number'];
-        
-        // Authenticate
-        $result = $this->posService->authenticate($telegramUserId, $chatId, $phoneNumber);
-        
-        if ($result['success']) {
-            $user = $result['user'];
-            $lang = $result['session']->language;
-            
-            $this->sendMessage(
-                $chatId,
-                $this->formatter->formatAuthSuccess($user, $lang),
-                $this->keyboard->mainMenuKeyboard($lang)
-            );
-        } else {
-            $this->sendMessage(
-                $chatId,
-                $this->formatter->formatError(__('telegram_pos.auth_failed', [], 'en'), 'en')
-            );
-        }
-        
-        return response('OK');
-    }
-    
-    /**
-     * Handle callback queries (inline button presses)
+     * Handle callback query from inline keyboards
      */
     protected function handleCallbackQuery(array $callback)
     {
         $chatId = $callback['message']['chat']['id'] ?? null;
         $callbackData = $callback['data'] ?? '';
-        $callbackId = $callback['id'];
-        
-        // Answer callback to remove loading state
-        $this->answerCallbackQuery($callbackId);
-        
+        $callbackId = $callback['id'] ?? '';
+
         if (!$chatId) {
             return response('OK');
         }
-        
-        $session = $this->posService->getSession($chatId);
-        
+
+        // Answer callback to remove loading state
+        $this->answerCallbackQuery($callbackId);
+
+        $session = $this->getOrCreateSession($chatId);
         if (!$session) {
+            $this->sendMessage($chatId, "Session not found. Please /start again.");
             return response('OK');
         }
-        
-        $lang = $session->language;
-        
+
+        // Handle report callbacks
+        if (str_starts_with($callbackData, 'report:')) {
+            return $this->handleReportCallback($session, $callbackData, $chatId);
+        }
+
         // Handle language selection
         if (str_starts_with($callbackData, 'lang:')) {
-            $language = substr($callbackData, 5);
-            $this->posService->setUserLanguage($chatId, $language);
-            
-            $this->sendMessage(
-                $chatId,
-                __('telegram_pos.language_changed', [], $language),
-                $this->keyboard->mainMenuKeyboard($language)
-            );
-            
+            $lang = substr($callbackData, 5);
+            $this->updateSessionLanguage($session, $lang);
+            $this->sendMessage($chatId, __('telegram_pos.language_set', [], $lang));
             return response('OK');
         }
-        
-        // Handle transaction type selection
-        if (str_starts_with($callbackData, 'txn_type:')) {
-            return $this->handleTransactionTypeSelection($session, $callbackData, $chatId);
-        }
-        
-        // Handle currency selection
-        if (str_starts_with($callbackData, 'currency:')) {
-            return $this->handleCurrencySelection($session, $callbackData, $chatId);
-        }
-        
-        // Handle category selection
-        if (str_starts_with($callbackData, 'category:')) {
-            return $this->handleCategorySelection($session, $callbackData, $chatId);
-        }
-        
-        // Handle notes skip
-        if ($callbackData === 'notes:skip') {
-            return $this->handleNotesSkip($session, $chatId);
-        }
-        
+
         return response('OK');
     }
-    
+
     /**
-     * Show language selection
+     * Handle start command
      */
-    protected function showLanguageSelection(int $chatId, $session)
+    protected function handleStart(int $chatId, $session)
     {
-        $lang = $session ? $session->language : 'en';
-        
+        $lang = $session->language ?? 'en';
+        $user = $session->user;
+
         $this->sendMessage(
             $chatId,
-            __('telegram_pos.select_language', [], $lang),
-            $this->keyboard->languageSelectionKeyboard(),
+            __('telegram_pos.welcome', [], $lang),
+            $this->keyboard->mainMenuKeyboard($lang, $user)
+        );
+
+        return response('OK');
+    }
+
+    /**
+     * Show reports menu (manager only)
+     */
+    protected function showReportsMenu(int $chatId, $session)
+    {
+        if (!$session || !$session->user_id) {
+            $this->sendMessage($chatId, __('telegram_pos.unauthorized', [], 'en'));
+            return response('OK');
+        }
+
+        $lang = $session->language ?? 'en';
+        $user = $session->user;
+
+        // Check if user is manager
+        if (!$user->hasAnyRole(['manager', 'super_admin'])) {
+            $this->sendMessage($chatId, __('telegram_pos.manager_only', [], $lang));
+            return response('OK');
+        }
+
+        $this->sendMessage(
+            $chatId,
+            __('telegram_pos.select_report_type', [], $lang),
+            $this->keyboard->managerReportsKeyboard($lang),
             'inline'
         );
-        
+
         return response('OK');
     }
-    
+
     /**
-     * Show help
+     * Handle report callback
      */
-    protected function showHelp(int $chatId, $session)
+    protected function handleReportCallback($session, string $callbackData, int $chatId)
     {
-        $lang = $session ? $session->language : 'en';
-        
-        $this->sendMessage(
-            $chatId,
-            $this->formatter->formatHelp($lang)
-        );
-        
-        return response('OK');
-    }
-    
-    /**
-     * Handle start shift
-     */
-    protected function handleStartShift(int $chatId, $session)
-    {
-        if (!$session || !$session->user_id) {
-            $this->sendMessage($chatId, $this->formatter->formatError(__('telegram_pos.unauthorized'), 'en'));
-            return response('OK');
-        }
-        
-        $lang = $session->language;
+        $lang = $session->language ?? 'en';
         $user = $session->user;
-        
-        // Check if user already has an open shift
-        $existingShift = CashierShift::getUserOpenShift($user->id);
-        
-        if ($existingShift) {
-            $this->sendMessage(
-                $chatId,
-                $this->formatter->formatError(
-                    __('telegram_pos.shift_already_open', ['drawer' => $existingShift->cashDrawer->name], $lang),
-                    $lang
-                )
-            );
+
+        if (!$user->hasAnyRole(['manager', 'super_admin'])) {
+            $this->sendMessage($chatId, __('telegram_pos.manager_only', [], $lang));
             return response('OK');
         }
-        
-        try {
-            // Use the existing StartShiftAction to start shift
-            $shift = $this->startShiftAction->quickStart($user);
-            
-            // Send success message with shift details
-            $this->sendMessage(
-                $chatId,
-                $this->formatter->formatShiftStarted($shift, $lang)
-            );
-            
-            // Log activity
-            $this->posService->logActivity($user->id, 'shift_started', "Shift #{$shift->id} started via Telegram", $session->telegram_user_id);
-            
-        } catch (\Exception $e) {
-            $this->sendMessage(
-                $chatId,
-                $this->formatter->formatError(
-                    __('telegram_pos.shift_start_failed', ['reason' => $e->getMessage()], $lang),
-                    $lang
-                )
-            );
-            
-            Log::error('Telegram POS: Start shift failed', [
-                'user_id' => $user->id,
-                'error' => $e->getMessage()
-            ]);
-        }
-        
-        return response('OK');
-    }
-    
-    /**
-     * Handle my shift - show current shift status
-     */
-    protected function handleMyShift(int $chatId, $session)
-    {
-        if (!$session || !$session->user_id) {
-            $this->sendMessage($chatId, $this->formatter->formatError(__('telegram_pos.unauthorized'), 'en'));
-            return response('OK');
-        }
-        
-        $lang = $session->language;
-        $user = $session->user;
-        
-        // Get user's open shift
-        $shift = CashierShift::getUserOpenShift($user->id);
-        
-        if (!$shift) {
-            $this->sendMessage(
-                $chatId,
-                $this->formatter->formatNoOpenShift($lang)
-            );
-            return response('OK');
-        }
-        
-        // Send shift details with running balances
-        $this->sendMessage(
-            $chatId,
-            $this->formatter->formatShiftDetails($shift, $lang)
-        );
-        
-        // Log activity
-        $this->posService->logActivity($user->id, 'shift_viewed', "Viewed shift #{$shift->id} via Telegram", $session->telegram_user_id);
-        
-        return response('OK');
-    }
-    
-    /**
-     * Handle record transaction - initiate transaction flow
-     */
-    protected function handleRecordTransaction(int $chatId, $session)
-    {
-        if (!$session || !$session->user_id) {
-            $this->sendMessage($chatId, $this->formatter->formatError(__('telegram_pos.unauthorized'), 'en'));
-            return response('OK');
-        }
-        
-        $lang = $session->language;
-        $user = $session->user;
-        
-        // Check if user has open shift
-        $shift = CashierShift::getUserOpenShift($user->id);
-        
-        if (!$shift) {
-            $this->sendMessage(
-                $chatId,
-                $this->formatter->formatError(__('telegram_pos.shift_not_open', [], $lang), $lang)
-            );
-            return response('OK');
-        }
-        
-        // Start transaction recording flow
-        $session->setState('recording_transaction');
-        $session->setData('shift_id', $shift->id);
-        $session->setData('transaction_step', 'type');
-        $session->setData('transaction_data', []);
-        
-        // Ask for transaction type
-        $this->sendMessage(
-            $chatId,
-            __('telegram_pos.select_transaction_type', [], $lang),
-            $this->keyboard->transactionTypeKeyboard($lang),
-            'inline'
-        );
-        
-        return response('OK');
-    }
-    
-    /**
-     * Handle close shift - initiate multi-step flow
-     */
-    protected function handleCloseShift(int $chatId, $session)
-    {
-        if (!$session || !$session->user_id) {
-            $this->sendMessage($chatId, $this->formatter->formatError(__('telegram_pos.unauthorized'), 'en'));
-            return response('OK');
-        }
-        
-        $lang = $session->language;
-        $user = $session->user;
-        
-        // Get user's open shift
-        $shift = CashierShift::getUserOpenShift($user->id);
-        
-        if (!$shift) {
-            $this->sendMessage(
-                $chatId,
-                $this->formatter->formatNoOpenShift($lang)
-            );
-            return response('OK');
-        }
-        
-        // Get all currencies used in this shift
-        $usedCurrencies = $shift->getUsedCurrencies();
-        $beginningSaldos = $shift->beginningSaldos->pluck('currency');
-        $allCurrencies = $usedCurrencies->merge($beginningSaldos)->unique();
-        
-        if ($allCurrencies->isEmpty()) {
-            // No currencies, just close the shift simply
-            try {
-                $this->closeShiftAction->simpleClose($shift, $user, 'Closed via Telegram - No transactions');
-                
-                $this->sendMessage($chatId, __('telegram_pos.shift_closed', [], $lang));
-                $this->posService->logActivity($user->id, 'shift_closed', "Shift #{$shift->id} closed via Telegram", $session->telegram_user_id);
-                
-            } catch (\Exception $e) {
-                $this->sendMessage($chatId, $this->formatter->formatError($e->getMessage(), $lang));
-            }
-            
-            return response('OK');
-        }
-        
-        // Start close shift flow - store shift and currencies in session
-        $session->setState('closing_shift');
-        $session->setData('shift_id', $shift->id);
-        $session->setData('currencies', $allCurrencies->values()->toArray());
-        $session->setData('current_currency_index', 0);
-        $session->setData('counted_amounts', []);
-        
-        // Ask for first currency amount
-        $firstCurrency = $allCurrencies->first();
-        $expectedAmount = $shift->getNetBalanceForCurrency($firstCurrency);
-        
-        $message = __('telegram_pos.enter_counted_amount', ['currency' => $firstCurrency->value], $lang);
-        $message .= "\n\n💰 " . __('telegram_pos.running_balance', [], $lang) . ": " . $firstCurrency->formatAmount($expectedAmount);
-        
-        $this->sendMessage($chatId, $message, $this->keyboard->cancelKeyboard($lang));
-        
-        return response('OK');
-    }
-    
-    /**
-     * Handle conversation states for multi-step flows
-     */
-    protected function handleConversationState($session, string $text)
-    {
-        $chatId = $session->chat_id;
-        $lang = $session->language;
-        $state = $session->state;
-        
-        // Handle cancel
-        if (in_array(strtolower($text), ['cancel', 'отмена', 'bekor qilish', '❌ cancel', '❌ отмена', '❌ bekor qilish'])) {
-            $session->setState('authenticated');
-            $session->setData('shift_id', null);
-            $session->setData('currencies', null);
-            $session->setData('current_currency_index', null);
-            $session->setData('counted_amounts', null);
-            
-            $this->sendMessage(
-                $chatId,
-                __('telegram_pos.cancelled', [], $lang) ?? 'Cancelled',
-                $this->keyboard->mainMenuKeyboard($lang)
-            );
-            
-            return response('OK');
-        }
-        
-        // Handle closing shift flow
-        if ($state === 'closing_shift') {
-            return $this->handleCloseShiftFlow($session, $text);
-        }
-        
-        // Handle transaction recording flow
-        if ($state === 'recording_transaction') {
-            return $this->handleTransactionRecordingFlow($session, $text);
-        }
-        
-        return response('OK');
-    }
-    
-    /**
-     * Handle close shift flow - collecting counted amounts
-     */
-    protected function handleCloseShiftFlow($session, string $text)
-    {
-        $chatId = $session->chat_id;
-        $lang = $session->language;
-        $user = $session->user;
-        
-        $shiftId = $session->getData('shift_id');
-        $currencies = collect($session->getData('currencies'));
-        $currentIndex = $session->getData('current_currency_index');
-        $countedAmounts = $session->getData('counted_amounts', []);
-        
-        // Get shift
-        $shift = CashierShift::find($shiftId);
-        
-        if (!$shift) {
-            $this->sendMessage($chatId, $this->formatter->formatError(__('telegram_pos.shift_not_found', [], $lang) ?? 'Shift not found', $lang));
-            $session->setState('authenticated');
-            return response('OK');
-        }
-        
-        // Validate amount input
-        $amount = trim($text);
-        if (!is_numeric($amount) || $amount < 0) {
-            $this->sendMessage($chatId, __('telegram_pos.invalid_amount', [], $lang));
-            return response('OK');
-        }
-        
-        // Store counted amount for current currency
-        $currentCurrency = $currencies[$currentIndex];
-        $countedAmounts[] = [
-            'currency' => is_string($currentCurrency) ? $currentCurrency : $currentCurrency->value,
-            'counted_end_saldo' => (float) $amount,
-            'denominations' => [], // Can be extended later for denomination breakdown
-        ];
-        
-        $session->setData('counted_amounts', $countedAmounts);
-        
-        // Move to next currency
-        $nextIndex = $currentIndex + 1;
-        
-        if ($nextIndex < $currencies->count()) {
-            // Ask for next currency
-            $session->setData('current_currency_index', $nextIndex);
-            
-            $nextCurrency = $currencies[$nextIndex];
-            $currencyEnum = is_string($nextCurrency) ? \App\Enums\Currency::from($nextCurrency) : $nextCurrency;
-            $expectedAmount = $shift->getNetBalanceForCurrency($currencyEnum);
-            
-            $message = __('telegram_pos.enter_counted_amount', ['currency' => $currencyEnum->value], $lang);
-            $message .= "\n\n💰 " . __('telegram_pos.running_balance', [], $lang) . ": " . $currencyEnum->formatAmount($expectedAmount);
-            
-            $this->sendMessage($chatId, $message, $this->keyboard->cancelKeyboard($lang));
-        } else {
-            // All amounts collected, close the shift
-            try {
-                $closedShift = $this->closeShiftAction->execute($shift, $user, [
-                    'counted_end_saldos' => $countedAmounts,
-                    'notes' => 'Closed via Telegram Bot',
-                ]);
-                
-                // Send success message
-                $this->sendMessage(
-                    $chatId,
-                    $this->formatter->formatShiftClosed($closedShift, $lang),
-                    $this->keyboard->mainMenuKeyboard($lang)
-                );
-                
-                // Log activity
-                $this->posService->logActivity($user->id, 'shift_closed', "Shift #{$shift->id} closed via Telegram", $session->telegram_user_id);
-                
-                // Reset session state
-                $session->setState('authenticated');
-                $session->setData('shift_id', null);
-                $session->setData('currencies', null);
-                $session->setData('current_currency_index', null);
-                $session->setData('counted_amounts', null);
-                
-            } catch (\Exception $e) {
-                $this->sendMessage(
-                    $chatId,
-                    $this->formatter->formatError($e->getMessage(), $lang),
-                    $this->keyboard->mainMenuKeyboard($lang)
-                );
-                
-                Log::error('Telegram POS: Close shift failed', [
-                    'user_id' => $user->id,
-                    'shift_id' => $shiftId,
-                    'error' => $e->getMessage()
-                ]);
-                
-                // Reset session state
-                $session->setState('authenticated');
-                $session->setData('shift_id', null);
-                $session->setData('currencies', null);
-                $session->setData('current_currency_index', null);
-                $session->setData('counted_amounts', null);
-            }
-        }
-        
-        return response('OK');
-    }
-    
-    /**
-     * Handle transaction type selection
-     */
-    protected function handleTransactionTypeSelection($session, string $callbackData, int $chatId)
-    {
-        $lang = $session->language;
-        $type = substr($callbackData, 9); // Remove 'txn_type:'
-        
-        if ($type === 'cancel') {
-            $this->resetTransactionFlow($session);
-            $this->sendMessage($chatId, __('telegram_pos.cancelled', [], $lang), $this->keyboard->mainMenuKeyboard($lang));
-            return response('OK');
-        }
-        
-        $transactionData = $session->getData('transaction_data', []);
-        $transactionData['type'] = $type;
-        $session->setData('transaction_data', $transactionData);
-        $session->setData('transaction_step', 'amount');
-        
-        // Ask for amount
-        $this->sendMessage($chatId, __('telegram_pos.enter_amount', [], $lang), $this->keyboard->cancelKeyboard($lang));
-        
-        return response('OK');
-    }
-    
-    /**
-     * Handle currency selection
-     */
-    protected function handleCurrencySelection($session, string $callbackData, int $chatId)
-    {
-        $lang = $session->language;
-        $currency = substr($callbackData, 9); // Remove 'currency:'
-        
-        if ($currency === 'cancel') {
-            $this->resetTransactionFlow($session);
-            $this->sendMessage($chatId, __('telegram_pos.cancelled', [], $lang), $this->keyboard->mainMenuKeyboard($lang));
-            return response('OK');
-        }
-        
-        $transactionData = $session->getData('transaction_data', []);
-        $step = $session->getData('transaction_step');
-        
-        if ($step === 'currency') {
-            $transactionData['currency'] = $currency;
-            $session->setData('transaction_data', $transactionData);
-            
-            // Check if complex transaction
-            if ($transactionData['type'] === 'in_out') {
-                $session->setData('transaction_step', 'out_amount');
-                $this->sendMessage($chatId, __('telegram_pos.enter_out_amount', [], $lang), $this->keyboard->cancelKeyboard($lang));
-            } else {
-                $session->setData('transaction_step', 'category');
-                $this->sendMessage($chatId, __('telegram_pos.select_category', [], $lang), $this->keyboard->categorySelectionKeyboard($lang), 'inline');
-            }
-        } elseif ($step === 'out_currency') {
-            $transactionData['out_currency'] = $currency;
-            $session->setData('transaction_data', $transactionData);
-            $session->setData('transaction_step', 'category');
-            $this->sendMessage($chatId, __('telegram_pos.select_category', [], $lang), $this->keyboard->categorySelectionKeyboard($lang), 'inline');
-        }
-        
-        return response('OK');
-    }
-    
-    /**
-     * Handle category selection
-     */
-    protected function handleCategorySelection($session, string $callbackData, int $chatId)
-    {
-        $lang = $session->language;
-        $category = substr($callbackData, 9); // Remove 'category:'
-        
-        if ($category === 'cancel') {
-            $this->resetTransactionFlow($session);
-            $this->sendMessage($chatId, __('telegram_pos.cancelled', [], $lang), $this->keyboard->mainMenuKeyboard($lang));
-            return response('OK');
-        }
-        
-        $transactionData = $session->getData('transaction_data', []);
-        $transactionData['category'] = $category;
-        $session->setData('transaction_data', $transactionData);
-        $session->setData('transaction_step', 'notes');
-        
-        // Ask for notes
-        $this->sendMessage(
-            $chatId,
-            __('telegram_pos.add_notes', [], $lang),
-            $this->keyboard->skipNotesKeyboard($lang),
-            'inline'
-        );
-        
-        return response('OK');
-    }
-    
-    /**
-     * Handle notes skip
-     */
-    protected function handleNotesSkip($session, int $chatId)
-    {
-        $lang = $session->language;
-        
-        // Record transaction without notes
-        return $this->recordTransaction($session, $chatId, null);
-    }
-    
-    /**
-     * Handle transaction recording flow - text input
-     */
-    protected function handleTransactionRecordingFlow($session, string $text)
-    {
-        $chatId = $session->chat_id;
-        $lang = $session->language;
-        $user = $session->user;
-        $step = $session->getData('transaction_step');
-        $transactionData = $session->getData('transaction_data', []);
-        
-        switch ($step) {
-            case 'amount':
-                // Validate amount
-                if (!is_numeric($text) || $text <= 0) {
-                    $this->sendMessage($chatId, __('telegram_pos.invalid_amount', [], $lang));
-                    return response('OK');
-                }
-                
-                $transactionData['amount'] = (float) $text;
-                $session->setData('transaction_data', $transactionData);
-                $session->setData('transaction_step', 'currency');
-                
-                // Ask for currency
-                $this->sendMessage($chatId, __('telegram_pos.select_currency', [], $lang), $this->keyboard->currencySelectionKeyboard($lang), 'inline');
+
+        $reportType = substr($callbackData, 7); // Remove 'report:'
+
+        switch ($reportType) {
+            case 'today':
+                return $this->handleTodayReport($chatId, $user, $lang);
+            case 'shifts':
+                return $this->handleShiftsReport($chatId, $user, $lang);
+            case 'transactions':
+                return $this->handleTransactionsReport($chatId, $user, $lang);
+            case 'locations':
+                return $this->handleLocationsReport($chatId, $user, $lang);
+            case 'financial_range':
+                return $this->handleFinancialRangeReport($chatId, $user, $lang);
+            case 'discrepancies':
+                return $this->handleDiscrepanciesReport($chatId, $user, $lang);
+            case 'executive':
+                return $this->handleExecutiveDashboard($chatId, $user, $lang);
+            case 'currency_exchange':
+                return $this->handleCurrencyExchangeReport($chatId, $user, $lang);
+            case 'back':
+                $this->sendMessage($chatId, __('telegram_pos.main_menu', [], $lang), $this->keyboard->mainMenuKeyboard($lang, $user));
                 break;
-                
-            case 'out_amount':
-                // Validate out amount for complex transaction
-                if (!is_numeric($text) || $text <= 0) {
-                    $this->sendMessage($chatId, __('telegram_pos.invalid_amount', [], $lang));
-                    return response('OK');
-                }
-                
-                $transactionData['out_amount'] = (float) $text;
-                $session->setData('transaction_data', $transactionData);
-                $session->setData('transaction_step', 'out_currency');
-                
-                // Ask for out currency
-                $this->sendMessage($chatId, __('telegram_pos.select_out_currency', [], $lang), $this->keyboard->currencySelectionKeyboard($lang), 'inline');
-                break;
-                
-            case 'notes':
-                // Record transaction with notes
-                return $this->recordTransaction($session, $chatId, $text);
-                
-            default:
-                $this->sendMessage($chatId, __('telegram_pos.error_occurred', [], $lang));
-                $this->resetTransactionFlow($session);
         }
-        
+
         return response('OK');
     }
-    
+
     /**
-     * Record the transaction using RecordTransactionAction
+     * Handle today's summary report
      */
-    protected function recordTransaction($session, int $chatId, ?string $notes)
+    protected function handleTodayReport(int $chatId, User $user, string $lang)
     {
-        $lang = $session->language;
-        $user = $session->user;
-        $shiftId = $session->getData('shift_id');
-        $transactionData = $session->getData('transaction_data', []);
-        
-        $shift = CashierShift::find($shiftId);
-        
-        if (!$shift || !$shift->isOpen()) {
-            $this->sendMessage($chatId, $this->formatter->formatError(__('telegram_pos.shift_not_open', [], $lang), $lang));
-            $this->resetTransactionFlow($session);
+        $data = $this->reportService->getTodaySummary($user);
+
+        if (isset($data['error'])) {
+            $this->sendMessage($chatId, "❌ " . $data['error']);
             return response('OK');
         }
-        
-        // Prepare transaction data for RecordTransactionAction
-        $data = [
-            'type' => $transactionData['type'],
-            'amount' => $transactionData['amount'],
-            'currency' => $transactionData['currency'],
-            'category' => $transactionData['category'] ?? null,
-            'notes' => $notes,
-        ];
-        
-        // Add out currency and amount for complex transactions
-        if ($transactionData['type'] === 'in_out') {
-            $data['out_amount'] = $transactionData['out_amount'] ?? null;
-            $data['out_currency'] = $transactionData['out_currency'] ?? null;
-        }
-        
-        try {
-            // Record the transaction using existing action
-            $this->posService->logActivity($user->id, 'transaction_started', 'Recording transaction via Telegram', $session->telegram_user_id);
-            
-            $transaction = $this->recordTransactionAction->execute($shift, $user, $data);
-            
-            // Send success message
-            $message = __('telegram_pos.transaction_recorded', [], $lang) . "\n\n";
-            $message .= "🆔 ID: {$transaction->id}\n";
-            $message .= "📝 " . __('telegram_pos.' . $transactionData['type'] === 'in' ? 'cash_in' : ($transactionData['type'] === 'out' ? 'cash_out' : 'complex_transaction'), [], $lang) . "\n";
-            $message .= "💰 {$transactionData['amount']} {$transactionData['currency']}\n";
-            
-            if ($transactionData['type'] === 'in_out') {
-                $message .= "💸 {$transactionData['out_amount']} {$transactionData['out_currency']}\n";
-            }
-            
-            if (isset($transactionData['category'])) {
-                $message .= "📂 " . ucfirst($transactionData['category']) . "\n";
-            }
-            
-            if ($notes) {
-                $message .= "📝 {$notes}\n";
-            }
-            
-            // Show updated running balance
-            $message .= "\n💵 " . __('telegram_pos.running_balance', [], $lang) . ":\n";
-            $balances = $shift->fresh()->getAllRunningBalances();
-            foreach ($balances as $balance) {
-                $message .= "  {$balance['formatted']}\n";
-            }
-            
-            $this->sendMessage($chatId, $message, $this->keyboard->mainMenuKeyboard($lang));
-            
-            // Log success
-            $this->posService->logActivity($user->id, 'transaction_recorded', "Transaction #{$transaction->id} recorded via Telegram", $session->telegram_user_id);
-            
-            // Reset flow
-            $this->resetTransactionFlow($session);
-            
-        } catch (\Exception $e) {
-            $this->sendMessage(
-                $chatId,
-                $this->formatter->formatError(__('telegram_pos.transaction_failed', ['reason' => $e->getMessage()], $lang), $lang),
-                $this->keyboard->mainMenuKeyboard($lang)
-            );
-            
-            Log::error('Telegram POS: Record transaction failed', [
-                'user_id' => $user->id,
-                'shift_id' => $shiftId,
-                'error' => $e->getMessage()
-            ]);
-            
-            $this->resetTransactionFlow($session);
-        }
-        
+
+        $message = $this->reportFormatter->formatTodaySummary($data, $lang);
+        $this->sendMessage($chatId, $message);
+
         return response('OK');
     }
-    
+
     /**
-     * Reset transaction recording flow
+     * Handle shift performance report
      */
-    protected function resetTransactionFlow($session)
+    protected function handleShiftsReport(int $chatId, User $user, string $lang)
     {
-        $session->setState('authenticated');
-        $session->setData('shift_id', null);
-        $session->setData('transaction_step', null);
-        $session->setData('transaction_data', null);
+        $data = $this->reportService->getShiftPerformance($user, Carbon::today());
+
+        if (isset($data['error'])) {
+            $this->sendMessage($chatId, "❌ " . $data['error']);
+            return response('OK');
+        }
+
+        $message = $this->reportFormatter->formatShiftPerformance($data, $lang);
+        $this->sendMessage($chatId, $message);
+
+        return response('OK');
     }
-    
+
     /**
-     * Send a message to Telegram
+     * Handle transaction activity report
+     */
+    protected function handleTransactionsReport(int $chatId, User $user, string $lang)
+    {
+        $data = $this->reportService->getTransactionActivity(
+            $user,
+            Carbon::today(),
+            Carbon::today()
+        );
+
+        if (isset($data['error'])) {
+            $this->sendMessage($chatId, "❌ " . $data['error']);
+            return response('OK');
+        }
+
+        $message = $this->reportFormatter->formatTransactionActivity($data, $lang);
+        $this->sendMessage($chatId, $message);
+
+        return response('OK');
+    }
+
+    /**
+     * Handle multi-location summary report
+     */
+    protected function handleLocationsReport(int $chatId, User $user, string $lang)
+    {
+        $data = $this->reportService->getMultiLocationSummary($user);
+
+        if (isset($data['error'])) {
+            $this->sendMessage($chatId, "❌ " . $data['error']);
+            return response('OK');
+        }
+
+        $message = $this->reportFormatter->formatMultiLocationSummary($data, $lang);
+        $this->sendMessage($chatId, $message);
+
+        return response('OK');
+    }
+
+    /**
+     * Handle contact shared
+     */
+    protected function handleContactShared(int $chatId, array $contact)
+    {
+        $phoneNumber = $contact['phone_number'] ?? null;
+        $telegramUserId = $contact['user_id'] ?? null;
+
+        if (!$phoneNumber && !$telegramUserId) {
+            $this->sendMessage($chatId, "Invalid contact information.");
+            return response('OK');
+        }
+
+        // Try to find user by Telegram ID first (most reliable)
+        $user = null;
+        if ($telegramUserId) {
+            $user = User::where('telegram_pos_user_id', $telegramUserId)->first();
+        }
+
+        // If not found, try by phone number (with variations)
+        if (!$user && $phoneNumber) {
+            // Try exact match first
+            $user = User::where('phone_number', $phoneNumber)->first();
+
+            // Try without + prefix
+            if (!$user) {
+                $phoneWithoutPlus = ltrim($phoneNumber, '+');
+                $user = User::where('phone_number', $phoneWithoutPlus)->first();
+            }
+
+            // Try with + prefix
+            if (!$user && !str_starts_with($phoneNumber, '+')) {
+                $user = User::where('phone_number', '+' . $phoneNumber)->first();
+            }
+        }
+
+        if (!$user) {
+            $this->sendMessage($chatId, "User not found. Please contact administrator.");
+            return response('OK');
+        }
+
+        // Update Telegram user ID if not set
+        if ($telegramUserId && !$user->telegram_pos_user_id) {
+            $user->telegram_pos_user_id = $telegramUserId;
+            $user->save();
+        }
+
+        // Create or update session
+        $this->createSession($chatId, $user->id);
+
+        $this->sendMessage(
+            $chatId,
+            __('telegram_pos.welcome', [], 'en'),
+            $this->keyboard->mainMenuKeyboard('en', $user)
+        );
+
+        return response('OK');
+    }
+
+    /**
+     * Get or create session for chat
+     */
+    protected function getOrCreateSession(int $chatId)
+    {
+        $session = DB::table('telegram_pos_sessions')
+            ->where('chat_id', $chatId)
+            ->where('updated_at', '>=', now()->subMinutes($this->sessionTimeout))
+            ->first();
+
+        if ($session && $session->user_id) {
+            // Refresh session
+            DB::table('telegram_pos_sessions')
+                ->where('id', $session->id)
+                ->update(['updated_at' => now()]);
+
+            // Load user relationship
+            $session->user = User::find($session->user_id);
+            return $session;
+        }
+
+        return null;
+    }
+
+    /**
+     * Create new session
+     */
+    protected function createSession(int $chatId, int $userId, string $language = 'en')
+    {
+        DB::table('telegram_pos_sessions')->updateOrInsert(
+            ['chat_id' => $chatId],
+            [
+                'user_id' => $userId,
+                'language' => $language,
+                'state' => 'main_menu',
+                'data' => json_encode([]),
+                'updated_at' => now(),
+                'created_at' => now(),
+            ]
+        );
+    }
+
+    /**
+     * Update session language
+     */
+    protected function updateSessionLanguage($session, string $language)
+    {
+        DB::table('telegram_pos_sessions')
+            ->where('id', $session->id)
+            ->update([
+                'language' => $language,
+                'updated_at' => now()
+            ]);
+    }
+
+    /**
+     * Send message via Telegram API
      */
     protected function sendMessage(int $chatId, string $text, ?array $keyboard = null, string $keyboardType = 'reply')
     {
-        if (!$this->botToken) {
-            Log::error('TELEGRAM_POS_BOT_TOKEN not set');
-            return false;
-        }
-        
-        $url = "https://api.telegram.org/bot{$this->botToken}/sendMessage";
-        
-        $payload = [
+        $params = [
             'chat_id' => $chatId,
             'text' => $text,
             'parse_mode' => 'HTML',
         ];
-        
+
         if ($keyboard) {
             if ($keyboardType === 'inline') {
-                $payload['reply_markup'] = json_encode($keyboard);
+                $params['reply_markup'] = json_encode($keyboard);
             } else {
-                $payload['reply_markup'] = json_encode($keyboard);
+                $params['reply_markup'] = json_encode($keyboard);
             }
         }
-        
-        try {
-            $response = Http::post($url, $payload);
-            
-            if ($response->failed()) {
-                Log::error('sendMessage failed', [
-                    'response' => $response->body(),
-                    'payload' => $payload
-                ]);
-                return false;
-            }
-            
-            return true;
-        } catch (\Exception $e) {
-            Log::error('sendMessage exception: ' . $e->getMessage());
-            return false;
+
+        $response = Http::post("https://api.telegram.org/bot{$this->botToken}/sendMessage", $params);
+
+        if (!$response->successful()) {
+            Log::error('Telegram API Error', [
+                'response' => $response->json(),
+                'params' => $params
+            ]);
         }
+
+        return $response->json();
     }
-    
+
     /**
      * Answer callback query
      */
     protected function answerCallbackQuery(string $callbackId, ?string $text = null)
     {
-        if (!$this->botToken) {
-            return false;
-        }
-        
-        $url = "https://api.telegram.org/bot{$this->botToken}/answerCallbackQuery";
-        
-        $payload = ['callback_query_id' => $callbackId];
-        
+        $params = ['callback_query_id' => $callbackId];
+
         if ($text) {
-            $payload['text'] = $text;
+            $params['text'] = $text;
         }
-        
-        try {
-            Http::post($url, $payload);
-            return true;
-        } catch (\Exception $e) {
-            Log::error('answerCallbackQuery exception: ' . $e->getMessage());
-            return false;
-        }
+
+        Http::post("https://api.telegram.org/bot{$this->botToken}/answerCallbackQuery", $params);
     }
-    
+
     /**
-     * Set webhook URL
+     * Handle Financial Range Report
      */
-    public function setWebhook(Request $request)
+    protected function handleFinancialRangeReport(int $chatId, User $user, string $lang)
     {
-        $webhookUrl = config('services.telegram_pos_bot.webhook_url');
-        
-        if (!$webhookUrl) {
-            return response()->json(['error' => 'Webhook URL not configured'], 400);
+        $service = app(\App\Services\AdvancedReportService::class);
+
+        // Default to this month
+        $data = $service->getDateRangeFinancialSummary(
+            $user,
+            \Carbon\Carbon::now()->startOfMonth(),
+            \Carbon\Carbon::now()->endOfMonth()
+        );
+
+        if (isset($data['error'])) {
+            $this->sendMessage($chatId, "❌ " . $data['error']);
+            return response('OK');
         }
-        
-        $url = "https://api.telegram.org/bot{$this->botToken}/setWebhook";
-        
-        try {
-            $response = Http::post($url, [
-                'url' => $webhookUrl,
-            ]);
-            
-            return response()->json($response->json());
-        } catch (\Exception $e) {
-            return response()->json(['error' => $e->getMessage()], 500);
-        }
+
+        $formatter = app(\App\Services\TelegramReportFormatter::class);
+        $message = $formatter->formatFinancialRangeSummary($data, $lang);
+        $this->sendMessage($chatId, $message);
+
+        return response('OK');
     }
-    
+
     /**
-     * Get webhook info
+     * Handle Discrepancies Report
      */
-    public function getWebhookInfo()
+    protected function handleDiscrepanciesReport(int $chatId, User $user, string $lang)
     {
-        $url = "https://api.telegram.org/bot{$this->botToken}/getWebhookInfo";
-        
-        try {
-            $response = Http::get($url);
-            return response()->json($response->json());
-        } catch (\Exception $e) {
-            return response()->json(['error' => $e->getMessage()], 500);
+        $service = app(\App\Services\AdvancedReportService::class);
+
+        // Default to this month
+        $data = $service->getDiscrepancyVarianceReport(
+            $user,
+            \Carbon\Carbon::now()->startOfMonth(),
+            \Carbon\Carbon::now()->endOfMonth()
+        );
+
+        if (isset($data['error'])) {
+            $this->sendMessage($chatId, "❌ " . $data['error']);
+            return response('OK');
         }
+
+        $formatter = app(\App\Services\TelegramReportFormatter::class);
+        $message = $formatter->formatDiscrepancyReport($data, $lang);
+        $this->sendMessage($chatId, $message);
+
+        return response('OK');
+    }
+
+    /**
+     * Handle Executive Dashboard
+     */
+    protected function handleExecutiveDashboard(int $chatId, User $user, string $lang)
+    {
+        $service = app(\App\Services\AdvancedReportService::class);
+
+        // Default to today
+        $data = $service->getExecutiveSummaryDashboard($user, \App\Enums\ReportPeriod::TODAY);
+
+        if (isset($data['error'])) {
+            $this->sendMessage($chatId, "❌ " . $data['error']);
+            return response('OK');
+        }
+
+        $formatter = app(\App\Services\TelegramReportFormatter::class);
+        $message = $formatter->formatExecutiveDashboard($data, $lang);
+        $this->sendMessage($chatId, $message);
+
+        return response('OK');
+    }
+
+    /**
+     * Handle Currency Exchange Report
+     */
+    protected function handleCurrencyExchangeReport(int $chatId, User $user, string $lang)
+    {
+        $service = app(\App\Services\AdvancedReportService::class);
+
+        // Default to this week
+        $data = $service->getCurrencyExchangeReport(
+            $user,
+            \Carbon\Carbon::now()->startOfWeek(),
+            \Carbon\Carbon::now()->endOfWeek()
+        );
+
+        if (isset($data['error'])) {
+            $this->sendMessage($chatId, "❌ " . $data['error']);
+            return response('OK');
+        }
+
+        $formatter = app(\App\Services\TelegramReportFormatter::class);
+        $message = $formatter->formatCurrencyExchangeReport($data, $lang);
+        $this->sendMessage($chatId, $message);
+
+        return response('OK');
     }
 }
-

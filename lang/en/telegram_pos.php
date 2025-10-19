@@ -1,105 +1,85 @@
 <?php
 
 return [
-    // Welcome and Authentication
-    'welcome' => 'Welcome to POS System! 🏪',
-    'welcome_back' => 'Welcome back, :name! 👋',
-    'auth_required' => 'Please share your phone number to authenticate and access POS features.',
-    'auth_success' => 'Authentication successful! Welcome :name ✅',
-    'auth_failed' => 'Phone number not authorized. Please contact your manager.',
-    'share_contact' => '📱 Share Phone Number',
-    'session_expired' => 'Your session has expired. Please authenticate again.',
-    
-    // Main Menu
+    // Basic
+    'welcome' => 'Welcome to the POS system!',
     'main_menu' => 'Main Menu',
-    'select_action' => 'Please select an action:',
+    'unauthorized' => 'Unauthorized. Please share your contact first.',
+    'share_contact' => '📱 Share Contact',
+    
+    // Main Menu Buttons
     'start_shift' => '🟢 Start Shift',
     'my_shift' => '📊 My Shift',
-    'record_transaction' => '💰 Record Transaction',
+    'record_transaction' => '💵 Record Transaction',
     'close_shift' => '🔴 Close Shift',
-    'help' => 'ℹ️ Help',
+    'help' => '❓ Help',
     'settings' => '⚙️ Settings',
+    'cancel' => '❌ Cancel',
+    'back' => '◀️ Back',
+    'confirm' => '✅ Confirm',
     
     // Language
-    'language' => 'Language',
-    'language_changed' => 'Language changed successfully! 🌐',
-    'select_language' => 'Select your language:',
-    'lang_en' => '🇬🇧 English',
-    'lang_ru' => '🇷🇺 Русский',
-    'lang_uz' => '🇺🇿 O\'zbekcha',
-    
-    // Shift Management
-    'no_open_shift' => 'You don\'t have an open shift.',
-    'shift_already_open' => 'You already have an open shift on drawer :drawer',
-    'shift_started' => '✅ Shift started successfully!',
-    'shift_start_failed' => 'Failed to start shift. :reason',
-    'shift_closed' => '✅ Shift closed successfully!',
-    'shift_details' => "📊 Shift Details\n\nShift ID: :shift_id\nLocation: :location\nDrawer: :drawer\nStart Time: :start_time\nDuration: :duration",
-    'no_location_assigned' => 'You are not assigned to any locations. Please contact your manager.',
-    
-    // Running Balance
-    'running_balance' => '💰 Running Balance',
-    'currency_balance' => ':currency: :amount',
-    'total_transactions' => 'Total Transactions: :count',
-    
-    // Transactions
-    'transaction_recorded' => '✅ Transaction recorded successfully!',
-    'transaction_failed' => 'Failed to record transaction. :reason',
-    'select_transaction_type' => 'Select transaction type:',
-    'cash_in' => '💵 Cash In',
-    'cash_out' => '💸 Cash Out',
-    'complex_transaction' => '🔄 Complex (Exchange)',
-    'enter_amount' => 'Enter amount:',
-    'enter_out_amount' => 'Enter amount to give out (exchange):',
-    'select_currency' => 'Select currency:',
-    'select_out_currency' => 'Select currency for amount to give out:',
-    'select_category' => 'Select category:',
-    'add_notes' => 'Add notes (optional):',
-    'skip_notes' => 'Skip ⏭️',
-    'confirm_transaction' => 'Confirm transaction?',
-    
-    // Transaction Display
-    'recent_transactions' => '📝 Recent Transactions (Last 10)',
-    'no_transactions' => 'No transactions yet',
-    'txn_in' => 'IN',
-    'txn_out' => 'OUT',
-    'txn_exchange' => 'EXCH',
-    
-    // Categories
-    'category_sale' => '🛍️ Sale',
-    'category_refund' => '↩️ Refund',
-    'category_expense' => '📤 Expense',
-    'category_deposit' => '📥 Deposit',
-    'category_change' => '💱 Change',
-    'category_other' => '📝 Other',
-    
-    // Close Shift
-    'close_shift_confirm' => 'Are you sure you want to close the shift?',
-    'enter_counted_amount' => 'Enter counted amount for :currency:',
-    'discrepancy_found' => '⚠️ Discrepancy found: :amount',
-    'enter_discrepancy_reason' => 'Please explain the discrepancy:',
-    'shift_under_review' => 'Shift closed and marked for review due to discrepancy.',
-    
-    // Buttons
-    'confirm' => '✅ Confirm',
-    'cancel' => '❌ Cancel',
-    'cancelled' => 'Cancelled',
-    'back' => '⬅️ Back',
-    'next' => '➡️ Next',
-    'done' => '✅ Done',
-    
-    // Errors
-    'error_occurred' => 'An error occurred. Please try again.',
-    'invalid_amount' => 'Invalid amount. Please enter a valid number.',
-    'shift_not_open' => 'You need to start a shift first.',
-    'unauthorized' => 'You are not authorized to perform this action.',
-    
-    // Help
-    'help_text' => "📚 POS Bot Help\n\n🟢 Start Shift - Begin your cashier shift\n📊 My Shift - View current shift status and balance\n💰 Record Transaction - Record a cash transaction\n🔴 Close Shift - End your shift and count cash\n\nNeed assistance? Contact your manager.",
-    
-    // Notifications
-    'manager_notified' => 'Manager has been notified.',
-    'shift_approved' => '✅ Your shift has been approved by :manager',
-    'shift_rejected' => '❌ Your shift has been rejected. Reason: :reason',
-];
+    'language_set' => 'Language has been set successfully!',
 
+    // Reports
+    'reports' => '📊 Reports',
+    'select_report_type' => 'Select report type:',
+    'today_summary' => '📅 Today\'s Summary',
+    'shift_performance' => '👥 Shift Performance',
+    'transaction_report' => '💰 Transactions',
+    'multi_location' => '🏢 All Locations',
+    'multi_location_summary' => '🏢 All Locations',
+    'manager_only' => 'This feature is only available for managers.',
+
+    // Report Content
+    'date' => 'Date',
+    'location' => 'Location',
+    'shifts' => 'SHIFTS',
+    'open_shifts' => 'Open',
+    'closed_shifts' => 'Closed',
+    'under_review' => 'Under Review',
+    'total_shifts' => 'Total',
+    'transactions' => 'transactions',
+    'cash_in' => 'Cash In',
+    'cash_out' => 'Cash Out',
+    'exchanges' => 'Exchanges',
+    'totals_by_currency' => 'TOTALS BY CURRENCY',
+    'net' => 'Net',
+    'active_cashiers' => 'ACTIVE CASHIERS',
+    'currently_working' => 'currently working',
+    'discrepancies' => 'DISCREPANCIES',
+    'shifts_flagged_review' => 'shifts flagged for review',
+    'top_performer' => 'TOP PERFORMER',
+    'summary' => 'SUMMARY',
+    'total_transactions' => 'Total Transactions',
+    'avg_shift_duration' => 'Avg Shift Duration',
+    'no_shifts_found' => 'No shifts found for this period.',
+    'shift' => 'Shift',
+    'cashier' => 'Cashier',
+    'drawer' => 'Drawer',
+    'opened' => 'Opened',
+    'closed' => 'Closed',
+    'duration' => 'Duration',
+    'ongoing' => 'ongoing',
+    'status' => 'Status',
+    'status_open' => 'Open',
+    'status_closed' => 'Closed',
+    'status_under_review' => 'Under Review',
+    'and_more' => 'and more',
+    'shift_detail' => 'SHIFT DETAIL',
+    'shift_id' => 'Shift ID',
+    'balances' => 'BALANCES',
+    'discrepancy' => 'DISCREPANCY',
+    'expected' => 'Expected',
+    'counted' => 'Counted',
+    'reason' => 'Reason',
+    'recent_transactions' => 'RECENT TRANSACTIONS',
+    'period' => 'Period',
+    'total' => 'Total',
+    'txns' => 'txns',
+    'by_currency' => 'BY CURRENCY',
+    'top_cashiers' => 'TOP CASHIERS',
+    'total_locations' => 'Total Locations',
+    'open' => 'Open',
+    'active' => 'Active',
+];
