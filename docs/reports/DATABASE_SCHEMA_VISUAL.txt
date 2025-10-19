@@ -1,0 +1,156 @@
+╔════════════════════════════════════════════════════════════════════════════╗
+║                   POS SYSTEM DATABASE RELATIONSHIPS                        ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+┌──────────────────┐
+│      User        │
+│──────────────────│
+│ • id (PK)        │
+│ • name           │
+│ • phone_number   │
+│ • telegram_id    │
+│ • roles          │
+└────────┬─────────┘
+         │
+         ├─────────────────────────────────────────────────────────┐
+         │                                                         │
+         │ (1:N) cashier                        (1:N) approver    │
+         │                                      (1:N) rejecter    │
+         │                                                         │
+         ▼                                                         ▼
+┌──────────────────────────┐                    ┌──────────────────────────┐
+│    CashierShift          │                    │  (Shift Approval)        │
+│──────────────────────────│                    │──────────────────────────│
+│ • id (PK)               │                    │ • approved_at (nullable) │
+│ • cash_drawer_id (FK)   │                    │ • rejected_at (nullable) │
+│ • user_id (FK)          │                    │ • rejection_reason       │
+│ • status (enum)         │◄───────────────────┤ • approved_by (FK)       │
+│ • beginning_saldo       │                    │ • rejected_by (FK)       │
+│ • expected_end_saldo    │                    └──────────────────────────┘
+│ • counted_end_saldo     │
+│ • discrepancy           │
+│ • discrepancy_reason    │
+│ • opened_at             │
+│ • closed_at             │
+│ • notes                 │
+└────────┬────────────────┘
+         │
+         ├─────────────────────┬──────────────────────┬─────────────────────┐
+         │                     │                      │                     │
+         │ (1:N)               │ (1:1)                │ (1:N)               │
+         │                     │                      │                     │
+         ▼                     ▼                      ▼                     ▼
+    ┌───────────────┐  ┌──────────────┐    ┌────────────────┐  ┌───────────────┐
+    │CashTransaction│  │  CashCount   │    │BeginningSaldo  │  │  EndSaldo     │
+    ├───────────────┤  ├──────────────┤    ├────────────────┤  ├───────────────┤
+    │ • id (PK)     │  │ • id (PK)    │    │ • id (PK)      │  │ • id (PK)     │
+    │ • shift_id(FK)│  │ • shift_id   │    │ • shift_id(FK) │  │ • shift_id(FK)│
+    │ • type (enum) │  │ • count_date │    │ • currency     │  │ • currency    │
+    │ • amount      │  │ • notes      │    │ • amount       │  │ • expected    │
+    │ • currency    │  └──────────────┘    │ • created_at   │  │ • counted     │
+    │ • category    │                      └────────────────┘  │ • discrepancy │
+    │ • notes       │                                          └───────────────┘
+    │ • occurred_at │
+    └───────────────┘
+
+
+┌──────────────────┐        (1:N)         ┌──────────────────┐
+│   Location       │◄──────────────────────│  CashDrawer      │
+│──────────────────│                       │──────────────────│
+│ • id (PK)       │                       │ • id (PK)        │
+│ • name          │                       │ • name           │
+│ • address       │                       │ • location_id(FK)│
+│ • phone         │                       └──────────────────┘
+│ • created_at    │
+└──────────────────┘
+         ▲
+         │
+         │ (M:N) Many managers can access
+         │       many locations
+         │
+    ┌────────────┐
+    │   User     │
+    │ (Manager)  │
+    └────────────┘
+
+
+┌────────────────────────┐
+│  TelegramPosSession    │
+├────────────────────────┤
+│ • id (PK)              │
+│ • chat_id (unique)     │
+│ • user_id (FK)         │
+│ • language             │
+│ • state                │
+│ • data (JSON)          │
+└────────────────────────┘
+
+
+═════════════════════════════════════════════════════════════════════════════
+
+SHIFT WORKFLOW STATES:
+
+                    START SHIFT
+                        │
+                        ▼
+    ┌──────────────────────────────────┐
+    │ OPEN                             │
+    │ • beginning_saldo set            │
+    │ • transactions recorded          │
+    │ • status = "OPEN"                │
+    └────────────────┬─────────────────┘
+                     │ CLOSE SHIFT
+                     ▼
+    ┌──────────────────────────────────┐
+    │ CLOSED                           │
+    │ • counted_end_saldo provided     │
+    │ • expected_end_saldo calculated  │
+    │ • discrepancy = counted - expected
+    │ • If discrepancy != 0 → status = UNDER_REVIEW
+    │ • If discrepancy = 0 → can be approved
+    └────────────────┬─────────────────┘
+                     │
+            ┌────────┴────────┐
+            │                 │
+            ▼                 ▼
+    ┌───────────────────┐ ┌──────────────────────┐
+    │ UNDER_REVIEW      │ │ CLOSED (Approved)    │
+    │ • Flagged for     │ │ • approved_at set    │
+    │   manager review  │ │ • status = CLOSED    │
+    │ • approved_at/    │ └──────────────────────┘
+    │   rejected_at set │
+    │                   │
+    └──────────────────┘
+
+
+═════════════════════════════════════════════════════════════════════════════
+
+TRANSACTION TYPE CALCULATION:
+
+Beginning Saldo
+    │
+    ├─ + ∑(TransactionType::IN transactions)
+    ├─ + ∑(TransactionType::IN_OUT transactions)
+    ├─ - ∑(TransactionType::OUT transactions)
+    │
+    ▼
+Expected End Saldo
+
+         ▼
+  Counted End Saldo (actual count)
+         ▼
+    Discrepancy = Counted - Expected
+
+
+═════════════════════════════════════════════════════════════════════════════
+
+MULTI-CURRENCY FLOW:
+
+     For Each Currency (UZS, USD, EUR, etc.):
+     ├─ BeginningSaldo[currency] → starting amount
+     ├─ Collect all CashTransaction records where currency = target
+     ├─ Sum IN + IN_OUT transactions → total_in
+     ├─ Sum OUT transactions → total_out
+     ├─ Calculate: net_balance = beginning + total_in - total_out
+     └─ Record in EndSaldo[currency]
+
