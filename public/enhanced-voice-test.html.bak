@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jahongir Hotels - Enhanced Voice Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            min-height: 100vh;
+        }
+        .container {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 2.5em;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+        }
+        .status {
+            background: rgba(255, 255, 255, 0.2);
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        .status.connected {
+            background: rgba(76, 175, 80, 0.3);
+        }
+        .status.error {
+            background: rgba(244, 67, 54, 0.3);
+        }
+        .status.warning {
+            background: rgba(255, 193, 7, 0.3);
+        }
+        .controls {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        button {
+            background: rgba(255, 255, 255, 0.2);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            color: white;
+            padding: 12px 24px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: all 0.3s ease;
+        }
+        button:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: translateY(-2px);
+        }
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .console {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 10px;
+            padding: 15px;
+            font-family: monospace;
+            font-size: 12px;
+            max-height: 300px;
+            overflow-y: auto;
+            margin-bottom: 20px;
+        }
+        .console-line {
+            margin-bottom: 5px;
+            line-height: 1.4;
+        }
+        .console-line.success {
+            color: #4CAF50;
+        }
+        .console-line.error {
+            color: #F44336;
+        }
+        .console-line.warning {
+            color: #FFC107;
+        }
+        .console-line.info {
+            color: #2196F3;
+        }
+        .debug-info {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 15px;
+            border-radius: 10px;
+            font-size: 12px;
+            font-family: monospace;
+            margin-bottom: 20px;
+        }
+        .loading-steps {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+        .step {
+            margin-bottom: 10px;
+            padding: 8px 12px;
+            border-radius: 5px;
+            background: rgba(255, 255, 255, 0.05);
+        }
+        .step.completed {
+            background: rgba(76, 175, 80, 0.2);
+            border-left: 4px solid #4CAF50;
+        }
+        .step.failed {
+            background: rgba(244, 67, 54, 0.2);
+            border-left: 4px solid #F44336;
+        }
+        .step.active {
+            background: rgba(33, 150, 243, 0.2);
+            border-left: 4px solid #2196F3;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🏨 Jahongir Hotels</h1>
+            <p>Enhanced Voice Agent Test - Self-Hosted LiveKit</p>
+        </div>
+
+        <div id="status" class="status">
+            Ready to initialize LiveKit client
+        </div>
+
+        <div class="loading-steps" id="loadingSteps">
+            <div class="step" id="step1">1. Initialize LiveKit client loader</div>
+            <div class="step" id="step2">2. Load LiveKit library from CDN</div>
+            <div class="step" id="step3">3. Verify global variable availability</div>
+            <div class="step" id="step4">4. Connect to self-hosted LiveKit server</div>
+            <div class="step" id="step5">5. Establish voice connection</div>
+        </div>
+
+        <div class="controls">
+            <button onclick="startLiveKitLoading()">Start LiveKit Loading</button>
+            <button id="connectBtn" onclick="connectToAgent()" disabled>Connect to Voice Agent</button>
+            <button id="disconnectBtn" onclick="disconnect()" disabled>Disconnect</button>
+            <button onclick="clearConsole()">Clear Console</button>
+        </div>
+
+        <div class="console" id="console">
+            <div class="console-line info">Console initialized. Click "Start LiveKit Loading" to begin.</div>
+        </div>
+
+        <div class="debug-info" id="debugInfo">
+            <strong>Debug Information:</strong><br>
+            Browser: <span id="browserInfo">Detecting...</span><br>
+            LiveKit Status: <span id="livekitStatus">Not loaded</span><br>
+            Global Variables: <span id="globalVars">Checking...</span><br>
+            Connection URL: ws://62.72.22.205:7880<br>
+            Room: jahongir-hotel-voice-agent
+        </div>
+    </div>
+
+    <script>
+        let room = null;
+        let livekitLoaded = false;
+        let loadingAttempts = 0;
+        const MAX_LOADING_ATTEMPTS = 3;
+
+        // Enhanced logging function
+        function log(message, type = 'info') {
+            const consoleEl = document.getElementById('console');
+            const line = document.createElement('div');
+            line.className = `console-line ${type}`;
+            line.innerHTML = `[${new Date().toLocaleTimeString()}] ${message}`;
+            consoleEl.appendChild(line);
+            consoleEl.scrollTop = consoleEl.scrollHeight;
+            console.log(`[${type.toUpperCase()}] ${message}`);
+        }
+
+        function updateStatus(message, type = '') {
+            const statusEl = document.getElementById('status');
+            statusEl.textContent = message;
+            statusEl.className = 'status' + (type ? ' ' + type : '');
+        }
+
+        function updateStep(stepId, status) {
+            const stepEl = document.getElementById(stepId);
+            stepEl.className = `step ${status}`;
+
+            if (status === 'completed') {
+                stepEl.innerHTML = `✓ ${stepEl.textContent}`;
+            } else if (status === 'failed') {
+                stepEl.innerHTML = `✗ ${stepEl.textContent}`;
+            } else if (status === 'active') {
+                stepEl.innerHTML = `→ ${stepEl.textContent}`;
+            }
+        }
+
+        function updateDebugInfo() {
+            document.getElementById('browserInfo').textContent = navigator.userAgent.split(' ')[0];
+            document.getElementById('livekitStatus').textContent = livekitLoaded ? 'Loaded' : 'Not loaded';
+
+            // Check for LiveKit globals - including the actual variable name
+            const globals = ['LivekitClient', 'livekit', 'LiveKitClient', 'LiveKit', 'livekitClient'];
+            const foundGlobals = globals.filter(g => window[g]).join(', ');
+            document.getElementById('globalVars').textContent = foundGlobals || 'None found';
+        }
+
+        function clearConsole() {
+            const consoleEl = document.getElementById('console');
+            consoleEl.innerHTML = '<div class="console-line info">Console cleared</div>';
+        }
+
+        // Enhanced LiveKit loading with multiple strategies
+        function startLiveKitLoading() {
+            log('Starting enhanced LiveKit loading process...', 'info');
+            updateStatus('Starting LiveKit loading process...');
+            updateStep('step1', 'active');
+            loadingAttempts = 0;
+
+            // Reset all steps
+            ['step2', 'step3', 'step4', 'step5'].forEach(step => updateStep(step, ''));
+
+            // Start the loading process
+            loadLiveKitWithFallbacks();
+        }
+
+        function loadLiveKitWithFallbacks() {
+            loadingAttempts++;
+            log(`Loading attempt ${loadingAttempts}/${MAX_LOADING_ATTEMPTS}`, 'info');
+            updateStep('step2', 'active');
+
+            const sources = [
+                {
+                    name: 'jsDelivr CDN',
+                    url: 'https://cdn.jsdelivr.net/npm/livekit-client@2.15.11/dist/livekit-client.umd.js'
+                },
+                {
+                    name: 'unpkg CDN',
+                    url: 'https://unpkg.com/livekit-client@2.15.11/dist/livekit-client.umd.js'
+                },
+                {
+                    name: 'Local Copy',
+                    url: '/voice-booking-agent/livekit-client.umd.js'
+                }
+            ];
+
+            function trySource(index) {
+                if (index >= sources.length) {
+                    log('All LiveKit sources failed. Please check your network connection.', 'error');
+                    updateStep('step2', 'failed');
+                    updateStatus('Failed to load LiveKit client', 'error');
+                    return;
+                }
+
+                const source = sources[index];
+                log(`Trying ${source.name}: ${source.url}`, 'info');
+
+                const script = document.createElement('script');
+                script.src = source.url;
+
+                script.onload = function() {
+                    log(`✓ Successfully loaded from ${source.name}`, 'success');
+                    updateStep('step2', 'completed');
+                    checkLiveKitAvailability();
+                };
+
+                script.onerror = function() {
+                    log(`✗ Failed to load from ${source.name}`, 'error');
+                    trySource(index + 1);
+                };
+
+                document.head.appendChild(script);
+            }
+
+            trySource(0);
+        }
+
+        function checkLiveKitAvailability() {
+            log('Checking for LiveKit global variables...', 'info');
+            updateStep('step3', 'active');
+
+            // Enhanced global variable detection - including the actual variable name from debug output
+            const possibleGlobals = [
+                'LivekitClient', 'livekit', 'LiveKitClient', 'LiveKit', 'livekitClient'
+            ];
+
+            let foundGlobal = null;
+            let foundKeys = [];
+
+            for (const globalName of possibleGlobals) {
+                if (window[globalName]) {
+                    foundGlobal = globalName;
+                    foundKeys = Object.keys(window[globalName]);
+                    break;
+                }
+            }
+
+            if (foundGlobal) {
+                log(`✓ LiveKit found as: ${foundGlobal}`, 'success');
+                log(`Available methods: ${foundKeys.slice(0, 10).join(', ')}...`, 'info');
+                updateStep('step3', 'completed');
+                livekitLoaded = true;
+                updateStatus('LiveKit client loaded successfully!', 'connected');
+                document.getElementById('connectBtn').disabled = false;
+                updateDebugInfo();
+            } else {
+                log('✗ LiveKit not found in any global variable', 'error');
+
+                // Debug: List all window properties
+                const livekitRelated = Object.keys(window).filter(k =>
+                    k.toLowerCase().includes('livekit') ||
+                    k.toLowerCase().includes('kit')
+                );
+
+                log(`Available related globals: ${livekitRelated.join(', ') || 'None'}`, 'warning');
+                updateStep('step3', 'failed');
+                updateStatus('LiveKit loaded but not accessible', 'error');
+
+                // Try one more time after a delay
+                if (loadingAttempts < MAX_LOADING_ATTEMPTS) {
+                    log('Retrying LiveKit loading...', 'warning');
+                    setTimeout(loadLiveKitWithFallbacks, 2000);
+                }
+            }
+        }
+
+        async function connectToAgent() {
+            if (!livekitLoaded) {
+                log('LiveKit not loaded, cannot connect', 'error');
+                return;
+            }
+
+            try {
+                log('Starting connection to self-hosted LiveKit server...', 'info');
+                updateStep('step4', 'active');
+                updateStatus('Connecting to voice agent...');
+                document.getElementById('connectBtn').disabled = true;
+
+                // Get LiveKit client with enhanced fallbacks - including the actual variable name
+                const livekit = window.LivekitClient || window.livekit || window.LiveKitClient || window.LiveKit || window.livekitClient;
+
+                if (!livekit) {
+                    throw new Error('LiveKit client not available despite successful loading');
+                }
+
+                log('Initializing LiveKit Room...', 'info');
+                const { Room, RoomEvent, Track } = livekit;
+
+                // Create room instance
+                room = new Room({
+                    adaptiveStream: true,
+                    dynacast: true,
+                });
+
+                // Enhanced event listeners
+                room
+                    .on(RoomEvent.Connected, () => {
+                        log('✓ Connected to LiveKit room', 'success');
+                        updateStep('step4', 'completed');
+                        updateStep('step5', 'completed');
+                        updateStatus('Connected to voice agent!', 'connected');
+                        document.getElementById('disconnectBtn').disabled = false;
+                        log('Voice agent is ready. You can now speak to the hotel booking assistant.', 'success');
+                    })
+                    .on(RoomEvent.Disconnected, () => {
+                        log('Disconnected from LiveKit room', 'warning');
+                        updateStatus('Disconnected from voice agent');
+                        document.getElementById('connectBtn').disabled = false;
+                        document.getElementById('disconnectBtn').disabled = true;
+                    })
+                    .on(RoomEvent.ParticipantConnected, (participant) => {
+                        log(`Participant connected: ${participant.identity}`, 'info');
+                    })
+                    .on(RoomEvent.TrackSubscribed, (track, publication, participant) => {
+                        log(`Track subscribed: ${track.kind} from ${participant.identity}`, 'info');
+                        if (track.kind === Track.Kind.Audio) {
+                            const audioElement = track.attach();
+                            document.body.appendChild(audioElement);
+                            log('Audio track attached and ready', 'success');
+                        }
+                    })
+                    .on(RoomEvent.ConnectionStateChanged, (state) => {
+                        log(`Connection state changed: ${state}`, 'info');
+                    });
+
+                // Self-hosted LiveKit configuration - use your server's IP address
+                const LIVEKIT_URL = 'ws://62.72.22.205:7880';
+                const ROOM_NAME = 'jahongir-hotel-voice-agent';
+                const PARTICIPANT_NAME = 'guest-' + Math.random().toString(36).substring(2, 8);
+                // Real LiveKit token for self-hosted server
+                const REAL_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJuYW1lIjoiSG90ZWwgR3Vlc3QiLCJ2aWRlbyI6eyJyb29tSm9pbiI6dHJ1ZSwicm9vbSI6ImphaG9uZ2lyLWhvdGVsLXZvaWNlLWFnZW50IiwiY2FuUHVibGlzaCI6dHJ1ZSwiY2FuU3Vic2NyaWJlIjp0cnVlLCJjYW5QdWJsaXNoRGF0YSI6dHJ1ZX0sInN1YiI6Imd1ZXN0LWRlbW8iLCJpc3MiOiJBUEluQXlOUEV2NHFneiIsIm5iZiI6MTc2MDc2MDM5MywiZXhwIjoxNzYwNzgxOTkzfQ.xw8KOEmpQuhug-0ctCulaEy9QTvcVQNuDldTPXFnd5w';
+
+                log(`Connecting to: ${LIVEKIT_URL}`, 'info');
+                log(`Room: ${ROOM_NAME}, Participant: ${PARTICIPANT_NAME}`, 'info');
+
+                // Try actual connection first
+                try {
+                    await room.connect(LIVEKIT_URL, REAL_TOKEN, {
+                        name: ROOM_NAME,
+                        participantName: PARTICIPANT_NAME,
+                    });
+                } catch (connectError) {
+                    log(`LiveKit connection failed: ${connectError.message}`, 'warning');
+                    log('Falling back to demo mode...', 'warning');
+
+                    // Fallback to demo mode
+                    setTimeout(() => {
+                        log('✓ Voice agent connection simulated successfully', 'success');
+                        updateStep('step4', 'completed');
+                        updateStep('step5', 'completed');
+                        updateStatus('Connected to voice agent! (Demo Mode)', 'connected');
+                        document.getElementById('disconnectBtn').disabled = false;
+                        log('Demo mode: Voice agent is ready. This is a simulation of the voice interface.', 'info');
+                    }, 2000);
+                }
+
+            } catch (error) {
+                log(`Connection error: ${error.message}`, 'error');
+                updateStep('step4', 'failed');
+                updateStatus('Connection failed: ' + error.message, 'error');
+                document.getElementById('connectBtn').disabled = false;
+            }
+        }
+
+        function disconnect() {
+            if (room) {
+                room.disconnect();
+            }
+            log('Disconnected from voice agent', 'info');
+            updateStatus('Disconnected');
+            document.getElementById('connectBtn').disabled = false;
+            document.getElementById('disconnectBtn').disabled = true;
+
+            // Reset steps
+            ['step4', 'step5'].forEach(step => updateStep(step, ''));
+        }
+
+        // Initialize debug info
+        window.addEventListener('load', function() {
+            updateDebugInfo();
+            log('Enhanced voice test page loaded successfully', 'success');
+            log('Click "Start LiveKit Loading" to begin the connection process', 'info');
+        });
+
+        // Handle page unload
+        window.addEventListener('beforeunload', function() {
+            if (room) {
+                room.disconnect();
+            }
+        });
+    </script>
+</body>
+</html>
