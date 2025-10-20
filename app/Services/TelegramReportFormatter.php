@@ -232,7 +232,7 @@ class TelegramReportFormatter
     {
         $message = "💰 " . strtoupper(__('telegram_pos.transaction_report', [], $lang)) . "\n";
         $message .= __('telegram_pos.period', [], $lang) . ": ";
-        $message .= $data['period']['start']->format('M d') . " - " . $data['period']['end']->format('M d, Y') . "\n\n";
+        $message .= $data['period']['start_date']->format('M d') . " - " . $data['period']['end_date']->format('M d, Y') . "\n\n";
 
         // Summary
         $message .= "📊 " . __('telegram_pos.summary', [], $lang) . "\n";
@@ -358,7 +358,7 @@ class TelegramReportFormatter
         $message .= "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n";
 
         // Period info
-        $message .= "📅 Period: {$data['period']['start']->format('M d')} - {$data['period']['end']->format('M d, Y')}\n";
+        $message .= "📅 Period: {$data['period']['start_date']->format('M d')} - {$data['period']['end_date']->format('M d, Y')}\n";
         $message .= "📍 Location: " . ($data['location'] ?? 'All') . "\n\n";
 
         // Revenue section
@@ -388,9 +388,9 @@ class TelegramReportFormatter
         $message .= "   " . number_format($netFlow, 0) . " UZS\n\n";
 
         // By currency
-        if (!empty($data['by_currency'])) {
+        if (!empty($data['currency_breakdown'])) {
             $message .= "💵 <b>BY CURRENCY</b>\n";
-            foreach ($data['by_currency'] as $currencyCode => $amounts) {
+            foreach ($data['currency_breakdown'] as $currencyCode => $amounts) {
                 $revenue = number_format($amounts['revenue'], 0);
                 $message .= "   {$currencyCode}: {$revenue}\n";
             }
@@ -399,16 +399,17 @@ class TelegramReportFormatter
 
         // Transactions
         $message .= "🔢 <b>TRANSACTIONS</b>\n";
-        $message .= "   Total: {$data['summary']['total_transactions']}\n";
-        $message .= "   Cash In: {$data['summary']['cash_in_count']}\n";
-        $message .= "   Cash Out: {$data['summary']['cash_out_count']}\n";
-        $message .= "   Exchanges: {$data['summary']['exchange_count']}\n\n";
+        $message .= "   Total: {$data['transactions']['total']}\n";
+        $message .= "   Cash In: {$data['transactions']['cash_in']}\n";
+        $message .= "   Cash Out: {$data['transactions']['cash_out']}\n";
+        $message .= "   Exchanges: {$data['transactions']['exchanges']}\n\n";
 
-        // Daily average
-        if (isset($data['daily_average'])) {
-            $message .= "📈 <b>DAILY AVERAGE</b>\n";
-            $message .= "   Revenue: " . number_format($data['daily_average']['revenue'], 0) . " UZS\n";
-            $message .= "   Transactions: {$data['daily_average']['transactions']}\n";
+        // Daily averages
+        if (isset($data['daily_averages'])) {
+            $message .= "📈 <b>DAILY AVERAGES</b>\n";
+            $message .= "   Revenue/Day: " . number_format($data['daily_averages']['revenue_per_day'], 0) . " UZS\n";
+            $message .= "   Transactions/Day: " . number_format($data['daily_averages']['transactions_per_day'], 1) . "\n";
+            $message .= "   Revenue/Shift: " . number_format($data['daily_averages']['revenue_per_shift'], 0) . " UZS\n";
         }
 
         return $message;
@@ -423,7 +424,7 @@ class TelegramReportFormatter
         $message .= "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n";
 
         // Period info
-        $message .= "📅 Period: {$data['period']['start']->format('M d')} - {$data['period']['end']->format('M d, Y')}\n";
+        $message .= "📅 Period: {$data['period']['start_date']->format('M d')} - {$data['period']['end_date']->format('M d, Y')}\n";
         $message .= "📍 Location: " . ($data['location'] ?? 'All') . "\n\n";
 
         // Summary
@@ -431,8 +432,9 @@ class TelegramReportFormatter
         $message .= "   Total Shifts: {$data['summary']['total_shifts']}\n";
         $message .= "   With Discrepancies: {$data['summary']['shifts_with_discrepancies']}\n";
 
-        $accuracyIcon = $data['summary']['accuracy_rate'] >= 95 ? '✅' : ($data['summary']['accuracy_rate'] >= 90 ? '⚠️' : '❌');
-        $message .= "   {$accuracyIcon} Accuracy Rate: " . number_format($data['summary']['accuracy_rate'], 1) . "%\n\n";
+        $accuracyRate = 100 - $data['summary']['discrepancy_rate'];
+        $accuracyIcon = $accuracyRate >= 95 ? '✅' : ($accuracyRate >= 90 ? '⚠️' : '❌');
+        $message .= "   {$accuracyIcon} Accuracy Rate: " . number_format($accuracyRate, 1) . "%\n\n";
 
         // Total discrepancy amount
         $totalDisc = $data['summary']['total_discrepancy_amount'];
@@ -444,16 +446,16 @@ class TelegramReportFormatter
         if (!empty($data['by_cashier'])) {
             $message .= "👥 <b>BY CASHIER</b>\n";
             $count = 1;
-            foreach ($data['by_cashier'] as $cashierName => $stats) {
+            foreach ($data['by_cashier'] as $stats) {
                 if ($count > 5) {
                     $message .= "   ... and " . (count($data['by_cashier']) - 5) . " more\n";
                     break;
                 }
 
                 $accuracyIcon = $stats['accuracy_rate'] >= 95 ? '✅' : ($stats['accuracy_rate'] >= 90 ? '⚠️' : '❌');
-                $message .= "   {$accuracyIcon} {$cashierName}\n";
+                $message .= "   {$accuracyIcon} {$stats['cashier_name']}\n";
                 $message .= "      Accuracy: " . number_format($stats['accuracy_rate'], 1) . "%\n";
-                $message .= "      Discrepancies: {$stats['discrepancy_count']} shifts\n";
+                $message .= "      Discrepancies: {$stats['discrepancy_shifts']} shifts\n";
 
                 $count++;
             }
@@ -461,11 +463,15 @@ class TelegramReportFormatter
         }
 
         // Top 5 largest discrepancies
-        if (!empty($data['largest_discrepancies'])) {
+        if (!empty($data['top_discrepancies'])) {
             $message .= "🔝 <b>LARGEST DISCREPANCIES</b>\n";
-            foreach (array_slice($data['largest_discrepancies'], 0, 5) as $disc) {
-                $amount = number_format(abs($disc['amount']), 0);
-                $message .= "   • Shift #{$disc['shift_id']} ({$disc['cashier']})\n";
+            $topDiscrepancies = is_array($data['top_discrepancies'])
+                ? array_slice($data['top_discrepancies'], 0, 5)
+                : collect($data['top_discrepancies'])->take(5)->toArray();
+
+            foreach ($topDiscrepancies as $disc) {
+                $amount = number_format(abs($disc['discrepancy']), 0);
+                $message .= "   • Shift #{$disc['shift_id']} ({$disc['cashier_name']})\n";
                 $message .= "     {$amount} {$disc['currency']}\n";
             }
         }
@@ -482,7 +488,8 @@ class TelegramReportFormatter
         $message .= "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n";
 
         // Period info
-        $message .= "📅 Period: {$data['period']}\n";
+        $periodLabel = $data['period']['label'] ?? 'Today';
+        $message .= "📅 Period: {$periodLabel}\n";
         $message .= "🕐 Generated: " . now()->format('M d, Y H:i') . "\n\n";
 
         // Financial KPIs
@@ -496,10 +503,10 @@ class TelegramReportFormatter
             $message .= "   Change: {$arrow} {$sign}" . number_format($change, 1) . "%\n";
         }
 
-        $message .= "   Transactions: {$data['financial']['total_transactions']}\n";
+        $message .= "   Transactions: {$data['financial']['transactions']}\n";
 
-        if (isset($data['financial']['txn_change_pct'])) {
-            $change = $data['financial']['txn_change_pct'];
+        if (isset($data['financial']['transactions_change_pct'])) {
+            $change = $data['financial']['transactions_change_pct'];
             $arrow = $change > 0 ? '↗️' : ($change < 0 ? '↘️' : '➡️');
             $sign = $change > 0 ? '+' : '';
             $message .= "   Change: {$arrow} {$sign}" . number_format($change, 1) . "%\n";
@@ -510,8 +517,8 @@ class TelegramReportFormatter
         $message .= "⚙️ <b>OPERATIONS</b>\n";
         $message .= "   Total Shifts: {$data['operations']['total_shifts']}\n";
         $message .= "   Active Now: {$data['operations']['active_shifts']}\n";
-        $message .= "   Avg Duration: " . $this->formatDuration($data['operations']['avg_shift_duration']) . "\n";
-        $message .= "   Avg Transactions/Shift: " . number_format($data['operations']['avg_transactions_per_shift'], 1) . "\n\n";
+        $message .= "   Avg Shifts/Day: " . number_format($data['operations']['avg_shifts_per_day'], 1) . "\n";
+        $message .= "   Revenue/Shift: " . number_format($data['operations']['efficiency'], 0) . " UZS\n\n";
 
         // Quality metrics
         $qualityScore = $data['quality']['quality_score'];
@@ -519,16 +526,20 @@ class TelegramReportFormatter
         $message .= "{$qualityIcon} <b>QUALITY</b>\n";
         $message .= "   Score: " . number_format($qualityScore, 1) . "/100\n";
         $message .= "   Accuracy: " . number_format($data['quality']['accuracy_rate'], 1) . "%\n";
-        $message .= "   Discrepancies: {$data['quality']['discrepancy_count']}\n\n";
+        $message .= "   Discrepancies: {$data['quality']['total_discrepancies']}\n\n";
 
         // Top performers
         if (!empty($data['top_performers'])) {
             $message .= "🏆 <b>TOP PERFORMERS</b>\n";
             $rank = 1;
-            foreach (array_slice($data['top_performers'], 0, 5) as $performer) {
+            $topPerformers = is_array($data['top_performers'])
+                ? array_slice($data['top_performers'], 0, 5)
+                : collect($data['top_performers'])->take(5)->toArray();
+
+            foreach ($topPerformers as $performer) {
                 $revenue = number_format($performer['revenue'], 0);
                 $message .= "   {$rank}. {$performer['name']}\n";
-                $message .= "      {$revenue} UZS • {$performer['transaction_count']} txns\n";
+                $message .= "      {$revenue} UZS • {$performer['transactions']} txns\n";
                 $rank++;
             }
             $message .= "\n";
@@ -536,9 +547,24 @@ class TelegramReportFormatter
 
         // Alerts
         if (!empty($data['alerts'])) {
-            $message .= "🚨 <b>ALERTS</b>\n";
-            foreach (array_slice($data['alerts'], 0, 5) as $alert) {
-                $message .= "   • {$alert['message']}\n";
+            $hasAlerts = false;
+            $alertMessages = [];
+
+            if (isset($data['alerts']['overdue_approvals']) && $data['alerts']['overdue_approvals'] > 0) {
+                $alertMessages[] = "⏰ {$data['alerts']['overdue_approvals']} shifts awaiting approval";
+                $hasAlerts = true;
+            }
+
+            if (isset($data['alerts']['large_discrepancies']) && $data['alerts']['large_discrepancies'] > 0) {
+                $alertMessages[] = "⚠️ {$data['alerts']['large_discrepancies']} shifts with large discrepancies";
+                $hasAlerts = true;
+            }
+
+            if ($hasAlerts) {
+                $message .= "🚨 <b>ALERTS</b>\n";
+                foreach ($alertMessages as $alertMsg) {
+                    $message .= "   • {$alertMsg}\n";
+                }
             }
         }
 
@@ -554,20 +580,20 @@ class TelegramReportFormatter
         $message .= "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n";
 
         // Period info
-        $message .= "📅 Period: {$data['period']['start']->format('M d')} - {$data['period']['end']->format('M d, Y')}\n";
+        $message .= "📅 Period: {$data['period']['start_date']->format('M d')} - {$data['period']['end_date']->format('M d, Y')}\n";
         $message .= "📍 Location: " . ($data['location'] ?? 'All') . "\n\n";
 
         // Summary
         $message .= "📊 <b>SUMMARY</b>\n";
         $message .= "   Total Exchanges: {$data['summary']['total_exchanges']}\n";
-        $message .= "   Total Value: " . number_format($data['summary']['total_value_uzs'], 0) . " UZS\n";
+        $message .= "   Total Value: " . number_format($data['summary']['total_value_uzs_equiv'], 0) . " UZS\n";
         $message .= "   Avg Amount: " . number_format($data['summary']['avg_exchange_amount'], 0) . " UZS\n\n";
 
         // By currency pair
         if (!empty($data['by_currency'])) {
             $message .= "💵 <b>BY CURRENCY</b>\n";
-            foreach ($data['by_currency'] as $currencyCode => $stats) {
-                $message .= "   <b>{$currencyCode}</b>\n";
+            foreach ($data['by_currency'] as $stats) {
+                $message .= "   <b>{$stats['currency']}</b>\n";
                 $message .= "      Count: {$stats['count']}\n";
                 $message .= "      Volume: " . number_format($stats['total_amount'], 0) . "\n";
                 $message .= "      Avg: " . number_format($stats['avg_amount'], 0) . "\n";
@@ -578,7 +604,11 @@ class TelegramReportFormatter
         // Hourly pattern
         if (!empty($data['hourly_pattern'])) {
             $message .= "🕐 <b>PEAK HOURS</b>\n";
-            $topHours = array_slice($data['hourly_pattern'], 0, 3, true);
+            $hourlyPattern = is_array($data['hourly_pattern'])
+                ? $data['hourly_pattern']
+                : collect($data['hourly_pattern'])->toArray();
+
+            $topHours = array_slice($hourlyPattern, 0, 3, true);
             foreach ($topHours as $hour => $count) {
                 $hourFormatted = str_pad($hour, 2, '0', STR_PAD_LEFT) . ":00";
                 $message .= "   {$hourFormatted} - {$count} exchanges\n";
@@ -589,7 +619,11 @@ class TelegramReportFormatter
         // Largest exchanges
         if (!empty($data['largest_exchanges'])) {
             $message .= "🔝 <b>LARGEST EXCHANGES</b>\n";
-            foreach (array_slice($data['largest_exchanges'], 0, 5) as $exchange) {
+            $largestExchanges = is_array($data['largest_exchanges'])
+                ? array_slice($data['largest_exchanges'], 0, 5)
+                : collect($data['largest_exchanges'])->take(5)->toArray();
+
+            foreach ($largestExchanges as $exchange) {
                 $amount = number_format($exchange['amount'], 0);
                 $time = $exchange['occurred_at']->format('M d, H:i');
                 $message .= "   • {$amount} {$exchange['currency']}\n";
