@@ -20,6 +20,54 @@ return [
     
     // Language
     'language_set' => 'Language has been set successfully!',
+    'language_changed' => 'Language changed successfully! 🌐',
+    'select_language' => 'Select your language:',
+
+    // Shift Management
+    'no_open_shift' => 'You don\'t have an open shift.',
+    'shift_already_open' => 'You already have an open shift on drawer :drawer',
+    'shift_started' => '✅ Shift started successfully!',
+    'shift_start_failed' => 'Failed to start shift. :reason',
+    'shift_closed' => '✅ Shift closed successfully!',
+    'shift_not_found' => 'Shift not found.',
+    'shift_not_open' => 'You need to start a shift first.',
+    'enter_counted_amount' => 'Enter counted amount for :currency:',
+
+    // Running Balance
+    'running_balance' => '💰 Running Balance',
+
+    // Transactions
+    'transaction_recorded' => '✅ Transaction recorded successfully!',
+    'transaction_failed' => 'Failed to record transaction. :reason',
+    'select_transaction_type' => 'Select transaction type:',
+    'cash_in' => '💵 Cash In',
+    'cash_out' => '💸 Cash Out',
+    'complex_transaction' => '🔄 Complex (Exchange)',
+    'enter_amount' => 'Enter amount:',
+    'enter_out_amount' => 'Enter amount to give out (exchange):',
+    'select_currency' => 'Select currency:',
+    'select_out_currency' => 'Select currency for amount to give out:',
+    'select_category' => 'Select category:',
+    'add_notes' => 'Add notes (optional):',
+    'skip_notes' => 'Skip ⏭️',
+
+    // Categories
+    'category_sale' => '🛍️ Sale',
+    'category_refund' => '↩️ Refund',
+    'category_expense' => '📤 Expense',
+    'category_deposit' => '📥 Deposit',
+    'category_change' => '💱 Change',
+    'category_other' => '📝 Other',
+
+    // Buttons
+    'cancelled' => 'Cancelled',
+
+    // Errors
+    'error_occurred' => 'An error occurred. Please try again.',
+    'invalid_amount' => 'Invalid amount. Please enter a valid number.',
+
+    // Help
+    'help_text' => "📚 POS Bot Help\n\n🟢 Start Shift - Begin your cashier shift\n📊 My Shift - View current shift status and balance\n💵 Record Transaction - Record a cash transaction\n🔴 Close Shift - End your shift and count cash\n\nNeed assistance? Contact your manager.",
 
     // Reports
     'reports' => '📊 Reports',
@@ -40,8 +88,6 @@ return [
     'under_review' => 'Under Review',
     'total_shifts' => 'Total',
     'transactions' => 'transactions',
-    'cash_in' => 'Cash In',
-    'cash_out' => 'Cash Out',
     'exchanges' => 'Exchanges',
     'totals_by_currency' => 'TOTALS BY CURRENCY',
     'net' => 'Net',
