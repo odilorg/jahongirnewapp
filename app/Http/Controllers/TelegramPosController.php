@@ -525,7 +525,7 @@ class TelegramPosController extends Controller
         }
 
         $lang = $session->language;
-        $user = $session->user;
+        $user = User::with("locations")->find($session->user_id);
 
         // Check if user already has an open shift
         $existingShift = \App\Models\CashierShift::getUserOpenShift($user->id);
