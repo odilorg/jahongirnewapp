@@ -22,6 +22,11 @@ class StartShiftAction
     public function quickStart(User $user): CashierShift
     {
         return DB::transaction(function () use ($user) {
+            // Ensure locations are loaded (defensive check)
+            if (!$user->relationLoaded('locations')) {
+                $user->load('locations');
+            }
+
             // 1. Auto-select drawer based on user's assigned locations
             $drawer = $this->autoSelectDrawer($user);
 
