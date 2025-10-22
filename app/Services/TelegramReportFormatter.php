@@ -232,7 +232,7 @@ class TelegramReportFormatter
     {
         $message = "💰 " . strtoupper(__('telegram_pos.transaction_report', [], $lang)) . "\n";
         $message .= __('telegram_pos.period', [], $lang) . ": ";
-        $message .= $data['period']['start_date']->format('M d') . " - " . $data['period']['end_date']->format('M d, Y') . "\n\n";
+        $message .= $data['period']['start']->format('M d') . " - " . $data['period']['end']->format('M d, Y') . "\n\n";
 
         // Summary
         $message .= "📊 " . __('telegram_pos.summary', [], $lang) . "\n";
