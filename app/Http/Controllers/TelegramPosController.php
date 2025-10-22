@@ -311,18 +311,14 @@ class TelegramPosController extends Controller
      */
     protected function handleShiftsReport(int $chatId, User $user, string $lang)
     {
-        // TODO: Implement getShiftPerformance in AdvancedReportService
-        $this->sendMessage($chatId, "🚧 Shift Performance Report\n\nThis report is coming soon!");
+        $data = $this->reportService->getShiftPerformance($user, Carbon::today());
+        if (isset($data['error'])) {
+            $this->sendMessage($chatId, "❌ " . $data['error']);
+            return response('OK');
+        }
+        $message = $this->reportFormatter->formatShiftPerformance($data, $lang);
+        $this->sendMessage($chatId, $message);
         return response('OK');
-
-        // $data = $this->reportService->getShiftPerformance($user, Carbon::today());
-        // if (isset($data['error'])) {
-        //     $this->sendMessage($chatId, "❌ " . $data['error']);
-        //     return response('OK');
-        // }
-        // $message = $this->reportFormatter->formatShiftPerformance($data, $lang);
-        // $this->sendMessage($chatId, $message);
-        // return response('OK');
     }
 
     /**
@@ -330,18 +326,14 @@ class TelegramPosController extends Controller
      */
     protected function handleTransactionsReport(int $chatId, User $user, string $lang)
     {
-        // TODO: Implement getTransactionActivity in AdvancedReportService
-        $this->sendMessage($chatId, "🚧 Transaction Report\n\nThis report is coming soon!");
+        $data = $this->reportService->getTransactionActivity($user, Carbon::today(), Carbon::today());
+        if (isset($data['error'])) {
+            $this->sendMessage($chatId, "❌ " . $data['error']);
+            return response('OK');
+        }
+        $message = $this->reportFormatter->formatTransactionActivity($data, $lang);
+        $this->sendMessage($chatId, $message);
         return response('OK');
-
-        // $data = $this->reportService->getTransactionActivity($user, Carbon::today(), Carbon::today());
-        // if (isset($data['error'])) {
-        //     $this->sendMessage($chatId, "❌ " . $data['error']);
-        //     return response('OK');
-        // }
-        // $message = $this->reportFormatter->formatTransactionActivity($data, $lang);
-        // $this->sendMessage($chatId, $message);
-        // return response('OK');
     }
 
     /**
@@ -349,18 +341,14 @@ class TelegramPosController extends Controller
      */
     protected function handleLocationsReport(int $chatId, User $user, string $lang)
     {
-        // TODO: Implement getMultiLocationSummary in AdvancedReportService
-        $this->sendMessage($chatId, "🚧 Multi-Location Summary\n\nThis report is coming soon!");
+        $data = $this->reportService->getMultiLocationSummary($user);
+        if (isset($data['error'])) {
+            $this->sendMessage($chatId, "❌ " . $data['error']);
+            return response('OK');
+        }
+        $message = $this->reportFormatter->formatMultiLocationSummary($data, $lang);
+        $this->sendMessage($chatId, $message);
         return response('OK');
-
-        // $data = $this->reportService->getMultiLocationSummary($user);
-        // if (isset($data['error'])) {
-        //     $this->sendMessage($chatId, "❌ " . $data['error']);
-        //     return response('OK');
-        // }
-        // $message = $this->reportFormatter->formatMultiLocationSummary($data, $lang);
-        // $this->sendMessage($chatId, $message);
-        // return response('OK');
     }
 
     /**
@@ -531,6 +519,9 @@ class TelegramPosController extends Controller
         $existingShift = \App\Models\CashierShift::getUserOpenShift($user->id);
 
         if ($existingShift) {
+            // Ensure cashDrawer.location relationship is loaded (not the string column)
+            $existingShift->load('cashDrawer.location');
+
             $this->sendMessage(
                 $chatId,
                 __('telegram_pos.shift_already_open', ['drawer' => $existingShift->cashDrawer->name], $lang)
@@ -608,15 +599,19 @@ class TelegramPosController extends Controller
             return response('OK');
         }
 
-        // Ensure relationships are loaded
-        $shift->load('cashDrawer.location', 'beginningSaldos');
+        // Load relationships - avoid attribute conflict with location field
+        $shift->loadMissing(['cashDrawer', 'beginningSaldos']);
+        if ($shift->cashDrawer) {
+            $shift->cashDrawer->loadMissing('location');
+        }
 
         // Build shift details message
         $message = "📊 <b>" . __('telegram_pos.my_shift', [], $lang) . "</b>\n\n";
         $message .= "🆔 Shift ID: {$shift->id}\n";
 
-        if ($shift->cashDrawer && $shift->cashDrawer->location) {
-            $message .= "📍 " . __('telegram_pos.location', [], $lang) . ": {$shift->cashDrawer->location->name}\n";
+        if ($shift->cashDrawer && $shift->cashDrawer->location_id) {
+            $loc = $shift->cashDrawer->getRelation('location');
+            $message .= "📍 " . __('telegram_pos.location', [], $lang) . ": {$loc->name}\n";
         }
 
         if ($shift->cashDrawer) {
