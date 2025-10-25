@@ -455,4 +455,100 @@ class TelegramReportService
         // Return all locations since user-to-location relationships don't exist
         return 'All Locations';
     }
+
+    /**
+     * Get cash drawer balances across all locations
+     */
+    public function getDrawerBalances(User $manager): array
+    {
+        // Authorization check
+        if (!$this->isManagerAuthorized($manager)) {
+            return ['error' => 'Unauthorized'];
+        }
+
+        // Get all active drawers with location relationship
+        $drawers = CashDrawer::with('location')
+            ->where('is_active', true)
+            ->orderBy('location_id')
+            ->orderBy('name')
+            ->get();
+
+        if ($drawers->isEmpty()) {
+            return [
+                'timestamp' => now(),
+                'locations' => [],
+                'grand_totals' => [],
+                'statistics' => [
+                    'total_drawers' => 0,
+                    'active_drawers' => 0,
+                    'last_updated' => null,
+                ],
+            ];
+        }
+
+        // Group by location
+        $byLocation = $drawers->groupBy(function ($drawer) {
+            return $drawer->location?->name ?? 'Unknown Location';
+        });
+
+        // Build location data
+        $locationData = [];
+        foreach ($byLocation as $locationName => $locationDrawers) {
+            $drawersData = [];
+
+            foreach ($locationDrawers as $drawer) {
+                $balances = $drawer->balances ?? [];
+                $drawersData[] = [
+                    'name' => $drawer->name,
+                    'balances' => $balances,
+                    'has_balance' => !empty($balances),
+                    'last_updated' => $drawer->updated_at,
+                ];
+            }
+
+            $locationData[] = [
+                'location_name' => $locationName,
+                'drawers' => $drawersData,
+            ];
+        }
+
+        // Calculate totals across all drawers
+        $grandTotals = $this->calculateGrandTotalBalances($drawers);
+
+        // Calculate statistics
+        $totalDrawers = $drawers->count();
+        $activeDrawers = $drawers->filter(fn($d) => !empty($d->balances))->count();
+
+        return [
+            'timestamp' => now(),
+            'locations' => $locationData,
+            'grand_totals' => $grandTotals,
+            'statistics' => [
+                'total_drawers' => $totalDrawers,
+                'active_drawers' => $activeDrawers,
+                'last_updated' => $drawers->max('updated_at'),
+            ],
+        ];
+    }
+
+    /**
+     * Calculate grand total balances across all drawers
+     */
+    protected function calculateGrandTotalBalances(Collection $drawers): array
+    {
+        $totals = [];
+
+        foreach ($drawers as $drawer) {
+            $balances = $drawer->balances ?? [];
+
+            foreach ($balances as $currency => $amount) {
+                if (!isset($totals[$currency])) {
+                    $totals[$currency] = 0;
+                }
+                $totals[$currency] += $amount;
+            }
+        }
+
+        return $totals;
+    }
 }

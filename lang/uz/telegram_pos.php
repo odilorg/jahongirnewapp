@@ -82,11 +82,26 @@ return [
     'total_locations' => 'Jami filiallar',
     'open' => 'Ochiq',
     'active' => 'Faol',
-    
+
     // Report menu items
     'financial_range' => 'Moliyaviy hisobot',
     'executive_dashboard' => 'Rahbar paneli',
     'currency_exchange' => 'Valyuta almashinuvi',
     'transaction_report' => 'Tranzaksiyalar hisoboti',
     'multi_location' => 'Lokatsiyalar xulosasi',
+
+    // Drawer Balances Report
+    'drawer_balances' => 'Kassa balanslari',
+    'drawer_balances_title' => 'KASSA BALANSLARI',
+    'as_of' => 'Holatiga',
+    'no_balance' => 'Balans yo\'q',
+    'no_drawers_found' => 'Kassalar topilmadi',
+    'total_all_drawers' => 'BARCHA KASSALARDA JAMI',
+    'no_balances_found' => 'Balanslar topilmadi',
+    'active_drawers' => 'Faol kassalar',
+    'last_updated' => 'Yangilangan',
+    'ago' => 'oldin',
+    'just_now' => 'hozirgina',
+    'refresh' => 'Yangilash',
+    'back_to_reports' => 'Hisobotlarga qaytish',
 ];

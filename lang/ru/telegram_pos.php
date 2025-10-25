@@ -82,11 +82,26 @@ return [
     'total_locations' => 'Всего локаций',
     'open' => 'Открыто',
     'active' => 'Активно',
-    
+
     // Report menu items
     'financial_range' => 'Финансовый отчет',
     'executive_dashboard' => 'Панель руководителя',
     'currency_exchange' => 'Обмен валюты',
     'transaction_report' => 'Отчет по транзакциям',
     'multi_location' => 'Сводка по локациям',
+
+    // Drawer Balances Report
+    'drawer_balances' => 'Балансы касс',
+    'drawer_balances_title' => 'БАЛАНСЫ ДЕНЕЖНЫХ ЯЩИКОВ',
+    'as_of' => 'На',
+    'no_balance' => 'Нет баланса',
+    'no_drawers_found' => 'Кассы не найдены',
+    'total_all_drawers' => 'ВСЕГО ВО ВСЕХ КАССАХ',
+    'no_balances_found' => 'Балансы не найдены',
+    'active_drawers' => 'Активные кассы',
+    'last_updated' => 'Обновлено',
+    'ago' => 'назад',
+    'just_now' => 'только что',
+    'refresh' => 'Обновить',
+    'back_to_reports' => 'Вернуться к отчетам',
 ];

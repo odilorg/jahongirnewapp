@@ -633,4 +633,97 @@ class TelegramReportFormatter
 
         return $message;
     }
+
+    /**
+     * Format drawer balances report
+     */
+    public function formatDrawerBalances(array $data, string $lang): string
+    {
+        $message = "💰 <b>" . strtoupper(__('telegram_pos.drawer_balances_title', [], $lang)) . "</b>\n";
+        $message .= __('telegram_pos.as_of', [], $lang) . ": " .
+                     $data['timestamp']->format('M d, Y H:i') . "\n\n";
+
+        // Check if we have any locations
+        if (empty($data['locations'])) {
+            $message .= "⚠️ " . __('telegram_pos.no_drawers_found', [], $lang) . "\n";
+            return $message;
+        }
+
+        // Location-wise breakdown
+        foreach ($data['locations'] as $location) {
+            $message .= "📍 <b>" . strtoupper($location['location_name']) . "</b>\n";
+
+            foreach ($location['drawers'] as $index => $drawer) {
+                $isLast = ($index === count($location['drawers']) - 1);
+                $prefix = $isLast ? "┗━" : "┣━";
+                $message .= "{$prefix} {$drawer['name']}\n";
+
+                if ($drawer['has_balance'] && !empty($drawer['balances'])) {
+                    $balanceCount = count($drawer['balances']);
+                    $balanceIndex = 0;
+
+                    foreach ($drawer['balances'] as $currency => $amount) {
+                        $balanceIndex++;
+                        $isLastBalance = ($balanceIndex === $balanceCount);
+                        $balancePrefix = $isLast ? "   " : "┃  ";
+                        $balanceSymbol = $isLastBalance ? "┗" : "┣";
+
+                        try {
+                            $currencyEnum = Currency::from($currency);
+                            $formatted = $currencyEnum->formatAmount($amount);
+                            $message .= "{$balancePrefix}{$balanceSymbol} {$formatted}\n";
+                        } catch (\Exception $e) {
+                            $formatted = number_format($amount, 2);
+                            $message .= "{$balancePrefix}{$balanceSymbol} {$formatted} {$currency}\n";
+                        }
+                    }
+                } else {
+                    $balancePrefix = $isLast ? "   " : "┃  ";
+                    $message .= "{$balancePrefix}┗ <i>" . __('telegram_pos.no_balance', [], $lang) . "</i>\n";
+                }
+            }
+
+            $message .= "\n";
+        }
+
+        // Grand totals
+        $message .= "━━━━━━━━━━━━━━━━━━\n";
+        $message .= "💼 <b>" . strtoupper(__('telegram_pos.total_all_drawers', [], $lang)) . "</b>\n";
+
+        if (!empty($data['grand_totals'])) {
+            $totalCount = count($data['grand_totals']);
+            $totalIndex = 0;
+
+            foreach ($data['grand_totals'] as $currency => $amount) {
+                $totalIndex++;
+                $symbol = ($totalIndex === $totalCount) ? "┗" : "┣";
+
+                try {
+                    $currencyEnum = Currency::from($currency);
+                    $formatted = $currencyEnum->formatAmount($amount);
+                    $message .= "{$symbol} {$formatted}\n";
+                } catch (\Exception $e) {
+                    $formatted = number_format($amount, 2);
+                    $message .= "{$symbol} {$formatted} {$currency}\n";
+                }
+            }
+        } else {
+            $message .= "┗ <i>" . __('telegram_pos.no_balances_found', [], $lang) . "</i>\n";
+        }
+
+        // Statistics
+        $message .= "\n";
+        $stats = $data['statistics'];
+        $message .= "📊 " . __('telegram_pos.active_drawers', [], $lang) . ": " .
+                     "<b>{$stats['active_drawers']}</b> / {$stats['total_drawers']}\n";
+
+        if ($stats['last_updated']) {
+            $minutes = $stats['last_updated']->diffInMinutes(now());
+            $timeAgo = $minutes < 1 ? __('telegram_pos.just_now', [], $lang) : "{$minutes}m";
+            $message .= "🕐 " . __('telegram_pos.last_updated', [], $lang) . ": " .
+                         $timeAgo . " " . __('telegram_pos.ago', [], $lang);
+        }
+
+        return $message;
+    }
 }

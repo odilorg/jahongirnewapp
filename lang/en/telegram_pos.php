@@ -129,11 +129,26 @@ return [
     'open' => 'Open',
     'active' => 'Active',
     'active' => 'Active',
-    
+
     // Report menu items
     'financial_range' => 'Financial Range',
     'executive_dashboard' => 'Executive Dashboard',
     'currency_exchange' => 'Currency Exchange',
     'transaction_report' => 'Transaction Report',
     'multi_location' => 'Multi-Location Summary',
+
+    // Drawer Balances Report
+    'drawer_balances' => 'Drawer Balances',
+    'drawer_balances_title' => 'CASH DRAWER BALANCES',
+    'as_of' => 'As of',
+    'no_balance' => 'No Balance',
+    'no_drawers_found' => 'No drawers found',
+    'total_all_drawers' => 'TOTAL ALL DRAWERS',
+    'no_balances_found' => 'No balances found',
+    'active_drawers' => 'Active Drawers',
+    'last_updated' => 'Last Updated',
+    'ago' => 'ago',
+    'just_now' => 'just now',
+    'refresh' => 'Refresh',
+    'back_to_reports' => 'Back to Reports',
 ];
