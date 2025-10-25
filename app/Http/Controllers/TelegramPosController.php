@@ -264,6 +264,8 @@ class TelegramPosController extends Controller
         $reportType = substr($callbackData, 7); // Remove 'report:'
 
         switch ($reportType) {
+            case 'drawer_balances':
+                return $this->handleDrawerBalancesReport($chatId, $user, $lang);
             case 'today':
                 return $this->handleTodayReport($chatId, $user, $lang);
             case 'shifts':
@@ -1434,6 +1436,42 @@ class TelegramPosController extends Controller
         $formatter = app(\App\Services\TelegramReportFormatter::class);
         $message = $formatter->formatCurrencyExchangeReport($data, $lang);
         $this->sendMessage($chatId, $message);
+
+        return response('OK');
+    }
+
+    /**
+     * Handle drawer balances report
+     */
+    protected function handleDrawerBalancesReport(int $chatId, User $user, string $lang)
+    {
+        // Get data from service
+        $data = $this->reportService->getDrawerBalances($user);
+
+        // Check for errors
+        if (isset($data['error'])) {
+            $this->sendMessage($chatId, "❌ " . $data['error']);
+            return response('OK');
+        }
+
+        // Format and send message
+        $message = $this->reportFormatter->formatDrawerBalances($data, $lang);
+
+        // Add refresh button
+        $keyboard = [
+            'inline_keyboard' => [
+                [
+                    ['text' => '🔄 ' . __('telegram_pos.refresh', [], $lang),
+                     'callback_data' => 'report:drawer_balances'],
+                ],
+                [
+                    ['text' => '« ' . __('telegram_pos.back_to_reports', [], $lang),
+                     'callback_data' => 'report:back'],
+                ],
+            ],
+        ];
+
+        $this->sendMessage($chatId, $message, $keyboard, 'inline');
 
         return response('OK');
     }

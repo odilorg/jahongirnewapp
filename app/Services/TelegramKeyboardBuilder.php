@@ -225,10 +225,13 @@ class TelegramKeyboardBuilder
         return [
             'inline_keyboard' => [
                 [
+                    ['text' => '💰 ' . __('telegram_pos.drawer_balances', [], $language), 'callback_data' => 'report:drawer_balances'],
+                ],
+                [
                     ['text' => '📊 ' . __('telegram_pos.today_summary', [], $language), 'callback_data' => 'report:today'],
                 ],
                 [
-                    ['text' => '💰 ' . __('telegram_pos.financial_range', [], $language), 'callback_data' => 'report:financial_range'],
+                    ['text' => '💵 ' . __('telegram_pos.financial_range', [], $language), 'callback_data' => 'report:financial_range'],
                 ],
                 [
                     ['text' => '⚠️ ' . __('telegram_pos.discrepancies', [], $language), 'callback_data' => 'report:discrepancies'],
