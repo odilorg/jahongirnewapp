@@ -2,7 +2,7 @@
 
 namespace App\Services;
 
-use OpenAI\Laravel\Facades\OpenAI;
+use OpenAI;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Log;
 
@@ -39,8 +39,15 @@ Use the following as a sample only (do not output literal placeholders in your f
 PROMPT;
 
         try {
-            $response = OpenAI::chat()->create([
-                'model' => 'gpt-3.5-turbo',
+            // Create OpenAI client with custom base URL for DeepSeek
+            $client = OpenAI::factory()
+                ->withApiKey(config('openai.api_key'))
+                ->withBaseUri(config('openai.base_url'))
+                ->withHttpClient(new \GuzzleHttp\Client(['timeout' => config('openai.request_timeout')]))
+                ->make();
+
+            $response = $client->chat()->create([
+                'model' => 'deepseek-chat',
                 'messages' => [
                     ['role' => 'system', 'content' => $systemPrompt],
                     ['role' => 'user', 'content' => "Extract check in and check out dates from: {$messageText}"]
@@ -54,7 +61,7 @@ PROMPT;
             return $this->parseAIResponse($content);
             
         } catch (\Exception $e) {
-            Log::error('OpenAI Date Extraction Error', [
+            Log::error('DeepSeek Date Extraction Error', [
                 'message' => $e->getMessage(),
                 'text' => $messageText
             ]);

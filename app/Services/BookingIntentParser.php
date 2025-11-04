@@ -3,7 +3,7 @@
 namespace App\Services;
 
 use Illuminate\Support\Facades\Log;
-use OpenAI\Laravel\Facades\OpenAI;
+use OpenAI;
 use Carbon\Carbon;
 
 class BookingIntentParser
@@ -98,8 +98,15 @@ Examples:
 PROMPT;
 
         try {
-            $response = OpenAI::chat()->create([
-                'model' => 'gpt-3.5-turbo',
+            // Create OpenAI client with custom base URL for DeepSeek
+            $client = OpenAI::factory()
+                ->withApiKey(config('openai.api_key'))
+                ->withBaseUri(config('openai.base_url'))
+                ->withHttpClient(new \GuzzleHttp\Client(['timeout' => config('openai.request_timeout')]))
+                ->make();
+
+            $response = $client->chat()->create([
+                'model' => 'deepseek-chat',
                 'messages' => [
                     ['role' => 'system', 'content' => $systemPrompt],
                     ['role' => 'user', 'content' => $message]
@@ -110,13 +117,13 @@ PROMPT;
 
             $content = $response->choices[0]->message->content ?? '';
             
-            Log::info('OpenAI Booking Intent Response', ['content' => $content]);
+            Log::info('DeepSeek Booking Intent Response', ['content' => $content]);
 
             // Parse JSON response
             $parsed = json_decode($content, true);
             
             if (json_last_error() !== JSON_ERROR_NONE) {
-                throw new \Exception('Failed to parse OpenAI response: ' . json_last_error_msg());
+                throw new \Exception('Failed to parse DeepSeek response: ' . json_last_error_msg());
             }
 
             // Validate required fields
