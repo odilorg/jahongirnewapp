@@ -7,6 +7,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class GetYourGuideBooking extends Model
 {
+    protected $table = 'getyourguide_bookings';
+
     protected $fillable = [
         'email_message_id',
         'email_subject',
