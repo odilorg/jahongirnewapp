@@ -1,13 +1,13 @@
 <?php
 
-namespace AppServices;
+namespace App\Services;
 
-use WebklexPHPIMAPClientManager;
-use WebklexPHPIMAPClient;
-use WebklexPHPIMAPMessage;
-use IlluminateSupportCollection;
-use IlluminateSupportFacadesLog;
-use CarbonCarbon;
+use Webklex\PHPIMAP\ClientManager;
+use Webklex\PHPIMAP\Client;
+use Webklex\PHPIMAP\Message;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Log;
+use Carbon\Carbon;
 
 class GetYourGuideEmailService
 {
@@ -43,7 +43,7 @@ class GetYourGuideEmailService
 
             return $this->client;
 
-        } catch (Exception $e) {
+        } catch (\Exception $e) {
             Log::error('GetYourGuide Email Service: Connection failed', [
                 'error' => $e->getMessage(),
                 'host' => config('getyourguide.imap.host'),
@@ -62,7 +62,7 @@ class GetYourGuideEmailService
                 $this->client->disconnect();
                 $this->client = null;
                 Log::debug('GetYourGuide Email Service: Disconnected from IMAP');
-            } catch (Exception $e) {
+            } catch (\Exception $e) {
                 Log::warning('GetYourGuide Email Service: Disconnect error', [
                     'error' => $e->getMessage()
                 ]);
@@ -76,8 +76,8 @@ class GetYourGuideEmailService
     public function isConnected(): bool
     {
         try {
-            return $this->client && $this->client->getConnection() && $this->client->getConnection()->isConnected();
-        } catch (Exception $e) {
+            return $this->client && $this->client->getConnection() !== null;
+        } catch (\Exception $e) {
             return false;
         }
     }
@@ -107,7 +107,7 @@ class GetYourGuideEmailService
     /**
      * Fetch emails since specific date
      */
-    public function fetchEmailsSince(DateTime $since, int $limit = 50): Collection
+    public function fetchEmailsSince(\DateTime $since, int $limit = 50): Collection
     {
         $this->connect();
 
@@ -222,13 +222,13 @@ class GetYourGuideEmailService
     protected function cleanEmailBody(string $body): string
     {
         // Remove excessive whitespace
-        $body = preg_replace('/n{3,}/', "nn", $body);
+        $body = preg_replace('/\n{3,}/', "\n\n", $body);
 
         // Remove tracking URLs (GetYourGuide uses SendGrid tracking)
-        $body = preg_replace('/https://ud+.ct.sendgrid.net[^s]+/', '[LINK]', $body);
+        $body = preg_replace('/https:\/\/u\d+\.ct\.sendgrid\.net[^\s]+/', '[LINK]', $body);
 
         // Remove image placeholders
-        $body = preg_replace('/[image:[^]]+]/', '', $body);
+        $body = preg_replace('/\[image:[^\]]+\]/', '', $body);
 
         // Trim
         $body = trim($body);
@@ -267,7 +267,7 @@ class GetYourGuideEmailService
             Log::debug('GetYourGuide Email Service: Marked email as read', [
                 'message_id' => $message->getMessageId(),
             ]);
-        } catch (Exception $e) {
+        } catch (\Exception $e) {
             Log::warning('GetYourGuide Email Service: Failed to mark as read', [
                 'message_id' => $message->getMessageId(),
                 'error' => $e->getMessage(),
@@ -286,7 +286,7 @@ class GetYourGuideEmailService
                 'message_id' => $message->getMessageId(),
                 'flag' => $flag,
             ]);
-        } catch (Exception $e) {
+        } catch (\Exception $e) {
             Log::warning('GetYourGuide Email Service: Failed to flag email', [
                 'message_id' => $message->getMessageId(),
                 'error' => $e->getMessage(),
