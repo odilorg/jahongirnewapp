@@ -11,6 +11,7 @@ use App\Models\TelegramBotConversation;
 use App\Models\BotAnalytics;
 use App\Services\OpenAIDateExtractorService;
 use App\Services\TelegramBotService;
+use App\Services\TelegramBookingService;
 use App\Services\ResponseFormatterService;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -32,6 +33,7 @@ class ProcessTelegramMessage implements ShouldQueue
     public function handle(
         OpenAIDateExtractorService $dateExtractor,
         TelegramBotService $telegram,
+        TelegramBookingService $bookingService,
         ResponseFormatterService $formatter
     ): void
     {
@@ -40,7 +42,7 @@ class ProcessTelegramMessage implements ShouldQueue
         try {
             // Extract message data
             $message = $this->update['message'] ?? null;
-            
+
             if (!$message) {
                 Log::info('No message in update', ['update' => $this->update]);
                 return;
@@ -51,11 +53,30 @@ class ProcessTelegramMessage implements ShouldQueue
             $messageText = $message['text'] ?? '';
             $userId = $message['from']['id'] ?? null;
             $username = $message['from']['username'] ?? null;
+            $languageCode = $message['from']['language_code'] ?? 'en';
+
+            // Handle contact (phone number) sharing
+            if (isset($message['contact'])) {
+                $this->handlePhoneAuth($message['contact'], $userId, $chatId, $telegram, $bookingService);
+                return;
+            }
 
             // Handle /start command
             if ($messageText === '/start') {
-                $telegram->sendMessage($chatId, $formatter->formatWelcomeMessage());
+                $this->handleStartCommand($userId, $chatId, $languageCode, $telegram, $bookingService);
                 return;
+            }
+
+            // Check authentication for all other commands
+            if (!$bookingService->isAuthenticated($userId)) {
+                $telegram->sendMessage($chatId, "🔒 Please authenticate first using the /start command.");
+                return;
+            }
+
+            // Get or update session activity
+            $session = $bookingService->getSessionByTelegramId($userId);
+            if ($session) {
+                $session->updateActivity();
             }
 
             // Create conversation record
@@ -71,13 +92,13 @@ class ProcessTelegramMessage implements ShouldQueue
             // Step 1: Extract dates using OpenAI
             try {
                 $dates = $dateExtractor->extractDates($messageText);
-                
+
                 $conversation->update([
                     'check_in_date' => $dates['check_in_date'],
                     'check_out_date' => $dates['check_out_date'],
                     'ai_response' => $dates,
                 ]);
-                
+
             } catch (\Exception $e) {
                 throw new \Exception('Date extraction failed: ' . $e->getMessage());
             }
@@ -85,11 +106,11 @@ class ProcessTelegramMessage implements ShouldQueue
             // Step 2: Check availability
             try {
                 $availabilityData = $this->checkAvailability($dates['check_in_date'], $dates['check_out_date']);
-                
+
                 $conversation->update([
                     'availability_data' => $availabilityData,
                 ]);
-                
+
             } catch (\Exception $e) {
                 throw new \Exception('Availability check failed: ' . $e->getMessage());
             }
@@ -141,6 +162,99 @@ class ProcessTelegramMessage implements ShouldQueue
             } catch (\Exception $sendError) {
                 Log::error('Failed to send error message', ['error' => $sendError->getMessage()]);
             }
+        }
+    }
+
+    protected function handleStartCommand(
+        int $userId,
+        int $chatId,
+        string $languageCode,
+        TelegramBotService $telegram,
+        TelegramBookingService $bookingService
+    ): void
+    {
+        // Check if already authenticated
+        if ($bookingService->isAuthenticated($userId)) {
+            $user = $bookingService->getAuthenticatedUser($userId);
+            $telegram->sendMessage($chatId, "✅ You are already authenticated as {$user->name}.\n\nYou can now check hotel availability by sending me dates!");
+            return;
+        }
+
+        // Create guest session
+        $bookingService->createGuestSession($userId, $chatId, $languageCode);
+
+        // Send welcome message with phone request button
+        $keyboard = [
+            'keyboard' => [
+                [
+                    [
+                        'text' => '📱 Share Phone Number',
+                        'request_contact' => true,
+                    ]
+                ]
+            ],
+            'resize_keyboard' => true,
+            'one_time_keyboard' => true,
+        ];
+
+        $welcomeMessage = "👋 Welcome to Hotel Booking Bot!\n\n"
+            . "To use this bot, please authenticate by sharing your phone number.\n\n"
+            . "Click the button below to share your phone number:";
+
+        $telegram->sendMessage($chatId, $welcomeMessage, $keyboard);
+    }
+
+    protected function handlePhoneAuth(
+        array $contact,
+        int $userId,
+        int $chatId,
+        TelegramBotService $telegram,
+        TelegramBookingService $bookingService
+    ): void
+    {
+        $phoneNumber = $contact['phone_number'] ?? null;
+
+        if (!$phoneNumber) {
+            $telegram->sendMessage($chatId, "❌ No phone number received. Please try again.");
+            return;
+        }
+
+        Log::info('Phone authentication attempt', [
+            'telegram_user_id' => $userId,
+            'phone' => $phoneNumber,
+        ]);
+
+        // Authenticate user
+        $result = $bookingService->authenticate($userId, $chatId, $phoneNumber);
+
+        if ($result['success']) {
+            $user = $result['user'];
+
+            // Remove keyboard
+            $keyboard = ['remove_keyboard' => true];
+
+            $successMessage = "✅ Authentication successful!\n\n"
+                . "Welcome, {$user->name}!\n\n"
+                . "You can now check hotel availability by sending me dates.\n\n"
+                . "Example: \"Check availability from tomorrow to next week\"";
+
+            $telegram->sendMessage($chatId, $successMessage, $keyboard);
+
+            Log::info('User authenticated successfully', [
+                'user_id' => $user->id,
+                'telegram_user_id' => $userId,
+            ]);
+        } else {
+            $errorMessage = "❌ Authentication failed: {$result['message']}\n\n"
+                . "Please make sure your phone number is registered in our system.";
+
+            $telegram->sendMessage($chatId, $errorMessage);
+
+            Log::warning('User authentication failed', [
+                'telegram_user_id' => $userId,
+                'phone' => $phoneNumber,
+                'reason' => $result['message'],
+            ]);
         }
     }
 

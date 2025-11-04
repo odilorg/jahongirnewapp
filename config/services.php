@@ -27,20 +27,28 @@ return [
     ],
 
     'telegram_bot' => [
-    'beds24' => [
-        'api_token' => env('BEDS24_API_TOKEN'),
-        'api_v2_token' => env('BEDS24_API_V2_TOKEN'),
-        'api_v2_refresh_token' => env('BEDS24_API_V2_REFRESH_TOKEN'),
-    ],
         'token' => env('TELEGRAM_BOT_TOKEN'),
-        'bot_token' => env('TELEGRAM_BOT_TOKEN_DRIVER_GUIDE'), 
-        // Bot token from the .env file
+        'bot_token' => env('TELEGRAM_BOT_TOKEN_DRIVER_GUIDE'),
     ],
 
     'telegram_pos_bot' => [
         'token' => env('TELEGRAM_POS_BOT_TOKEN'),
         'webhook_url' => env('TELEGRAM_POS_WEBHOOK_URL'),
-        'session_timeout' => env('TELEGRAM_POS_SESSION_TIMEOUT', 15),
+        'session_timeout' => env('TELEGRAM_POS_SESSION_TIMEOUT', 15), // minutes
+        'secret_token' => env('TELEGRAM_POS_SECRET_TOKEN'), // optional secret for webhook validation
+    ],
+
+    'telegram_booking_bot' => [
+        'token' => env('TELEGRAM_BOT_TOKEN'),
+        'webhook_url' => env('TELEGRAM_BOOKING_WEBHOOK_URL'),
+        'session_timeout' => env('TELEGRAM_BOOKING_SESSION_TIMEOUT', 15), // minutes
+        'secret_token' => env('TELEGRAM_BOOKING_SECRET_TOKEN'), // optional secret for webhook validation
+    ],
+
+    'beds24' => [
+        'api_token' => env('BEDS24_API_TOKEN'),
+        'api_v2_token' => env('BEDS24_API_V2_TOKEN'),
+        'api_v2_refresh_token' => env('BEDS24_API_V2_REFRESH_TOKEN'),
     ],
 
     'mailgun' => [
@@ -58,13 +66,6 @@ return [
         'key' => env('AWS_ACCESS_KEY_ID'),
         'secret' => env('AWS_SECRET_ACCESS_KEY'),
         'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
-    ],
-
-    'telegram_pos_bot' => [
-        'token' => env('TELEGRAM_POS_BOT_TOKEN'),
-        'webhook_url' => env('TELEGRAM_POS_WEBHOOK_URL'),
-        'session_timeout' => env('TELEGRAM_POS_SESSION_TIMEOUT', 15), // minutes
-        'secret_token' => env('TELEGRAM_POS_SECRET_TOKEN'), // optional secret for webhook validation
     ],
 
 ];
