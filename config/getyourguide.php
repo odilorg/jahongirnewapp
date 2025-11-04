@@ -39,6 +39,11 @@ return [
     'notifications' => [
         'enabled' => env('GYG_ENABLE_NOTIFICATIONS', true),
         'staff_chat_ids' => array_filter(explode(',', env('GYG_STAFF_TELEGRAM_CHAT_IDS', ''))),
+        'daily_summary' => [
+            'enabled' => env('GYG_DAILY_SUMMARY_ENABLED', false),
+            'time' => env('GYG_DAILY_SUMMARY_TIME', '09:00'), // 9 AM
+        ],
+        'parse_mode' => 'HTML', // HTML or Markdown
     ],
 
     'timezone' => env('GYG_TIMEZONE', 'Asia/Samarkand'), // Uzbekistan/Samarkand timezone
