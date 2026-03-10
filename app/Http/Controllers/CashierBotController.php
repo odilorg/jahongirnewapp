@@ -380,10 +380,34 @@ class CashierBotController extends Controller
         $next = match($cur) {
             'UZS' => ['shift_count_usd', 'Посчитайте USD (0 если нет):'],
             'USD' => ['shift_count_eur', 'Посчитайте EUR (0 если нет):'],
-            'EUR' => ['shift_close_photo', 'Сделайте фото кассы и отправьте:'],
+            'EUR' => ['shift_close_confirm', null], // Skip photo, go to confirm
         };
         $s->update(['state' => $next[0], 'data' => $d]);
+        if ($next[0] === 'shift_close_confirm') {
+            return $this->showCloseConfirm($s, $chatId);
+        }
         $this->send($chatId, $next[1]);
+        return response('OK');
+    }
+
+    protected function showCloseConfirm($s, int $chatId)
+    {
+        $d = $s->data ?? [];
+        $exp = $d['expected'] ?? [];
+        $lines = [];
+        foreach (['uzs', 'usd', 'eur'] as $c) {
+            $e = $exp[strtoupper($c)] ?? 0;
+            $cnt = $d['counted_' . $c] ?? 0;
+            if ($e != 0 || $cnt != 0) {
+                $diff = $cnt - $e;
+                $ds = $diff == 0 ? '' : ($diff > 0 ? " (+{$diff})" : " ({$diff})");
+                $lines[] = strtoupper($c) . ": ожид. " . number_format($e, 0) . " / факт " . number_format($cnt, 0) . $ds;
+            }
+        }
+        $this->send($chatId, "Итог:\n\n" . implode("\n", $lines), ['inline_keyboard' => [[
+            ['text' => 'Закрыть смену', 'callback_data' => 'confirm_close'],
+            ['text' => 'Отмена', 'callback_data' => 'cancel'],
+        ]]], 'inline');
         return response('OK');
     }
 
