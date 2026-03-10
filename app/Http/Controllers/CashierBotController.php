@@ -321,10 +321,13 @@ class CashierBotController extends Controller
                 'created_by' => $s->user_id, 'occurred_at' => now(),
             ]);
             if ($d['needs_approval'] ?? false) {
-                $u = User::find($s->user_id);
-                $this->ownerAlert->sendMessage("Расход на одобрение\n\nСотрудник: " . ($u->name ?? '?')
-                    . "\nКатегория: {$d['cat_name']}\nСумма: " . number_format($d['amount'], 0)
-                    . " {$d['currency']}\nОписание: {$d['desc']}");
+                $expense = CashExpense::where('cashier_shift_id', $shift->id)
+                    ->where('amount', $d['amount'])
+                    ->where('description', $d['desc'])
+                    ->latest()->first();
+                if ($expense) {
+                    app(\App\Http\Controllers\OwnerBotController::class)->sendApprovalRequest($expense);
+                }
             }
             $this->send($chatId, "Расход записан!\nБаланс: " . $this->fmtBal($this->getBal($shift)));
         } catch (\Exception $e) {
