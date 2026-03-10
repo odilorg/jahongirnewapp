@@ -123,6 +123,14 @@ class Beds24WebhookController extends Controller
         } else {
             $this->alertService->alertCancellation($booking, $change);
         }
+
+        // If booking arrives already paid (rare - e.g. prepaid via OTA)
+        $balance = (float) ($data["invoice_balance"] ?? 0);
+        $total   = (float) ($data["total_amount"] ?? 0);
+        if ($total > 0 && $balance <= 0 && !$booking->isCancelled()) {
+            $this->createPaymentTransaction($booking, $total, "New booking arrived pre-paid");
+            $this->alertService->alertPaymentReceived($booking, $change, $total, $total, 0);
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -274,7 +282,6 @@ class Beds24WebhookController extends Controller
     {
         $oldBalance = (float) ($oldData['invoice_balance'] ?? 0);
         $newBalance = (float) ($booking->invoice_balance ?? 0);
-        $totalAmount = (float) ($booking->total_amount ?? 0);
 
         // Only create transaction if balance actually decreased (payment received)
         if ($oldBalance <= 0 || $newBalance >= $oldBalance) {
@@ -287,28 +294,35 @@ class Beds24WebhookController extends Controller
         }
 
         $paymentAmount = $oldBalance - $newBalance;
-        $currency = $booking->currency ?? 'USD';
+        $note = "Balance: {$oldBalance} -> {$newBalance} " . ($booking->currency ?? 'USD');
+        $this->createPaymentTransaction($booking, $paymentAmount, $note);
 
-        // Create CashTransaction (without requiring an active shift)
+        $this->alertService->alertPaymentReceived(
+            $booking, $change, $paymentAmount, $oldBalance, $newBalance
+        );
+    }
+
+    private function createPaymentTransaction(Beds24Booking $booking, float $amount, string $note = ''): void
+    {
+        $currency = $booking->currency ?? 'USD';
         try {
-            $transaction = CashTransaction::create([
+            $tx = CashTransaction::create([
                 'type'              => 'in',
-                'amount'            => $paymentAmount,
+                'amount'            => $amount,
                 'currency'          => $currency,
                 'category'          => 'room_payment',
                 'beds24_booking_id' => $booking->beds24_booking_id,
                 'guest_name'        => $booking->guest_name,
                 'room_number'       => $booking->room_name,
                 'reference'         => "Beds24 #{$booking->beds24_booking_id}",
-                'notes'             => "Auto-sync from Beds24. Balance: {$oldBalance} → {$newBalance} {$currency}",
+                'notes'             => "Auto-sync: {$note}",
                 'occurred_at'       => now(),
             ]);
-
             Log::info('Beds24 Payment: CashTransaction created', [
-                'booking_id'     => $booking->beds24_booking_id,
-                'transaction_id' => $transaction->id,
-                'amount'         => $paymentAmount,
-                'currency'       => $currency,
+                'booking_id' => $booking->beds24_booking_id,
+                'tx_id'      => $tx->id,
+                'amount'     => $amount,
+                'currency'   => $currency,
             ]);
         } catch (\Throwable $e) {
             Log::error('Beds24 Payment: Failed to create CashTransaction', [
@@ -316,11 +330,6 @@ class Beds24WebhookController extends Controller
                 'error'      => $e->getMessage(),
             ]);
         }
-
-        // Alert owner about payment
-        $this->alertService->alertPaymentReceived(
-            $booking, $change, $paymentAmount, $oldBalance, $newBalance
-        );
     }
 
     // -------------------------------------------------------------------------
