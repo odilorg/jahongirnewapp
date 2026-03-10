@@ -32,5 +32,17 @@ class Kernel extends ConsoleKernel
             ->onFailure(function () {
                 \Illuminate\Support\Facades\Log::error('beds24:daily-report failed to run');
             });
+
+        // Daily cash flow report at 23:00 Tashkent (18:00 UTC)
+        $schedule->command('cash:daily-report')
+            ->dailyAt('18:00')
+            ->timezone('UTC')
+            ->withoutOverlapping();
+
+        // Monthly cash report on 1st of each month at 09:00 Tashkent (04:00 UTC)
+        $schedule->command('cash:monthly-report')
+            ->monthlyOn(1, '04:00')
+            ->timezone('UTC')
+            ->withoutOverlapping();
     }
 }
