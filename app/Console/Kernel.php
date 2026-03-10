@@ -21,7 +21,40 @@ class Kernel extends ConsoleKernel
      */
     protected function schedule(Schedule $schedule): void
     {
-        // Run our command every minute
+        // Existing: run scheduled messages every minute
         $schedule->command('app:send-scheduled-messages')->everyMinute();
+
+        // Daily owner report at 22:00 Tashkent time (Asia/Tashkent = UTC+5, so 17:00 UTC)
+        $schedule->command('beds24:daily-report')
+            ->dailyAt('17:00') // 22:00 Asia/Tashkent = 17:00 UTC
+            ->timezone('UTC')
+            ->withoutOverlapping()
+            ->onFailure(function () {
+                \Illuminate\Support\Facades\Log::error('beds24:daily-report failed to run');
+            });
+
+        // Daily cash flow report at 23:00 Tashkent (18:00 UTC)
+        $schedule->command('cash:daily-report')
+            ->dailyAt('18:00')
+            ->timezone('UTC')
+            ->withoutOverlapping();
+
+        // Daily reconciliation at 21:00 Tashkent (16:00 UTC) - check today's departures
+        $schedule->command('cash:reconcile')
+            ->dailyAt('16:00')
+            ->timezone('UTC')
+            ->withoutOverlapping();
+
+        // Weekly full reconciliation (last 7 days) on Sundays at 10:00 Tashkent (05:00 UTC)
+        $schedule->command('cash:reconcile --period=7d')
+            ->weeklyOn(0, '05:00')
+            ->timezone('UTC')
+            ->withoutOverlapping();
+
+        // Monthly cash report on 1st of each month at 09:00 Tashkent (04:00 UTC)
+        $schedule->command('cash:monthly-report')
+            ->monthlyOn(1, '04:00')
+            ->timezone('UTC')
+            ->withoutOverlapping();
     }
 }

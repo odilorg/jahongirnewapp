@@ -45,6 +45,10 @@ class CashTransaction extends Model
         'reference',
         'notes',
         'created_by',
+        'beds24_booking_id',
+        'payment_method',
+        'guest_name',
+        'room_number',
         'occurred_at',
     ];
 

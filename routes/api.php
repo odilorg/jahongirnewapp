@@ -70,3 +70,16 @@ Route::middleware('auth:sanctum')->prefix('voice-agent')->group(function () {
     Route::post('/create-booking', [VoiceAgentController::class, 'createBooking']);
     Route::get('/guest/{phone}', [VoiceAgentController::class, 'getGuestByPhone']);
 });
+
+// Beds24 Webhook — receives booking notifications from Beds24
+// No auth middleware: Beds24 calls this without credentials.
+// URL configured in Beds24: https://jahongir-app.uz/api/beds24/webhook
+Route::post('/beds24/webhook', [\App\Http\Controllers\Beds24WebhookController::class, 'handle'])
+    ->name('beds24.webhook');
+
+// Phase 2: Cashier Bot (admin payment/expense logging)
+Route::post('/telegram/cashier/webhook', [\App\Http\Controllers\CashierBotController::class, 'handleWebhook'])
+    ->name('telegram.cashier.webhook');
+
+Route::post("/telegram/owner/webhook", [\App\Http\Controllers\OwnerBotController::class, "handleWebhook"])
+    ->name("telegram.owner.webhook");
