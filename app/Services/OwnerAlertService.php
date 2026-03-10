@@ -481,4 +481,69 @@ class OwnerAlertService
             default => $method ?: 'Не указан',
         };
     }
+
+    // -------------------------------------------------------------------------
+    // Reconciliation Alerts
+    // -------------------------------------------------------------------------
+
+    public function sendReconciliationAlert(array $results, string $date): void
+    {
+        $lines = [
+            "ð´ <b>СВЕРКА ПЛАТЕЖЕЙ — {$date}</b>",
+            "",
+            "â ï¸ <b>Обнаружены расхождения!</b>",
+            "",
+        ];
+
+        foreach ($results['flagged'] as $flag) {
+            $emoji = $flag['status'] === 'no_payment' ? 'ð«' : 'â ï¸';
+            $statusLabel = match($flag['status']) {
+                'underpaid'  => 'Недоплата',
+                'no_payment' => 'НЕТ ОПЛАТЫ',
+                'overpaid'   => 'Переплата',
+                default      => $flag['status'],
+            };
+
+            $lines[] = "{$emoji} <b>Бронь #{$flag['booking_id']}</b>";
+            $lines[] = "  ð¨ {$flag['property']}";
+            if (!empty($flag['room'])) $lines[] = "  ðï¸ Комната: {$flag['room']}";
+            if (!empty($flag['guest'])) $lines[] = "  ð¤ {$flag['guest']}";
+            if (!empty($flag['dates'])) $lines[] = "  ð {$flag['dates']}";
+            $lines[] = "  ð° Ожидалось: {$flag['expected']} {$flag['currency']}";
+            $lines[] = "  ð³ Получено: {$flag['reported']} {$flag['currency']}";
+            $lines[] = "  â <b>{$statusLabel}: {$flag['discrepancy']} {$flag['currency']}</b>";
+            $lines[] = "";
+        }
+
+        $lines[] = "ââââââââââââââââââ";
+        $lines[] = "ð <b>Итого:</b> {$results['total']} бронирований";
+        $lines[] = "  â Совпадает: {$results['matched']}";
+        $lines[] = "  â ï¸ Недоплата: {$results['underpaid']}";
+        $lines[] = "  ð« Нет оплаты: {$results['no_payment']}";
+        $lines[] = "";
+        $lines[] = "â° " . now('Asia/Tashkent')->format('d.m.Y H:i');
+
+        $this->send(implode("
+", $lines));
+    }
+
+    public function sendReconciliationSummary(array $results, string $date): void
+    {
+        $text = implode("
+", [
+            "â <b>Сверка платежей — {$date}</b>",
+            "",
+            "ð Проверено: {$results['total']} бронирований",
+            "  â Совпадает: {$results['matched']}",
+            "  â ï¸ Недоплата: {$results['underpaid']}",
+            "  ð« Нет оплаты: {$results['no_payment']}",
+            "",
+            "Расхождений не обнаружено â",
+            "",
+            "â° " . now('Asia/Tashkent')->format('d.m.Y H:i'),
+        ]);
+
+        $this->send($text);
+    }
+
 }
