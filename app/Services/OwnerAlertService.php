@@ -489,14 +489,14 @@ class OwnerAlertService
     public function sendReconciliationAlert(array $results, string $date): void
     {
         $lines = [
-            "🔴 <b>СВЕРКА ПЛАТЕЖЕЙ — {$date}</b>",
+            "\xF0\x9F\x94\xB4 <b>СВЕРКА ПЛАТЕЖЕЙ — {$date}</b>",
             "",
-            "⚠️ <b>Обнаружены расхождения!</b>",
+            "\xE2\x9A\xA0\xEF\xB8\x8F <b>Обнаружены расхождения!</b>",
             "",
         ];
 
         foreach ($results['flagged'] as $flag) {
-            $emoji = $flag['status'] === 'no_payment' ? "🚫" : "⚠️";
+            $emoji = $flag['status'] === 'no_payment' ? "\xF0\x9F\x9A\xAB" : "\xE2\x9A\xA0\xEF\xB8\x8F";
             $statusLabel = match($flag['status']) {
                 'underpaid'  => 'Недоплата',
                 'no_payment' => 'НЕТ ОПЛАТЫ',
@@ -505,23 +505,23 @@ class OwnerAlertService
             };
 
             $lines[] = "{$emoji} <b>Бронь #{$flag['booking_id']}</b>";
-            $lines[] = "  🏨 {$flag['property']}";
-            if (!empty($flag['room']) && $flag['room'] !== '—') $lines[] = "  🛏️ Комната: {$flag['room']}";
-            if (!empty($flag['guest']) && $flag['guest'] !== 'Не указан') $lines[] = "  👤 {$flag['guest']}";
-            if (!empty($flag['dates'])) $lines[] = "  📅 {$flag['dates']}";
-            $lines[] = "  💰 Ожидалось: {$flag['expected']} {$flag['currency']}";
-            $lines[] = "  💳 Получено: {$flag['reported']} {$flag['currency']}";
-            $lines[] = "  ❌ <b>{$statusLabel}: {$flag['discrepancy']} {$flag['currency']}</b>";
+            $lines[] = "  \xF0\x9F\x8F\xA8 {$flag['property']}";
+            if (!empty($flag['room']) && $flag['room'] !== '—') $lines[] = "  \xF0\x9F\x9B\x8F\xEF\xB8\x8F Комната: {$flag['room']}";
+            if (!empty($flag['guest']) && $flag['guest'] !== 'Не указан') $lines[] = "  \xF0\x9F\x91\xA4 {$flag['guest']}";
+            if (!empty($flag['dates'])) $lines[] = "  \xF0\x9F\x93\x85 {$flag['dates']}";
+            $lines[] = "  \xF0\x9F\x92\xB0 Ожидалось: {$flag['expected']} {$flag['currency']}";
+            $lines[] = "  \xF0\x9F\x92\xB3 Получено: {$flag['reported']} {$flag['currency']}";
+            $lines[] = "  \xE2\x9D\x8C <b>{$statusLabel}: {$flag['discrepancy']} {$flag['currency']}</b>";
             $lines[] = "";
         }
 
-        $lines[] = "━━━━━━━━━━━━━━━━━━";
-        $lines[] = "📊 <b>Итого:</b> {$results['total']} бронирований";
-        $lines[] = "  ✅ Совпадает: {$results['matched']}";
-        $lines[] = "  ⚠️ Недоплата: {$results['underpaid']}";
-        $lines[] = "  🚫 Нет оплаты: {$results['no_payment']}";
+        $lines[] = "\xE2\x94\x80\xE2\x94\x80\xE2\x94\x80\xE2\x94\x80\xE2\x94\x80\xE2\x94\x80\xE2\x94\x80\xE2\x94\x80\xE2\x94\x80\xE2\x94\x80\xE2\x94\x80\xE2\x94\x80\xE2\x94\x80\xE2\x94\x80\xE2\x94\x80\xE2\x94\x80\xE2\x94\x80\xE2\x94\x80";
+        $lines[] = "\xF0\x9F\x93\x8A <b>Итого:</b> {$results['total']} бронирований";
+        $lines[] = "  \xE2\x9C\x85 Совпадает: {$results['matched']}";
+        $lines[] = "  \xE2\x9A\xA0\xEF\xB8\x8F Недоплата: {$results['underpaid']}";
+        $lines[] = "  \xF0\x9F\x9A\xAB Нет оплаты: {$results['no_payment']}";
         $lines[] = "";
-        $lines[] = "⏰ " . now('Asia/Tashkent')->format('d.m.Y H:i');
+        $lines[] = "\xE2\x8F\xB0 " . now('Asia/Tashkent')->format('d.m.Y H:i');
 
         $this->send(implode("\n", $lines));
     }
@@ -529,18 +529,26 @@ class OwnerAlertService
     public function sendReconciliationSummary(array $results, string $date): void
     {
         $text = implode("\n", [
-            "✅ <b>Сверка платежей — {$date}</b>",
+            "\xE2\x9C\x85 <b>Сверка платежей — {$date}</b>",
             "",
-            "📊 Проверено: {$results['total']} бронирований",
-            "  ✅ Совпадает: {$results['matched']}",
-            "  ⚠️ Недоплата: {$results['underpaid']}",
-            "  🚫 Нет оплаты: {$results['no_payment']}",
+            "\xF0\x9F\x93\x8A Проверено: {$results['total']} бронирований",
+            "  \xE2\x9C\x85 Совпадает: {$results['matched']}",
+            "  \xE2\x9A\xA0\xEF\xB8\x8F Недоплата: {$results['underpaid']}",
+            "  \xF0\x9F\x9A\xAB Нет оплаты: {$results['no_payment']}",
             "",
-            "Расхождений не обнаружено ✅",
+            "Расхождений не обнаружено \xE2\x9C\x85",
             "",
-            "⏰ " . now('Asia/Tashkent')->format('d.m.Y H:i'),
+            "\xE2\x8F\xB0 " . now('Asia/Tashkent')->format('d.m.Y H:i'),
         ]);
 
         $this->send($text);
+    }
+
+    /**
+     * Send shift close report to owner (with HTML formatting)
+     */
+    public function sendShiftCloseReport(string $htmlMessage): void
+    {
+        $this->send($htmlMessage);
     }
 }

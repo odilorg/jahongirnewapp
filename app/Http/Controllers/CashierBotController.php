@@ -437,13 +437,53 @@ class CashierBotController extends Controller
                     if ($diff != 0) $msg .= " (" . ($diff > 0 ? '+' : '') . number_format($diff, 0) . ")";
                 }
             }
-            if ($ho->hasDiscrepancy()) $msg .= "\n\nРАЗНИЦА В КАССЕ!";
-            $this->ownerAlert->sendMessage($msg);
+            // Build owner notification
+            $discrepancies = [];
+            foreach (['UZS', 'USD', 'EUR'] as $cur) {
+                $exp = $d['expected'][$cur] ?? 0;
+                $cnt = $d['counted_' . strtolower($cur)] ?? 0;
+                $diff = $cnt - $exp;
+                if ($exp > 0 || $cnt > 0) {
+                    $discrepancies[$cur] = ['expected' => $exp, 'counted' => $cnt, 'diff' => $diff];
+                }
+            }
+
+            $hasDisc = $ho->hasDiscrepancy();
+            $maxDiffPct = 0;
+            foreach ($discrepancies as $cur => $vals) {
+                if ($vals['expected'] > 0) {
+                    $pct = abs($vals['diff'] / $vals['expected']) * 100;
+                    $maxDiffPct = max($maxDiffPct, $pct);
+                }
+            }
+
+            // Severity: 🟢 <1%, 🟡 1-5%, 🔴 >5%
+            $severity = $maxDiffPct < 1 ? '🟢' : ($maxDiffPct < 5 ? '🟡' : '🔴');
+            $severityLabel = $maxDiffPct < 1 ? 'Без расхождений' : ($maxDiffPct < 5 ? 'Небольшое расхождение' : 'КРУПНОЕ РАСХОЖДЕНИЕ');
+
+            $ownerMsg = "{$severity} <b>Смена закрыта</b>\n\n"
+                . "👤 Сотрудник: " . ($user->name ?? '?') . "\n"
+                . "⏰ " . $shift->opened_at->timezone('Asia/Tashkent')->format('H:i') . '–' . now('Asia/Tashkent')->format('H:i') . "\n"
+                . "📊 Операций: {$txn}\n\n";
+
+            foreach ($discrepancies as $cur => $vals) {
+                $diffSign = $vals['diff'] >= 0 ? '+' : '';
+                $diffStr = $vals['diff'] != 0 ? " (<b>{$diffSign}" . number_format($vals['diff'], 0) . "</b>)" : '';
+                $ownerMsg .= "<b>{$cur}:</b> " . number_format($vals['expected'], 0) . " → " . number_format($vals['counted'], 0) . $diffStr . "\n";
+            }
+
+            if ($hasDisc) {
+                $ownerMsg .= "\n⚠️ <b>{$severityLabel}</b> (" . round($maxDiffPct, 1) . "%)";
+            } else {
+                $ownerMsg .= "\n✅ {$severityLabel}";
+            }
+
+            $this->ownerAlert->sendShiftCloseReport($ownerMsg);
 
             if (!empty($d['photo_id'])) {
-                $oid = config('services.owner_alert_bot.chat_id', '38738713');
+                $oid = config('services.owner_alert_bot.owner_chat_id', env('OWNER_TELEGRAM_ID', '38738713'));
                 Http::post("https://api.telegram.org/bot{$this->botToken}/sendPhoto", [
-                    'chat_id' => $oid, 'photo' => $d['photo_id'], 'caption' => 'Фото кассы',
+                    'chat_id' => $oid, 'photo' => $d['photo_id'], 'caption' => '📸 Фото кассы при закрытии смены',
                 ]);
             }
             $this->send($chatId, "Смена закрыта!");
