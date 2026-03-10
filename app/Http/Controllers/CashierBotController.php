@@ -399,8 +399,8 @@ class CashierBotController extends Controller
             $e = $exp[strtoupper($c)] ?? 0;
             $cnt = $d['counted_' . $c] ?? 0;
             if ($e != 0 || $cnt != 0) {
-                $diff = $cnt - $e;
-                $ds = $diff == 0 ? '' : ($diff > 0 ? " (+{$diff})" : " ({$diff})");
+                $diff = round($cnt - $e, 2);
+                $ds = abs($diff) < 0.01 ? '' : ($diff > 0 ? " (+" . number_format($diff, 0) . ")" : " (" . number_format($diff, 0) . ")");
                 $lines[] = strtoupper($c) . ": ожид. " . number_format($e, 0) . " / факт " . number_format($cnt, 0) . $ds;
             }
         }
@@ -422,7 +422,7 @@ class CashierBotController extends Controller
         foreach (['uzs', 'usd', 'eur'] as $c) {
             $e = $exp[strtoupper($c)] ?? 0;
             $cnt = $d['counted_' . $c] ?? 0;
-            $diff = $cnt - $e;
+            $diff = round($cnt - $e, 2);
             $ds = $diff == 0 ? '' : ($diff > 0 ? " (+{$diff})" : " ({$diff})");
             $lines[] = strtoupper($c) . ": ожид. " . number_format($e, 0) . " / факт " . number_format($cnt, 0) . $ds;
         }
@@ -456,7 +456,7 @@ class CashierBotController extends Controller
                 $e = $d['expected'][$c] ?? 0;
                 $cnt = $d['counted_' . strtolower($c)] ?? 0;
                 if ($e > 0 || $cnt > 0) {
-                    $diff = $cnt - $e;
+                    $diff = round($cnt - $e, 2);
                     $msg .= "\n{$c}: " . number_format($e, 0) . " -> " . number_format($cnt, 0);
                     if ($diff != 0) $msg .= " (" . ($diff > 0 ? '+' : '') . number_format($diff, 0) . ")";
                 }
@@ -466,7 +466,7 @@ class CashierBotController extends Controller
             foreach (['UZS', 'USD', 'EUR'] as $cur) {
                 $exp = $d['expected'][$cur] ?? 0;
                 $cnt = $d['counted_' . strtolower($cur)] ?? 0;
-                $diff = $cnt - $exp;
+                $diff = round($cnt - $exp, 2);
                 if ($exp > 0 || $cnt > 0) {
                     $discrepancies[$cur] = ['expected' => $exp, 'counted' => $cnt, 'diff' => $diff];
                 }
