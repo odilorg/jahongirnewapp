@@ -29,5 +29,5 @@ class CashExpense extends Model
     public function creator() { return $this->belongsTo(User::class, 'created_by'); }
     public function approver() { return $this->belongsTo(User::class, 'approved_by'); }
 
-    public function isPending(): bool { return !\->approved_at && !\->rejected_at && \->requires_approval; }
+    public function isPending(): bool { return !$this->approved_at && !$this->rejected_at && $this->requires_approval; }
 }

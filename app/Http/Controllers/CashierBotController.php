@@ -455,7 +455,7 @@ class CashierBotController extends Controller
     {
         $b = ['UZS' => 0, 'USD' => 0, 'EUR' => 0];
         foreach (CashTransaction::where('cashier_shift_id', $shift->id)->get() as $tx) {
-            $c = $tx->currency ?? 'UZS';
+            $c = is_string($tx->currency) ? $tx->currency : ($tx->currency->value ?? 'UZS');
             if (!isset($b[$c])) $b[$c] = 0;
             $b[$c] += ($tx->type->value === 'in' || $tx->type === 'in' ? $tx->amount : -$tx->amount);
         }
