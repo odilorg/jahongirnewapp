@@ -230,7 +230,7 @@ class CashierBotController extends Controller
         try {
             CashTransaction::create([
                 'cashier_shift_id' => $shift->id, 'type' => 'in', 'amount' => $d['amount'],
-                'currency' => $d['currency'], 'category' => 'room_payment',
+                'currency' => $d['currency'], 'category' => 'sale',
                 'beds24_booking_id' => $d['booking_id'] ?? null, 'payment_method' => $d['method'],
                 'guest_name' => $d['guest_name'], 'room_number' => $d['room'],
                 'reference' => $d['booking_id'] ? "Beds24 #{$d['booking_id']}" : "Комната {$d['room']}",
