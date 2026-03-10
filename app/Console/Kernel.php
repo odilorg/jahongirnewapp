@@ -21,7 +21,16 @@ class Kernel extends ConsoleKernel
      */
     protected function schedule(Schedule $schedule): void
     {
-        // Run our command every minute
+        // Existing: run scheduled messages every minute
         $schedule->command('app:send-scheduled-messages')->everyMinute();
+
+        // Daily owner report at 22:00 Tashkent time (Asia/Tashkent = UTC+5, so 17:00 UTC)
+        $schedule->command('beds24:daily-report')
+            ->dailyAt('17:00') // 22:00 Asia/Tashkent = 17:00 UTC
+            ->timezone('UTC')
+            ->withoutOverlapping()
+            ->onFailure(function () {
+                \Illuminate\Support\Facades\Log::error('beds24:daily-report failed to run');
+            });
     }
 }
