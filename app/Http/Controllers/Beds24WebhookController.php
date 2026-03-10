@@ -6,6 +6,7 @@ use App\Models\Beds24Booking;
 use App\Models\Beds24BookingChange;
 use App\Models\CashTransaction;
 use App\Models\CashierShift;
+use App\Services\Beds24BookingService;
 use App\Services\OwnerAlertService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -284,7 +285,6 @@ class Beds24WebhookController extends Controller
         $newBalance = (float) ($booking->invoice_balance ?? 0);
 
         // Only create transaction if balance decreased (payment received)
-        // Handles: normal payment (100->0), partial (100->50), overpayment (0->-10)
         if ($newBalance >= $oldBalance) {
             Log::info('Beds24 Payment: No balance decrease detected', [
                 'booking_id' => $booking->beds24_booking_id,
@@ -294,18 +294,113 @@ class Beds24WebhookController extends Controller
             return;
         }
 
-        $paymentAmount = $oldBalance - $newBalance;
-        $note = "Balance: {$oldBalance} -> {$newBalance} " . ($booking->currency ?? 'USD');
-        $this->createPaymentTransaction($booking, $paymentAmount, $note);
+        // Fetch payment line details from Beds24 API
+        $paymentLines = $this->fetchNewPaymentLines($booking->beds24_booking_id);
 
-        $this->alertService->alertPaymentReceived(
-            $booking, $change, $paymentAmount, $oldBalance, $newBalance
-        );
+        if (!empty($paymentLines)) {
+            // Create a CashTransaction for each new payment line
+            foreach ($paymentLines as $line) {
+                $method = $line['status'] ?? '';
+                $desc = $line['description'] ?? '';
+                $amount = (float) ($line['amount'] ?? 0);
+                $note = $desc . ($method ? " ({$method})" : '');
+                $this->createPaymentTransaction($booking, $amount, $note, $method, $desc);
+            }
+            $this->alertService->alertPaymentWithDetails($booking, $change, $paymentLines, $oldBalance, $newBalance);
+        } else {
+            // Fallback: no line details available
+            $paymentAmount = $oldBalance - $newBalance;
+            $this->createPaymentTransaction($booking, $paymentAmount, "Balance: {$oldBalance} -> {$newBalance}");
+            $this->alertService->alertPaymentReceived($booking, $change, $paymentAmount, $oldBalance, $newBalance);
+        }
     }
 
-    private function createPaymentTransaction(Beds24Booking $booking, float $amount, string $note = ''): void
+    /**
+     * Fetch new payment lines from Beds24 API that we haven't recorded yet
+     */
+    private function fetchNewPaymentLines(string $bookingId): array
+    {
+        try {
+            $svc = app(Beds24BookingService::class);
+        } catch (\Throwable $e) {
+            Log::warning('Beds24 Payment: Could not init Beds24BookingService', ['error' => $e->getMessage()]);
+            return [];
+        }
+
+        try {
+            $resp = \Illuminate\Support\Facades\Http::withHeaders([
+                'token' => $this->getBeds24Token(),
+                'accept' => 'application/json',
+            ])->timeout(15)->get('https://api.beds24.com/v2/bookings', [
+                'id' => $bookingId,
+                'includeInvoiceItems' => 'true',
+            ]);
+
+            $data = $resp->json();
+            $items = $data['data'][0]['invoiceItems'] ?? [];
+
+            // Filter only payment lines (type=payment)
+            $payments = array_filter($items, fn($i) => ($i['type'] ?? '') === 'payment');
+
+            // Get IDs of already-recorded payments to avoid duplicates
+            $existingRefs = CashTransaction::where('beds24_booking_id', $bookingId)
+                ->whereNotNull('reference')
+                ->pluck('reference')
+                ->toArray();
+
+            // Return only new payment lines
+            $newPayments = [];
+            foreach ($payments as $p) {
+                $ref = "Beds24 #{$bookingId} item#{$p['id']}";
+                if (!in_array($ref, $existingRefs)) {
+                    $p['_ref'] = $ref;
+                    $newPayments[] = $p;
+                }
+            }
+
+            Log::info('Beds24 Payment: Fetched invoice items', [
+                'booking_id' => $bookingId,
+                'total_items' => count($items),
+                'payment_items' => count($payments),
+                'new_items' => count($newPayments),
+            ]);
+
+            return $newPayments;
+        } catch (\Throwable $e) {
+            Log::warning('Beds24 Payment: Failed to fetch invoice items', [
+                'booking_id' => $bookingId,
+                'error' => $e->getMessage(),
+            ]);
+            return [];
+        }
+    }
+
+    /**
+     * Get a valid Beds24 API token
+     */
+    private function getBeds24Token(): string
+    {
+        $cached = cache('beds24_access_token');
+        if ($cached) return $cached;
+
+        $refreshToken = config('services.beds24.api_v2_refresh_token') ?: env('BEDS24_API_V2_REFRESH_TOKEN');
+        $resp = \Illuminate\Support\Facades\Http::withHeaders([
+            'refreshToken' => $refreshToken,
+            'accept' => 'application/json',
+        ])->get('https://beds24.com/api/v2/authentication/token');
+
+        $token = $resp->json()['token'] ?? '';
+        $expiresIn = $resp->json()['expiresIn'] ?? 86400;
+        if ($token) {
+            cache(['beds24_access_token' => $token], now()->addSeconds($expiresIn - 300));
+        }
+        return $token;
+    }
+
+    private function createPaymentTransaction(Beds24Booking $booking, float $amount, string $note = '', string $method = '', string $description = ''): void
     {
         $currency = $booking->currency ?? 'USD';
+        $ref = $note && str_contains($note, 'item#') ? $note : "Beds24 #{$booking->beds24_booking_id}";
         try {
             $tx = CashTransaction::create([
                 'type'              => 'in',
@@ -313,10 +408,11 @@ class Beds24WebhookController extends Controller
                 'currency'          => $currency,
                 'category'          => 'room_payment',
                 'beds24_booking_id' => $booking->beds24_booking_id,
+                'payment_method'    => $method ?: null,
                 'guest_name'        => $booking->guest_name,
                 'room_number'       => $booking->room_name,
-                'reference'         => "Beds24 #{$booking->beds24_booking_id}",
-                'notes'             => "Auto-sync: {$note}",
+                'reference'         => $ref,
+                'notes'             => "Auto-sync: " . ($description ?: $note),
                 'occurred_at'       => now(),
             ]);
             Log::info('Beds24 Payment: CashTransaction created', [
