@@ -401,7 +401,13 @@ class Beds24WebhookController extends Controller
                 }
             }
 
+            // Link to active cashier shift (latest open shift)
+            $activeShift = CashierShift::where('status', 'open')
+                ->latest('opened_at')
+                ->first();
+
             CashTransaction::create([
+                'cashier_shift_id' => $activeShift?->id,
                 'type' => TransactionType::IN,
                 'amount' => $amount,
                 'currency' => 'USD',
