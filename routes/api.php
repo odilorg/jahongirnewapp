@@ -76,3 +76,7 @@ Route::middleware('auth:sanctum')->prefix('voice-agent')->group(function () {
 // URL configured in Beds24: https://jahongir-app.uz/api/beds24/webhook
 Route::post('/beds24/webhook', [\App\Http\Controllers\Beds24WebhookController::class, 'handle'])
     ->name('beds24.webhook');
+
+// Phase 2: Cashier Bot (admin payment/expense logging)
+Route::post('/telegram/cashier/webhook', [\App\Http\Controllers\CashierBotController::class, 'handleWebhook'])
+    ->name('telegram.cashier.webhook');
