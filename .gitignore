@@ -17,3 +17,6 @@ yarn-error.log
 /.fleet
 /.idea
 /.vscode
+storage/debugbar/
+storage/fonts/
+.env.backup*

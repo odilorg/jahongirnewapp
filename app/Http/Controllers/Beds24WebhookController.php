@@ -270,7 +270,7 @@ class Beds24WebhookController extends Controller
     private function parsePayload(array $raw): ?array
     {
         // V2 JSON — top-level keys are camelCase
-        if (isset($raw['bookId']) || isset($raw['propId'])) {
+        if (isset($raw['bookId']) || isset($raw['propId']) || isset($raw['propertyId'])) {
             return $this->parseV2($raw);
         }
 
@@ -305,12 +305,18 @@ class Beds24WebhookController extends Controller
     {
         $guestFirst = $raw['guestFirstName'] ?? $raw['firstName'] ?? '';
         $guestLast  = $raw['guestLastName']  ?? $raw['lastName']  ?? '';
+        $fullName   = $raw['guestFullName'] ?? $raw['fullname'] ?? null;
+        if ($fullName && empty($guestFirst) && empty($guestLast)) {
+            $parts = explode(' ', $fullName, 2);
+            $guestFirst = $parts[0] ?? '';
+            $guestLast  = $parts[1] ?? '';
+        }
 
         return [
             'booking_id'     => (string) ($raw['bookId'] ?? $raw['id'] ?? ''),
             'property_id'    => (string) ($raw['propId'] ?? $raw['propertyId'] ?? ''),
             'room_id'        => (string) ($raw['roomId'] ?? ''),
-            'room_name'      => $raw['roomName'] ?? $raw['room'] ?? null,
+            'room_name'      => $raw['roomName'] ?? $raw['unitName'] ?? $raw['room'] ?? null,
             'first_name'     => $guestFirst,
             'last_name'      => $guestLast,
             'guest_email'    => $raw['email'] ?? $raw['guestEmail'] ?? null,
