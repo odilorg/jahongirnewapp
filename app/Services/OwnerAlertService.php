@@ -4,6 +4,10 @@ namespace App\Services;
 
 use App\Models\Beds24Booking;
 use App\Models\Beds24BookingChange;
+use App\Models\CashTransaction;
+use App\Models\CashierShift;
+use App\Enums\TransactionType;
+use App\Enums\Currency;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Carbon\Carbon;
@@ -367,6 +371,114 @@ class OwnerAlertService
             'partial' => '⚠️ Частично',
             'pending' => '🕐 Ожидает оплаты',
             default   => $status,
+        };
+    }
+
+    // -------------------------------------------------------------------------
+    // Cash Flow Reports
+    // -------------------------------------------------------------------------
+
+    public function sendDailyCashReport(array $data): void
+    {
+        $date = $data['date'];
+
+        $text = implode("\n", array_filter([
+            "💰 <b>Кассовый отчёт — {$date}</b>",
+            "",
+            "📥 <b>ПРИХОД (Доход):</b>",
+            $this->formatIncomeSection($data['income']),
+            "",
+            "📤 <b>РАСХОД:</b>",
+            $this->formatExpenseSection($data['expenses']),
+            "",
+            "━━━━━━━━━━━━━━━━━━",
+            "📊 <b>ИТОГО за день:</b>",
+            $this->formatBalanceSection($data['balance']),
+            "",
+            $data['shift_info'] ? "👤 <b>Смена:</b> {$data['shift_info']}" : null,
+            "",
+            "⏰ Сформировано: " . now('Asia/Tashkent')->format('d.m.Y H:i'),
+        ]));
+
+        $this->send($text);
+    }
+
+    public function sendMonthlyCashReport(array $data): void
+    {
+        $text = implode("\n", array_filter([
+            "📊 <b>МЕСЯЧНЫЙ ОТЧЁТ — {$data['period']}</b>",
+            "",
+            "📥 <b>ПРИХОД (Доход):</b>",
+            $this->formatIncomeSection($data['income']),
+            "",
+            "📤 <b>РАСХОД:</b>",
+            $this->formatExpenseSection($data['expenses']),
+            "",
+            "━━━━━━━━━━━━━━━━━━",
+            "📊 <b>ИТОГО за месяц:</b>",
+            $this->formatBalanceSection($data['balance']),
+            "",
+            "👥 <b>Смены за месяц:</b> {$data['shifts_count']}",
+            $data['prev_month_comparison'] ? "\n📈 <b>Сравнение с прошлым месяцем:</b>\n{$data['prev_month_comparison']}" : null,
+            "",
+            "⏰ Сформировано: " . now('Asia/Tashkent')->format('d.m.Y H:i'),
+        ]));
+
+        $this->send($text);
+    }
+
+    private function formatIncomeSection(array $income): string
+    {
+        $lines = [];
+        foreach ($income as $currency => $details) {
+            $total = number_format($details['total'], 2);
+            $lines[] = "  <b>{$currency}:</b> {$total}";
+            if (!empty($details['by_method'])) {
+                foreach ($details['by_method'] as $method => $amount) {
+                    $methodLabel = $this->translatePaymentMethod($method);
+                    $lines[] = "    • {$methodLabel}: " . number_format($amount, 2);
+                }
+            }
+        }
+        return $lines ? implode("\n", $lines) : "  — нет";
+    }
+
+    private function formatExpenseSection(array $expenses): string
+    {
+        $lines = [];
+        foreach ($expenses as $currency => $details) {
+            $total = number_format($details['total'], 2);
+            $lines[] = "  <b>{$currency}:</b> {$total}";
+            if (!empty($details['items'])) {
+                foreach ($details['items'] as $item) {
+                    $lines[] = "    • {$item['notes']}: " . number_format($item['amount'], 2);
+                }
+            }
+        }
+        return $lines ? implode("\n", $lines) : "  — нет";
+    }
+
+    private function formatBalanceSection(array $balance): string
+    {
+        $lines = [];
+        foreach ($balance as $currency => $amounts) {
+            $in = number_format($amounts['in'], 2);
+            $out = number_format($amounts['out'], 2);
+            $net = number_format($amounts['net'], 2);
+            $sign = $amounts['net'] >= 0 ? '+' : '';
+            $lines[] = "  <b>{$currency}:</b> +{$in} / -{$out} = {$sign}{$net}";
+        }
+        return $lines ? implode("\n", $lines) : "  — нет данных";
+    }
+
+    private function translatePaymentMethod(string $method): string
+    {
+        return match (strtolower(trim($method))) {
+            'naqd', 'cash', 'наличные' => '💵 Наличные',
+            'plastk', 'card', 'карта'  => '💳 Карта',
+            'perevod', 'transfer', 'перевод' => '🔄 Перевод',
+            'karta' => '💳 Карта',
+            default => $method ?: 'Не указан',
         };
     }
 }
