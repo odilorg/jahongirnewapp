@@ -68,4 +68,10 @@ return [
         'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
     ],
 
+
+    'owner_alert_bot' => [
+        'token'         => env('OWNER_ALERT_BOT_TOKEN', '8404071021:AAF3uET88mdd-PxNsmOnUkdgETA1nJiM5_4'),
+        'owner_chat_id' => env('OWNER_TELEGRAM_ID', '38738713'),
+    ],
+
 ];

@@ -1,0 +1,448 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\Beds24Booking;
+use App\Models\Beds24BookingChange;
+use App\Services\OwnerAlertService;
+use Illuminate\Http\Request;
+use Illuminate\Http\Response;
+use Illuminate\Support\Facades\Log;
+use Carbon\Carbon;
+
+class Beds24WebhookController extends Controller
+{
+    public function __construct(protected OwnerAlertService $alertService)
+    {
+    }
+
+    /**
+     * Handle incoming Beds24 webhook.
+     *
+     * Beds24 sends a POST with booking data whenever a booking is
+     * created, modified, or cancelled. We process it, persist the data,
+     * detect changes and alert the owner via Telegram.
+     *
+     * The response MUST be 200 quickly — heavy work is done synchronously
+     * but wrapped in try/catch so we never return 5xx to Beds24.
+     */
+    public function handle(Request $request): Response
+    {
+        // Return 200 immediately for Beds24 (re-tries on non-200)
+        try {
+            $this->processWebhook($request);
+        } catch (\Throwable $e) {
+            Log::error('Beds24WebhookController: Unhandled exception', [
+                'error'   => $e->getMessage(),
+                'trace'   => $e->getTraceAsString(),
+                'payload' => $request->all(),
+            ]);
+        }
+
+        return response('OK', 200);
+    }
+
+    // -------------------------------------------------------------------------
+    // Core processing
+    // -------------------------------------------------------------------------
+
+    private function processWebhook(Request $request): void
+    {
+        $raw = $request->all();
+
+        Log::info('Beds24 Webhook received', ['payload' => $raw]);
+
+        // Parse the incoming payload into a normalised booking array.
+        // Beds24 can send either V1 (key-value flat) or V2 (JSON) format.
+        $data = $this->parsePayload($raw);
+
+        if (!$data) {
+            Log::warning('Beds24 Webhook: Could not parse payload', ['raw' => $raw]);
+            return;
+        }
+
+        $bookingId = (string) ($data['booking_id'] ?? '');
+        if (!$bookingId) {
+            Log::warning('Beds24 Webhook: No booking ID in payload');
+            return;
+        }
+
+        // Load or create the booking record
+        $existing = Beds24Booking::where('beds24_booking_id', $bookingId)->first();
+
+        if ($existing) {
+            $this->handleUpdate($existing, $data, $raw);
+        } else {
+            $this->handleNew($bookingId, $data, $raw);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // New booking
+    // -------------------------------------------------------------------------
+
+    private function handleNew(string $bookingId, array $data, array $raw): void
+    {
+        $booking = Beds24Booking::create([
+            'beds24_booking_id' => $bookingId,
+            'property_id'       => $data['property_id'] ?? '',
+            'room_id'           => $data['room_id'] ?? null,
+            'room_name'         => $data['room_name'] ?? null,
+            'guest_name'        => $this->buildGuestName($data),
+            'guest_email'       => $data['guest_email'] ?? null,
+            'guest_phone'       => $data['guest_phone'] ?? null,
+            'channel'           => $data['channel'] ?? null,
+            'arrival_date'      => $data['arrival_date'] ?? null,
+            'departure_date'    => $data['departure_date'] ?? null,
+            'num_adults'        => (int) ($data['num_adults'] ?? 1),
+            'num_children'      => (int) ($data['num_children'] ?? 0),
+            'total_amount'      => (float) ($data['total_amount'] ?? 0),
+            'currency'          => $data['currency'] ?? 'USD',
+            'payment_status'    => $this->derivePaymentStatus($data),
+            'booking_status'    => $this->deriveBookingStatus($data),
+            'original_status'   => $data['status'] ?? null,
+            'invoice_balance'   => (float) ($data['invoice_balance'] ?? 0),
+            'beds24_raw_data'   => $raw,
+        ]);
+
+        $change = Beds24BookingChange::create([
+            'beds24_booking_id' => $bookingId,
+            'change_type'       => 'created',
+            'old_data'          => null,
+            'new_data'          => $data,
+            'detected_at'       => now(),
+        ]);
+
+        Log::info('Beds24 Webhook: New booking saved', ['booking_id' => $bookingId]);
+
+        // Alert owner about new booking (only if not cancelled immediately)
+        if (!$booking->isCancelled()) {
+            $this->alertService->alertNewBooking($booking, $change);
+        } else {
+            $this->alertService->alertCancellation($booking, $change);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Updated booking
+    // -------------------------------------------------------------------------
+
+    private function handleUpdate(Beds24Booking $booking, array $data, array $raw): void
+    {
+        $oldData = $booking->toArray();
+        $newStatus = $this->deriveBookingStatus($data);
+        $newAmount = (float) ($data['total_amount'] ?? 0);
+
+        $changedFields = [];
+
+        // Detect significant field changes
+        $watchedFields = [
+            'arrival_date'   => ['label' => 'Дата заезда',  'new' => $data['arrival_date'] ?? null],
+            'departure_date' => ['label' => 'Дата выезда',  'new' => $data['departure_date'] ?? null],
+            'room_name'      => ['label' => 'Комната',      'new' => $data['room_name'] ?? null],
+            'num_adults'     => ['label' => 'Взрослых',     'new' => $data['num_adults'] ?? null],
+            'num_children'   => ['label' => 'Детей',        'new' => $data['num_children'] ?? null],
+        ];
+
+        foreach ($watchedFields as $field => $info) {
+            $oldVal = (string) ($booking->$field ?? '');
+            // Normalise dates for comparison
+            if (in_array($field, ['arrival_date', 'departure_date']) && $booking->$field) {
+                $oldVal = $booking->$field->toDateString();
+            }
+            $newVal = (string) ($info['new'] ?? '');
+            if ($oldVal !== $newVal && $newVal !== '') {
+                $changedFields[$info['label']] = ['old' => $oldVal, 'new' => $newVal];
+            }
+        }
+
+        // Detect amount change
+        $amountReduced = ($newAmount > 0 && $newAmount < (float) $booking->total_amount);
+        $amountChanged = ($newAmount > 0 && abs($newAmount - (float) $booking->total_amount) > 0.01);
+
+        // Update the booking record
+        $updatePayload = [
+            'room_id'         => $data['room_id'] ?? $booking->room_id,
+            'room_name'       => $data['room_name'] ?? $booking->room_name,
+            'guest_name'      => $this->buildGuestName($data) ?: $booking->guest_name,
+            'guest_email'     => $data['guest_email'] ?? $booking->guest_email,
+            'guest_phone'     => $data['guest_phone'] ?? $booking->guest_phone,
+            'channel'         => $data['channel'] ?? $booking->channel,
+            'arrival_date'    => $data['arrival_date'] ?? $booking->arrival_date,
+            'departure_date'  => $data['departure_date'] ?? $booking->departure_date,
+            'num_adults'      => (int) ($data['num_adults'] ?? $booking->num_adults),
+            'num_children'    => (int) ($data['num_children'] ?? $booking->num_children),
+            'booking_status'  => $newStatus,
+            'invoice_balance' => (float) ($data['invoice_balance'] ?? $booking->invoice_balance),
+            'beds24_raw_data' => $raw,
+        ];
+
+        if ($amountChanged) {
+            $updatePayload['total_amount'] = $newAmount;
+            $updatePayload['payment_status'] = $this->derivePaymentStatus($data);
+        }
+
+        // Set cancelled_at timestamp when booking goes to cancelled
+        if ($newStatus === 'cancelled' && !$booking->isCancelled()) {
+            $updatePayload['cancelled_at'] = now();
+        }
+
+        $booking->update($updatePayload);
+        $booking->refresh();
+
+        // Determine the primary change type for this update
+        $changeType = $this->deriveChangeType($booking, $oldData, $newStatus, $amountChanged, $changedFields);
+
+        if ($changeType === null) {
+            // Nothing meaningful changed — still log, but don't alert
+            Log::info('Beds24 Webhook: No meaningful change detected', ['booking_id' => $booking->beds24_booking_id]);
+            return;
+        }
+
+        $change = Beds24BookingChange::create([
+            'beds24_booking_id' => $booking->beds24_booking_id,
+            'change_type'       => $changeType,
+            'old_data'          => $oldData,
+            'new_data'          => $data,
+            'detected_at'       => now(),
+        ]);
+
+        Log::info('Beds24 Webhook: Booking updated', [
+            'booking_id'  => $booking->beds24_booking_id,
+            'change_type' => $changeType,
+        ]);
+
+        // Send appropriate alert
+        $this->dispatchAlert($booking, $change, $changeType, $oldData, $newAmount, $changedFields);
+    }
+
+    // -------------------------------------------------------------------------
+    // Alert dispatching
+    // -------------------------------------------------------------------------
+
+    private function dispatchAlert(
+        Beds24Booking $booking,
+        Beds24BookingChange $change,
+        string $changeType,
+        array $oldData,
+        float $newAmount,
+        array $changedFields
+    ): void {
+        $today = now('Asia/Tashkent')->toDateString();
+
+        switch ($changeType) {
+            case 'cancelled':
+                // Check if cancellation is after check-in
+                $arrivalDate = $booking->arrival_date ? $booking->arrival_date->toDateString() : null;
+                if ($arrivalDate && $arrivalDate <= $today) {
+                    $this->alertService->alertCancelledAfterCheckin($booking, $change);
+                } else {
+                    $this->alertService->alertCancellation($booking, $change);
+                }
+                break;
+
+            case 'amount_changed':
+                $oldAmount = (float) ($oldData['total_amount'] ?? 0);
+                $this->alertService->alertAmountReduced($booking, $change, $oldAmount, $newAmount);
+                break;
+
+            case 'modified':
+                if (!empty($changedFields)) {
+                    $this->alertService->alertModification($booking, $change, $changedFields);
+                }
+                break;
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Payload parsing — handles Beds24 V1 and V2 formats
+    // -------------------------------------------------------------------------
+
+    /**
+     * Normalise the incoming Beds24 webhook payload into a consistent array.
+     *
+     * Beds24 V2 JSON format (used by modern webhooks):
+     *   { "bookId": 123, "propId": 41097, ... }
+     *
+     * Beds24 V1 flat format (legacy / custom headers):
+     *   { "bookid": "123", "propid": "41097", ... }
+     */
+    private function parsePayload(array $raw): ?array
+    {
+        // V2 JSON — top-level keys are camelCase
+        if (isset($raw['bookId']) || isset($raw['propId'])) {
+            return $this->parseV2($raw);
+        }
+
+        // V1 flat format — keys are lowercase
+        if (isset($raw['bookid']) || isset($raw['propid'])) {
+            return $this->parseV1($raw);
+        }
+
+        // Sometimes wrapped in a 'booking' key
+        if (isset($raw['booking']) && is_array($raw['booking'])) {
+            return $this->parsePayload($raw['booking']);
+        }
+
+        // Last resort — try to detect any booking ID key
+        foreach (['id', 'booking_id', 'bookingId', 'bookId', 'bookid'] as $key) {
+            if (!empty($raw[$key])) {
+                // Generic extraction
+                return [
+                    'booking_id'   => (string) $raw[$key],
+                    'property_id'  => (string) ($raw['propertyId'] ?? $raw['propId'] ?? $raw['propid'] ?? $raw['property_id'] ?? ''),
+                    'status'       => $raw['status'] ?? 'confirmed',
+                    'total_amount' => $raw['totalAmount'] ?? $raw['total'] ?? $raw['price'] ?? 0,
+                    'currency'     => $raw['currency'] ?? 'USD',
+                ];
+            }
+        }
+
+        return null;
+    }
+
+    private function parseV2(array $raw): array
+    {
+        $guestFirst = $raw['guestFirstName'] ?? $raw['firstName'] ?? '';
+        $guestLast  = $raw['guestLastName']  ?? $raw['lastName']  ?? '';
+
+        return [
+            'booking_id'     => (string) ($raw['bookId'] ?? $raw['id'] ?? ''),
+            'property_id'    => (string) ($raw['propId'] ?? $raw['propertyId'] ?? ''),
+            'room_id'        => (string) ($raw['roomId'] ?? ''),
+            'room_name'      => $raw['roomName'] ?? $raw['room'] ?? null,
+            'first_name'     => $guestFirst,
+            'last_name'      => $guestLast,
+            'guest_email'    => $raw['email'] ?? $raw['guestEmail'] ?? null,
+            'guest_phone'    => $raw['mobile'] ?? $raw['phone'] ?? $raw['guestPhone'] ?? null,
+            'channel'        => $raw['referer'] ?? $raw['channel'] ?? $raw['source'] ?? null,
+            'arrival_date'   => $this->parseDate($raw['arrival'] ?? $raw['checkIn'] ?? null),
+            'departure_date' => $this->parseDate($raw['departure'] ?? $raw['checkOut'] ?? null),
+            'num_adults'     => (int) ($raw['numAdult'] ?? $raw['adults'] ?? 1),
+            'num_children'   => (int) ($raw['numChild'] ?? $raw['children'] ?? 0),
+            'total_amount'   => (float) ($raw['price'] ?? $raw['totalAmount'] ?? $raw['invoiceTotal'] ?? 0),
+            'currency'       => $raw['currency'] ?? 'USD',
+            'status'         => $raw['status'] ?? 'confirmed',
+            'invoice_balance'=> (float) ($raw['invoiceBalance'] ?? $raw['balance'] ?? 0),
+        ];
+    }
+
+    private function parseV1(array $raw): array
+    {
+        $guestFirst = $raw['firstname'] ?? $raw['guestfirstname'] ?? '';
+        $guestLast  = $raw['lastname']  ?? $raw['guestlastname']  ?? '';
+
+        return [
+            'booking_id'     => (string) ($raw['bookid'] ?? ''),
+            'property_id'    => (string) ($raw['propid'] ?? $raw['propertyid'] ?? ''),
+            'room_id'        => (string) ($raw['roomid'] ?? ''),
+            'room_name'      => $raw['roomname'] ?? $raw['room'] ?? null,
+            'first_name'     => $guestFirst,
+            'last_name'      => $guestLast,
+            'guest_email'    => $raw['email'] ?? null,
+            'guest_phone'    => $raw['mobile'] ?? $raw['phone'] ?? null,
+            'channel'        => $raw['referer'] ?? $raw['channel'] ?? null,
+            'arrival_date'   => $this->parseDate($raw['arrival'] ?? $raw['checkin'] ?? null),
+            'departure_date' => $this->parseDate($raw['departure'] ?? $raw['checkout'] ?? null),
+            'num_adults'     => (int) ($raw['numadult'] ?? $raw['adults'] ?? 1),
+            'num_children'   => (int) ($raw['numchild'] ?? $raw['children'] ?? 0),
+            'total_amount'   => (float) ($raw['price'] ?? $raw['total'] ?? 0),
+            'currency'       => $raw['currency'] ?? 'USD',
+            'status'         => $raw['status'] ?? 'confirmed',
+            'invoice_balance'=> (float) ($raw['balance'] ?? $raw['invoicebalance'] ?? 0),
+        ];
+    }
+
+    // -------------------------------------------------------------------------
+    // Derivation helpers
+    // -------------------------------------------------------------------------
+
+    private function buildGuestName(array $data): string
+    {
+        $first = trim($data['first_name'] ?? '');
+        $last  = trim($data['last_name']  ?? '');
+
+        if ($first && $last) {
+            return "{$first} {$last}";
+        }
+
+        return $first ?: $last ?: '';
+    }
+
+    private function deriveBookingStatus(array $data): string
+    {
+        $raw = strtolower(trim($data['status'] ?? 'confirmed'));
+
+        return match (true) {
+            str_contains($raw, 'cancel')   => 'cancelled',
+            str_contains($raw, 'no_show'),
+            str_contains($raw, 'noshow')   => 'no_show',
+            str_contains($raw, 'await'),
+            str_contains($raw, 'request')  => 'awaiting_payment',
+            default                        => 'confirmed',
+        };
+    }
+
+    private function derivePaymentStatus(array $data): string
+    {
+        $balance = (float) ($data['invoice_balance'] ?? 0);
+        $total   = (float) ($data['total_amount'] ?? 0);
+
+        if ($balance <= 0) {
+            return 'paid';
+        }
+
+        if ($total > 0 && $balance < $total) {
+            return 'partial';
+        }
+
+        return 'pending';
+    }
+
+    private function deriveChangeType(
+        Beds24Booking $booking,
+        array $oldData,
+        string $newStatus,
+        bool $amountChanged,
+        array $changedFields
+    ): ?string {
+        $oldStatus = $oldData['booking_status'] ?? 'confirmed';
+
+        // Cancellation takes priority
+        if ($newStatus === 'cancelled' && $oldStatus !== 'cancelled') {
+            return 'cancelled';
+        }
+
+        // Amount reduction (suspicious)
+        $newAmount = (float) ($booking->total_amount ?? 0);
+        $oldAmount = (float) ($oldData['total_amount'] ?? 0);
+        if ($amountChanged && $newAmount < $oldAmount && $oldAmount > 0) {
+            return 'amount_changed';
+        }
+
+        // General modification
+        if (!empty($changedFields) || $amountChanged) {
+            return 'modified';
+        }
+
+        // Payment status changed (not alarming, just track)
+        if (($oldData['payment_status'] ?? '') !== $booking->payment_status) {
+            return 'payment_updated';
+        }
+
+        return null; // Nothing meaningful
+    }
+
+    private function parseDate(?string $value): ?string
+    {
+        if (!$value) {
+            return null;
+        }
+
+        try {
+            return Carbon::parse($value)->format('Y-m-d');
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+}
