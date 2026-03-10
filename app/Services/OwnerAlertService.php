@@ -130,6 +130,44 @@ class OwnerAlertService
         $change->markAlerted();
     }
 
+
+    /**
+     * Payment received (auto-synced from Beds24)
+     */
+    public function alertPaymentReceived(
+        Beds24Booking $booking,
+        Beds24BookingChange $change,
+        float $paymentAmount,
+        float $oldBalance,
+        float $newBalance
+    ): void {
+        $currency = $booking->currency;
+        $isPaidInFull = $newBalance <= 0;
+
+        $statusLine = $isPaidInFull
+            ? "\xE2\x9C\x85 <b>Полностью оплачено!</b>"
+            : "\xE2\x9A\xA0\xEF\xB8\x8F <b>Остаток:</b> {$newBalance} {$currency}";
+
+        $text = implode("\n", [
+            "\xF0\x9F\x92\xB0 <b>Оплата получена</b>",
+            "",
+            "\xF0\x9F\x8F\xA8 <b>Объект:</b> {$booking->getPropertyName()}",
+            "\xF0\x9F\x86\x94 <b>Бронирование:</b> #{$booking->beds24_booking_id}",
+            "\xF0\x9F\x91\xA4 <b>Гость:</b> {$booking->guest_name}",
+            "\xF0\x9F\x9B\x8F\xEF\xB8\x8F <b>Комната:</b> " . ($booking->room_name ?: 'не указана'),
+            "\xF0\x9F\x93\x85 <b>Заезд:</b> {$this->formatDate($booking->arrival_date)}",
+            "",
+            "\xF0\x9F\x92\xB5 <b>Сумма оплаты:</b> {$paymentAmount} {$currency}",
+            "\xF0\x9F\x92\xB0 <b>Всего по брони:</b> {$booking->total_amount} {$currency}",
+            $statusLine,
+            "",
+            "\xE2\x8F\xB0 " . now('Asia/Tashkent')->format('d.m.Y H:i'),
+        ]);
+
+        $this->send($text);
+        $change->markAlerted();
+    }
+
     /**
      * Daily summary report sent at 22:00 Tashkent time
      */

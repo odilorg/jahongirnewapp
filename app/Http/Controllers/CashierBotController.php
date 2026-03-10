@@ -473,8 +473,8 @@ class CashierBotController extends Controller
     {
         if (!$shift) return ['inline_keyboard' => [[['text' => 'Открыть смену', 'callback_data' => 'open_shift']]]];
         return ['inline_keyboard' => [
-            [['text' => 'Оплата', 'callback_data' => 'payment'], ['text' => 'Расход', 'callback_data' => 'expense']],
-            [['text' => 'Баланс', 'callback_data' => 'balance'], ['text' => 'Закрыть смену', 'callback_data' => 'close_shift']],
+            [['text' => 'Расход', 'callback_data' => 'expense'], ['text' => 'Баланс', 'callback_data' => 'balance']],
+            [['text' => 'Закрыть смену', 'callback_data' => 'close_shift']],
         ]];
     }
 
