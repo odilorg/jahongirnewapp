@@ -283,8 +283,9 @@ class Beds24WebhookController extends Controller
         $oldBalance = (float) ($oldData['invoice_balance'] ?? 0);
         $newBalance = (float) ($booking->invoice_balance ?? 0);
 
-        // Only create transaction if balance actually decreased (payment received)
-        if ($oldBalance <= 0 || $newBalance >= $oldBalance) {
+        // Only create transaction if balance decreased (payment received)
+        // Handles: normal payment (100->0), partial (100->50), overpayment (0->-10)
+        if ($newBalance >= $oldBalance) {
             Log::info('Beds24 Payment: No balance decrease detected', [
                 'booking_id' => $booking->beds24_booking_id,
                 'old_balance' => $oldBalance,
