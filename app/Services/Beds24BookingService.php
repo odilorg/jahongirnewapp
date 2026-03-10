@@ -13,7 +13,7 @@ class Beds24BookingService
 
     public function __construct()
     {
-        $this->refreshToken = config('services.telegram_bot.beds24.api_v2_refresh_token', env('BEDS24_API_V2_REFRESH_TOKEN'));
+        $this->refreshToken = config('services.beds24.api_v2_refresh_token', env('BEDS24_API_V2_REFRESH_TOKEN'));
         $this->token = $this->getValidToken();
     }
 
@@ -107,7 +107,7 @@ class Beds24BookingService
                     return [
                         'success' => true,
                         'bookingId' => $bookingId,
-                        'bookId' => $bookingId, // Alias for compatibility
+                        'id' => $bookingId, // Alias for compatibility
                         'data' => $firstResult,
                     ];
                 }
@@ -134,7 +134,7 @@ class Beds24BookingService
             'token' => $this->token,
             'accept' => 'application/json',
         ])->timeout(30)->get($this->apiUrl . '/bookings', [
-            'bookId' => $bookingId,
+            'id' => $bookingId,
         ]);
 
         return $response->json();
@@ -520,4 +520,75 @@ class Beds24BookingService
         $parts = explode(' ', trim($fullName), 2);
         return $parts[1] ?? $parts[0];
     }
+
+    /**
+     * Fetch guest info (name, email, phone) from Beds24 API.
+     * The webhook often has empty infoItems, so we fetch from API.
+     */
+    public function fetchGuestInfo(string $bookingId): array
+    {
+        try {
+            $response = Http::withHeaders([
+                'token' => $this->token,
+                'accept' => 'application/json',
+            ])->timeout(15)->get($this->apiUrl . '/bookings', [
+                'id' => $bookingId,
+                'includeInfoItems' => 'true',
+            ]);
+
+            $result = $response->json();
+            $bookingData = $result['data'][0] ?? $result[0] ?? null;
+
+            if (!$bookingData) {
+                Log::info('Beds24 fetchGuestInfo: No data', ['booking_id' => $bookingId]);
+                return ['guest_name' => '', 'guest_email' => null, 'guest_phone' => null];
+            }
+
+            $firstName = '';
+            $lastName = '';
+            $email = null;
+            $phone = null;
+
+            // Extract from infoItems (Beds24 V2 stores guest info here)
+            $infoItems = $bookingData['infoItems'] ?? [];
+            foreach ($infoItems as $item) {
+                $code = $item['code'] ?? '';
+                $text = trim($item['text'] ?? '');
+                match ($code) {
+                    'guestFirstName', 'firstName' => $firstName = $text,
+                    'guestLastName', 'lastName' => $lastName = $text,
+                    'guestEmail', 'email' => $email = $text ?: null,
+                    'guestPhone', 'phone', 'mobile' => $phone = $text ?: null,
+                    default => null,
+                };
+            }
+
+            // Fallback: check top-level fields
+            if (!$firstName && !$lastName) {
+                $firstName = $bookingData['guestFirstName'] ?? $bookingData['firstName'] ?? '';
+                $lastName = $bookingData['guestLastName'] ?? $bookingData['lastName'] ?? '';
+            }
+
+            $guestName = trim($firstName . ' ' . $lastName);
+
+            Log::info('Beds24 fetchGuestInfo: Result', [
+                'booking_id' => $bookingId,
+                'guest_name' => $guestName,
+                'info_items_count' => count($infoItems),
+            ]);
+
+            return [
+                'guest_name' => $guestName,
+                'guest_email' => $email,
+                'guest_phone' => $phone,
+            ];
+        } catch (\Throwable $e) {
+            Log::error('Beds24 fetchGuestInfo: Error', [
+                'booking_id' => $bookingId,
+                'error' => $e->getMessage(),
+            ]);
+            return ['guest_name' => '', 'guest_email' => null, 'guest_phone' => null];
+        }
+    }
+
 }

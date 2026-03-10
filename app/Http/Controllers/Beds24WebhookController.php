@@ -9,6 +9,7 @@ use App\Enums\TransactionType;
 use App\Enums\TransactionCategory;
 use App\Models\CashierShift;
 use App\Services\OwnerAlertService;
+use App\Services\Beds24BookingService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Log;
@@ -16,7 +17,10 @@ use Carbon\Carbon;
 
 class Beds24WebhookController extends Controller
 {
-    public function __construct(protected OwnerAlertService $alertService)
+    public function __construct(
+        protected OwnerAlertService $alertService,
+        protected Beds24BookingService $beds24Service
+    )
     {
     }
 
@@ -118,6 +122,9 @@ class Beds24WebhookController extends Controller
         ]);
 
         Log::info('Beds24 Webhook: New booking saved', ['booking_id' => $bookingId]);
+
+        // Fetch guest name from API if webhook didn't include it
+        $this->enrichGuestInfo($booking);
 
         // Alert owner about new booking (only if not cancelled immediately)
         if (!$booking->isCancelled()) {
@@ -235,13 +242,16 @@ class Beds24WebhookController extends Controller
             'detected_at'       => now(),
         ]);
 
+        // Fetch guest name from API if still empty
+        $this->enrichGuestInfo($booking);
+
         Log::info('Beds24 Webhook: Booking updated', [
             'booking_id'  => $booking->beds24_booking_id,
             'change_type' => $changeType,
         ]);
 
         // Send appropriate alert
-        $this->dispatchAlert($booking, $change, $changeType, $oldData, $newAmount, $changedFields);
+        $this->dispatchAlert($booking, $change, $changeType, $oldData, $newAmount, $changedFields, $raw);
     }
 
     // -------------------------------------------------------------------------
@@ -254,7 +264,8 @@ class Beds24WebhookController extends Controller
         string $changeType,
         array $oldData,
         float $newAmount,
-        array $changedFields
+        array $changedFields,
+        array $raw = []
     ): void {
         $today = now('Asia/Tashkent')->toDateString();
 
@@ -543,6 +554,45 @@ class Beds24WebhookController extends Controller
     // Derivation helpers
     // -------------------------------------------------------------------------
 
+    /**
+     * If guest name is empty after parsing webhook, fetch from Beds24 API.
+     */
+    private function enrichGuestInfo(\App\Models\Beds24Booking $booking): void
+    {
+        if (!empty($booking->guest_name)) {
+            return;
+        }
+
+        try {
+            $info = $this->beds24Service->fetchGuestInfo($booking->beds24_booking_id);
+
+            $updates = [];
+            if (!empty($info['guest_name'])) {
+                $updates['guest_name'] = $info['guest_name'];
+            }
+            if (!empty($info['guest_email']) && empty($booking->guest_email)) {
+                $updates['guest_email'] = $info['guest_email'];
+            }
+            if (!empty($info['guest_phone']) && empty($booking->guest_phone)) {
+                $updates['guest_phone'] = $info['guest_phone'];
+            }
+
+            if (!empty($updates)) {
+                $booking->update($updates);
+                $booking->refresh();
+                Log::info('Beds24 Webhook: Enriched guest info from API', [
+                    'booking_id' => $booking->beds24_booking_id,
+                    'guest_name' => $booking->guest_name,
+                ]);
+            }
+        } catch (\Throwable $e) {
+            Log::warning('Beds24 Webhook: Failed to enrich guest info', [
+                'booking_id' => $booking->beds24_booking_id,
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
     private function buildGuestName(array $data): string
     {
         $first = trim($data['first_name'] ?? '');
@@ -571,10 +621,17 @@ class Beds24WebhookController extends Controller
 
     private function derivePaymentStatus(array $data): string
     {
-        $balance = (float) ($data['invoice_balance'] ?? 0);
+        $balance = $data['invoice_balance'] ?? null;
         $total   = (float) ($data['total_amount'] ?? 0);
 
-        if ($balance <= 0) {
+        // If balance not provided in payload, default to pending
+        if ($balance === null) {
+            return 'pending';
+        }
+
+        $balance = (float) $balance;
+
+        if ($balance <= 0 && $total > 0) {
             return 'paid';
         }
 
