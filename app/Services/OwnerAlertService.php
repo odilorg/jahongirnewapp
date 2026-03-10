@@ -168,6 +168,63 @@ class OwnerAlertService
         $change->markAlerted();
     }
 
+
+    /**
+     * Payment received with full line details from Beds24 API
+     */
+    public function alertPaymentWithDetails(
+        Beds24Booking $booking,
+        Beds24BookingChange $change,
+        array $paymentLines,
+        float $oldBalance,
+        float $newBalance
+    ): void {
+        $currency = $booking->currency;
+        $totalPaid = array_sum(array_map(fn($l) => (float) ($l['amount'] ?? 0), $paymentLines));
+
+        $lines = [];
+        foreach ($paymentLines as $line) {
+            $desc = $line['description'] ?? '?';
+            $amt = (float) ($line['amount'] ?? 0);
+            $method = $line['status'] ?? '';
+            $methodLabel = match(strtolower($method)) {
+                'naqd' => 'наличные',
+                'plastk', 'plastik', 'card' => 'карта',
+                'perevod', 'transfer' => 'перевод',
+                default => $method ?: '?',
+            };
+            $lines[] = "  • {$desc}: {$amt} {$currency} ({$methodLabel})";
+        }
+        $linesText = implode("\n", $lines);
+
+        $isPaidInFull = $newBalance <= 0;
+        $statusLine = $isPaidInFull
+            ? "✅ Полностью оплачено!"
+            : "⚠️ Остаток: {$newBalance} {$currency}";
+
+        $text = implode("\n", [
+            "💰 <b>Оплата получена</b>",
+            "",
+            "🏨 <b>Объект:</b> {$booking->getPropertyName()}",
+            "🆔 <b>Бронирование:</b> #{$booking->beds24_booking_id}",
+            "👤 <b>Гость:</b> {$booking->guest_name}",
+            "🛏️ <b>Комната:</b> " . ($booking->room_name ?: 'не указана'),
+            "📅 <b>Заезд:</b> {$this->formatDate($booking->arrival_date)}",
+            "",
+            "<b>Платежи:</b>",
+            $linesText,
+            "",
+            "💵 <b>Итого оплачено:</b> {$totalPaid} {$currency}",
+            "💰 <b>Всего по брони:</b> {$booking->total_amount} {$currency}",
+            $statusLine,
+            "",
+            "⏰ " . now('Asia/Tashkent')->format('d.m.Y H:i'),
+        ]);
+
+        $this->send($text);
+        $change->markAlerted();
+    }
+
     /**
      * Daily summary report sent at 22:00 Tashkent time
      */
