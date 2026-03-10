@@ -229,7 +229,7 @@ class CashierBotController extends Controller
         if (!$shift) { $this->send($chatId, "Смена не найдена."); return $this->showMainMenu($chatId, $s); }
         try {
             CashTransaction::create([
-                'cashier_shift_id' => $shift->id, 'type' => 'IN', 'amount' => $d['amount'],
+                'cashier_shift_id' => $shift->id, 'type' => 'in', 'amount' => $d['amount'],
                 'currency' => $d['currency'], 'category' => 'room_payment',
                 'beds24_booking_id' => $d['booking_id'] ?? null, 'payment_method' => $d['method'],
                 'guest_name' => $d['guest_name'], 'room_number' => $d['room'],
@@ -315,7 +315,7 @@ class CashierBotController extends Controller
                 'created_by' => $s->user_id, 'occurred_at' => now(),
             ]);
             CashTransaction::create([
-                'cashier_shift_id' => $shift->id, 'type' => 'OUT', 'amount' => $d['amount'],
+                'cashier_shift_id' => $shift->id, 'type' => 'out', 'amount' => $d['amount'],
                 'currency' => $d['currency'], 'category' => 'expense',
                 'reference' => "Расход: {$d['cat_name']}", 'notes' => $d['desc'],
                 'created_by' => $s->user_id, 'occurred_at' => now(),
