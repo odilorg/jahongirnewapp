@@ -54,7 +54,7 @@ class OwnerBotController extends Controller
         return response('OK');
     }
 
-    protected function handleExpenseAction(int $chatId, ?int $messageId, string $callbackId, string $action, int $expenseId)
+    public function handleExpenseAction(int $chatId, ?int $messageId, string $callbackId, string $action, int $expenseId)
     {
         $expense = CashExpense::with(['creator', 'category'])->find($expenseId);
 

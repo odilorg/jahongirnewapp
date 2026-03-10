@@ -82,6 +82,13 @@ class CashierBotController extends Controller
         $data = $cb['data'] ?? '';
         if (!$chatId) return response('OK');
         $this->aCb($cb['id'] ?? '');
+
+        // Handle owner approval callbacks (owner may not have a session)
+        if (preg_match('/^(approve|reject)_expense_(\d+)$/', $data, $matches)) {
+            return app(\App\Http\Controllers\OwnerBotController::class)
+                ->handleExpenseAction($chatId, $cb['message']['message_id'] ?? null, $cb['id'] ?? '', $matches[1], (int)$matches[2]);
+        }
+
         $s = TelegramPosSession::where('chat_id', $chatId)->first();
         if (!$s) return response('OK');
 
