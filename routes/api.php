@@ -80,3 +80,6 @@ Route::post('/beds24/webhook', [\App\Http\Controllers\Beds24WebhookController::c
 // Phase 2: Cashier Bot (admin payment/expense logging)
 Route::post('/telegram/cashier/webhook', [\App\Http\Controllers\CashierBotController::class, 'handleWebhook'])
     ->name('telegram.cashier.webhook');
+
+Route::post("/telegram/owner/webhook", [\App\Http\Controllers\OwnerBotController::class, "handleWebhook"])
+    ->name("telegram.owner.webhook");
