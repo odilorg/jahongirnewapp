@@ -51,7 +51,7 @@ class CashierBotController extends Controller
             return response('OK');
         }
         if ($session->isExpired()) {
-            $session->update(['user_id' => null, 'state' => null, 'data' => null]);
+            $session->update(['user_id' => null, 'state' => 'idle', 'data' => null]);
             $this->send($chatId, "Сессия истекла. Отправьте номер телефона.", $this->phoneKb());
             return response('OK');
         }
@@ -59,7 +59,7 @@ class CashierBotController extends Controller
         if ($photo && $session->state === 'shift_close_photo') return $this->handleShiftPhoto($session, $chatId, $photo);
         if ($text === '/start' || $text === '/menu') return $this->showMainMenu($chatId, $session);
         if ($text === '/logout') {
-            $session->update(['user_id' => null, 'state' => null, 'data' => null]);
+            $session->update(['user_id' => null, 'state' => 'idle', 'data' => null]);
             $this->send($chatId, "Вы вышли. Отправьте номер телефона для входа.", $this->phoneKb());
             return response('OK');
         }
