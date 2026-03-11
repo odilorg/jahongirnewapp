@@ -428,27 +428,253 @@ class Reports extends Page implements HasTable
 
     public function exportAllReports(): void
     {
-        // This would implement PDF/Excel export functionality
-        // For now, we'll just show a notification
-        \Filament\Notifications\Notification::make()
-            ->title('Export Started')
-            ->body('All reports are being prepared for download...')
-            ->success()
-            ->send();
+        $today = Carbon::today();
+        $yesterday = Carbon::yesterday();
+
+        $todayShifts = CashierShift::whereDate('opened_at', $today)->get();
+        $closedShifts = CashierShift::with(['user', 'cashDrawer', 'endSaldos'])
+            ->where('status', 'closed')
+            ->orderBy('closed_at', 'desc')
+            ->limit(50)
+            ->get();
+        $transactions = CashTransaction::with(['shift.user', 'shift.cashDrawer'])
+            ->where('created_at', '>=', Carbon::now()->subDays(30))
+            ->get();
+
+        $todaySummary = $this->calculateDailySummary($todayShifts);
+        $txAnalysis = $this->analyzeTransactions($transactions);
+
+        $filename = 'cash_reports_' . $today->format('Y-m-d') . '.csv';
+        $path = storage_path('app/public/exports');
+        if (!is_dir($path)) { mkdir($path, 0755, true); }
+        $filepath = $path . '/' . $filename;
+
+        $handle = fopen($filepath, 'w');
+        fwrite($handle, "\xEF\xBB\xBF");
+
+        // Section 1: Daily Summary
+        fputcsv($handle, ['=== DAILY CASH SUMMARY (' . $today->format('Y-m-d') . ') ===']);
+        fputcsv($handle, []);
+        fputcsv($handle, ['Total Shifts', $todaySummary['total_shifts']]);
+        fputcsv($handle, []);
+        fputcsv($handle, ['Currency', 'Cash In', 'Cash Out', 'Net Balance', 'Shifts']);
+        foreach ($todaySummary['currencies'] as $cur => $data) {
+            fputcsv($handle, [$cur, $data['cash_in'], $data['cash_out'], $data['net_balance'], $data['shifts_count']]);
+        }
+        if (!empty($todaySummary['discrepancies'])) {
+            fputcsv($handle, []);
+            fputcsv($handle, ['Discrepancies']);
+            fputcsv($handle, ['Shift', 'Cashier', 'Currency', 'Amount', 'Reason']);
+            foreach ($todaySummary['discrepancies'] as $d) {
+                fputcsv($handle, [$d['shift_id'], $d['cashier'], $d['currency'], $d['discrepancy'], $d['reason'] ?? '']);
+            }
+        }
+
+        // Section 2: Shift Performance
+        fputcsv($handle, []);
+        fputcsv($handle, ['=== SHIFT PERFORMANCE ===']);
+        fputcsv($handle, []);
+        fputcsv($handle, ['Shift ID', 'Cashier', 'Drawer', 'Opened', 'Closed', 'Currency', 'Expected', 'Counted', 'Discrepancy']);
+        foreach ($closedShifts as $shift) {
+            if ($shift->endSaldos->isEmpty()) {
+                fputcsv($handle, [$shift->id, $shift->user->name, $shift->cashDrawer->name, $shift->opened_at, $shift->closed_at, '-', '-', '-', '-']);
+            } else {
+                $first = true;
+                foreach ($shift->endSaldos as $es) {
+                    fputcsv($handle, [
+                        $first ? $shift->id : '', $first ? $shift->user->name : '', $first ? $shift->cashDrawer->name : '',
+                        $first ? (string)$shift->opened_at : '', $first ? (string)$shift->closed_at : '',
+                        $es->currency->value, $es->expected_end_saldo, $es->counted_end_saldo, $es->discrepancy,
+                    ]);
+                    $first = false;
+                }
+            }
+        }
+
+        // Section 3: Transaction Analysis
+        fputcsv($handle, []);
+        fputcsv($handle, ['=== TRANSACTION ANALYSIS (Last 30 Days) ===']);
+        fputcsv($handle, []);
+        fputcsv($handle, ['Total Transactions', $txAnalysis['total_transactions']]);
+        fputcsv($handle, []);
+        fputcsv($handle, ['By Type']);
+        foreach ($txAnalysis['by_type'] as $type => $count) { fputcsv($handle, [$type, $count]); }
+        fputcsv($handle, []);
+        fputcsv($handle, ['By Currency']);
+        foreach ($txAnalysis['by_currency'] as $cur => $count) { fputcsv($handle, [$cur, $count]); }
+        fputcsv($handle, []);
+        fputcsv($handle, ['Peak Hours']);
+        fputcsv($handle, ['Hour', 'Transactions']);
+        foreach ($txAnalysis['peak_hours'] as $hour => $count) { fputcsv($handle, [$hour . ':00', $count]); }
+
+        // Section 4: All Transactions
+        fputcsv($handle, []);
+        fputcsv($handle, ['=== ALL TRANSACTIONS ===']);
+        fputcsv($handle, []);
+        fputcsv($handle, ['ID', 'Date', 'Time', 'Type', 'Currency', 'Amount', 'Cashier', 'Drawer', 'Description']);
+        foreach ($transactions as $tx) {
+            fputcsv($handle, [
+                $tx->id, $tx->created_at->format('Y-m-d'), $tx->created_at->format('H:i:s'),
+                $tx->type->value, $tx->currency->value, $tx->amount,
+                $tx->shift?->user?->name ?? '-', $tx->shift?->cashDrawer?->name ?? '-', $tx->description ?? '',
+            ]);
+        }
+
+        fclose($handle);
+
+        $this->js("window.open('/storage/exports/" . $filename . "', '_blank')");
     }
 
     public function exportReport(): void
     {
-        if (!$this->reportData) {
-            return;
-        }
+        if (!$this->reportData) { return; }
 
-        // This would implement PDF/Excel export functionality
-        // For now, we'll just show a notification
-        \Filament\Notifications\Notification::make()
-            ->title('Report Export Started')
-            ->body("{$this->reportData['title']} is being prepared for download...")
-            ->success()
-            ->send();
+        $type = $this->reportData['type'];
+        $filename = 'report_' . $type . '_' . now()->format('Y-m-d_His') . '.csv';
+        $path = storage_path('app/public/exports');
+        if (!is_dir($path)) { mkdir($path, 0755, true); }
+        $filepath = $path . '/' . $filename;
+
+        $handle = fopen($filepath, 'w');
+        fwrite($handle, "\xEF\xBB\xBF");
+
+        match ($type) {
+            'daily_summary' => $this->writeDailySummaryCsv($handle),
+            'shift_performance' => $this->writeShiftPerformanceCsv($handle),
+            'multi_currency' => $this->writeMultiCurrencyCsv($handle),
+            'transaction_analysis' => $this->writeTransactionAnalysisCsv($handle),
+        };
+
+        fclose($handle);
+
+        $this->js("window.open('/storage/exports/" . $filename . "', '_blank')");
+    }
+
+    private function writeDailySummaryCsv($handle): void
+    {
+        $data = $this->reportData;
+        $summary = $data['today_summary'];
+
+        fputcsv($handle, ['Daily Cash Summary - ' . $data['date']]);
+        fputcsv($handle, []);
+        fputcsv($handle, ['Total Shifts', $summary['total_shifts']]);
+        fputcsv($handle, []);
+        fputcsv($handle, ['Currency', 'Cash In', 'Cash Out', 'Net Balance', 'Shifts']);
+        foreach ($summary['currencies'] as $cur => $d) {
+            fputcsv($handle, [$cur, $d['cash_in'], $d['cash_out'], $d['net_balance'], $d['shifts_count']]);
+        }
+        if (!empty($summary['discrepancies'])) {
+            fputcsv($handle, []);
+            fputcsv($handle, ['Discrepancies']);
+            fputcsv($handle, ['Shift', 'Cashier', 'Currency', 'Amount', 'Reason']);
+            foreach ($summary['discrepancies'] as $d) {
+                fputcsv($handle, [$d['shift_id'], $d['cashier'], $d['currency'], $d['discrepancy'], $d['reason'] ?? '']);
+            }
+        }
+        if (!empty($data['comparison']['currencies_change'])) {
+            fputcsv($handle, []);
+            fputcsv($handle, ['vs Yesterday']);
+            fputcsv($handle, ['Currency', 'Cash In Change', 'Cash Out Change', 'Net Balance Change']);
+            foreach ($data['comparison']['currencies_change'] as $cur => $change) {
+                fputcsv($handle, [$cur, $change['cash_in_change'], $change['cash_out_change'], $change['net_balance_change']]);
+            }
+        }
+    }
+
+    private function writeShiftPerformanceCsv($handle): void
+    {
+        $data = $this->reportData;
+        fputcsv($handle, ['Shift Performance Report']);
+        fputcsv($handle, []);
+        fputcsv($handle, ['Total Shifts', $data['summary']['total_shifts']]);
+        fputcsv($handle, ['Total Discrepancies', $data['summary']['total_discrepancies']]);
+        fputcsv($handle, []);
+        fputcsv($handle, ['Shift ID', 'Cashier', 'Drawer', 'Opened', 'Closed', 'Currency', 'Expected', 'Counted', 'Discrepancy']);
+        foreach ($data['shifts'] as $shift) {
+            if ($shift->endSaldos->isEmpty()) {
+                fputcsv($handle, [$shift->id, $shift->user->name, $shift->cashDrawer->name, $shift->opened_at, $shift->closed_at, '-', '-', '-', '-']);
+            } else {
+                $first = true;
+                foreach ($shift->endSaldos as $es) {
+                    fputcsv($handle, [
+                        $first ? $shift->id : '', $first ? $shift->user->name : '', $first ? $shift->cashDrawer->name : '',
+                        $first ? (string)$shift->opened_at : '', $first ? (string)$shift->closed_at : '',
+                        $es->currency->value, $es->expected_end_saldo, $es->counted_end_saldo, $es->discrepancy,
+                    ]);
+                    $first = false;
+                }
+            }
+        }
+        fputcsv($handle, []);
+        fputcsv($handle, ['Cashier Summary']);
+        fputcsv($handle, ['Cashier', 'Shifts', 'Discrepancies', 'Total Discrepancy']);
+        foreach ($data['summary']['cashiers'] as $name => $stats) {
+            fputcsv($handle, [$name, $stats['shifts_count'], $stats['discrepancies_count'], $stats['total_discrepancy']]);
+        }
+    }
+
+    private function writeMultiCurrencyCsv($handle): void
+    {
+        $data = $this->reportData;
+        fputcsv($handle, ['Multi-Currency Balance Report']);
+        fputcsv($handle, []);
+        fputcsv($handle, ['Total Drawers', $data['summary']['total_drawers']]);
+        fputcsv($handle, []);
+        fputcsv($handle, ['Drawer', 'Status', 'Currency', 'Balance']);
+        foreach ($data['drawers'] as $drawer) {
+            if ($drawer->openShifts->isEmpty()) {
+                fputcsv($handle, [$drawer->name, 'No active shifts', '-', '-']);
+            } else {
+                foreach ($drawer->openShifts as $shift) {
+                    $allCurrencies = $shift->getUsedCurrencies()->merge($shift->beginningSaldos->pluck('currency'))->unique();
+                    $first = true;
+                    foreach ($allCurrencies as $currency) {
+                        fputcsv($handle, [
+                            $first ? $drawer->name : '', $first ? 'Active' : '',
+                            $currency->value, $shift->getNetBalanceForCurrency($currency),
+                        ]);
+                        $first = false;
+                    }
+                }
+            }
+        }
+        if (!empty($data['summary']['currencies'])) {
+            fputcsv($handle, []);
+            fputcsv($handle, ['Currency Totals']);
+            fputcsv($handle, ['Currency', 'Total Balance', 'Drawers']);
+            foreach ($data['summary']['currencies'] as $cur => $info) {
+                fputcsv($handle, [$cur, $info['total_balance'], $info['drawers_count']]);
+            }
+        }
+    }
+
+    private function writeTransactionAnalysisCsv($handle): void
+    {
+        $data = $this->reportData;
+        $analysis = $data['analysis'];
+        fputcsv($handle, ['Transaction Analysis Report (Last 30 Days)']);
+        fputcsv($handle, []);
+        fputcsv($handle, ['Total Transactions', $analysis['total_transactions']]);
+        fputcsv($handle, ['Complex Transactions (in_out)', $analysis['complex_transactions']]);
+        fputcsv($handle, []);
+        fputcsv($handle, ['By Type']);
+        foreach ($analysis['by_type'] as $type => $count) { fputcsv($handle, [$type, $count]); }
+        fputcsv($handle, []);
+        fputcsv($handle, ['By Currency']);
+        foreach ($analysis['by_currency'] as $cur => $count) { fputcsv($handle, [$cur, $count]); }
+        fputcsv($handle, []);
+        fputcsv($handle, ['Peak Hours']);
+        fputcsv($handle, ['Hour', 'Transactions']);
+        foreach ($analysis['peak_hours'] as $hour => $count) { fputcsv($handle, [$hour . ':00', $count]); }
+        fputcsv($handle, []);
+        fputcsv($handle, ['All Transactions']);
+        fputcsv($handle, ['ID', 'Date', 'Time', 'Type', 'Currency', 'Amount', 'Cashier', 'Drawer', 'Description']);
+        foreach ($data['transactions'] as $tx) {
+            fputcsv($handle, [
+                $tx->id, $tx->created_at->format('Y-m-d'), $tx->created_at->format('H:i:s'),
+                $tx->type->value, $tx->currency->value, $tx->amount,
+                $tx->shift?->user?->name ?? '-', $tx->shift?->cashDrawer?->name ?? '-', $tx->description ?? '',
+            ]);
+        }
     }
 }
