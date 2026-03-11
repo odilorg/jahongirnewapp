@@ -30,7 +30,7 @@ class CashierBotController extends Controller
 
     public function handleWebhook(Request $request)
     {
-        Log::info('CashierBot webhook', ['data' => $request->all()]);
+        Log::debug('CashierBot webhook', ['data' => $request->all()]);
         if ($callback = $request->input('callback_query')) return $this->handleCallback($callback);
         if ($message = $request->input('message')) return $this->handleMessage($message);
         return response('OK');
@@ -50,8 +50,19 @@ class CashierBotController extends Controller
             $this->send($chatId, "Отправьте номер телефона для авторизации.", $this->phoneKb());
             return response('OK');
         }
+        if ($session->isExpired()) {
+            $session->update(['user_id' => null, 'state' => null, 'data' => null]);
+            $this->send($chatId, "Сессия истекла. Отправьте номер телефона.", $this->phoneKb());
+            return response('OK');
+        }
+        $session->updateActivity();
         if ($photo && $session->state === 'shift_close_photo') return $this->handleShiftPhoto($session, $chatId, $photo);
         if ($text === '/start' || $text === '/menu') return $this->showMainMenu($chatId, $session);
+        if ($text === '/logout') {
+            $session->update(['user_id' => null, 'state' => null, 'data' => null]);
+            $this->send($chatId, "Вы вышли. Отправьте номер телефона для входа.", $this->phoneKb());
+            return response('OK');
+        }
         return $this->handleState($session, $chatId, $text);
     }
 
@@ -61,7 +72,7 @@ class CashierBotController extends Controller
         $user = User::where('phone_number', 'LIKE', '%' . substr($phone, -9))->first();
         if (!$user) { $this->send($chatId, "Номер не найден. Обратитесь к руководству."); return response('OK'); }
         TelegramPosSession::updateOrCreate(['chat_id' => $chatId], ['user_id' => $user->id, 'state' => 'main_menu', 'data' => null]);
-        $user->update(['telegram_user_id' => $chatId]);
+        // Don't overwrite user telegram_user_id (shared with POS bot)
         $this->send($chatId, "Добро пожаловать, {$user->name}!");
         return $this->showMainMenu($chatId, TelegramPosSession::where('chat_id', $chatId)->first());
     }
@@ -170,7 +181,8 @@ class CashierBotController extends Controller
         $d = $s->data ?? [];
         $d['room'] = $text;
         $today = Carbon::today()->format('Y-m-d');
-        $guests = Beds24Booking::where('room_name', 'LIKE', "%{$text}%")
+        $safeText = str_replace(['%', '_'], ['\%', '\_'], $text);
+        $guests = Beds24Booking::where('room_name', 'LIKE', "%{$safeText}%")
             ->where('arrival_date', '<=', $today)->where('departure_date', '>=', $today)
             ->where('booking_status', 'confirmed')->get();
 
@@ -250,7 +262,7 @@ class CashierBotController extends Controller
     {
         $d = $s->data ?? [];
         $shift = CashierShift::find($d['shift_id'] ?? 0);
-        if (!$shift) { $this->send($chatId, "Смена не найдена."); return $this->showMainMenu($chatId, $s); }
+        if (!$shift || !$shift->isOpen()) { $this->send($chatId, "Смена не найдена или закрыта."); return $this->showMainMenu($chatId, $s); }
         try {
             CashTransaction::create([
                 'cashier_shift_id' => $shift->id, 'type' => 'in', 'amount' => $d['amount'],
@@ -262,8 +274,8 @@ class CashierBotController extends Controller
             ]);
             $this->send($chatId, "Оплата записана!\nБаланс: " . $this->fmtBal($this->getBal($shift)));
         } catch (\Exception $e) {
-            Log::error('Payment failed', ['e' => $e->getMessage()]);
-            $this->send($chatId, "Ошибка: " . $e->getMessage());
+            Log::error('Payment failed', ['e' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+            $this->send($chatId, "Ошибка при записи оплаты. Попробуйте снова.");
         }
         return $this->showMainMenu($chatId, $s);
     }
@@ -330,9 +342,9 @@ class CashierBotController extends Controller
     {
         $d = $s->data ?? [];
         $shift = CashierShift::find($d['shift_id'] ?? 0);
-        if (!$shift) { $this->send($chatId, "Смена не найдена."); return $this->showMainMenu($chatId, $s); }
+        if (!$shift || !$shift->isOpen()) { $this->send($chatId, "Смена не найдена или закрыта."); return $this->showMainMenu($chatId, $s); }
         try {
-            CashExpense::create([
+            $expense = CashExpense::create([
                 'cashier_shift_id' => $shift->id, 'expense_category_id' => $d['cat_id'],
                 'amount' => $d['amount'], 'currency' => $d['currency'], 'description' => $d['desc'],
                 'requires_approval' => $d['needs_approval'] ?? false,
@@ -345,18 +357,12 @@ class CashierBotController extends Controller
                 'created_by' => $s->user_id, 'occurred_at' => now(),
             ]);
             if ($d['needs_approval'] ?? false) {
-                $expense = CashExpense::where('cashier_shift_id', $shift->id)
-                    ->where('amount', $d['amount'])
-                    ->where('description', $d['desc'])
-                    ->latest()->first();
-                if ($expense) {
-                    app(\App\Http\Controllers\OwnerBotController::class)->sendApprovalRequest($expense);
-                }
+                app(\App\Http\Controllers\OwnerBotController::class)->sendApprovalRequest($expense);
             }
             $this->send($chatId, "Расход записан!\nБаланс: " . $this->fmtBal($this->getBal($shift)));
         } catch (\Exception $e) {
-            Log::error('Expense failed', ['e' => $e->getMessage()]);
-            $this->send($chatId, "Ошибка: " . $e->getMessage());
+            Log::error('Expense failed', ['e' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+            $this->send($chatId, "Ошибка при записи расхода. Попробуйте снова.");
         }
         return $this->showMainMenu($chatId, $s);
     }
@@ -392,6 +398,7 @@ class CashierBotController extends Controller
     protected function hCount($s, int $chatId, string $text, string $cur)
     {
         $amt = floatval(str_replace([' ', ','], ['', '.'], $text));
+        if ($amt < 0) { $this->send($chatId, "Сумма не может быть отрицательной. Введите ещё раз:"); return response('OK'); }
         $d = $s->data ?? [];
         $d['counted_' . strtolower($cur)] = $amt;
         $next = match($cur) {
@@ -434,20 +441,7 @@ class CashierBotController extends Controller
         $d = $s->data ?? [];
         $d['photo_id'] = $photo['file_id'] ?? '';
         $s->update(['state' => 'shift_close_confirm', 'data' => $d]);
-        $exp = $d['expected'] ?? [];
-        $lines = [];
-        foreach (['uzs', 'usd', 'eur'] as $c) {
-            $e = $exp[strtoupper($c)] ?? 0;
-            $cnt = $d['counted_' . $c] ?? 0;
-            $diff = round($cnt - $e, 2);
-            $ds = $diff == 0 ? '' : ($diff > 0 ? " (+{$diff})" : " ({$diff})");
-            $lines[] = strtoupper($c) . ": ожид. " . number_format($e, 0) . " / факт " . number_format($cnt, 0) . $ds;
-        }
-        $this->send($chatId, "Итог:\n\n" . implode("\n", $lines), ['inline_keyboard' => [[
-            ['text' => 'Закрыть смену', 'callback_data' => 'confirm_close'],
-            ['text' => 'Отмена', 'callback_data' => 'cancel'],
-        ]]], 'inline');
-        return response('OK');
+        return $this->showCloseConfirm($s, $chatId);
     }
 
     protected function confirmClose($s, int $chatId)
@@ -495,6 +489,8 @@ class CashierBotController extends Controller
                 if ($vals['expected'] > 0) {
                     $pct = abs($vals['diff'] / $vals['expected']) * 100;
                     $maxDiffPct = max($maxDiffPct, $pct);
+                } elseif ($vals['counted'] != 0 && $vals['expected'] == 0) {
+                    $maxDiffPct = 100; // unexpected cash present
                 }
             }
 
@@ -523,14 +519,15 @@ class CashierBotController extends Controller
 
             if (!empty($d['photo_id'])) {
                 $oid = config('services.owner_alert_bot.owner_chat_id', env('OWNER_TELEGRAM_ID', '38738713'));
-                Http::post("https://api.telegram.org/bot{$this->botToken}/sendPhoto", [
+                $ownerBotToken = config('services.owner_alert_bot.token', env('OWNER_ALERT_BOT_TOKEN'));
+                Http::post("https://api.telegram.org/bot{$ownerBotToken}/sendPhoto", [
                     'chat_id' => $oid, 'photo' => $d['photo_id'], 'caption' => '📸 Фото кассы при закрытии смены',
                 ]);
             }
             $this->send($chatId, "Смена закрыта!");
         } catch (\Exception $e) {
-            Log::error('Close shift failed', ['e' => $e->getMessage()]);
-            $this->send($chatId, "Ошибка: " . $e->getMessage());
+            Log::error('Close shift failed', ['e' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+            $this->send($chatId, "Ошибка при закрытии смены. Обратитесь к руководству.");
         }
         return $this->showMainMenu($chatId, $s);
     }
@@ -557,7 +554,9 @@ class CashierBotController extends Controller
         foreach (CashTransaction::where('cashier_shift_id', $shift->id)->get() as $tx) {
             $c = is_string($tx->currency) ? $tx->currency : ($tx->currency->value ?? 'UZS');
             if (!isset($b[$c])) $b[$c] = 0;
-            $b[$c] += ($tx->type->value === 'in' || $tx->type === 'in' ? $tx->amount : -$tx->amount);
+            $typeVal = is_string($tx->type) ? $tx->type : ($tx->type->value ?? 'out');
+            if ($typeVal === 'in_out') continue; // complex transactions handled separately
+            $b[$c] += ($typeVal === 'in' ? $tx->amount : -$tx->amount);
         }
         return $b;
     }
@@ -573,8 +572,8 @@ class CashierBotController extends Controller
     {
         if (!$shift) return ['inline_keyboard' => [[['text' => 'Открыть смену', 'callback_data' => 'open_shift']]]];
         return ['inline_keyboard' => [
-            [['text' => 'Расход', 'callback_data' => 'expense'], ['text' => 'Баланс', 'callback_data' => 'balance']],
-            [['text' => 'Закрыть смену', 'callback_data' => 'close_shift']],
+            [['text' => 'Оплата', 'callback_data' => 'payment'], ['text' => 'Расход', 'callback_data' => 'expense']],
+            [['text' => 'Баланс', 'callback_data' => 'balance'], ['text' => 'Закрыть смену', 'callback_data' => 'close_shift']],
         ]];
     }
 
@@ -587,7 +586,14 @@ class CashierBotController extends Controller
     {
         $p = ['chat_id' => $chatId, 'text' => $text, 'parse_mode' => 'HTML'];
         if ($kb) $p['reply_markup'] = json_encode($kb);
-        Http::post("https://api.telegram.org/bot{$this->botToken}/sendMessage", $p);
+        try {
+            $resp = Http::timeout(10)->post("https://api.telegram.org/bot{$this->botToken}/sendMessage", $p);
+            if (!$resp->successful()) {
+                Log::warning('CashierBot send failed', ['chat' => $chatId, 'status' => $resp->status()]);
+            }
+        } catch (\Throwable $e) {
+            Log::error('CashierBot send error', ['chat' => $chatId, 'error' => $e->getMessage()]);
+        }
     }
 
     protected function aCb(string $id)
