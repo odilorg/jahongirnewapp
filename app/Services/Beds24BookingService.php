@@ -4,6 +4,7 @@ namespace App\Services;
 
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Cache;
 
 class Beds24BookingService
 {
@@ -11,9 +12,19 @@ class Beds24BookingService
     protected ?string $token = null;
     protected string $refreshToken;
 
+    private const CACHE_KEY = 'beds24_access_token';
+    private const CACHE_KEY_FALLBACK = 'beds24_access_token_fallback';
+    private const CACHE_KEY_LAST_REFRESH = 'beds24_last_refresh_time';
+    private const CACHE_KEY_LAST_ERROR = 'beds24_last_refresh_error';
+    private const CACHE_KEY_REFRESH_TOKEN = 'beds24_rotated_refresh_token';
+    private const MAX_RETRY_ATTEMPTS = 3;
+    private const RETRY_DELAYS_MS = [200, 1000, 3000]; // Exponential backoff
+
     public function __construct()
     {
-        $this->refreshToken = config('services.beds24.api_v2_refresh_token', env('BEDS24_API_V2_REFRESH_TOKEN', ''));
+        // Prefer cached rotated refresh token (Beds24 rotates on each use)
+        $this->refreshToken = Cache::get(self::CACHE_KEY_REFRESH_TOKEN)
+            ?: config('services.beds24.api_v2_refresh_token', '');
     }
 
     /**
@@ -28,44 +39,245 @@ class Beds24BookingService
     }
 
     /**
-     * Get a valid access token using refresh token
+     * Get a valid access token with retry logic and fallback.
      */
     protected function getValidToken(): string
     {
-        $cacheKey = 'beds24_access_token';
-
-        // Try to get cached token
-        $cachedToken = cache($cacheKey);
-        if ($cachedToken) {
-            return $cachedToken;
+        // 1. Try primary cache
+        $cached = Cache::get(self::CACHE_KEY);
+        if ($cached) {
+            return $cached;
         }
 
-        // Get new token from refresh token
-        try {
-            $response = Http::withHeaders([
-                'refreshToken' => $this->refreshToken,
-                'accept' => 'application/json',
-            ])->get('https://beds24.com/api/v2/authentication/token');
+        // 2. Try to refresh with retries
+        $lastException = null;
+        for ($attempt = 1; $attempt <= self::MAX_RETRY_ATTEMPTS; $attempt++) {
+            try {
+                $token = $this->attemptTokenRefresh($attempt);
+                if ($token) {
+                    // Clear any previous error state
+                    Cache::forget(self::CACHE_KEY_LAST_ERROR);
+                    return $token;
+                }
+            } catch (\Throwable $e) {
+                $lastException = $e;
+                Log::warning("Beds24 token refresh attempt {$attempt}/" . self::MAX_RETRY_ATTEMPTS . " failed", [
+                    'error' => $e->getMessage(),
+                ]);
+                if ($attempt < self::MAX_RETRY_ATTEMPTS) {
+                    usleep(self::RETRY_DELAYS_MS[$attempt - 1] * 1000);
+                }
+            }
+        }
 
-            $result = $response->json();
+        // 3. All retries failed — try fallback token (cached from last successful refresh)
+        $fallback = Cache::get(self::CACHE_KEY_FALLBACK);
+        if ($fallback) {
+            Log::warning('Beds24: Using fallback token after all refresh attempts failed');
+            return $fallback;
+        }
 
-            if (isset($result['token'])) {
-                $token = $result['token'];
-                $expiresIn = $result['expiresIn'] ?? 86400; // Default 24 hours
+        // 4. Total failure — alert owner and throw
+        $errorMsg = $lastException ? $lastException->getMessage() : 'Unknown error';
+        Cache::put(self::CACHE_KEY_LAST_ERROR, [
+            'message' => $errorMsg,
+            'at' => now()->toIso8601String(),
+            'attempts' => self::MAX_RETRY_ATTEMPTS,
+        ], now()->addHours(24));
 
-                // Cache for slightly less than expiry time (subtract 5 minutes for safety)
-                cache([$cacheKey => $token], now()->addSeconds($expiresIn - 300));
+        $this->alertOwnerTokenFailure($errorMsg);
 
-                Log::info('Beds24 Access Token Refreshed', ['expires_in' => $expiresIn]);
+        Log::critical('Beds24: All token refresh attempts failed, no fallback available', [
+            'error' => $errorMsg,
+            'attempts' => self::MAX_RETRY_ATTEMPTS,
+        ]);
 
-                return $token;
+        throw new \RuntimeException('Beds24 token refresh failed after ' . self::MAX_RETRY_ATTEMPTS . ' attempts: ' . $errorMsg);
+    }
+
+    /**
+     * Single token refresh attempt.
+     */
+    private function attemptTokenRefresh(int $attempt): ?string
+    {
+        if (empty($this->refreshToken)) {
+            throw new \RuntimeException('BEDS24_API_V2_REFRESH_TOKEN is not configured');
+        }
+
+        $response = Http::withHeaders([
+            'refreshToken' => $this->refreshToken,
+            'accept' => 'application/json',
+        ])->timeout(10)->get('https://beds24.com/api/v2/authentication/token');
+
+        $result = $response->json();
+
+        if (!$response->successful()) {
+            throw new \RuntimeException('HTTP ' . $response->status() . ': ' . json_encode($result));
+        }
+
+        if (isset($result['token'])) {
+            $token = $result['token'];
+            $expiresIn = $result['expiresIn'] ?? 86400;
+
+            // Cache primary token (expires 5 min early)
+            Cache::put(self::CACHE_KEY, $token, now()->addSeconds($expiresIn - 300));
+
+            // Cache fallback token (longer TTL - survives primary cache expiry)
+            Cache::put(self::CACHE_KEY_FALLBACK, $token, now()->addSeconds($expiresIn + 7200));
+
+            // Track last successful refresh
+            Cache::put(self::CACHE_KEY_LAST_REFRESH, now()->toIso8601String(), now()->addDays(7));
+
+            // Persist rotated refresh token (Beds24 rotates on each use)
+            if (isset($result['refreshToken'])) {
+                Cache::put(self::CACHE_KEY_REFRESH_TOKEN, $result['refreshToken'], now()->addDays(60));
+                $this->refreshToken = $result['refreshToken'];
+                Log::info('Beds24 refresh token rotated and cached');
             }
 
-            throw new \Exception('Failed to get access token: ' . json_encode($result));
-        } catch (\Exception $e) {
-            Log::error('Beds24 Token Refresh Error', ['error' => $e->getMessage()]);
-            throw $e;
+            Log::info('Beds24 token refreshed', [
+                'attempt' => $attempt,
+                'expires_in' => $expiresIn,
+                'next_refresh' => now()->addSeconds($expiresIn - 300)->toIso8601String(),
+            ]);
+
+            return $token;
         }
+
+        throw new \RuntimeException('No token in response: ' . json_encode($result));
+    }
+
+    /**
+     * Force a token refresh (for scheduled tasks / manual refresh).
+     */
+    public function forceRefresh(): array
+    {
+        Cache::forget(self::CACHE_KEY);
+        $this->token = null;
+
+        try {
+            $token = $this->getValidToken();
+            return [
+                'success' => true,
+                'message' => 'Token refreshed successfully',
+                'last_refresh' => Cache::get(self::CACHE_KEY_LAST_REFRESH),
+            ];
+        } catch (\Throwable $e) {
+            return [
+                'success' => false,
+                'message' => $e->getMessage(),
+                'last_error' => Cache::get(self::CACHE_KEY_LAST_ERROR),
+            ];
+        }
+    }
+
+    /**
+     * Get token system health status.
+     */
+    public function getTokenStatus(): array
+    {
+        $hasPrimary = Cache::has(self::CACHE_KEY);
+        $hasFallback = Cache::has(self::CACHE_KEY_FALLBACK);
+        $lastRefresh = Cache::get(self::CACHE_KEY_LAST_REFRESH);
+        $lastError = Cache::get(self::CACHE_KEY_LAST_ERROR);
+
+        $status = 'unknown';
+        if ($hasPrimary) {
+            $status = 'healthy';
+        } elseif ($hasFallback) {
+            $status = 'degraded';
+        } elseif ($lastError) {
+            $status = 'critical';
+        }
+
+        return [
+            'status' => $status,
+            'has_primary_token' => $hasPrimary,
+            'has_fallback_token' => $hasFallback,
+            'last_refresh' => $lastRefresh,
+            'last_error' => $lastError,
+            'has_rotated_refresh_token' => Cache::has(self::CACHE_KEY_REFRESH_TOKEN),
+            'refresh_token_configured' => !empty($this->refreshToken),
+            'refresh_token_preview' => !empty($this->refreshToken)
+                ? substr($this->refreshToken, 0, 6) . '...' . substr($this->refreshToken, -4)
+                : 'NOT SET',
+        ];
+    }
+
+    /**
+     * Alert owner via Telegram when token refresh fails.
+     * Only alerts once per hour to avoid spam.
+     */
+    private function alertOwnerTokenFailure(string $error): void
+    {
+        $throttleKey = 'beds24_token_alert_sent';
+        if (Cache::has($throttleKey)) {
+            return; // Already alerted recently
+        }
+
+        try {
+            $botToken = config('services.owner_alert_bot.token');
+            $chatId = config('services.owner_alert_bot.owner_chat_id');
+
+            if (!$botToken || !$chatId) {
+                return;
+            }
+
+            $message = "🚨 *Beds24 Token Error*\n\n"
+                . "Token refresh failed after " . self::MAX_RETRY_ATTEMPTS . " attempts.\n\n"
+                . "*Error:* `" . substr($error, 0, 200) . "`\n\n"
+                . "⚠️ *Impact:* Booking creation, availability checks, and guest info enrichment are DOWN.\n\n"
+                . "🔧 *Fix:* Go to Beds24 dashboard → API → copy valid refresh token → update `.env` `BEDS24_API_V2_REFRESH_TOKEN`\n\n"
+                . "Then run: `php artisan beds24:refresh-token`";
+
+            Http::post("https://api.telegram.org/bot{$botToken}/sendMessage", [
+                'chat_id' => $chatId,
+                'text' => $message,
+                'parse_mode' => 'Markdown',
+            ]);
+
+            Cache::put($throttleKey, true, now()->addHour());
+        } catch (\Throwable $e) {
+            Log::error('Failed to send Beds24 token alert to owner', ['error' => $e->getMessage()]);
+        }
+    }
+
+    /**
+     * Make an API call with automatic token retry on 401.
+     */
+    protected function apiCall(string $method, string $endpoint, array $data = [], array $query = []): \Illuminate\Http\Client\Response
+    {
+        $request = Http::withHeaders([
+            'token' => $this->getToken(),
+            'Content-Type' => 'application/json',
+            'accept' => 'application/json',
+        ])->timeout(30);
+
+        $response = match (strtoupper($method)) {
+            'GET' => $request->get($this->apiUrl . $endpoint, $query ?: $data),
+            'POST' => $request->post($this->apiUrl . $endpoint, $data),
+            default => throw new \InvalidArgumentException("Unsupported method: $method"),
+        };
+
+        // If 401, token might be stale — force refresh and retry once
+        if ($response->status() === 401) {
+            Log::info('Beds24 API returned 401, forcing token refresh and retrying');
+            Cache::forget(self::CACHE_KEY);
+            $this->token = null;
+
+            $request = Http::withHeaders([
+                'token' => $this->getToken(),
+                'Content-Type' => 'application/json',
+                'accept' => 'application/json',
+            ])->timeout(30);
+
+            $response = match (strtoupper($method)) {
+                'GET' => $request->get($this->apiUrl . $endpoint, $query ?: $data),
+                'POST' => $request->post($this->apiUrl . $endpoint, $data),
+            };
+        }
+
+        return $response;
     }
 
     /**
@@ -91,11 +303,7 @@ class Beds24BookingService
         Log::info('Beds24 Create Booking Request', ['payload' => $payload]);
 
         try {
-            $response = Http::withHeaders([
-                'token' => $this->getToken(),
-                'Content-Type' => 'application/json',
-                'accept' => 'application/json',
-            ])->timeout(30)->post($this->apiUrl . '/bookings', $payload);
+            $response = $this->apiCall('POST', '/bookings', $payload);
 
             $result = $response->json();
 
@@ -140,12 +348,7 @@ class Beds24BookingService
      */
     public function getBooking(string $bookingId): array
     {
-        $response = Http::withHeaders([
-            'token' => $this->getToken(),
-            'accept' => 'application/json',
-        ])->timeout(30)->get($this->apiUrl . '/bookings', [
-            'id' => $bookingId,
-        ]);
+        $response = $this->apiCall('GET', '/bookings', ['id' => $bookingId]);
 
         return $response->json();
     }
@@ -163,11 +366,7 @@ class Beds24BookingService
 
         Log::info('Beds24 Cancel Booking Request', ['payload' => $payload]);
 
-        $response = Http::withHeaders([
-            'token' => $this->getToken(),
-            'Content-Type' => 'application/json',
-            'accept' => 'application/json',
-        ])->timeout(30)->post($this->apiUrl . '/bookings', $payload);
+        $response = $this->apiCall('POST', '/bookings', $payload);
 
         $result = $response->json();
         
@@ -185,11 +384,7 @@ class Beds24BookingService
             'id' => (int) $bookingId,
         ], $changes);
 
-        $response = Http::withHeaders([
-            'token' => $this->getToken(),
-            'Content-Type' => 'application/json',
-            'accept' => 'application/json',
-        ])->timeout(30)->post($this->apiUrl . '/bookings', [$payload]);
+        $response = $this->apiCall('POST', '/bookings', [$payload]);
 
         return $response->json();
     }
@@ -244,10 +439,7 @@ class Beds24BookingService
                     'filters' => $propertyFilters
                 ]);
 
-                $response = Http::withHeaders([
-                    'token' => $this->getToken(),
-                    'accept' => 'application/json',
-                ])->timeout(30)->get($this->apiUrl . '/bookings', $propertyFilters);
+                $response = $this->apiCall('GET', '/bookings', $propertyFilters);
 
                 $result = $response->json();
 
@@ -340,10 +532,7 @@ class Beds24BookingService
 
                 Log::info('Beds24 Inventory Calendar Request', ['params' => $params]);
 
-                $response = Http::withHeaders([
-                    'token' => $this->getToken(),
-                    'accept' => 'application/json',
-                ])->timeout(30)->get($this->apiUrl . '/inventory/rooms/calendar', $params);
+                $response = $this->apiCall('GET', '/inventory/rooms/calendar', $params);
 
                 $result = $response->json();
 
@@ -493,11 +682,7 @@ class Beds24BookingService
         ]);
 
         try {
-            $response = Http::withHeaders([
-                'token' => $this->getToken(),
-                'Content-Type' => 'application/json',
-                'accept' => 'application/json',
-            ])->timeout(30)->post($this->apiUrl . '/bookings', $payload);
+            $response = $this->apiCall('POST', '/bookings', $payload);
 
             $result = $response->json();
 
@@ -538,13 +723,7 @@ class Beds24BookingService
     public function fetchGuestInfo(string $bookingId): array
     {
         try {
-            $response = Http::withHeaders([
-                'token' => $this->getToken(),
-                'accept' => 'application/json',
-            ])->timeout(15)->get($this->apiUrl . '/bookings', [
-                'id' => $bookingId,
-                'includeInfoItems' => 'true',
-            ]);
+            $response = $this->apiCall('GET', '/bookings', ['id' => $bookingId, 'includeInfoItems' => 'true']);
 
             $result = $response->json();
             $bookingData = $result['data'][0] ?? $result[0] ?? null;
