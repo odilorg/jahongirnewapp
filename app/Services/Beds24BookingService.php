@@ -8,13 +8,23 @@ use Illuminate\Support\Facades\Log;
 class Beds24BookingService
 {
     protected string $apiUrl = 'https://api.beds24.com/v2';
-    protected string $token;
+    protected ?string $token = null;
     protected string $refreshToken;
 
     public function __construct()
     {
-        $this->refreshToken = config('services.beds24.api_v2_refresh_token', env('BEDS24_API_V2_REFRESH_TOKEN'));
-        $this->token = $this->getValidToken();
+        $this->refreshToken = config('services.beds24.api_v2_refresh_token', env('BEDS24_API_V2_REFRESH_TOKEN', ''));
+    }
+
+    /**
+     * Get the API token, refreshing if needed. Lazy-loaded to avoid constructor crashes.
+     */
+    protected function getToken(): string
+    {
+        if ($this->token === null) {
+            $this->token = $this->getValidToken();
+        }
+        return $this->token;
     }
 
     /**
@@ -82,7 +92,7 @@ class Beds24BookingService
 
         try {
             $response = Http::withHeaders([
-                'token' => $this->token,
+                'token' => $this->getToken(),
                 'Content-Type' => 'application/json',
                 'accept' => 'application/json',
             ])->timeout(30)->post($this->apiUrl . '/bookings', $payload);
@@ -131,7 +141,7 @@ class Beds24BookingService
     public function getBooking(string $bookingId): array
     {
         $response = Http::withHeaders([
-            'token' => $this->token,
+            'token' => $this->getToken(),
             'accept' => 'application/json',
         ])->timeout(30)->get($this->apiUrl . '/bookings', [
             'id' => $bookingId,
@@ -154,7 +164,7 @@ class Beds24BookingService
         Log::info('Beds24 Cancel Booking Request', ['payload' => $payload]);
 
         $response = Http::withHeaders([
-            'token' => $this->token,
+            'token' => $this->getToken(),
             'Content-Type' => 'application/json',
             'accept' => 'application/json',
         ])->timeout(30)->post($this->apiUrl . '/bookings', $payload);
@@ -176,7 +186,7 @@ class Beds24BookingService
         ], $changes);
 
         $response = Http::withHeaders([
-            'token' => $this->token,
+            'token' => $this->getToken(),
             'Content-Type' => 'application/json',
             'accept' => 'application/json',
         ])->timeout(30)->post($this->apiUrl . '/bookings', [$payload]);
@@ -235,7 +245,7 @@ class Beds24BookingService
                 ]);
 
                 $response = Http::withHeaders([
-                    'token' => $this->token,
+                    'token' => $this->getToken(),
                     'accept' => 'application/json',
                 ])->timeout(30)->get($this->apiUrl . '/bookings', $propertyFilters);
 
@@ -331,7 +341,7 @@ class Beds24BookingService
                 Log::info('Beds24 Inventory Calendar Request', ['params' => $params]);
 
                 $response = Http::withHeaders([
-                    'token' => $this->token,
+                    'token' => $this->getToken(),
                     'accept' => 'application/json',
                 ])->timeout(30)->get($this->apiUrl . '/inventory/rooms/calendar', $params);
 
@@ -484,7 +494,7 @@ class Beds24BookingService
 
         try {
             $response = Http::withHeaders([
-                'token' => $this->token,
+                'token' => $this->getToken(),
                 'Content-Type' => 'application/json',
                 'accept' => 'application/json',
             ])->timeout(30)->post($this->apiUrl . '/bookings', $payload);
@@ -529,7 +539,7 @@ class Beds24BookingService
     {
         try {
             $response = Http::withHeaders([
-                'token' => $this->token,
+                'token' => $this->getToken(),
                 'accept' => 'application/json',
             ])->timeout(15)->get($this->apiUrl . '/bookings', [
                 'id' => $bookingId,
