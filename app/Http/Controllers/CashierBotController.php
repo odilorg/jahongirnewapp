@@ -30,10 +30,16 @@ class CashierBotController extends Controller
 
     public function handleWebhook(Request $request)
     {
-        Log::debug('CashierBot webhook', ['data' => $request->all()]);
-        if ($callback = $request->input('callback_query')) return $this->handleCallback($callback);
-        if ($message = $request->input('message')) return $this->handleMessage($message);
-        return response('OK');
+        try {
+            Log::debug('CashierBot webhook', ['data' => $request->all()]);
+            if ($callback = $request->input('callback_query')) return $this->handleCallback($callback);
+            if ($message = $request->input('message')) return $this->handleMessage($message);
+            return response('OK');
+        } catch (\Throwable $e) {
+            Log::error('CashierBot unhandled error', ['e' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+            $this->alertOwnerOnError('Webhook', $e);
+            return response('OK');
+        }
     }
 
     protected function handleMessage(array $message)
@@ -276,6 +282,7 @@ class CashierBotController extends Controller
             $this->send($chatId, "Оплата записана!\nБаланс: " . $this->fmtBal($this->getBal($shift)));
         } catch (\Exception $e) {
             Log::error('Payment failed', ['e' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+            $this->alertOwnerOnError('Payment', $e, $s->user_id);
             $this->send($chatId, "Ошибка при записи оплаты. Попробуйте снова.");
         }
         return $this->showMainMenu($chatId, $s);
@@ -363,6 +370,7 @@ class CashierBotController extends Controller
             $this->send($chatId, "Расход записан!\nБаланс: " . $this->fmtBal($this->getBal($shift)));
         } catch (\Exception $e) {
             Log::error('Expense failed', ['e' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+            $this->alertOwnerOnError('Expense', $e, $s->user_id);
             $this->send($chatId, "Ошибка при записи расхода. Попробуйте снова.");
         }
         return $this->showMainMenu($chatId, $s);
@@ -528,6 +536,7 @@ class CashierBotController extends Controller
             $this->send($chatId, "Смена закрыта!");
         } catch (\Exception $e) {
             Log::error('Close shift failed', ['e' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+            $this->alertOwnerOnError('Close shift', $e, $s->user_id);
             $this->send($chatId, "Ошибка при закрытии смены. Обратитесь к руководству.");
         }
         return $this->showMainMenu($chatId, $s);
@@ -600,5 +609,18 @@ class CashierBotController extends Controller
     protected function aCb(string $id)
     {
         Http::post("https://api.telegram.org/bot{$this->botToken}/answerCallbackQuery", ['callback_query_id' => $id]);
+    }
+
+    protected function alertOwnerOnError(string $context, \Throwable $e, ?int $userId = null): void
+    {
+        try {
+            $user = $userId ? (User::find($userId)?->name ?? "ID:{$userId}") : 'unknown';
+            $msg = "\xF0\x9F\x94\xB4 <b>Cashier Bot Error</b>\n\n"
+                . "\xF0\x9F\x93\x8D {$context}\n"
+                . "\xF0\x9F\x91\xA4 {$user}\n"
+                . "\xE2\x9D\x8C " . mb_substr($e->getMessage(), 0, 200) . "\n"
+                . "\xF0\x9F\x93\x84 " . basename($e->getFile()) . ":" . $e->getLine();
+            $this->ownerAlert->sendShiftCloseReport($msg);
+        } catch (\Throwable $ignore) {}
     }
 }
