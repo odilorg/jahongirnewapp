@@ -7,6 +7,8 @@ use App\Models\CashierShift;
 use App\Models\CashTransaction;
 use App\Models\CashExpense;
 use App\Models\ShiftHandover;
+use App\Models\EndSaldo;
+use App\Enums\Currency;
 use App\Models\BeginningSaldo;
 use App\Models\Beds24Booking;
 use App\Models\TelegramPosSession;
@@ -466,6 +468,23 @@ class CashierBotController extends Controller
                 'cash_photo_path' => $d['photo_id'] ?? null,
             ]);
             $shift->update(['status' => 'closed', 'closed_at' => now()]);
+
+            // Create EndSaldo records for reports consistency
+            foreach (['UZS', 'USD', 'EUR'] as $cur) {
+                $exp = $d['expected'][$cur] ?? 0;
+                $cnt = $d['counted_' . strtolower($cur)] ?? 0;
+                if ($exp > 0 || $cnt > 0) {
+                    EndSaldo::updateOrCreate(
+                        ['cashier_shift_id' => $shift->id, 'currency' => Currency::from($cur)],
+                        [
+                            'expected_end_saldo' => $exp,
+                            'counted_end_saldo' => $cnt,
+                            'discrepancy' => round($cnt - $exp, 2),
+                            'discrepancy_reason' => abs($cnt - $exp) > 0.01 ? 'Via Telegram bot' : null,
+                        ]
+                    );
+                }
+            }
 
             $user = User::find($s->user_id);
             $txn = CashTransaction::where('cashier_shift_id', $shift->id)->count();
