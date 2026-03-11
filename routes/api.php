@@ -83,3 +83,10 @@ Route::post('/telegram/cashier/webhook', [\App\Http\Controllers\CashierBotContro
 
 Route::post("/telegram/owner/webhook", [\App\Http\Controllers\OwnerBotController::class, "handleWebhook"])
     ->name("telegram.owner.webhook");
+
+
+// Beds24 token health check
+Route::get('/beds24/health', function () {
+    $service = app(\App\Services\Beds24BookingService::class);
+    return response()->json($service->getTokenStatus());
+})->name('beds24.health');

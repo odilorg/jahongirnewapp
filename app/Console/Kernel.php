@@ -24,6 +24,14 @@ class Kernel extends ConsoleKernel
         // Existing: run scheduled messages every minute
         $schedule->command('app:send-scheduled-messages')->everyMinute();
 
+        // Beds24 token refresh - every 20 hours (well before 24h expiry)
+        $schedule->command('beds24:refresh-token')
+            ->cron('0 */20 * * *') // Every 20 hours
+            ->withoutOverlapping()
+            ->onFailure(function () {
+                \Illuminate\Support\Facades\Log::critical('Scheduled beds24:refresh-token FAILED');
+            });
+
         // Daily owner report at 22:00 Tashkent time (Asia/Tashkent = UTC+5, so 17:00 UTC)
         $schedule->command('beds24:daily-report')
             ->dailyAt('17:00') // 22:00 Asia/Tashkent = 17:00 UTC

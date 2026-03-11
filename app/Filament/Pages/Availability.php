@@ -25,8 +25,7 @@ class Availability extends Page implements Forms\Contracts\HasForms
     public $hotel;
     public $available_rooms = []; // Stores room names from the response
 
-    private const TOKEN_REFRESH_URL = 'https://beds24.com/api/v2/authentication/token';
-    private const REFRESH_TOKEN = 'cR6Piq23D9R2w88gjhMLR6wqlM+Wy4VaNtLDRuAjG0w2sEgnKG9mvyxsFvi+288DRWYVeUyuoxvV5O/guvf9fDwBX4ebFu+SyWnXXe8Dmh3gThoV2bC+uSBrxOrPZEKC1Fh7SDvUY+aI7rmESCZwylcpnV5QQome8OsF0hArA5A=';
+    // Token management consolidated into Beds24BookingService (single source of truth)
 
     protected function getFormSchema(): array
     {
@@ -48,42 +47,21 @@ class Availability extends Page implements Forms\Contracts\HasForms
     }
 
     private function getApiToken(): ?string
-{
-    $token = Cache::get('beds24_api_token'); // Check if the token exists in cache
-
-    if ($token) {
-        return $token; // Use cached token
-    }
-
-    // Fetch a new token using the refresh token
-    $response = Http::withHeaders(['refreshToken' => self::REFRESH_TOKEN])
-        ->get(self::TOKEN_REFRESH_URL);
-
-    if ($response->successful()) {
-        $data = $response->json();
-
-        // Check if the token exists in the response
-        if (isset($data['token']) && isset($data['expiresIn'])) {
-            $expiresInSeconds = (int) $data['expiresIn'];
-
-            // Cache the new token
-            Cache::put('beds24_api_token', $data['token'], now()->addSeconds($expiresInSeconds));
-
-            Log::info('API token refreshed successfully', [
-                'token' => $data['token'],
-                'expires_in' => $expiresInSeconds,
-            ]);
-
-            return $data['token'];
+    {
+        try {
+            $service = app(\App\Services\Beds24BookingService::class);
+            // Use reflection to call protected getToken() - or use forceRefresh
+            $result = $service->forceRefresh();
+            if ($result['success']) {
+                return \Illuminate\Support\Facades\Cache::get('beds24_access_token');
+            }
+            Log::error('Availability: Token refresh failed', $result);
+            return null;
+        } catch (\Throwable $e) {
+            Log::error('Availability: Token error', ['error' => $e->getMessage()]);
+            return null;
         }
-
-        Log::error('Unexpected response format during token refresh', ['response' => $data]);
-        return null;
     }
-
-    Log::error('Failed API token refresh response', ['response' => $response->body()]);
-    return null; // Return null if refreshing fails
-}
 
 
     public function submit()
