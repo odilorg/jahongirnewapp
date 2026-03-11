@@ -50,7 +50,8 @@ class CashierBotController extends Controller
             $this->send($chatId, "Отправьте номер телефона для авторизации.", $this->phoneKb());
             return response('OK');
         }
-        if ($session->isExpired()) {
+        // Only expire idle sessions, not active workflows
+        if ($session->isExpired() && in_array($session->state, ['main_menu', 'idle', null])) {
             $session->update(['user_id' => null, 'state' => 'idle', 'data' => null]);
             $this->send($chatId, "Сессия истекла. Отправьте номер телефона.", $this->phoneKb());
             return response('OK');
