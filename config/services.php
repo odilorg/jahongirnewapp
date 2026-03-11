@@ -82,7 +82,8 @@ return [
     ],
 
     'housekeeping_bot' => [
-        'token' => env('HOUSEKEEPING_BOT_TOKEN', ''),
+        'token'         => env('HOUSEKEEPING_BOT_TOKEN', ''),
+        'mgmt_group_id' => env('HOUSEKEEPING_MGMT_GROUP_ID', ''),
     ],
 
 ];
