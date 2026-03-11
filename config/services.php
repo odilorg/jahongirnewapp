@@ -81,4 +81,8 @@ return [
         'expense_approval_threshold_uzs' => env('EXPENSE_APPROVAL_THRESHOLD', 500000),
     ],
 
+    'housekeeping_bot' => [
+        'token' => env('HOUSEKEEPING_BOT_TOKEN', ''),
+    ],
+
 ];

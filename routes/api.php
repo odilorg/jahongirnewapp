@@ -90,3 +90,6 @@ Route::get('/beds24/health', function () {
     $service = app(\App\Services\Beds24BookingService::class);
     return response()->json($service->getTokenStatus());
 })->name('beds24.health');
+// Housekeeping Bot Webhook
+Route::post('/telegram/housekeeping/webhook', [\App\Http\Controllers\HousekeepingBotController::class, 'handleWebhook'])
+    ->name('telegram.housekeeping.webhook');
