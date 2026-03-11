@@ -3,52 +3,27 @@
 namespace App\Http\Controllers;
 
 use App\Models\RoomStatus;
+use App\Models\RoomCleaning;
+use App\Models\RoomIssue;
 use App\Models\TelegramPosSession;
 use App\Models\User;
 use App\Services\OwnerAlertService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 
 class HousekeepingBotController extends Controller
 {
     protected string $botToken;
+    protected int    $mgmtGroupId;
     protected OwnerAlertService $ownerAlert;
-
-    // Property definitions
-    protected array $properties = [
-        41097  => '🏨 Jahongir Hotel',
-        172793 => '🏨 Jahongir Premium',
-    ];
-
-    // Room types per property [room_id => room_name]
-    protected array $roomsByProperty = [
-        41097 => [
-            94982  => 'Double Room',
-            94984  => 'Single Room',
-            94986  => 'Twin Room',
-            94991  => 'Large Double Room',
-            97215  => 'Family Room',
-            144341 => 'Twin/Double',
-            144342 => 'Junior Suite',
-            152726 => '1 xona',
-        ],
-        172793 => [
-            377291 => 'Double or Twin',
-            377298 => 'Deluxe Single',
-            377299 => 'Standard Queen',
-            377300 => 'Standard Double',
-            377301 => 'Deluxe Double/Twin',
-            377302 => 'Superior Double',
-            377303 => 'Superior Double/Twin',
-            377304 => 'Deluxe Triple',
-        ],
-    ];
 
     public function __construct(OwnerAlertService $ownerAlert)
     {
-        $this->botToken = config('services.housekeeping_bot.token', '');
-        $this->ownerAlert = $ownerAlert;
+        $this->botToken    = config('services.housekeeping_bot.token', '');
+        $this->mgmtGroupId = (int) config('services.housekeeping_bot.mgmt_group_id', 0);
+        $this->ownerAlert  = $ownerAlert;
     }
 
     // ── WEBHOOK ENTRY ────────────────────────────────────────────
@@ -57,11 +32,17 @@ class HousekeepingBotController extends Controller
     {
         try {
             Log::debug('HousekeepingBot webhook', ['data' => $request->all()]);
-            if ($callback = $request->input('callback_query')) return $this->handleCallback($callback);
-            if ($message = $request->input('message')) return $this->handleMessage($message);
+
+            if ($message = $request->input('message')) {
+                return $this->handleMessage($message);
+            }
+
             return response('OK');
         } catch (\Throwable $e) {
-            Log::error('HousekeepingBot unhandled error', ['e' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+            Log::error('HousekeepingBot unhandled error', [
+                'e'     => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
             $this->alertOwnerOnError('Webhook', $e);
             return response('OK');
         }
@@ -73,36 +54,59 @@ class HousekeepingBotController extends Controller
     {
         $chatId  = $message['chat']['id'] ?? null;
         $text    = trim($message['text'] ?? '');
+        $photo   = $message['photo'] ?? null;
         $contact = $message['contact'] ?? null;
 
         if (!$chatId) return response('OK');
+
+        // Auth: phone contact
         if ($contact) return $this->handleAuth($chatId, $contact);
 
         $session = TelegramPosSession::where('chat_id', $chatId)->first();
 
+        // Not authenticated
         if (!$session || !$session->user_id) {
-            $this->send($chatId, "Отправьте номер телефона для авторизации.", $this->phoneKb());
-            return response('OK');
-        }
-
-        // Expire idle sessions only
-        if ($session->isExpired() && in_array($session->state, ['hk_main', 'idle', null])) {
-            $session->update(['user_id' => null, 'state' => 'idle', 'data' => null]);
-            $this->send($chatId, "Сессия истекла. Отправьте номер телефона.", $this->phoneKb());
+            $this->send($chatId, "Telefon raqamingizni yuboring.", $this->phoneKb());
             return response('OK');
         }
 
         $session->updateActivity();
 
-        if ($text === '/start' || $text === '/menu') return $this->showMainMenu($chatId, $session);
+        // Photo received — start issue flow
+        if ($photo) {
+            return $this->handlePhoto($chatId, $session, $photo);
+        }
+
+        // State-based handling (issue reporting flow)
+        if (in_array($session->state, ['hk_issue_room', 'hk_issue_desc'])) {
+            return $this->handleIssueFlow($chatId, $session, $text);
+        }
+
+        // Commands
+        if ($text === '/start')    return $this->showWelcome($chatId, $session);
+        if ($text === '/status')   return $this->showStatus($chatId);
+        if ($text === '/issues')   return $this->showIssues($chatId);
+        if ($text === '/alldirty') return $this->markAllDirty($chatId, $session);
         if ($text === '/logout') {
             $session->update(['user_id' => null, 'state' => 'idle', 'data' => null]);
-            $this->send($chatId, "Вы вышли. Отправьте номер телефона для входа.", $this->phoneKb());
+            $this->send($chatId, "Chiqildi. Qayta kirish uchun telefon raqamingizni yuboring.", $this->phoneKb());
             return response('OK');
         }
 
-        // Default: show main menu for any unrecognised text
-        return $this->showMainMenu($chatId, $session);
+        // /dirty 7 or /iflos 7 — managers only
+        if (preg_match('/^\/(dirty|iflos)\s+(\d+)$/i', $text, $m)) {
+            return $this->markDirty($chatId, $session, (int) $m[2]);
+        }
+
+        // Parse room numbers from message: "7", "3,5,11", "7 xona tayyor", "11 14"
+        $rooms = $this->extractRoomNumbers($text);
+        if (!empty($rooms)) {
+            return $this->markRoomsClean($chatId, $session, $rooms);
+        }
+
+        // Unknown input — show brief hint
+        $this->send($chatId, "Xona raqamini yozing (masalan: 7 yoki 3,5,11)\n📸 Rasm yuboring — muammo haqida\n/status — barcha xonalar");
+        return response('OK');
     }
 
     // ── AUTH ─────────────────────────────────────────────────────
@@ -113,7 +117,7 @@ class HousekeepingBotController extends Controller
         $user  = User::where('phone_number', 'LIKE', '%' . substr($phone, -9))->first();
 
         if (!$user) {
-            $this->send($chatId, "Номер не найден. Обратитесь к руководству.");
+            $this->send($chatId, "Raqam topilmadi. Rahbariyatga murojaat qiling.");
             return response('OK');
         }
 
@@ -122,346 +126,393 @@ class HousekeepingBotController extends Controller
             ['user_id' => $user->id, 'state' => 'hk_main', 'data' => null]
         );
 
-        $this->send($chatId, "Добро пожаловать, {$user->name}!");
-        return $this->showMainMenu($chatId, TelegramPosSession::where('chat_id', $chatId)->first());
+        $this->send($chatId, "Xush kelibsiz, {$user->name}!");
+        return $this->showWelcome($chatId, TelegramPosSession::where('chat_id', $chatId)->first());
     }
 
-    // ── MAIN MENU ────────────────────────────────────────────────
+    // ── WELCOME ──────────────────────────────────────────────────
 
-    protected function showMainMenu(int $chatId, $session)
+    protected function showWelcome(int $chatId, $session)
     {
         $session->update(['state' => 'hk_main', 'data' => null]);
 
-        $btns = [
-            [['text' => '🏨 Jahongir Hotel',   'callback_data' => 'hk_prop_41097']],
-            [['text' => '🏨 Jahongir Premium', 'callback_data' => 'hk_prop_172793']],
-            [['text' => '📊 Обзор статусов',   'callback_data' => 'hk_overview']],
-        ];
+        $text = "🧹 <b>Jahongir Hotel — Tozalik Bot</b>\n\n"
+            . "Xona raqamini yozing — toza deb belgilanadi\n"
+            . "Masalan: <code>7</code> yoki <code>3,5,11</code>\n\n"
+            . "📸 Rasm yuboring — muammo haqida xabar\n"
+            . "/status — barcha xonalar holati\n"
+            . "/issues — ochiq muammolar";
 
-        $this->send($chatId, "Горничная-бот\n\nВыберите объект:", ['inline_keyboard' => $btns], 'inline');
+        $this->send($chatId, $text);
         return response('OK');
     }
 
-    // ── CALLBACK HANDLER ─────────────────────────────────────────
+    // ── MARK ROOMS CLEAN ─────────────────────────────────────────
 
-    protected function handleCallback(array $cb)
+    protected function markRoomsClean(int $chatId, $session, array $rooms)
     {
-        $chatId    = $cb['message']['chat']['id'] ?? null;
-        $msgId     = $cb['message']['message_id'] ?? null;
-        $data      = $cb['data'] ?? '';
-        $cbId      = $cb['id'] ?? '';
+        $user    = User::find($session->user_id);
+        $cleaned = [];
 
-        if (!$chatId) return response('OK');
-        $this->aCb($cbId);
+        foreach ($rooms as $num) {
+            $roomStatus = RoomStatus::where('room_number', $num)->first();
+            if (!$roomStatus) continue;
 
-        $session = TelegramPosSession::where('chat_id', $chatId)->first();
-        if (!$session || !$session->user_id) {
-            $this->send($chatId, "Отправьте номер телефона для авторизации.", $this->phoneKb());
+            $roomStatus->markClean($session->user_id);
+            $cleaned[] = $num;
+
+            Log::info('HousekeepingBot: room marked clean', [
+                'room_number' => $num,
+                'user_id'     => $session->user_id,
+                'user_name'   => $user?->name,
+            ]);
+        }
+
+        if (empty($cleaned)) {
+            $this->send($chatId, "Xona topilmadi. 1 dan 15 gacha raqam kiriting.");
             return response('OK');
         }
 
-        $session->updateActivity();
+        $time = now()->format('H:i');
+        $name = $user?->name ?? 'Noma\'lum';
 
-        return match(true) {
-            $data === 'hk_menu'                    => $this->showMainMenu($chatId, $session),
-            $data === 'hk_overview'                => $this->showOverview($chatId, $msgId, $session),
-            str_starts_with($data, 'hk_prop_')    => $this->showRoomTypes($chatId, $msgId, $session, $data),
-            str_starts_with($data, 'hk_room_')    => $this->showUnits($chatId, $msgId, $session, $data),
-            str_starts_with($data, 'hk_unit_')    => $this->showUnitStatus($chatId, $msgId, $session, $data),
-            str_starts_with($data, 'hk_set_')     => $this->setStatus($chatId, $msgId, $session, $data),
-            default                                 => response('OK'),
-        };
-    }
-
-    // ── SELECT PROPERTY → SHOW ROOM TYPES ───────────────────────
-
-    protected function showRoomTypes(int $chatId, ?int $msgId, $session, string $data)
-    {
-        $propertyId = (int) str_replace('hk_prop_', '', $data);
-
-        if (!isset($this->roomsByProperty[$propertyId])) {
-            $this->send($chatId, "Объект не найден.");
-            return response('OK');
+        if (count($cleaned) === 1) {
+            $text = "✅ {$cleaned[0]}-xona — Toza!\n👤 {$name} | 🕐 {$time}";
+        } else {
+            $nums = implode(', ', $cleaned);
+            $text = "✅ {$nums}-xonalar — Toza!\n👤 {$name} | 🕐 {$time}";
         }
 
-        $session->update(['state' => 'hk_select_room', 'data' => ['property_id' => $propertyId]]);
-
-        $rooms = $this->roomsByProperty[$propertyId];
-        $btns  = [];
-
-        foreach ($rooms as $roomId => $roomName) {
-            // Aggregate status for this room type (worst-case: repair > dirty > clean)
-            $statuses = RoomStatus::where('beds24_property_id', $propertyId)
-                ->where('beds24_room_id', $roomId)
-                ->pluck('status')
-                ->toArray();
-
-            $emoji = $this->aggregateEmoji($statuses);
-            $btns[] = [['text' => "{$emoji} {$roomName}", 'callback_data' => "hk_room_{$propertyId}_{$roomId}"]];
-        }
-
-        $btns[] = [['text' => '⬅️ Назад', 'callback_data' => 'hk_menu']];
-
-        $propertyName = $this->properties[$propertyId] ?? 'Объект';
-        $text = "{$propertyName}\n\nВыберите тип номера:";
-
-        $this->editOrSend($chatId, $msgId, $text, ['inline_keyboard' => $btns]);
+        $this->send($chatId, $text);
         return response('OK');
     }
 
-    // ── SELECT ROOM TYPE → SHOW UNITS ────────────────────────────
+    // ── MARK SINGLE ROOM DIRTY (manager) ─────────────────────────
 
-    protected function showUnits(int $chatId, ?int $msgId, $session, string $data)
+    protected function markDirty(int $chatId, $session, int $roomNum)
     {
-        // Format: hk_room_{propertyId}_{roomId}
-        $parts      = explode('_', $data);
-        $propertyId = (int) $parts[2];
-        $roomId     = (int) $parts[3];
+        $user = User::find($session->user_id);
 
-        $session->update(['state' => 'hk_select_unit', 'data' => [
-            'property_id' => $propertyId,
-            'room_id'     => $roomId,
-        ]]);
-
-        $roomName = $this->roomsByProperty[$propertyId][$roomId] ?? 'Номер';
-        $units    = RoomStatus::where('beds24_property_id', $propertyId)
-            ->where('beds24_room_id', $roomId)
-            ->orderBy('unit_number')
-            ->get();
-
-        if ($units->isEmpty()) {
-            $this->send($chatId, "Юниты для этого типа номера не найдены.");
+        // Check manager role
+        if (!$user || !in_array($user->role, ['admin', 'manager', 'owner'])) {
+            $this->send($chatId, "Bu buyruq faqat rahbariyat uchun.");
             return response('OK');
         }
 
-        $btns = [];
-        foreach ($units as $unit) {
-            $label = $unit->unit_name ?: "Комната {$unit->unit_number}";
-            $btns[] = [[
-                'text'          => "{$unit->statusEmoji()} {$label}",
-                'callback_data' => "hk_unit_{$propertyId}_{$roomId}_{$unit->unit_number}",
-            ]];
-        }
-        $btns[] = [['text' => '⬅️ Назад', 'callback_data' => "hk_prop_{$propertyId}"]];
-
-        $text = "{$this->properties[$propertyId]}\n{$roomName}\n\nВыберите комнату:";
-        $this->editOrSend($chatId, $msgId, $text, ['inline_keyboard' => $btns]);
-        return response('OK');
-    }
-
-    // ── SELECT UNIT → SHOW STATUS + ACTION BUTTONS ───────────────
-
-    protected function showUnitStatus(int $chatId, ?int $msgId, $session, string $data)
-    {
-        // Format: hk_unit_{propertyId}_{roomId}_{unitNumber}
-        $parts      = explode('_', $data);
-        $propertyId = (int) $parts[2];
-        $roomId     = (int) $parts[3];
-        $unitNumber = (int) $parts[4];
-
-        $unit = RoomStatus::where('beds24_property_id', $propertyId)
-            ->where('beds24_room_id', $roomId)
-            ->where('unit_number', $unitNumber)
-            ->first();
-
-        if (!$unit) {
-            $this->send($chatId, "Комната не найдена.");
+        $roomStatus = RoomStatus::where('room_number', $roomNum)->first();
+        if (!$roomStatus) {
+            $this->send($chatId, "Xona topilmadi. 1-15 oralig'ida raqam kiriting.");
             return response('OK');
         }
 
-        $session->update(['state' => 'hk_set_status', 'data' => [
-            'property_id' => $propertyId,
-            'room_id'     => $roomId,
-            'unit_number' => $unitNumber,
-        ]]);
+        $roomStatus->markDirty();
 
-        $roomName = $this->roomsByProperty[$propertyId][$roomId] ?? 'Номер';
-        $unitLabel = $unit->unit_name ?: "Комната {$unitNumber}";
-
-        $text = "{$this->properties[$propertyId]}\n"
-            . "{$roomName} — {$unitLabel}\n\n"
-            . "Текущий статус: {$unit->statusEmoji()} <b>{$unit->statusLabel()}</b>\n\n"
-            . "Изменить статус:";
-
-        $btns = [
-            [
-                ['text' => '✅ Чистый',  'callback_data' => "hk_set_{$propertyId}_{$roomId}_{$unitNumber}_clean"],
-                ['text' => '🟡 Грязный', 'callback_data' => "hk_set_{$propertyId}_{$roomId}_{$unitNumber}_dirty"],
-                ['text' => '🔴 Ремонт',  'callback_data' => "hk_set_{$propertyId}_{$roomId}_{$unitNumber}_repair"],
-            ],
-            [['text' => '⬅️ Назад', 'callback_data' => "hk_room_{$propertyId}_{$roomId}"]],
-        ];
-
-        $this->editOrSend($chatId, $msgId, $text, ['inline_keyboard' => $btns]);
-        return response('OK');
-    }
-
-    // ── SET STATUS ───────────────────────────────────────────────
-
-    protected function setStatus(int $chatId, ?int $msgId, $session, string $data)
-    {
-        // Format: hk_set_{propertyId}_{roomId}_{unitNumber}_{status}
-        $parts      = explode('_', $data);
-        $propertyId = (int) $parts[2];
-        $roomId     = (int) $parts[3];
-        $unitNumber = (int) $parts[4];
-        $newStatus  = $parts[5] ?? '';
-
-        if (!in_array($newStatus, ['clean', 'dirty', 'repair'])) {
-            $this->send($chatId, "Неверный статус.");
-            return response('OK');
-        }
-
-        $unit = RoomStatus::where('beds24_property_id', $propertyId)
-            ->where('beds24_room_id', $roomId)
-            ->where('unit_number', $unitNumber)
-            ->first();
-
-        if (!$unit) {
-            $this->send($chatId, "Комната не найдена.");
-            return response('OK');
-        }
-
-        $oldStatus = $unit->status;
-        $unit->update(['status' => $newStatus, 'updated_by' => $session->user_id]);
-
-        $roomName  = $this->roomsByProperty[$propertyId][$roomId] ?? 'Номер';
-        $unitLabel = $unit->unit_name ?: "Комната {$unitNumber}";
-        $user      = User::find($session->user_id);
-
-        Log::info('HousekeepingBot: status changed', [
-            'property_id' => $propertyId,
-            'room_id'     => $roomId,
-            'unit_number' => $unitNumber,
-            'old_status'  => $oldStatus,
-            'new_status'  => $newStatus,
+        Log::info('HousekeepingBot: room marked dirty', [
+            'room_number' => $roomNum,
             'user_id'     => $session->user_id,
             'user_name'   => $user?->name,
         ]);
 
-        // Reload unit to get fresh data
-        $unit->refresh();
+        $this->send($chatId, "🟡 {$roomNum}-xona — Iflos deb belgilandi.");
+        return response('OK');
+    }
 
-        $text = "{$this->properties[$propertyId]}\n"
-            . "{$roomName} — {$unitLabel}\n\n"
-            . "✅ Статус обновлён!\n"
-            . "Текущий статус: {$unit->statusEmoji()} <b>{$unit->statusLabel()}</b>\n\n"
-            . "Изменить статус:";
+    // ── MARK ALL DIRTY (manager) ──────────────────────────────────
 
-        $btns = [
-            [
-                ['text' => '✅ Чистый',  'callback_data' => "hk_set_{$propertyId}_{$roomId}_{$unitNumber}_clean"],
-                ['text' => '🟡 Грязный', 'callback_data' => "hk_set_{$propertyId}_{$roomId}_{$unitNumber}_dirty"],
-                ['text' => '🔴 Ремонт',  'callback_data' => "hk_set_{$propertyId}_{$roomId}_{$unitNumber}_repair"],
-            ],
-            [['text' => '⬅️ Назад', 'callback_data' => "hk_room_{$propertyId}_{$roomId}"]],
-        ];
+    protected function markAllDirty(int $chatId, $session)
+    {
+        $user = User::find($session->user_id);
 
-        $this->editOrSend($chatId, $msgId, $text, ['inline_keyboard' => $btns]);
+        if (!$user || !in_array($user->role, ['admin', 'manager', 'owner'])) {
+            $this->send($chatId, "Bu buyruq faqat rahbariyat uchun.");
+            return response('OK');
+        }
+
+        RoomStatus::query()->update([
+            'status'     => 'dirty',
+            'cleaned_by' => null,
+            'cleaned_at' => null,
+            'updated_at' => now(),
+        ]);
+
+        Log::info('HousekeepingBot: all rooms marked dirty', [
+            'user_id'   => $session->user_id,
+            'user_name' => $user?->name,
+        ]);
+
+        $this->send($chatId, "🟡 Barcha 15 ta xona — Iflos deb belgilandi.");
+        return response('OK');
+    }
+
+    // ── PHOTO → ISSUE FLOW ────────────────────────────────────────
+
+    protected function handlePhoto(int $chatId, $session, array $photo)
+    {
+        // Pick the largest photo (last in array)
+        $fileId = end($photo)['file_id'] ?? null;
+        if (!$fileId) return response('OK');
+
+        // Store file_id in session, ask for room number
+        $session->update([
+            'state' => 'hk_issue_room',
+            'data'  => ['photo_file_id' => $fileId],
+        ]);
+
+        $this->send($chatId, "📸 Rasm qabul qilindi.\n\nNechanchi xona? (1-15)");
+        return response('OK');
+    }
+
+    protected function handleIssueFlow(int $chatId, $session, string $text)
+    {
+        $state = $session->state;
+        $data  = $session->data ?? [];
+
+        if ($state === 'hk_issue_room') {
+            // Extract room number
+            $rooms = $this->extractRoomNumbers($text);
+            if (empty($rooms)) {
+                $this->send($chatId, "Xona raqamini kiriting (1-15):");
+                return response('OK');
+            }
+
+            $roomNum = $rooms[0];
+            $data['room_number'] = $roomNum;
+            $session->update(['state' => 'hk_issue_desc', 'data' => $data]);
+            $this->send($chatId, "Muammo nima? (Qisqacha yozing yoki /skip yuboring)");
+            return response('OK');
+        }
+
+        if ($state === 'hk_issue_desc') {
+            $description = ($text === '/skip') ? null : $text;
+            $data['description'] = $description;
+
+            return $this->saveIssue($chatId, $session, $data);
+        }
+
+        return response('OK');
+    }
+
+    protected function saveIssue(int $chatId, $session, array $data)
+    {
+        $roomNum    = $data['room_number'] ?? null;
+        $fileId     = $data['photo_file_id'] ?? null;
+        $desc       = $data['description'] ?? null;
+        $user       = User::find($session->user_id);
+
+        if (!$roomNum || !$fileId) {
+            $this->send($chatId, "Xatolik yuz berdi. Qaytadan rasm yuboring.");
+            $session->update(['state' => 'hk_main', 'data' => null]);
+            return response('OK');
+        }
+
+        // Download photo from Telegram and save locally
+        $photoPath = $this->downloadTelegramPhoto($fileId);
+
+        // Save issue record
+        $issue = RoomIssue::create([
+            'room_number'      => $roomNum,
+            'reported_by'      => $session->user_id,
+            'photo_path'       => $photoPath,
+            'telegram_file_id' => $fileId,
+            'description'      => $desc,
+            'priority'         => 'medium',
+            'status'           => 'open',
+        ]);
+
+        Log::info('HousekeepingBot: issue reported', [
+            'issue_id'    => $issue->id,
+            'room_number' => $roomNum,
+            'user_id'     => $session->user_id,
+            'user_name'   => $user?->name,
+        ]);
+
+        // Forward alert to management group
+        $this->forwardIssueToManagement($issue, $fileId, $user);
+
+        // Reset session
+        $session->update(['state' => 'hk_main', 'data' => null]);
+
+        $this->send($chatId, "✅ Muammo saqlandi! Rahbariyatga xabar berildi.");
         return response('OK');
     }
 
     // ── STATUS OVERVIEW ──────────────────────────────────────────
 
-    protected function showOverview(int $chatId, ?int $msgId, $session)
+    protected function showStatus(int $chatId)
     {
-        $lines = ["📊 <b>Обзор статусов</b>\n"];
+        $statuses = RoomStatus::orderBy('room_number')->get();
 
-        foreach ($this->properties as $propertyId => $propertyName) {
-            $stats = RoomStatus::where('beds24_property_id', $propertyId)
-                ->selectRaw('status, COUNT(*) as count')
-                ->groupBy('status')
-                ->pluck('count', 'status')
-                ->toArray();
+        $clean = $statuses->where('status', 'clean')->pluck('room_number')->toArray();
+        $dirty = $statuses->where('status', 'dirty')->pluck('room_number')->toArray();
 
-            $clean  = $stats['clean']  ?? 0;
-            $dirty  = $stats['dirty']  ?? 0;
-            $repair = $stats['repair'] ?? 0;
-            $total  = $clean + $dirty + $repair;
+        $cleanStr = !empty($clean) ? implode(', ', $clean) : 'yo\'q';
+        $dirtyStr = !empty($dirty) ? implode(', ', $dirty) : 'yo\'q';
 
-            $lines[] = "<b>{$propertyName}</b>";
-            $lines[] = "✅ Чистых: {$clean}";
-            $lines[] = "🟡 Грязных: {$dirty}";
-            $lines[] = "🔴 Ремонт: {$repair}";
-            $lines[] = "Всего: {$total}";
-            $lines[] = '';
+        $todayCount = RoomCleaning::whereDate('cleaned_at', today())->count();
+
+        $text = "🏨 <b>Jahongir Hotel</b>\n\n"
+            . "✅ Toza: {$cleanStr}\n"
+            . "🟡 Iflos: {$dirtyStr}\n\n"
+            . "📊 Bugun: {$todayCount} ta xona tozalandi";
+
+        $this->send($chatId, $text);
+        return response('OK');
+    }
+
+    // ── OPEN ISSUES ──────────────────────────────────────────────
+
+    protected function showIssues(int $chatId)
+    {
+        $openIssues = RoomIssue::where('status', 'open')
+            ->orderBy('created_at', 'desc')
+            ->get();
+
+        $count = $openIssues->count();
+
+        if ($count === 0) {
+            $this->send($chatId, "✅ Ochiq muammolar yo'q.");
+            return response('OK');
         }
 
-        $text = implode("\n", $lines);
-        $btns = [
-            [['text' => '🔄 Обновить',        'callback_data' => 'hk_overview']],
-            [['text' => '⬅️ Главное меню',    'callback_data' => 'hk_menu']],
-        ];
+        $lines = ["🔴 <b>Ochiq muammolar: {$count}</b>\n"];
 
-        $this->editOrSend($chatId, $msgId, $text, ['inline_keyboard' => $btns]);
+        foreach ($openIssues as $issue) {
+            $age  = $issue->created_at->diffForHumans(now(), true);
+            $desc = $issue->description ? mb_substr($issue->description, 0, 40) : 'Tavsif yo\'q';
+            $lines[] = "📍 {$issue->room_number}-xona: {$desc} ({$age})";
+        }
+
+        $this->send($chatId, implode("\n", $lines));
         return response('OK');
+    }
+
+    // ── FORWARD ISSUE TO MANAGEMENT GROUP ────────────────────────
+
+    protected function forwardIssueToManagement(RoomIssue $issue, string $fileId, ?User $reporter)
+    {
+        if (!$this->mgmtGroupId) return;
+
+        $name = $reporter?->name ?? 'Noma\'lum';
+        $desc = $issue->description ? "\n📝 {$issue->description}" : '';
+
+        $caption = "🔴 <b>Muammo!</b>\n"
+            . "📍 {$issue->room_number}-xona\n"
+            . "👤 {$name}{$desc}";
+
+        try {
+            $resp = Http::timeout(15)->post(
+                "https://api.telegram.org/bot{$this->botToken}/sendPhoto",
+                [
+                    'chat_id'    => $this->mgmtGroupId,
+                    'photo'      => $fileId,
+                    'caption'    => $caption,
+                    'parse_mode' => 'HTML',
+                ]
+            );
+
+            if (!$resp->successful()) {
+                Log::warning('HousekeepingBot: failed to forward issue to management group', [
+                    'status' => $resp->status(),
+                    'body'   => $resp->body(),
+                ]);
+            }
+        } catch (\Throwable $e) {
+            Log::error('HousekeepingBot: error forwarding issue', ['error' => $e->getMessage()]);
+        }
     }
 
     // ── HELPERS ──────────────────────────────────────────────────
 
     /**
-     * Aggregate status emoji for a room type:
-     * If any unit is 'repair' → 🔴
-     * If any unit is 'dirty'  → 🟡
-     * All clean               → ✅
+     * Extract valid room numbers (1-15) from any message text.
+     * Handles: "7", "7 xona", "7-xona", "11,14", "11 14", "3, 5, 7 tayyor"
      */
-    protected function aggregateEmoji(array $statuses): string
+    protected function extractRoomNumbers(string $text): array
     {
-        if (in_array('repair', $statuses)) return '🔴';
-        if (in_array('dirty', $statuses))  return '🟡';
-        return '✅';
+        // Find all numbers in the string
+        preg_match_all('/\b(\d{1,2})\b/', $text, $matches);
+
+        $rooms = [];
+        foreach ($matches[1] as $num) {
+            $n = (int) $num;
+            if ($n >= 1 && $n <= 15) {
+                $rooms[] = $n;
+            }
+        }
+
+        return array_values(array_unique($rooms));
+    }
+
+    /**
+     * Download a Telegram photo by file_id and save to local storage.
+     * Returns the storage path or null on failure.
+     */
+    protected function downloadTelegramPhoto(string $fileId): ?string
+    {
+        try {
+            // Get file path from Telegram
+            $resp = Http::timeout(10)->get(
+                "https://api.telegram.org/bot{$this->botToken}/getFile",
+                ['file_id' => $fileId]
+            );
+
+            if (!$resp->successful() || !$resp->json('ok')) {
+                Log::warning('HousekeepingBot: getFile failed', ['file_id' => $fileId]);
+                return null;
+            }
+
+            $filePath = $resp->json('result.file_path');
+            if (!$filePath) return null;
+
+            // Download the file content
+            $fileResp = Http::timeout(30)->get(
+                "https://api.telegram.org/file/bot{$this->botToken}/{$filePath}"
+            );
+
+            if (!$fileResp->successful()) {
+                Log::warning('HousekeepingBot: file download failed', ['path' => $filePath]);
+                return null;
+            }
+
+            // Save to storage
+            $ext      = pathinfo($filePath, PATHINFO_EXTENSION) ?: 'jpg';
+            $filename = 'room-issues/' . date('Y/m') . '/' . uniqid('issue_', true) . '.' . $ext;
+
+            Storage::disk('public')->put($filename, $fileResp->body());
+
+            return $filename;
+        } catch (\Throwable $e) {
+            Log::error('HousekeepingBot: downloadTelegramPhoto error', ['error' => $e->getMessage()]);
+            return null;
+        }
     }
 
     protected function phoneKb(): array
     {
         return [
-            'keyboard'         => [[['text' => 'Отправить номер', 'request_contact' => true]]],
-            'resize_keyboard'  => true,
-            'one_time_keyboard'=> true,
+            'keyboard'          => [[['text' => 'Telefon raqamni yuborish', 'request_contact' => true]]],
+            'resize_keyboard'   => true,
+            'one_time_keyboard' => true,
         ];
     }
 
-    protected function send(int $chatId, string $text, ?array $kb = null, string $type = 'reply')
+    protected function send(int $chatId, string $text, ?array $kb = null): void
     {
         $p = ['chat_id' => $chatId, 'text' => $text, 'parse_mode' => 'HTML'];
         if ($kb) $p['reply_markup'] = json_encode($kb);
+
         try {
-            $resp = Http::timeout(10)->post("https://api.telegram.org/bot{$this->botToken}/sendMessage", $p);
+            $resp = Http::timeout(10)->post(
+                "https://api.telegram.org/bot{$this->botToken}/sendMessage",
+                $p
+            );
             if (!$resp->successful()) {
-                Log::warning('HousekeepingBot send failed', ['chat' => $chatId, 'status' => $resp->status(), 'body' => $resp->body()]);
+                Log::warning('HousekeepingBot send failed', [
+                    'chat'   => $chatId,
+                    'status' => $resp->status(),
+                    'body'   => $resp->body(),
+                ]);
             }
-        } catch (\Throwable $e) {
-            Log::error('HousekeepingBot send error', ['chat' => $chatId, 'error' => $e->getMessage()]);
-        }
-    }
-
-    protected function editOrSend(int $chatId, ?int $msgId, string $text, array $kb)
-    {
-        $payload = [
-            'chat_id'      => $chatId,
-            'text'         => $text,
-            'parse_mode'   => 'HTML',
-            'reply_markup' => json_encode($kb),
-        ];
-
-        if ($msgId) {
-            $payload['message_id'] = $msgId;
-            try {
-                $resp = Http::timeout(10)->post(
-                    "https://api.telegram.org/bot{$this->botToken}/editMessageText",
-                    $payload
-                );
-                if ($resp->successful()) return;
-                // If edit fails (message too old), fall through to sendMessage
-            } catch (\Throwable $e) {
-                Log::warning('HousekeepingBot editMessageText failed', ['error' => $e->getMessage()]);
-            }
-        }
-
-        // Fallback to send new message
-        unset($payload['message_id']);
-        try {
-            Http::timeout(10)->post("https://api.telegram.org/bot{$this->botToken}/sendMessage", $payload);
         } catch (\Throwable $e) {
             Log::error('HousekeepingBot send error', ['chat' => $chatId, 'error' => $e->getMessage()]);
         }
@@ -470,7 +521,10 @@ class HousekeepingBotController extends Controller
     protected function aCb(string $id): void
     {
         if (!$id) return;
-        Http::post("https://api.telegram.org/bot{$this->botToken}/answerCallbackQuery", ['callback_query_id' => $id]);
+        Http::post(
+            "https://api.telegram.org/bot{$this->botToken}/answerCallbackQuery",
+            ['callback_query_id' => $id]
+        );
     }
 
     protected function alertOwnerOnError(string $context, \Throwable $e, ?int $userId = null): void
