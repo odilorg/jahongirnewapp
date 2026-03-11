@@ -7,6 +7,7 @@ use App\Models\CashierShift;
 use App\Models\CashTransaction;
 use App\Models\CashExpense;
 use App\Models\ShiftHandover;
+use App\Models\BeginningSaldo;
 use App\Models\Beds24Booking;
 use App\Models\TelegramPosSession;
 use App\Models\ExpenseCategory;
@@ -132,8 +133,24 @@ class CashierBotController extends Controller
         if ($this->getShift($s->user_id)) { $this->send($chatId, "Смена уже открыта."); return $this->showMainMenu($chatId, $s); }
         $drawer = \App\Models\CashDrawer::where('is_active', true)->first();
         if (!$drawer) { $this->send($chatId, "Нет активной кассы."); return response('OK'); }
-        CashierShift::create(['cash_drawer_id' => $drawer->id, 'user_id' => $s->user_id, 'status' => 'open', 'opened_at' => now()]);
-        $this->send($chatId, "Смена открыта! Касса: {$drawer->name}");
+        $shift = CashierShift::create(['cash_drawer_id' => $drawer->id, 'user_id' => $s->user_id, 'status' => 'open', 'opened_at' => now()]);
+
+        // Carry forward balances from last closed shift on same drawer
+        $prevHandover = ShiftHandover::whereHas('outgoingShift', fn($q) => $q->where('cash_drawer_id', $drawer->id))
+            ->latest('id')->first();
+        if ($prevHandover) {
+            foreach (['UZS' => $prevHandover->counted_uzs, 'USD' => $prevHandover->counted_usd, 'EUR' => $prevHandover->counted_eur] as $cur => $amt) {
+                if ($amt != 0) {
+                    BeginningSaldo::create(['cashier_shift_id' => $shift->id, 'currency' => $cur, 'amount' => $amt]);
+                }
+            }
+        }
+
+        $bal = $this->getBal($shift);
+        $balStr = $this->fmtBal($bal);
+        $msg = "Смена открыта! Касса: {$drawer->name}";
+        if ($balStr !== '0') $msg .= "\nНачальный баланс: " . $balStr;
+        $this->send($chatId, $msg);
         return $this->showMainMenu($chatId, $s);
     }
 
@@ -528,6 +545,15 @@ class CashierBotController extends Controller
     protected function getBal(CashierShift $shift): array
     {
         $b = ['UZS' => 0, 'USD' => 0, 'EUR' => 0];
+
+        // Include beginning saldos (carried forward from previous shift)
+        foreach (BeginningSaldo::where('cashier_shift_id', $shift->id)->get() as $bs) {
+            $c = is_string($bs->currency) ? $bs->currency : ($bs->currency->value ?? 'UZS');
+            if (!isset($b[$c])) $b[$c] = 0;
+            $b[$c] += $bs->amount;
+        }
+
+        // Add transactions
         foreach (CashTransaction::where('cashier_shift_id', $shift->id)->get() as $tx) {
             $c = is_string($tx->currency) ? $tx->currency : ($tx->currency->value ?? 'UZS');
             if (!isset($b[$c])) $b[$c] = 0;
