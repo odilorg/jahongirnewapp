@@ -51,48 +51,15 @@ class CashTransactionResource extends Resource
         return $form
             ->schema([
                 Forms\Components\Select::make('cashier_shift_id')
-                    ->label(__c('cashier_shifts'))
-                    ->relationship('shift', 'id')
-                    ->getOptionLabelFromRecordUsing(fn ($record) => "Shift #{$record->id} - " . ($record->cashDrawer?->name ?? 'Unknown Drawer'))
-                    ->required()
-                    ->searchable()
-                    ->preload()
-                    ->reactive()
-                    ->afterStateUpdated(function ($state, $set) {
-                        // Clear amount when shift changes to force re-render
-                        $set('amount', '');
-                    })
+                    ->label('Cashier Shift')
                     ->options(function () {
-                        $user = auth()->user();
-                        
-                        // For managers/admins, show all open shifts
                         return \App\Models\CashierShift::with('cashDrawer', 'user')
                             ->where('status', 'open')
                             ->get()
-                            ->mapWithKeys(fn ($shift) => [
-                                $shift->id => "Shift #{$shift->id} - " . ($shift->cashDrawer?->name ?? 'Unknown Drawer') . " ({$shift->user->name})"
-                            ]);
-                    })
-                    ->default(function () {
-                        $user = auth()->user();
-                        
-                        // Auto-select user's open shift if they're a cashier
-                        if ($user->hasRole('cashier')) {
-                            $userShift = \App\Models\CashierShift::getUserOpenShift($user->id);
-                            return $userShift?->id;
-                        }
-                        
-                        return null;
-                    })
-                    ->visible(function () {
-                        $user = auth()->user();
-                        
-                        // Hide field completely for cashiers (they don't need to see it)
-                        if ($user->hasRole('cashier')) {
-                            return false;
-                        }
-                        
-                        return true; // Always show for managers/admins
+                            ->mapWithKeys(fn ($s) => [
+                                $s->id => "#{$s->id} - " . ($s->cashDrawer?->name ?? 'N/A') . " (" . ($s->user?->name ?? '?') . ")",
+                            ])
+                            ->toArray();
                     }),
                 Forms\Components\Select::make('type')
                     ->label(__c('transaction_type'))

@@ -66,9 +66,9 @@ Route::get('/telegram/pos/webhook-info', [\App\Http\Controllers\TelegramPosContr
 
 // Voice Agent API Routes
 Route::middleware('auth:sanctum')->prefix('voice-agent')->group(function () {
-    Route::post('/check-availability', [VoiceAgentController::class, 'checkAvailability']);
-    Route::post('/create-booking', [VoiceAgentController::class, 'createBooking']);
-    Route::get('/guest/{phone}', [VoiceAgentController::class, 'getGuestByPhone']);
+    // Route removed: VoiceAgent (unused)
+    // Route removed: VoiceAgent (unused)
+    // Route removed: VoiceAgent (unused)
 });
 
 // Beds24 Webhook — receives booking notifications from Beds24
