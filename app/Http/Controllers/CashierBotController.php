@@ -117,17 +117,23 @@ class CashierBotController extends Controller
             $data === 'open_shift' => $this->openShift($s, $chatId),
             $data === 'payment' => $this->startPayment($s, $chatId),
             $data === 'expense' => $this->startExpense($s, $chatId),
+            $data === 'exchange' => $this->startExchange($s, $chatId),
             $data === 'balance' => $this->showBalance($s, $chatId),
             $data === 'close_shift' => $this->startClose($s, $chatId),
             $data === 'menu' => $this->showMainMenu($chatId, $s),
             str_starts_with($data, 'guest_') => $this->selectGuest($s, $chatId, $data),
             str_starts_with($data, 'cur_') => $this->selectCur($s, $chatId, $data),
+            str_starts_with($data, 'excur_') => $this->selectExCur($s, $chatId, $data),
+            str_starts_with($data, 'exout_') => $this->selectExOutCur($s, $chatId, $data),
             str_starts_with($data, 'method_') => $this->selectMethod($s, $chatId, $data),
             str_starts_with($data, 'expcat_') => $this->selectExpCat($s, $chatId, $data),
             $data === 'confirm_payment' => $this->confirmPayment($s, $chatId),
             $data === 'confirm_expense' => $this->confirmExpense($s, $chatId),
+            $data === 'confirm_exchange' => $this->confirmExchange($s, $chatId),
             $data === 'confirm_close' => $this->confirmClose($s, $chatId),
             $data === 'cancel' => $this->showMainMenu($chatId, $s),
+            $data === 'guide' => $this->showGuide($chatId),
+            str_starts_with($data, 'guide_') => $this->showGuideTopic($chatId, substr($data, 6)),
             default => response('OK'),
         };
     }
@@ -139,6 +145,8 @@ class CashierBotController extends Controller
             'payment_amount' => $this->hPayAmt($s, $chatId, $text),
             'expense_amount' => $this->hExpAmt($s, $chatId, $text),
             'expense_desc' => $this->hExpDesc($s, $chatId, $text),
+            'exchange_in_amount' => $this->hExInAmt($s, $chatId, $text),
+            'exchange_out_amount' => $this->hExOutAmt($s, $chatId, $text),
             'shift_count_uzs' => $this->hCount($s, $chatId, $text, 'UZS'),
             'shift_count_usd' => $this->hCount($s, $chatId, $text, 'USD'),
             'shift_count_eur' => $this->hCount($s, $chatId, $text, 'EUR'),
@@ -321,12 +329,10 @@ class CashierBotController extends Controller
     protected function hExpAmt($s, int $chatId, string $text)
     {
         $d = $s->data ?? [];
-        $parts = preg_split('/\s+/', $text);
-        $amt = floatval(str_replace(',', '.', $parts[0] ?? '0'));
-        $cur = strtoupper($parts[1] ?? 'UZS');
+        [$amt, $cur] = $this->parseAmountCurrency($text);
         if ($amt <= 0) { $this->send($chatId, "Неверная сумма."); return response('OK'); }
         $d['amount'] = $amt;
-        $d['currency'] = in_array($cur, ['UZS', 'USD', 'EUR']) ? $cur : 'UZS';
+        $d['currency'] = $cur;
         $s->update(['state' => 'expense_desc', 'data' => $d]);
         $this->send($chatId, "Сумма: " . number_format($amt, 0) . " {$d['currency']}\nОписание расхода:");
         return response('OK');
@@ -561,6 +567,139 @@ class CashierBotController extends Controller
         return $this->showMainMenu($chatId, $s);
     }
 
+
+    // ── EXCHANGE ──────────────────────────────────────────────
+
+    protected function startExchange($s, int $chatId)
+    {
+        $shift = $this->getShift($s->user_id);
+        if (!$shift) { $this->send($chatId, "Сначала откройте смену."); return response('OK'); }
+        $s->update(['state' => 'exchange_in_currency', 'data' => ['shift_id' => $shift->id]]);
+        $this->send($chatId, "🔄 <b>Обмен валюты</b>\n\nВалюта ПРИЁМА (что получаете):", ['inline_keyboard' => [
+            [
+                ['text' => 'UZS', 'callback_data' => 'excur_UZS'],
+                ['text' => 'USD', 'callback_data' => 'excur_USD'],
+                ['text' => 'EUR', 'callback_data' => 'excur_EUR'],
+            ],
+            [['text' => '❌ Отмена', 'callback_data' => 'cancel']],
+        ]], 'inline');
+        return response('OK');
+    }
+
+    protected function selectExCur($s, int $chatId, string $data)
+    {
+        $d = $s->data ?? [];
+        $d['in_currency'] = str_replace('excur_', '', $data);
+        $s->update(['state' => 'exchange_in_amount', 'data' => $d]);
+        $this->send($chatId, "Валюта приёма: <b>{$d['in_currency']}</b>\nВведите сумму ПРИЁМА:");
+        return response('OK');
+    }
+
+    protected function hExInAmt($s, int $chatId, string $text)
+    {
+        $amt = floatval(str_replace([' ', ','], ['', '.'], $text));
+        if ($amt <= 0) { $this->send($chatId, "Неверная сумма. Введите ещё раз:"); return response('OK'); }
+        $d = $s->data ?? [];
+        $d['in_amount'] = $amt;
+        $s->update(['state' => 'exchange_out_currency', 'data' => $d]);
+
+        // Show out currency options excluding the in currency
+        $btns = [];
+        foreach (['UZS', 'USD', 'EUR'] as $c) {
+            if ($c !== $d['in_currency']) {
+                $btns[] = ['text' => $c, 'callback_data' => "exout_{$c}"];
+            }
+        }
+        $this->send($chatId, "Приём: <b>" . number_format($amt, 0) . " {$d['in_currency']}</b>\n\nВалюта ВЫДАЧИ (что отдаёте):", ['inline_keyboard' => [
+            $btns,
+            [['text' => '❌ Отмена', 'callback_data' => 'cancel']],
+        ]], 'inline');
+        return response('OK');
+    }
+
+    protected function selectExOutCur($s, int $chatId, string $data)
+    {
+        $d = $s->data ?? [];
+        $d['out_currency'] = str_replace('exout_', '', $data);
+        $s->update(['state' => 'exchange_out_amount', 'data' => $d]);
+        $this->send($chatId, "Приём: <b>" . number_format($d['in_amount'], 0) . " {$d['in_currency']}</b>\nВыдача: <b>{$d['out_currency']}</b>\n\nВведите сумму ВЫДАЧИ:");
+        return response('OK');
+    }
+
+    protected function hExOutAmt($s, int $chatId, string $text)
+    {
+        $amt = floatval(str_replace([' ', ','], ['', '.'], $text));
+        if ($amt <= 0) { $this->send($chatId, "Неверная сумма. Введите ещё раз:"); return response('OK'); }
+        $d = $s->data ?? [];
+        $d['out_amount'] = $amt;
+        $s->update(['state' => 'exchange_confirm', 'data' => $d]);
+
+        // Calculate approximate rate
+        $rate = '';
+        if ($d['in_currency'] === 'UZS' && $d['out_currency'] !== 'UZS') {
+            $r = round($d['in_amount'] / $amt, 0);
+            $rate = "\nКурс: ~" . number_format($r, 0) . " UZS/{$d['out_currency']}";
+        } elseif ($d['out_currency'] === 'UZS' && $d['in_currency'] !== 'UZS') {
+            $r = round($d['out_amount'] / $d['in_amount'], 0);
+            $rate = "\nКурс: ~" . number_format($r, 0) . " UZS/{$d['in_currency']}";
+        }
+
+        $this->send($chatId, "🔄 <b>Подтвердите обмен:</b>\n\n📥 Приём: <b>" . number_format($d['in_amount'], 0) . " {$d['in_currency']}</b>"
+            . "\n📤 Выдача: <b>" . number_format($amt, 0) . " {$d['out_currency']}</b>"
+            . $rate, ['inline_keyboard' => [[
+                ['text' => '✅ Подтвердить', 'callback_data' => 'confirm_exchange'],
+                ['text' => '❌ Отмена', 'callback_data' => 'cancel'],
+            ]]], 'inline');
+        return response('OK');
+    }
+
+    protected function confirmExchange($s, int $chatId)
+    {
+        $d = $s->data ?? [];
+        $shift = CashierShift::find($d['shift_id'] ?? 0);
+        if (!$shift || !$shift->isOpen()) { $this->send($chatId, "Смена не найдена или закрыта."); return $this->showMainMenu($chatId, $s); }
+        try {
+            $ref = 'EX-' . now()->format('YmdHis');
+
+            // Cash IN transaction (receiving money)
+            CashTransaction::create([
+                'cashier_shift_id' => $shift->id,
+                'type' => 'in',
+                'amount' => $d['in_amount'],
+                'currency' => $d['in_currency'],
+                'related_currency' => $d['out_currency'],
+                'related_amount' => $d['out_amount'],
+                'category' => 'exchange',
+                'reference' => $ref,
+                'notes' => "Обмен: " . number_format($d['in_amount'], 0) . " {$d['in_currency']} ← " . number_format($d['out_amount'], 0) . " {$d['out_currency']}",
+                'created_by' => $s->user_id,
+                'occurred_at' => now(),
+            ]);
+
+            // Cash OUT transaction (giving money)
+            CashTransaction::create([
+                'cashier_shift_id' => $shift->id,
+                'type' => 'out',
+                'amount' => $d['out_amount'],
+                'currency' => $d['out_currency'],
+                'related_currency' => $d['in_currency'],
+                'related_amount' => $d['in_amount'],
+                'category' => 'exchange',
+                'reference' => $ref,
+                'notes' => "Обмен: " . number_format($d['out_amount'], 0) . " {$d['out_currency']} → " . number_format($d['in_amount'], 0) . " {$d['in_currency']}",
+                'created_by' => $s->user_id,
+                'occurred_at' => now(),
+            ]);
+
+            $this->send($chatId, "✅ Обмен записан!\n\n📥 +" . number_format($d['in_amount'], 0) . " {$d['in_currency']}\n📤 -" . number_format($d['out_amount'], 0) . " {$d['out_currency']}\n\nБаланс: " . $this->fmtBal($this->getBal($shift)));
+        } catch (\Exception $e) {
+            Log::error('Exchange failed', ['e' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+            $this->alertOwnerOnError('Exchange', $e, $s->user_id);
+            $this->send($chatId, "Ошибка при записи обмена. Попробуйте снова.");
+        }
+        return $this->showMainMenu($chatId, $s);
+    }
+
     // ── HELPERS ──────────────────────────────────────────────────
 
     protected function getShift(int $uid): ?CashierShift
@@ -599,11 +738,71 @@ class CashierBotController extends Controller
 
     protected function menuKb(?CashierShift $shift): array
     {
-        if (!$shift) return ['inline_keyboard' => [[['text' => 'Открыть смену', 'callback_data' => 'open_shift']]]];
+        if (!$shift) return ['inline_keyboard' => [[['text' => 'Открыть смену', 'callback_data' => 'open_shift']], [['text' => '📖 Инструкция', 'callback_data' => 'guide']]]];
         return ['inline_keyboard' => [
-            [['text' => 'Оплата', 'callback_data' => 'payment'], ['text' => 'Расход', 'callback_data' => 'expense']],
-            [['text' => 'Баланс', 'callback_data' => 'balance'], ['text' => 'Закрыть смену', 'callback_data' => 'close_shift']],
+            [['text' => '💵 Оплата', 'callback_data' => 'payment'], ['text' => '📤 Расход', 'callback_data' => 'expense']],
+            [['text' => '🔄 Обмен', 'callback_data' => 'exchange'], ['text' => '💰 Баланс', 'callback_data' => 'balance']],
+            [['text' => '🔒 Закрыть смену', 'callback_data' => 'close_shift'], ['text' => '📖 Инструкция', 'callback_data' => 'guide']],
         ]];
+    }
+
+
+    /**
+     * Parse amount and currency from flexible user input.
+     * Supports: "50000", "20 USD", "20 usd", "$20", "20$", "€15", "15€", "20 $", "20 долларов"
+     */
+    protected function parseAmountCurrency(string $text): array
+    {
+        $text = trim($text);
+        $symbolMap = ['$' => 'USD', '€' => 'EUR', '₽' => 'RUB'];
+        $wordMap = [
+            'доллар' => 'USD', 'долларов' => 'USD', 'баксов' => 'USD', 'бакс' => 'USD',
+            'евро' => 'EUR', 'сум' => 'UZS', 'сумов' => 'UZS',
+        ];
+
+        // Check for symbol prefix: $20, €15
+        foreach ($symbolMap as $sym => $cur) {
+            if (str_starts_with($text, $sym)) {
+                $amt = floatval(str_replace([' ', ','], ['', '.'], substr($text, strlen($sym))));
+                return [$amt, $cur];
+            }
+        }
+
+        // Check for symbol suffix: 20$, 15€, "20 $"
+        foreach ($symbolMap as $sym => $cur) {
+            if (str_ends_with(rtrim($text), $sym)) {
+                $amt = floatval(str_replace([' ', ',', $sym], ['', '.', ''], $text));
+                return [$amt, $cur];
+            }
+        }
+
+        // Split by spaces: "20 USD", "20 usd", "50000 сум"
+        $parts = preg_split('/\s+/', $text);
+        $amt = floatval(str_replace(',', '.', $parts[0] ?? '0'));
+        $curText = strtolower(trim($parts[1] ?? ''));
+
+        if (!$curText) {
+            return [$amt, 'UZS'];
+        }
+
+        $curUpper = strtoupper($curText);
+        if (in_array($curUpper, ['UZS', 'USD', 'EUR', 'RUB'])) {
+            return [$amt, $curUpper];
+        }
+
+        // Check symbol as second part: "20 $"
+        if (isset($symbolMap[$curText])) {
+            return [$amt, $symbolMap[$curText]];
+        }
+
+        // Check Russian words
+        foreach ($wordMap as $word => $cur) {
+            if (str_starts_with($curText, $word)) {
+                return [$amt, $cur];
+            }
+        }
+
+        return [$amt, 'UZS'];
     }
 
     protected function phoneKb(): array
@@ -642,4 +841,112 @@ class CashierBotController extends Controller
             $this->ownerAlert->sendShiftCloseReport($msg);
         } catch (\Throwable $ignore) {}
     }
+
+    // ── GUIDE / INSTRUCTIONS ────────────────────────────────────
+
+    protected function showGuide(int $chatId)
+    {
+        $text = "📖 <b>Инструкция — Кассир Бот</b>\n\nВыберите раздел:";
+        $kb = ['inline_keyboard' => [
+            [['text' => '💵 Оплата гостя', 'callback_data' => 'guide_payment'], ['text' => '📤 Расходы', 'callback_data' => 'guide_expense']],
+            [['text' => '🔄 Обмен валюты', 'callback_data' => 'guide_exchange'], ['text' => '💰 Баланс', 'callback_data' => 'guide_balance']],
+            [['text' => '🟢 Открытие смены', 'callback_data' => 'guide_open'], ['text' => '🔒 Закрытие смены', 'callback_data' => 'guide_close']],
+            [['text' => '💡 Советы и правила', 'callback_data' => 'guide_tips']],
+            [['text' => '« Назад в меню', 'callback_data' => 'menu']],
+        ]];
+        $this->send($chatId, $text, $kb, 'inline');
+        return response('OK');
+    }
+
+    protected function showGuideTopic(int $chatId, string $topic)
+    {
+        $content = match($topic) {
+            'payment' =>
+                "💵 <b>Оплата гостя</b>\n\n"
+                . "1. Нажмите «💵 Оплата»\n"
+                . "2. Введите номер комнаты\n"
+                . "3. Выберите гостя из списка\n"
+                . "4. Введите сумму (например: <code>500000</code>)\n"
+                . "5. Выберите валюту (UZS/USD/EUR)\n"
+                . "6. Выберите способ оплаты (нал/карта/перевод)\n"
+                . "7. Подтвердите ✅\n\n"
+                . "💡 <b>Форматы суммы:</b>\n"
+                . "• <code>500000</code> — простое число\n"
+                . "• <code>500 000</code> — с пробелом\n"
+                . "• <code>$100</code> или <code>100$</code> — автоматически USD\n"
+                . "• <code>100 долларов</code> — автоматически USD",
+            'expense' =>
+                "📤 <b>Расходы</b>\n\n"
+                . "1. Нажмите «📤 Расход»\n"
+                . "2. Выберите категорию:\n"
+                . "   🛒 Хозтовары, 🍽️ Еда, 🔧 Ремонт,\n"
+                . "   🚕 Транспорт, 👕 Прачечная и др.\n"
+                . "3. Введите сумму\n"
+                . "4. Опишите расход (например: «Моющее средство»)\n"
+                . "5. Подтвердите ✅\n\n"
+                . "💡 <b>Умный ввод суммы:</b>\n"
+                . "• <code>50000</code> — автоматически UZS\n"
+                . "• <code>$20</code> или <code>20$</code> — автоматически USD\n"
+                . "• <code>€15</code> — автоматически EUR\n"
+                . "• <code>20 долларов</code> — автоматически USD",
+            'exchange' =>
+                "🔄 <b>Обмен валюты</b>\n\n"
+                . "<b>Пример:</b> Гость даёт $100, вы даёте 1,280,000 сум\n\n"
+                . "1. Нажмите «🔄 Обмен»\n"
+                . "2. Выберите валюту ПРИЁМА → USD\n"
+                . "3. Введите сумму приёма → <code>100</code>\n"
+                . "4. Выберите валюту ВЫДАЧИ → UZS\n"
+                . "5. Введите сумму выдачи → <code>1280000</code>\n"
+                . "6. Подтвердите ✅\n\n"
+                . "📌 Бот создаст 2 записи:\n"
+                . "• 📥 +100 USD (приход)\n"
+                . "• 📤 -1,280,000 UZS (расход)",
+            'balance' =>
+                "💰 <b>Баланс</b>\n\n"
+                . "Нажмите «💰 Баланс» чтобы увидеть:\n\n"
+                . "• Текущий баланс по каждой валюте\n"
+                . "• Общий приход\n"
+                . "• Общий расход\n"
+                . "• Количество транзакций\n\n"
+                . "💡 Проверяйте баланс 2-3 раза в день!",
+            'open' =>
+                "🟢 <b>Открытие смены</b>\n\n"
+                . "1. Нажмите «Открыть смену»\n"
+                . "2. Бот подтвердит открытие\n"
+                . "3. Появится главное меню с кнопками\n\n"
+                . "⚠️ <b>Правила:</b>\n"
+                . "• Открывайте смену в начале рабочего дня\n"
+                . "• Только одна смена может быть открыта\n"
+                . "• Если прошлая не закрыта — закройте сначала",
+            'close' =>
+                "🔒 <b>Закрытие смены</b>\n\n"
+                . "1. Нажмите «🔒 Закрыть смену»\n"
+                . "2. Бот попросит пересчитать кассу\n"
+                . "3. Введите фактическую сумму по каждой валюте\n"
+                . "4. Бот сравнит с системой:\n"
+                . "   ✅ Совпадает — «Отлично!»\n"
+                . "   ⚠️ Разница — покажет расхождение\n\n"
+                . "⚠️ <b>Важно:</b>\n"
+                . "• ОБЯЗАТЕЛЬНО закрывайте смену!\n"
+                . "• Считайте деньги внимательно\n"
+                . "• О большом расхождении — сообщите менеджеру",
+            'tips' =>
+                "💡 <b>Советы и правила</b>\n\n"
+                . "1️⃣ Записывайте КАЖДУЮ операцию СРАЗУ\n\n"
+                . "2️⃣ Добавляйте заметки — «Гость #205», «Моющее»\n\n"
+                . "3️⃣ Проверяйте баланс 2-3 раза в день\n\n"
+                . "4️⃣ При закрытии — считайте деньги дважды\n\n"
+                . "5️⃣ Ошиблись? Сразу сообщите менеджеру\n\n"
+                . "6️⃣ Не давайте телефон посторонним\n\n"
+                . "❓ Проблемы? Обратитесь к менеджеру",
+            default => "Раздел не найден.",
+        };
+
+        $kb = ['inline_keyboard' => [
+            [['text' => '« К инструкции', 'callback_data' => 'guide']],
+        ]];
+        $this->send($chatId, $content, $kb, 'inline');
+        return response('OK');
+    }
+
 }
