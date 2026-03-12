@@ -154,6 +154,49 @@ class Beds24WebhookController extends Controller
         // Fetch guest name from API if webhook didn't include it
         $this->enrichGuestInfo($booking);
 
+        // Detect if this is a genuinely NEW booking or a first-time-seen old booking.
+        // Beds24 sends webhooks for old bookings when they're modified (payment added,
+        // cancelled, etc.) but our system never saw the original creation webhook.
+        // If bookingTime is older than 1 hour, treat as "sync" — don't send "new booking" alert.
+        $bookingTime = $raw['booking']['bookingTime'] ?? null;
+        $isGenuinelyNew = true;
+        if ($bookingTime) {
+            try {
+                $createdAt = Carbon::parse($bookingTime);
+                $isGenuinelyNew = $createdAt->diffInMinutes(now()) < 60;
+            } catch (\Throwable $e) {
+                // If we can't parse, assume it's new
+            }
+        }
+
+        if (!$isGenuinelyNew) {
+            Log::info('Beds24 Webhook: Old booking first seen (sync), skipping new booking alert', [
+                'booking_id' => $bookingId,
+                'booking_time' => $bookingTime,
+            ]);
+
+            // Still process payment if it's paid
+            $balance = (float) ($data["invoice_balance"] ?? 0);
+            $total   = (float) ($data["total_amount"] ?? 0);
+            if ($total > 0 && $balance <= 0) {
+                $paymentLines = $this->extractNewPaymentLines($booking->beds24_booking_id, $raw);
+                if (!empty($paymentLines)) {
+                    foreach ($paymentLines as $line) {
+                        $method = $line['status'] ?? '';
+                        $desc = $line['description'] ?? '';
+                        $amount = (float) ($line['amount'] ?? 0);
+                        $this->createPaymentTransaction($booking, $amount, $desc . ($method ? " ({$method})" : ''), $method, $desc, $line['_ref'] ?? null);
+                    }
+                    $this->alertService->alertPaymentWithDetails($booking, $change, $paymentLines, $total, $balance);
+                } else {
+                    $paymentAmount = $total - $balance;
+                    $this->alertService->alertPaymentReceived($booking, $change, $paymentAmount, $total, $balance);
+                }
+            }
+            // If cancelled old booking — no alert needed (it's historical)
+            return;
+        }
+
         if ($booking->isCancelled()) {
             $this->alertService->alertCancellation($booking, $change);
             return;
