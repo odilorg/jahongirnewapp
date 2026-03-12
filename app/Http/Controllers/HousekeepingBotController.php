@@ -2,11 +2,11 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\RoomStatus;
-use App\Models\RoomCleaning;
+use App\Models\LostFoundItem;
 use App\Models\RoomIssue;
 use App\Models\TelegramPosSession;
 use App\Models\User;
+use App\Services\Beds24BookingService;
 use App\Services\OwnerAlertService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
@@ -18,12 +18,17 @@ class HousekeepingBotController extends Controller
     protected string $botToken;
     protected int    $mgmtGroupId;
     protected OwnerAlertService $ownerAlert;
+    protected Beds24BookingService $beds24;
 
-    public function __construct(OwnerAlertService $ownerAlert)
+    // Jahongir Hotel property ID
+    protected const PROPERTY_ID = 41097;
+
+    public function __construct(OwnerAlertService $ownerAlert, Beds24BookingService $beds24)
     {
         $this->botToken    = config('services.housekeeping_bot.token', '');
         $this->mgmtGroupId = (int) config('services.housekeeping_bot.mgmt_group_id', 0);
         $this->ownerAlert  = $ownerAlert;
+        $this->beds24      = $beds24;
     }
 
     // ── WEBHOOK ENTRY ────────────────────────────────────────────
@@ -32,6 +37,10 @@ class HousekeepingBotController extends Controller
     {
         try {
             Log::debug('HousekeepingBot webhook', ['data' => $request->all()]);
+
+            if ($cb = $request->input('callback_query')) {
+                return $this->handleCallback($cb);
+            }
 
             if ($message = $request->input('message')) {
                 return $this->handleMessage($message);
@@ -72,22 +81,74 @@ class HousekeepingBotController extends Controller
 
         $session->updateActivity();
 
-        // Photo received — start issue flow
+        // Photo received
         if ($photo) {
+            // If in lost & found flow, handle as L&F photo
+            if ($session->state === 'hk_lf_photo') {
+                return $this->handleLostFoundPhoto($chatId, $session, $photo);
+            }
             return $this->handlePhoto($chatId, $session, $photo);
         }
 
         // State-based handling (issue reporting flow)
-        if (in_array($session->state, ['hk_issue_room', 'hk_issue_desc'])) {
+        if (in_array($session->state, ['hk_issue_room', 'hk_issue_desc', 'hk_issue_photo'])) {
             return $this->handleIssueFlow($chatId, $session, $text);
         }
 
-        // Commands
-        if ($text === '/start')    return $this->showWelcome($chatId, $session);
-        if ($text === '/status')   return $this->showStatus($chatId);
-        if ($text === '/issues')   return $this->showIssues($chatId);
-        if ($text === '/alldirty') return $this->markAllDirty($chatId, $session);
-        if ($text === '/logout') {
+        // State-based handling (lost & found flow)
+        if (in_array($session->state, ['hk_lf_photo', 'hk_lf_room', 'hk_lf_desc'])) {
+            return $this->handleLostFoundFlow($chatId, $session, $text);
+        }
+
+        // State-based handling (stock alert flow)
+        if (in_array($session->state, ['hk_stock_room', 'hk_stock_item'])) {
+            return $this->handleStockAlertFlow($chatId, $session, $text);
+        }
+
+        // State-based handling (rush room flow)
+        if ($session->state === 'hk_rush_room') {
+            return $this->handleRushFlow($chatId, $session, $text);
+        }
+
+        // Reply keyboard button texts
+        $user = User::find($session->user_id);
+        $isManager = $user && in_array($user->role, ['admin', 'manager', 'owner']);
+
+        // Commands & button handlers
+        if ($text === '/start' || $text === '🏠 Bosh sahifa') return $this->showWelcome($chatId, $session);
+        if ($text === '/status' || $text === '📊 Xonalar holati') return $this->showStatus($chatId);
+        if ($text === '/issues' || $text === '🔴 Muammolar') return $this->showIssues($chatId);
+        if ($text === '/help' || $text === '❓ Yordam') return $this->showHelp($chatId, $isManager);
+        if ($text === '📸 Muammo yuborish') {
+            $session->update(['state' => 'hk_issue_photo', 'data' => null]);
+            $this->send($chatId, "📸 Muammo rasmini yuboring.", $this->mainKb($isManager));
+            return response('OK');
+        }
+        // New feature buttons
+        if ($text === '📦 Topilma') {
+            $session->update(['state' => 'hk_lf_photo', 'data' => null]);
+            $this->send($chatId, "📦 Topilgan narsa rasmini yuboring.", $this->mainKb($isManager));
+            return response('OK');
+        }
+        if ($text === '📢 Kam narsa') {
+            $session->update(['state' => 'hk_stock_room', 'data' => null]);
+            $this->send($chatId, "Qaysi xonada kam narsa bor? (1-15)", $this->mainKb($isManager));
+            return response('OK');
+        }
+        if ($text === '🔴 TEZKOR' && $isManager) {
+            $session->update(['state' => 'hk_rush_room', 'data' => null]);
+            $this->send($chatId, "Qaysi xona TEZKOR tozalanishi kerak? (1-15)\nMehmon kelish vaqtini ham yozing. Masalan: <code>7 14:00</code>", $this->mainKb($isManager));
+            return response('OK');
+        }
+        if ($text === '📦 Topilmalar') return $this->showLostFound($chatId);
+
+        if ($text === '/alldirty' || $text === '🟡 Hammasini iflos') return $this->markAllDirty($chatId, $session);
+        if ($text === '🟡 Xonani iflos') {
+            $session->update(['state' => 'hk_dirty_room', 'data' => null]);
+            $this->send($chatId, "Qaysi xonani iflos deb belgilash kerak? (1-15)", $this->mainKb($isManager));
+            return response('OK');
+        }
+        if ($text === '/logout' || $text === '🚪 Chiqish') {
             $session->update(['user_id' => null, 'state' => 'idle', 'data' => null]);
             $this->send($chatId, "Chiqildi. Qayta kirish uchun telefon raqamingizni yuboring.", $this->phoneKb());
             return response('OK');
@@ -98,15 +159,67 @@ class HousekeepingBotController extends Controller
             return $this->markDirty($chatId, $session, (int) $m[2]);
         }
 
+        // State: waiting for room number to mark dirty
+        if ($session->state === 'hk_dirty_room') {
+            $rooms = $this->extractRoomNumbers($text);
+            if (!empty($rooms)) {
+                $session->update(['state' => 'hk_main', 'data' => null]);
+                return $this->markDirty($chatId, $session, $rooms[0]);
+            }
+            $this->send($chatId, "Xona raqamini kiriting (1-15):");
+            return response('OK');
+        }
+
+        // State: waiting for issue photo
+        if ($session->state === 'hk_issue_photo') {
+            $this->send($chatId, "📸 Rasm yuboring yoki /cancel bosing.");
+            return response('OK');
+        }
+
         // Parse room numbers from message: "7", "3,5,11", "7 xona tayyor", "11 14"
         $rooms = $this->extractRoomNumbers($text);
         if (!empty($rooms)) {
             return $this->markRoomsClean($chatId, $session, $rooms);
         }
 
-        // Unknown input — show brief hint
-        $this->send($chatId, "Xona raqamini yozing (masalan: 7 yoki 3,5,11)\n📸 Rasm yuboring — muammo haqida\n/status — barcha xonalar");
+        // /cancel — reset state
+        if ($text === '/cancel' || $text === '❌ Bekor qilish') {
+            $session->update(['state' => 'hk_main', 'data' => null]);
+            $this->send($chatId, "Bekor qilindi.", $this->mainKb($isManager));
+            return response('OK');
+        }
+
+        // Unknown input — show hint with keyboard
+        $this->send($chatId, "Xona raqamini yozing (masalan: <code>7</code> yoki <code>3,5,11</code>)\n📸 Rasm yuboring — muammo haqida", $this->mainKb($isManager));
         return response('OK');
+    }
+
+    // ── CALLBACK QUERY HANDLER ─────────────────────────────────
+
+    protected function handleCallback(array $cb)
+    {
+        $chatId = $cb['message']['chat']['id'] ?? null;
+        $data   = $cb['data'] ?? '';
+        $cbId   = $cb['id'] ?? '';
+
+        if (!$chatId) return response('OK');
+        $this->aCb($cbId);
+
+        $session = TelegramPosSession::where('chat_id', $chatId)->first();
+        if (!$session || !$session->user_id) return response('OK');
+
+        $user = User::find($session->user_id);
+        $isManager = $user && in_array($user->role, ['admin', 'manager', 'owner']);
+
+        return match(true) {
+            $data === 'status' => $this->showStatus($chatId),
+            $data === 'issues' => $this->showIssues($chatId),
+            $data === 'help' => $this->showHelp($chatId, $isManager),
+            str_starts_with($data, 'resolve_') => $this->resolveIssue($chatId, $session, (int) substr($data, 8)),
+            str_starts_with($data, 'clean_') => $this->markRoomsClean($chatId, $session, [(int) substr($data, 6)]),
+            str_starts_with($data, 'dirty_') => $this->markDirty($chatId, $session, (int) substr($data, 6)),
+            default => response('OK'),
+        };
     }
 
     // ── AUTH ─────────────────────────────────────────────────────
@@ -126,7 +239,7 @@ class HousekeepingBotController extends Controller
             ['user_id' => $user->id, 'state' => 'hk_main', 'data' => null]
         );
 
-        $this->send($chatId, "Xush kelibsiz, {$user->name}!");
+        $this->send($chatId, "✅ Xush kelibsiz, {$user->name}!");
         return $this->showWelcome($chatId, TelegramPosSession::where('chat_id', $chatId)->first());
     }
 
@@ -136,14 +249,20 @@ class HousekeepingBotController extends Controller
     {
         $session->update(['state' => 'hk_main', 'data' => null]);
 
-        $text = "🧹 <b>Jahongir Hotel — Tozalik Bot</b>\n\n"
-            . "Xona raqamini yozing — toza deb belgilanadi\n"
-            . "Masalan: <code>7</code> yoki <code>3,5,11</code>\n\n"
-            . "📸 Rasm yuboring — muammo haqida xabar\n"
-            . "/status — barcha xonalar holati\n"
-            . "/issues — ochiq muammolar";
+        $user = User::find($session->user_id);
+        $name = $user?->name ?? '';
+        $isManager = $user && in_array($user->role, ['admin', 'manager', 'owner']);
 
-        $this->send($chatId, $text);
+        $text = "🧹 <b>Jahongir Hotel — Tozalik Bot</b>\n\n"
+            . "Salom, <b>{$name}</b>! 👋\n\n"
+            . "📌 <b>Asosiy imkoniyatlar:</b>\n"
+            . "• Xona raqamini yozing → toza deb belgilanadi\n"
+            . "  Masalan: <code>7</code> yoki <code>3,5,11</code>\n"
+            . "• 📸 Rasm yuboring → muammo haqida xabar\n"
+            . "• 📊 Xonalar holati — barcha xonalar\n"
+            . "• 🔴 Muammolar — ochiq muammolar ro'yxati";
+
+        $this->send($chatId, $text, $this->mainKb($isManager));
         return response('OK');
     }
 
@@ -152,24 +271,32 @@ class HousekeepingBotController extends Controller
     protected function markRoomsClean(int $chatId, $session, array $rooms)
     {
         $user    = User::find($session->user_id);
+        $allStatuses = $this->beds24->getRoomStatuses(self::PROPERTY_ID);
         $cleaned = [];
 
         foreach ($rooms as $num) {
-            $roomStatus = RoomStatus::where('room_number', $num)->first();
-            if (!$roomStatus) continue;
+            $room = $this->findRoom($allStatuses, $num);
+            if (!$room) continue;
 
-            $roomStatus->markClean($session->user_id);
-            $cleaned[] = $num;
+            $ok = $this->beds24->updateRoomStatus(
+                self::PROPERTY_ID,
+                $room['room_type_id'],
+                $room['unit_id'],
+                'clean'
+            );
 
-            Log::info('HousekeepingBot: room marked clean', [
-                'room_number' => $num,
-                'user_id'     => $session->user_id,
-                'user_name'   => $user?->name,
-            ]);
+            if ($ok) {
+                $cleaned[] = $num;
+                Log::info('HousekeepingBot: room marked clean in Beds24', [
+                    'room_number' => $num,
+                    'user_id'     => $session->user_id,
+                    'user_name'   => $user?->name,
+                ]);
+            }
         }
 
         if (empty($cleaned)) {
-            $this->send($chatId, "Xona topilmadi. 1 dan 15 gacha raqam kiriting.");
+            $this->send($chatId, "Xona topilmadi yoki Beds24 xatolik. Qaytadan urinib ko'ring.");
             return response('OK');
         }
 
@@ -183,7 +310,8 @@ class HousekeepingBotController extends Controller
             $text = "✅ {$nums}-xonalar — Toza!\n👤 {$name} | 🕐 {$time}";
         }
 
-        $this->send($chatId, $text);
+        $isManager = $user && in_array($user->role, ['admin', 'manager', 'owner']);
+        $this->send($chatId, $text, $this->mainKb($isManager));
         return response('OK');
     }
 
@@ -193,27 +321,38 @@ class HousekeepingBotController extends Controller
     {
         $user = User::find($session->user_id);
 
-        // Check manager role
         if (!$user || !in_array($user->role, ['admin', 'manager', 'owner'])) {
             $this->send($chatId, "Bu buyruq faqat rahbariyat uchun.");
             return response('OK');
         }
 
-        $roomStatus = RoomStatus::where('room_number', $roomNum)->first();
-        if (!$roomStatus) {
-            $this->send($chatId, "Xona topilmadi. 1-15 oralig'ida raqam kiriting.");
+        $allStatuses = $this->beds24->getRoomStatuses(self::PROPERTY_ID);
+        $room = $this->findRoom($allStatuses, $roomNum);
+
+        if (!$room) {
+            $this->send($chatId, "Xona topilmadi. Beds24 da tekshiring.");
             return response('OK');
         }
 
-        $roomStatus->markDirty();
+        $ok = $this->beds24->updateRoomStatus(
+            self::PROPERTY_ID,
+            $room['room_type_id'],
+            $room['unit_id'],
+            'dirty'
+        );
 
-        Log::info('HousekeepingBot: room marked dirty', [
+        if (!$ok) {
+            $this->send($chatId, "⚠️ Beds24 xatolik. Qaytadan urinib ko'ring.", $this->mainKb(true));
+            return response('OK');
+        }
+
+        Log::info('HousekeepingBot: room marked dirty in Beds24', [
             'room_number' => $roomNum,
             'user_id'     => $session->user_id,
             'user_name'   => $user?->name,
         ]);
 
-        $this->send($chatId, "🟡 {$roomNum}-xona — Iflos deb belgilandi.");
+        $this->send($chatId, "🟡 {$roomNum}-xona — Iflos deb belgilandi.", $this->mainKb(true));
         return response('OK');
     }
 
@@ -228,19 +367,25 @@ class HousekeepingBotController extends Controller
             return response('OK');
         }
 
-        RoomStatus::query()->update([
-            'status'     => 'dirty',
-            'cleaned_by' => null,
-            'cleaned_at' => null,
-            'updated_at' => now(),
-        ]);
+        $allStatuses = $this->beds24->getRoomStatuses(self::PROPERTY_ID);
+        $nonDirty = array_filter($allStatuses, fn($r) => $r['status'] !== 'dirty' && $r['status'] !== 'repair');
 
-        Log::info('HousekeepingBot: all rooms marked dirty', [
+        if (!empty($nonDirty)) {
+            $ok = $this->beds24->updateRoomStatusBatch(self::PROPERTY_ID, $nonDirty, 'dirty');
+            if (!$ok) {
+                $this->send($chatId, "⚠️ Beds24 xatolik. Qaytadan urinib ko'ring.", $this->mainKb(true));
+                return response('OK');
+            }
+        }
+
+        $count = count($allStatuses);
+        Log::info('HousekeepingBot: all rooms marked dirty in Beds24', [
             'user_id'   => $session->user_id,
             'user_name' => $user?->name,
+            'count'     => $count,
         ]);
 
-        $this->send($chatId, "🟡 Barcha 15 ta xona — Iflos deb belgilandi.");
+        $this->send($chatId, "🟡 Barcha {$count} ta xona — Iflos deb belgilandi.", $this->mainKb(true));
         return response('OK');
     }
 
@@ -332,7 +477,8 @@ class HousekeepingBotController extends Controller
         // Reset session
         $session->update(['state' => 'hk_main', 'data' => null]);
 
-        $this->send($chatId, "✅ Muammo saqlandi! Rahbariyatga xabar berildi.");
+        $isManager = $user && in_array($user->role, ['admin', 'manager', 'owner']);
+        $this->send($chatId, "✅ Muammo saqlandi! Rahbariyatga xabar berildi.", $this->mainKb($isManager));
         return response('OK');
     }
 
@@ -340,22 +486,62 @@ class HousekeepingBotController extends Controller
 
     protected function showStatus(int $chatId)
     {
-        $statuses = RoomStatus::orderBy('room_number')->get();
+        $rooms = $this->beds24->getRoomStatuses(self::PROPERTY_ID);
 
-        $clean = $statuses->where('status', 'clean')->pluck('room_number')->toArray();
-        $dirty = $statuses->where('status', 'dirty')->pluck('room_number')->toArray();
+        if (empty($rooms)) {
+            $this->send($chatId, "⚠️ Beds24 bilan aloqa yo'q. Keyinroq urinib ko'ring.");
+            return response('OK');
+        }
 
-        $cleanStr = !empty($clean) ? implode(', ', $clean) : 'yo\'q';
-        $dirtyStr = !empty($dirty) ? implode(', ', $dirty) : 'yo\'q';
+        $cleanCount = count(array_filter($rooms, fn($r) => $r['status'] === 'clean'));
+        $dirtyCount = count(array_filter($rooms, fn($r) => $r['status'] === 'dirty'));
+        $repairCount = count(array_filter($rooms, fn($r) => $r['status'] === 'repair'));
 
-        $todayCount = RoomCleaning::whereDate('cleaned_at', today())->count();
+        $lines = ["🏨 <b>Jahongir Hotel — Xonalar</b>\n"];
 
-        $text = "🏨 <b>Jahongir Hotel</b>\n\n"
-            . "✅ Toza: {$cleanStr}\n"
-            . "🟡 Iflos: {$dirtyStr}\n\n"
-            . "📊 Bugun: {$todayCount} ta xona tozalandi";
+        foreach ($rooms as $room) {
+            $emoji = match ($room['status']) {
+                'clean'  => '✅',
+                'dirty'  => '🟡',
+                'repair' => '🔧',
+                default  => '❓',
+            };
+            $statusUz = match ($room['status']) {
+                'clean'  => 'Toza',
+                'dirty'  => 'Iflos',
+                'repair' => 'Ta\'mirda',
+                default  => $room['status'],
+            };
+            $lines[] = "{$emoji} <b>{$room['room_number']}</b>-xona — {$statusUz}";
+        }
 
-        $this->send($chatId, $text);
+        $lines[] = "\n✅ Toza: {$cleanCount} | 🟡 Iflos: {$dirtyCount}" . ($repairCount ? " | 🔧 Ta'mirda: {$repairCount}" : '');
+
+        // Inline buttons for dirty rooms (quick clean)
+        $dirtyRooms = array_filter($rooms, fn($r) => $r['status'] === 'dirty');
+        $buttons = [];
+        $row = [];
+        foreach ($dirtyRooms as $room) {
+            $row[] = ['text' => "✅ {$room['room_number']}", 'callback_data' => "clean_{$room['room_number']}"];
+            if (count($row) >= 5) {
+                $buttons[] = $row;
+                $row = [];
+            }
+        }
+        if (!empty($row)) $buttons[] = $row;
+
+        $p = [
+            'chat_id' => $chatId,
+            'text' => implode("\n", $lines),
+            'parse_mode' => 'HTML',
+        ];
+
+        if (!empty($buttons)) {
+            array_unshift($buttons, [['text' => '⬆️ Toza deb belgilash:', 'callback_data' => 'noop']]);
+            $p['reply_markup'] = json_encode(['inline_keyboard' => $buttons]);
+        }
+
+        Http::timeout(10)->post("https://api.telegram.org/bot{$this->botToken}/sendMessage", $p);
         return response('OK');
     }
 
@@ -375,14 +561,26 @@ class HousekeepingBotController extends Controller
         }
 
         $lines = ["🔴 <b>Ochiq muammolar: {$count}</b>\n"];
+        $buttons = [];
 
         foreach ($openIssues as $issue) {
             $age  = $issue->created_at->diffForHumans(now(), true);
             $desc = $issue->description ? mb_substr($issue->description, 0, 40) : 'Tavsif yo\'q';
-            $lines[] = "📍 {$issue->room_number}-xona: {$desc} ({$age})";
+            $reporter = $issue->reporter?->name ?? '';
+            $lines[] = "📍 <b>{$issue->room_number}-xona:</b> {$desc}\n   👤 {$reporter} | ⏱ {$age}";
+            $buttons[] = [['text' => "✅ Hal qilish: {$issue->room_number}-xona", 'callback_data' => "resolve_{$issue->id}"]];
         }
 
-        $this->send($chatId, implode("\n", $lines));
+        $text = implode("\n\n", $lines);
+
+        $p = [
+            'chat_id' => $chatId,
+            'text' => $text,
+            'parse_mode' => 'HTML',
+            'reply_markup' => json_encode(['inline_keyboard' => $buttons]),
+        ];
+
+        Http::timeout(10)->post("https://api.telegram.org/bot{$this->botToken}/sendMessage", $p);
         return response('OK');
     }
 
@@ -421,7 +619,384 @@ class HousekeepingBotController extends Controller
         }
     }
 
+    // ── HELP ───────────────────────────────────────────────────
+
+    protected function showHelp(int $chatId, bool $isManager = false)
+    {
+        $text = "❓ <b>Yordam — Tozalik Bot</b>\n\n"
+
+            . "📌 <b>Xonani toza deb belgilash:</b>\n"
+            . "Xona raqamini yozing. Masalan:\n"
+            . "• <code>7</code> — bitta xona\n"
+            . "• <code>3,5,11</code> — bir nechta xona\n"
+            . "• <code>7 tayyor</code> — ham ishlaydi\n\n"
+
+            . "📸 <b>Muammo yuborish:</b>\n"
+            . "1. 📸 Muammo yuborish tugmasini bosing\n"
+            . "2. Rasm yuboring\n"
+            . "3. Xona raqamini kiriting\n"
+            . "4. Tavsif yozing (yoki /skip)\n"
+            . "→ Rahbariyatga avtomatik xabar boradi\n\n"
+
+            . "📊 <b>Xonalar holati:</b>\n"
+            . "Toza va iflos xonalar ro'yxatini ko'rish\n\n"
+
+            . "🔴 <b>Muammolar:</b>\n"
+            . "Ochiq muammolar ro'yxati\n\n"
+
+            . "📦 <b>Topilma:</b>\n"
+            . "1. 📦 Topilma tugmasini bosing\n"
+            . "2. Rasm yuboring\n"
+            . "3. Xona raqamini kiriting\n"
+            . "4. Nima topilganini yozing\n"
+            . "→ Rahbariyatga xabar boradi\n\n"
+
+            . "📢 <b>Kam narsa:</b>\n"
+            . "1. 📢 Kam narsa tugmasini bosing\n"
+            . "2. Xona raqamini kiriting\n"
+            . "3. Nima kam ekanini yozing\n"
+            . "→ Rahbariyatga xabar boradi";
+
+        if ($isManager) {
+            $text .= "\n\n"
+                . "━━━━━━━━━━━━━━━━━━\n"
+                . "👔 <b>Rahbariyat buyruqlari:</b>\n\n"
+                . "🔴 <b>TEZKOR:</b>\n"
+                . "Xonani tezkor tozalash uchun belgilash\n"
+                . "Barcha tozalovchilarga xabar boradi\n\n"
+                . "📦 <b>Topilmalar:</b>\n"
+                . "Topilgan narsalar ro'yxati\n\n"
+                . "🟡 <b>Xonani iflos:</b>\n"
+                . "Bitta xonani iflos deb belgilash\n\n"
+                . "🟡 <b>Hammasini iflos:</b>\n"
+                . "Barcha 15 xonani iflos qilish\n\n"
+                . "🔧 <b>Muammoni hal qilish:</b>\n"
+                . "Muammolar ro'yxatida ✅ tugmasi";
+        }
+
+        $this->send($chatId, $text, $this->mainKb($isManager));
+        return response('OK');
+    }
+
+    // ── RESOLVE ISSUE ──────────────────────────────────────────
+
+    protected function resolveIssue(int $chatId, $session, int $issueId)
+    {
+        $user = User::find($session->user_id);
+
+        $issue = RoomIssue::find($issueId);
+        if (!$issue) {
+            $this->send($chatId, "Muammo topilmadi.");
+            return response('OK');
+        }
+
+        $issue->update([
+            'status'      => 'resolved',
+            'resolved_by' => $session->user_id,
+            'resolved_at' => now(),
+        ]);
+
+        Log::info('HousekeepingBot: issue resolved', [
+            'issue_id'    => $issueId,
+            'room_number' => $issue->room_number,
+            'user_name'   => $user?->name,
+        ]);
+
+        $this->send($chatId, "✅ Muammo hal qilindi! ({$issue->room_number}-xona)");
+        return response('OK');
+    }
+
+    // ── LOST & FOUND FLOW ────────────────────────────────────────
+
+    protected function handleLostFoundPhoto(int $chatId, $session, array $photo)
+    {
+        $fileId = end($photo)['file_id'] ?? null;
+        if (!$fileId) return response('OK');
+
+        $session->update([
+            'state' => 'hk_lf_room',
+            'data'  => ['photo_file_id' => $fileId],
+        ]);
+
+        $this->send($chatId, "📸 Rasm qabul qilindi.\n\nQaysi xonadan topildi? (1-15)");
+        return response('OK');
+    }
+
+    protected function handleLostFoundFlow(int $chatId, $session, string $text)
+    {
+        if ($text === '/cancel' || $text === '❌ Bekor qilish') {
+            $session->update(['state' => 'hk_main', 'data' => null]);
+            $user = User::find($session->user_id);
+            $isManager = $user && in_array($user->role, ['admin', 'manager', 'owner']);
+            $this->send($chatId, "Bekor qilindi.", $this->mainKb($isManager));
+            return response('OK');
+        }
+
+        $state = $session->state;
+        $data  = $session->data ?? [];
+
+        if ($state === 'hk_lf_photo') {
+            $this->send($chatId, "📸 Topilgan narsa rasmini yuboring.");
+            return response('OK');
+        }
+
+        if ($state === 'hk_lf_room') {
+            $rooms = $this->extractRoomNumbers($text);
+            if (empty($rooms)) {
+                $this->send($chatId, "Xona raqamini kiriting (1-15):");
+                return response('OK');
+            }
+            $data['room_number'] = $rooms[0];
+            $session->update(['state' => 'hk_lf_desc', 'data' => $data]);
+            $this->send($chatId, "Narsa nima? Qisqacha yozing (masalan: <code>soat</code>, <code>telefon</code>)");
+            return response('OK');
+        }
+
+        if ($state === 'hk_lf_desc') {
+            $data['description'] = $text;
+            return $this->saveLostFoundItem($chatId, $session, $data);
+        }
+
+        return response('OK');
+    }
+
+    protected function saveLostFoundItem(int $chatId, $session, array $data)
+    {
+        $user    = User::find($session->user_id);
+        $fileId  = $data['photo_file_id'] ?? null;
+        $roomNum = $data['room_number'] ?? null;
+        $desc    = $data['description'] ?? '';
+
+        $photoPath = $fileId ? $this->downloadTelegramPhoto($fileId, 'lost-found') : null;
+
+        $item = LostFoundItem::create([
+            'room_number'      => $roomNum,
+            'found_by'         => $session->user_id,
+            'photo_path'       => $photoPath,
+            'telegram_file_id' => $fileId,
+            'description'      => $desc,
+            'status'           => 'found',
+        ]);
+
+        Log::info('HousekeepingBot: lost item recorded', [
+            'item_id'     => $item->id,
+            'room_number' => $roomNum,
+            'description' => $desc,
+            'user_name'   => $user?->name,
+        ]);
+
+        // Notify management group
+        if ($this->mgmtGroupId && $fileId) {
+            $name = $user?->name ?? 'Noma\'lum';
+            $caption = "📦 <b>Topilma!</b>\n"
+                . "📍 {$roomNum}-xona\n"
+                . "📝 {$desc}\n"
+                . "👤 {$name}";
+
+            try {
+                Http::timeout(15)->post(
+                    "https://api.telegram.org/bot{$this->botToken}/sendPhoto",
+                    [
+                        'chat_id'    => $this->mgmtGroupId,
+                        'photo'      => $fileId,
+                        'caption'    => $caption,
+                        'parse_mode' => 'HTML',
+                    ]
+                );
+            } catch (\Throwable $e) {
+                Log::error('HousekeepingBot: error sending L&F to group', ['error' => $e->getMessage()]);
+            }
+        }
+
+        $session->update(['state' => 'hk_main', 'data' => null]);
+
+        $isManager = $user && in_array($user->role, ['admin', 'manager', 'owner']);
+        $this->send($chatId, "✅ Topilma saqlandi! #{$item->id}\n📍 {$roomNum}-xona | 📝 {$desc}", $this->mainKb($isManager));
+        return response('OK');
+    }
+
+    protected function showLostFound(int $chatId)
+    {
+        $items = LostFoundItem::where('status', 'found')
+            ->orderBy('created_at', 'desc')
+            ->limit(20)
+            ->get();
+
+        if ($items->isEmpty()) {
+            $this->send($chatId, "📦 Topilmalar yo'q.");
+            return response('OK');
+        }
+
+        $lines = ["📦 <b>Topilmalar ro'yxati</b>\n"];
+
+        foreach ($items as $item) {
+            $age  = $item->created_at->diffForHumans(now(), true);
+            $desc = mb_substr($item->description, 0, 40);
+            $finder = $item->finder?->name ?? '';
+            $lines[] = "📍 <b>{$item->room_number}-xona:</b> {$desc}\n   👤 {$finder} | ⏱ {$age}";
+        }
+
+        $this->send($chatId, implode("\n\n", $lines));
+        return response('OK');
+    }
+
+    // ── STOCK ALERT FLOW ────────────────────────────────────────
+
+    protected function handleStockAlertFlow(int $chatId, $session, string $text)
+    {
+        if ($text === '/cancel' || $text === '❌ Bekor qilish') {
+            $session->update(['state' => 'hk_main', 'data' => null]);
+            $user = User::find($session->user_id);
+            $isManager = $user && in_array($user->role, ['admin', 'manager', 'owner']);
+            $this->send($chatId, "Bekor qilindi.", $this->mainKb($isManager));
+            return response('OK');
+        }
+
+        $state = $session->state;
+        $data  = $session->data ?? [];
+
+        if ($state === 'hk_stock_room') {
+            $rooms = $this->extractRoomNumbers($text);
+            if (empty($rooms)) {
+                $this->send($chatId, "Xona raqamini kiriting (1-15):");
+                return response('OK');
+            }
+            $data['room_number'] = $rooms[0];
+            $session->update(['state' => 'hk_stock_item', 'data' => $data]);
+            $this->send($chatId, "Nima kam? (masalan: <code>sochiq</code>, <code>shampun</code>, <code>sovun</code>)");
+            return response('OK');
+        }
+
+        if ($state === 'hk_stock_item') {
+            $data['item'] = $text;
+            $user = User::find($session->user_id);
+            $name = $user?->name ?? 'Noma\'lum';
+            $roomNum = $data['room_number'];
+
+            Log::info('HousekeepingBot: stock alert', [
+                'room_number' => $roomNum,
+                'item'        => $text,
+                'user_name'   => $name,
+            ]);
+
+            // Notify management group
+            if ($this->mgmtGroupId) {
+                $alert = "📢 <b>Kam narsa!</b>\n"
+                    . "📍 {$roomNum}-xona\n"
+                    . "🧴 {$text}\n"
+                    . "👤 {$name}";
+
+                try {
+                    Http::timeout(10)->post(
+                        "https://api.telegram.org/bot{$this->botToken}/sendMessage",
+                        [
+                            'chat_id'    => $this->mgmtGroupId,
+                            'text'       => $alert,
+                            'parse_mode' => 'HTML',
+                        ]
+                    );
+                } catch (\Throwable $e) {
+                    Log::error('HousekeepingBot: error sending stock alert', ['error' => $e->getMessage()]);
+                }
+            }
+
+            $session->update(['state' => 'hk_main', 'data' => null]);
+
+            $isManager = $user && in_array($user->role, ['admin', 'manager', 'owner']);
+            $this->send($chatId, "✅ Xabar yuborildi!\n📍 {$roomNum}-xona | 🧴 {$text}", $this->mainKb($isManager));
+            return response('OK');
+        }
+
+        return response('OK');
+    }
+
+    // ── RUSH ROOM FLOW ──────────────────────────────────────────
+
+    protected function handleRushFlow(int $chatId, $session, string $text)
+    {
+        $user = User::find($session->user_id);
+
+        // Parse room number and optional time: "7 14:00" or just "7"
+        preg_match('/^(\d{1,2})(?:\s+(\d{1,2}:\d{2}))?/', trim($text), $m);
+
+        if (empty($m[1])) {
+            $this->send($chatId, "Xona raqamini kiriting (1-15). Masalan: <code>7 14:00</code>");
+            return response('OK');
+        }
+
+        $roomNum = (int) $m[1];
+        if ($roomNum < 1 || $roomNum > 15) {
+            $this->send($chatId, "Xona 1-15 oralig'ida bo'lishi kerak.");
+            return response('OK');
+        }
+
+        $time = $m[2] ?? null;
+        $timeText = $time ? "⏰ Mehmon keladi: {$time}" : '';
+
+        Log::info('HousekeepingBot: rush room flagged', [
+            'room_number' => $roomNum,
+            'arrival'     => $time,
+            'user_name'   => $user?->name,
+        ]);
+
+        // Broadcast to all cleaners
+        $this->notifyCleanersRush($roomNum, $user?->name ?? 'Rahbariyat', $timeText);
+
+        $session->update(['state' => 'hk_main', 'data' => null]);
+
+        $rushMsg = "🔴 TEZKOR tozalash buyrug'i yuborildi!\n📍 {$roomNum}-xona";
+        if ($timeText) $rushMsg .= "\n{$timeText}";
+
+        $this->send($chatId, $rushMsg, $this->mainKb(true));
+        return response('OK');
+    }
+
+    protected function notifyCleanersRush(int $roomNum, string $managerName, string $timeText): void
+    {
+        $msg = "🔴 <b>TEZKOR TOZALASH!</b>\n\n"
+            . "📍 <b>{$roomNum}-xona</b> tezkor tozalanishi kerak!\n"
+            . "👔 Buyurdi: {$managerName}";
+
+        if ($timeText) {
+            $msg .= "\n{$timeText}";
+        }
+
+        $msg .= "\n\n🧹 Iltimos, imkon qadar tez tozalang!";
+
+        $sessions = TelegramPosSession::whereNotNull('user_id')
+            ->where('state', '!=', 'idle')
+            ->get();
+
+        foreach ($sessions as $s) {
+            try {
+                Http::timeout(5)->post(
+                    "https://api.telegram.org/bot{$this->botToken}/sendMessage",
+                    [
+                        'chat_id'    => $s->chat_id,
+                        'text'       => $msg,
+                        'parse_mode' => 'HTML',
+                    ]
+                );
+            } catch (\Throwable $e) {
+                Log::warning('HousekeepingBot: rush notify failed', ['chat' => $s->chat_id, 'error' => $e->getMessage()]);
+            }
+        }
+    }
+
     // ── HELPERS ──────────────────────────────────────────────────
+
+    /**
+     * Find a room in Beds24 statuses by room number (unit name).
+     */
+    protected function findRoom(array $allStatuses, int $roomNum): ?array
+    {
+        foreach ($allStatuses as $room) {
+            if ((int) $room['room_number'] === $roomNum) {
+                return $room;
+            }
+        }
+        return null;
+    }
 
     /**
      * Extract valid room numbers (1-15) from any message text.
@@ -447,7 +1022,7 @@ class HousekeepingBotController extends Controller
      * Download a Telegram photo by file_id and save to local storage.
      * Returns the storage path or null on failure.
      */
-    protected function downloadTelegramPhoto(string $fileId): ?string
+    protected function downloadTelegramPhoto(string $fileId, string $folder = 'room-issues'): ?string
     {
         try {
             // Get file path from Telegram
@@ -476,7 +1051,7 @@ class HousekeepingBotController extends Controller
 
             // Save to storage
             $ext      = pathinfo($filePath, PATHINFO_EXTENSION) ?: 'jpg';
-            $filename = 'room-issues/' . date('Y/m') . '/' . uniqid('issue_', true) . '.' . $ext;
+            $filename = $folder . '/' . date('Y/m') . '/' . uniqid('item_', true) . '.' . $ext;
 
             Storage::disk('public')->put($filename, $fileResp->body());
 
@@ -485,6 +1060,28 @@ class HousekeepingBotController extends Controller
             Log::error('HousekeepingBot: downloadTelegramPhoto error', ['error' => $e->getMessage()]);
             return null;
         }
+    }
+
+    protected function mainKb(bool $isManager = false): array
+    {
+        $rows = [
+            [['text' => '📊 Xonalar holati']],
+            [['text' => '📸 Muammo yuborish'], ['text' => '🔴 Muammolar']],
+            [['text' => '📦 Topilma'], ['text' => '📢 Kam narsa']],
+            [['text' => '❓ Yordam']],
+        ];
+
+        if ($isManager) {
+            $rows[] = [['text' => '🔴 TEZKOR'], ['text' => '📦 Topilmalar']];
+            $rows[] = [['text' => '🟡 Xonani iflos'], ['text' => '🟡 Hammasini iflos']];
+        }
+
+        $rows[] = [['text' => '🚪 Chiqish']];
+
+        return [
+            'keyboard'        => $rows,
+            'resize_keyboard' => true,
+        ];
     }
 
     protected function phoneKb(): array

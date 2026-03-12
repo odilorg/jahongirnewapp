@@ -780,4 +780,141 @@ class Beds24BookingService
         }
     }
 
+    /**
+     * Get room unit statuses (housekeeping) for a property.
+     * Returns flat array: [ ['room_number' => '7', 'status' => 'clean', 'color' => '1578db', 'room_type' => 'Twin Room', 'room_type_id' => 94986, 'unit_id' => 1], ... ]
+     */
+    public function getRoomStatuses(int $propertyId): array
+    {
+        try {
+            $response = $this->apiCall('GET', '/properties', [
+                'id' => $propertyId,
+                'includeAllRooms' => 'true',
+                'includeUnitDetails' => 'true',
+            ]);
+
+            $result = $response->json();
+            $property = $result['data'][0] ?? null;
+
+            if (!$property) {
+                Log::warning('Beds24 getRoomStatuses: no property data', ['propertyId' => $propertyId]);
+                return [];
+            }
+
+            $rooms = [];
+            foreach ($property['roomTypes'] ?? [] as $rt) {
+                foreach ($rt['units'] ?? [] as $unit) {
+                    $rooms[] = [
+                        'room_number'  => $unit['name'] ?? '',
+                        'status'       => $unit['statusText'] ?? 'unknown',
+                        'color'        => $unit['statusColor'] ?? '',
+                        'note'         => $unit['note'] ?? $unit['notes'] ?? '',
+                        'room_type'    => $rt['name'] ?? '',
+                        'room_type_id' => $rt['id'],
+                        'unit_id'      => $unit['id'],
+                    ];
+                }
+            }
+
+            // Sort by room number (numeric)
+            usort($rooms, fn($a, $b) => (int) $a['room_number'] <=> (int) $b['room_number']);
+
+            return $rooms;
+        } catch (\Throwable $e) {
+            Log::error('Beds24 getRoomStatuses error', ['error' => $e->getMessage()]);
+            return [];
+        }
+    }
+
+    /**
+     * Update a room unit's housekeeping status in Beds24.
+     * Requires propertyId, roomTypeId, unitId (within room type), and new statusText.
+     */
+    public function updateRoomStatus(int $propertyId, int $roomTypeId, int $unitId, string $statusText): bool
+    {
+        try {
+            $response = $this->apiCall('POST', '/properties', [
+                [
+                    'id' => $propertyId,
+                    'roomTypes' => [
+                        [
+                            'id' => $roomTypeId,
+                            'units' => [
+                                [
+                                    'id' => $unitId,
+                                    'statusText' => $statusText,
+                                ]
+                            ]
+                        ]
+                    ]
+                ]
+            ]);
+
+            $result = $response->json();
+            $success = $result[0]['success'] ?? false;
+
+            Log::info('Beds24 updateRoomStatus', [
+                'propertyId' => $propertyId,
+                'roomTypeId' => $roomTypeId,
+                'unitId' => $unitId,
+                'statusText' => $statusText,
+                'success' => $success,
+            ]);
+
+            return $success;
+        } catch (\Throwable $e) {
+            Log::error('Beds24 updateRoomStatus error', ['error' => $e->getMessage()]);
+            return false;
+        }
+    }
+
+    /**
+     * Update multiple room units' status at once (batch).
+     * $rooms = [ ['room_type_id' => 94984, 'unit_id' => 3, 'status' => 'clean'], ... ]
+     */
+    public function updateRoomStatusBatch(int $propertyId, array $rooms, string $statusText): bool
+    {
+        try {
+            // Group by room type
+            $byType = [];
+            foreach ($rooms as $room) {
+                $rtId = $room['room_type_id'];
+                $byType[$rtId][] = [
+                    'id' => $room['unit_id'],
+                    'statusText' => $statusText,
+                ];
+            }
+
+            $roomTypes = [];
+            foreach ($byType as $rtId => $units) {
+                $roomTypes[] = [
+                    'id' => $rtId,
+                    'units' => $units,
+                ];
+            }
+
+            $response = $this->apiCall('POST', '/properties', [
+                [
+                    'id' => $propertyId,
+                    'roomTypes' => $roomTypes,
+                ]
+            ]);
+
+            $result = $response->json();
+            $success = $result[0]['success'] ?? false;
+
+            Log::info('Beds24 updateRoomStatusBatch', [
+                'propertyId' => $propertyId,
+                'count' => count($rooms),
+                'statusText' => $statusText,
+                'success' => $success,
+            ]);
+
+            return $success;
+        } catch (\Throwable $e) {
+            Log::error('Beds24 updateRoomStatusBatch error', ['error' => $e->getMessage()]);
+            return false;
+        }
+    }
+
 }
