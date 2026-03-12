@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Beds24Booking;
 use App\Models\Beds24BookingChange;
 use App\Models\CashTransaction;
+use App\Models\TelegramPosSession;
 use App\Enums\TransactionType;
 use App\Enums\TransactionCategory;
 use App\Models\CashierShift;
@@ -12,6 +13,7 @@ use App\Services\OwnerAlertService;
 use App\Services\Beds24BookingService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Carbon\Carbon;
 
@@ -173,6 +175,12 @@ class Beds24WebhookController extends Controller
         $newStatus = $this->deriveBookingStatus($data);
         $newAmount = (float) ($data['total_amount'] ?? 0);
 
+        // Detect new charge items (e.g. taxi, minibar, extra services)
+        $newCharges = $this->detectNewCharges($booking, $raw);
+
+        // Detect checkout (CHECKOUT info code added)
+        $isNewCheckout = $this->detectCheckout($booking, $raw);
+
         $changedFields = [];
 
         // Detect significant field changes
@@ -236,7 +244,7 @@ class Beds24WebhookController extends Controller
         $booking->refresh();
 
         // Determine the primary change type for this update
-        $changeType = $this->deriveChangeType($booking, $oldData, $newStatus, $amountChanged, $changedFields);
+        $changeType = $this->deriveChangeType($booking, $oldData, $newStatus, $amountChanged, $changedFields, $newCharges, $isNewCheckout);
 
         if ($changeType === null) {
             // Nothing meaningful changed — still log, but don't alert
@@ -261,7 +269,7 @@ class Beds24WebhookController extends Controller
         ]);
 
         // Send appropriate alert
-        $this->dispatchAlert($booking, $change, $changeType, $oldData, $newAmount, $changedFields, $raw);
+        $this->dispatchAlert($booking, $change, $changeType, $oldData, $newAmount, $changedFields, $raw, $newCharges);
     }
 
     // -------------------------------------------------------------------------
@@ -275,7 +283,8 @@ class Beds24WebhookController extends Controller
         array $oldData,
         float $newAmount,
         array $changedFields,
-        array $raw = []
+        array $raw = [],
+        array $newCharges = []
     ): void {
         $today = now('Asia/Tashkent')->toDateString();
 
@@ -303,6 +312,14 @@ class Beds24WebhookController extends Controller
 
             case 'payment_updated':
                 $this->handlePaymentSync($booking, $change, $oldData, $raw);
+                break;
+
+            case 'charge_added':
+                $this->alertService->alertNewCharge($booking, $change, $newCharges, $raw);
+                break;
+
+            case 'checked_out':
+                $this->notifyCleanersCheckout($booking);
                 break;
         }
     }
@@ -453,6 +470,119 @@ class Beds24WebhookController extends Controller
                 'error' => $e->getMessage(),
             ]);
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // Checkout detection & cleaner notification
+    // -------------------------------------------------------------------------
+
+    /**
+     * Detect if CHECKOUT info code was just added (not present in old raw data).
+     */
+    private function detectCheckout(Beds24Booking $booking, array $raw): bool
+    {
+        $newInfoItems = $raw['infoItems'] ?? [];
+        $hasCheckout = false;
+        foreach ($newInfoItems as $item) {
+            if (strtoupper($item['code'] ?? '') === 'CHECKOUT') {
+                $hasCheckout = true;
+                break;
+            }
+        }
+
+        if (!$hasCheckout) {
+            return false;
+        }
+
+        // Check if old raw data already had CHECKOUT
+        $oldRaw = $booking->beds24_raw_data ?? [];
+        $oldInfoItems = $oldRaw['infoItems'] ?? [];
+        foreach ($oldInfoItems as $item) {
+            if (strtoupper($item['code'] ?? '') === 'CHECKOUT') {
+                return false; // Already had checkout — not new
+            }
+        }
+
+        Log::info('Beds24 Webhook: Checkout detected', [
+            'booking_id' => $booking->beds24_booking_id,
+            'room_name'  => $booking->room_name,
+            'guest_name' => $booking->guest_name,
+        ]);
+
+        return true;
+    }
+
+    /**
+     * Send TG notification to all authenticated housekeeping bot users about checkout.
+     */
+    private function notifyCleanersCheckout(Beds24Booking $booking): void
+    {
+        $botToken = config('services.housekeeping_bot.token', '');
+        if (!$botToken) {
+            Log::warning('Beds24 Checkout: No housekeeping bot token configured');
+            return;
+        }
+
+        // Resolve room number: try room_name, then look up unit name from Beds24
+        $roomName = $booking->room_name;
+        if (empty($roomName)) {
+            try {
+                $propertyId = (int) $booking->property_id;
+                $rooms = $this->beds24Service->getRoomStatuses($propertyId);
+                $raw = $booking->beds24_raw_data ?? [];
+                $roomId = (int) ($raw['booking']['roomId'] ?? 0);
+                $unitId = (int) ($raw['booking']['unitId'] ?? 0);
+                foreach ($rooms as $room) {
+                    if ($room['room_type_id'] === $roomId && $room['unit_id'] === $unitId) {
+                        $roomName = $room['room_number'];
+                        break;
+                    }
+                }
+            } catch (\Throwable $e) {
+                Log::warning('Beds24 Checkout: Failed to resolve room name', ['error' => $e->getMessage()]);
+            }
+        }
+        $roomName = $roomName ?: '?';
+
+        $guestName = $booking->guest_name ?? '';
+        $propertyName = $booking->getPropertyName();
+
+        $text = "🚪 <b>Checkout!</b>\n\n"
+            . "📍 <b>{$roomName}</b>-xona bo'shadi\n"
+            . ($guestName ? "👤 {$guestName}\n" : '')
+            . "🏨 {$propertyName}\n\n"
+            . "🧹 Tozalashni boshlash mumkin!";
+
+        // Send to all authenticated housekeeping bot sessions
+        $sessions = TelegramPosSession::whereNotNull('user_id')
+            ->where('state', '!=', 'idle')
+            ->get();
+
+        $sent = 0;
+        foreach ($sessions as $session) {
+            try {
+                Http::timeout(5)->post(
+                    "https://api.telegram.org/bot{$botToken}/sendMessage",
+                    [
+                        'chat_id'    => $session->chat_id,
+                        'text'       => $text,
+                        'parse_mode' => 'HTML',
+                    ]
+                );
+                $sent++;
+            } catch (\Throwable $e) {
+                Log::warning('Beds24 Checkout: Failed to notify cleaner', [
+                    'chat_id' => $session->chat_id,
+                    'error'   => $e->getMessage(),
+                ]);
+            }
+        }
+
+        Log::info('Beds24 Checkout: Cleaners notified', [
+            'booking_id' => $booking->beds24_booking_id,
+            'room_name'  => $roomName,
+            'sent_to'    => $sent,
+        ]);
     }
 
     // -------------------------------------------------------------------------
@@ -657,9 +787,16 @@ class Beds24WebhookController extends Controller
         array $oldData,
         string $newStatus,
         bool $amountChanged,
-        array $changedFields
+        array $changedFields,
+        array $newCharges = [],
+        bool $isNewCheckout = false
     ): ?string {
         $oldStatus = $oldData['booking_status'] ?? 'confirmed';
+
+        // Checkout takes highest priority — cleaners need to know immediately
+        if ($isNewCheckout) {
+            return 'checked_out';
+        }
 
         // Cancellation takes priority
         if ($newStatus === 'cancelled' && $oldStatus !== 'cancelled') {
@@ -683,7 +820,53 @@ class Beds24WebhookController extends Controller
             return 'payment_updated';
         }
 
+        // New charge items added (e.g. taxi, minibar, extra services)
+        if (!empty($newCharges)) {
+            return 'charge_added';
+        }
+
         return null; // Nothing meaningful
+    }
+
+    /**
+     * Detect new charge items by comparing current webhook invoiceItems
+     * with the previously stored raw data.
+     */
+    private function detectNewCharges(Beds24Booking $booking, array $raw): array
+    {
+        $newItems = $raw['invoiceItems'] ?? $raw['booking']['invoiceItems'] ?? [];
+        if (empty($newItems)) {
+            return [];
+        }
+
+        // Get old invoice item IDs from stored raw data
+        $oldRaw = $booking->beds24_raw_data ?? [];
+        $oldItems = $oldRaw['invoiceItems'] ?? $oldRaw['booking']['invoiceItems'] ?? [];
+        $oldIds = array_map(fn($i) => $i['id'] ?? null, $oldItems);
+        $oldIds = array_filter($oldIds);
+
+        // Find new charge items (type=charge) that weren't in previous webhook
+        $newCharges = [];
+        foreach ($newItems as $item) {
+            $type = $item['type'] ?? '';
+            $id = $item['id'] ?? null;
+            if ($type === 'charge' && $id && !in_array($id, $oldIds)) {
+                $newCharges[] = $item;
+            }
+        }
+
+        if (!empty($newCharges)) {
+            Log::info('Beds24 Webhook: New charges detected', [
+                'booking_id' => $booking->beds24_booking_id,
+                'new_charges' => count($newCharges),
+                'items' => array_map(fn($c) => [
+                    'description' => $c['description'] ?? '?',
+                    'amount' => $c['lineTotal'] ?? 0,
+                ], $newCharges),
+            ]);
+        }
+
+        return $newCharges;
     }
 
     /**

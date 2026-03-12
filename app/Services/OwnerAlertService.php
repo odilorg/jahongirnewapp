@@ -230,6 +230,66 @@ class OwnerAlertService
     }
 
     /**
+     * New charge items added to a booking (e.g. taxi, minibar, extra services)
+     */
+    public function alertNewCharge(Beds24Booking $booking, Beds24BookingChange $change, array $newCharges, array $raw = []): void
+    {
+        $currency = $booking->currency;
+
+        // Build charge lines
+        $totalNewCharges = 0;
+        $lines = [];
+        foreach ($newCharges as $charge) {
+            $desc = $charge['description'] ?? '?';
+            $amount = (float) ($charge['lineTotal'] ?? $charge['amount'] ?? 0);
+            $totalNewCharges += $amount;
+            $lines[] = "  • {$desc}: {$amount} {$currency}";
+        }
+        $linesText = implode("\n", $lines);
+
+        // Calculate totals from all invoiceItems
+        $allItems = $raw['invoiceItems'] ?? $raw['booking']['invoiceItems'] ?? [];
+        $totalCharges = 0;
+        $totalPayments = 0;
+        foreach ($allItems as $item) {
+            $lt = (float) ($item['lineTotal'] ?? 0);
+            if ($lt >= 0) {
+                $totalCharges += $lt;
+            } else {
+                $totalPayments += abs($lt);
+            }
+        }
+        $balance = max(0, $totalCharges - $totalPayments);
+
+        $balanceLine = $balance <= 0.01
+            ? "✅ Полностью оплачено"
+            : "⚠️ Остаток к оплате: {$balance} {$currency}";
+
+        $text = implode("\n", [
+            "📝 <b>Новый расход добавлен</b>",
+            "",
+            "🏨 <b>Объект:</b> {$booking->getPropertyName()}",
+            "🆔 <b>Бронирование:</b> #{$booking->beds24_booking_id}",
+            "👤 <b>Гость:</b> {$booking->guest_name}",
+            "🛏️ <b>Комната:</b> " . ($booking->room_name ?: 'не указана'),
+            "📅 <b>Заезд:</b> {$this->formatDate($booking->arrival_date)}",
+            "",
+            "<b>Новые расходы:</b>",
+            $linesText,
+            "",
+            "💵 <b>Сумма новых расходов:</b> {$totalNewCharges} {$currency}",
+            "💰 <b>Итого расходов:</b> {$totalCharges} {$currency}",
+            "💳 <b>Оплачено:</b> {$totalPayments} {$currency}",
+            $balanceLine,
+            "",
+            "⏰ " . now('Asia/Tashkent')->format('d.m.Y H:i'),
+        ]);
+
+        $this->send($text);
+        $change->markAlerted();
+    }
+
+    /**
      * Daily summary report sent at 22:00 Tashkent time
      */
     public function sendDailySummary(array $stats): void
