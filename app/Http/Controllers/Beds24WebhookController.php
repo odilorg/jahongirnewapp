@@ -154,17 +154,18 @@ class Beds24WebhookController extends Controller
         // Fetch guest name from API if webhook didn't include it
         $this->enrichGuestInfo($booking);
 
-        // Alert owner about new booking (only if not cancelled immediately)
-        if (!$booking->isCancelled()) {
-            $this->alertService->alertNewBooking($booking, $change);
-        } else {
+        if ($booking->isCancelled()) {
             $this->alertService->alertCancellation($booking, $change);
+            return;
         }
 
-        // If booking arrives already paid (rare - e.g. prepaid via OTA)
+        // Check if booking arrives already paid (e.g. prepaid via OTA)
         $balance = (float) ($data["invoice_balance"] ?? 0);
         $total   = (float) ($data["total_amount"] ?? 0);
-        if ($total > 0 && $balance <= 0 && !$booking->isCancelled()) {
+        $isPrePaid = ($total > 0 && $balance <= 0);
+
+        if ($isPrePaid) {
+            // Send ONE combined message (new booking + payment) instead of two separate alerts
             $paymentLines = $this->extractNewPaymentLines($booking->beds24_booking_id, $raw);
             if (!empty($paymentLines)) {
                 foreach ($paymentLines as $line) {
@@ -173,11 +174,11 @@ class Beds24WebhookController extends Controller
                     $amount = (float) ($line['amount'] ?? 0);
                     $this->createPaymentTransaction($booking, $amount, $desc . ($method ? " ({$method})" : ''), $method, $desc, $line['_ref'] ?? null);
                 }
-                $this->alertService->alertPaymentWithDetails($booking, $change, $paymentLines, $total, 0);
-            } else {
-                $this->createPaymentTransaction($booking, $total, 'New booking arrived pre-paid');
-                $this->alertService->alertPaymentReceived($booking, $change, $total, $total, 0);
             }
+            $this->alertService->alertNewBookingWithPayment($booking, $change, $paymentLines);
+        } else {
+            // Not yet paid — just send new booking alert
+            $this->alertService->alertNewBooking($booking, $change);
         }
     }
 

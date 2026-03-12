@@ -41,6 +41,55 @@ class OwnerAlertService
     }
 
     /**
+     * New booking that arrived already paid — single combined message
+     */
+    public function alertNewBookingWithPayment(Beds24Booking $booking, Beds24BookingChange $change, array $paymentLines = []): void
+    {
+        $currency = $booking->currency;
+        $paymentSection = '';
+
+        if (!empty($paymentLines)) {
+            $lines = [];
+            foreach ($paymentLines as $line) {
+                $desc = $line['description'] ?? '?';
+                $amt = (float) ($line['amount'] ?? 0);
+                $method = $line['status'] ?? '';
+                $methodLabel = match(strtolower($method)) {
+                    'naqd' => 'наличные',
+                    'plastk', 'plastik', 'card' => 'карта',
+                    'perevod', 'transfer' => 'перевод',
+                    default => $method ?: '?',
+                };
+                $lines[] = "  • {$desc}: {$amt} {$currency} ({$methodLabel})";
+            }
+            $paymentSection = "\n<b>Платежи:</b>\n" . implode("\n", $lines) . "\n";
+        }
+
+        $text = implode("\n", [
+            "🟢💰 <b>Новое бронирование (оплачено)</b>",
+            "",
+            "🏨 <b>Объект:</b> {$booking->getPropertyName()}",
+            "🆔 <b>Бронирование:</b> #{$booking->beds24_booking_id}",
+            "👤 <b>Гость:</b> {$booking->guest_name}",
+            "📞 <b>Телефон:</b> " . ($booking->guest_phone ?: 'не указан'),
+            "✉️ <b>Email:</b> " . ($booking->guest_email ?: 'не указан'),
+            "🌐 <b>Канал:</b> " . ($booking->channel ?: 'прямое'),
+            "📅 <b>Заезд:</b> {$this->formatDate($booking->arrival_date)}",
+            "📅 <b>Выезд:</b> {$this->formatDate($booking->departure_date)}",
+            "🌙 <b>Ночей:</b> {$booking->nights}",
+            "👥 <b>Гостей:</b> {$booking->num_adults} взрослых" . ($booking->num_children > 0 ? ", {$booking->num_children} детей" : ''),
+            "🛏️ <b>Комната:</b> " . ($booking->room_name ?: 'не указана'),
+            "💰 <b>Сумма:</b> {$booking->total_amount} {$currency}",
+            "✅ <b>Статус:</b> Полностью оплачено",
+            $paymentSection,
+            "⏰ " . now('Asia/Tashkent')->format('d.m.Y H:i'),
+        ]);
+
+        $this->send($text);
+        $change->markAlerted();
+    }
+
+    /**
      * Booking was cancelled
      */
     public function alertCancellation(Beds24Booking $booking, Beds24BookingChange $change): void
