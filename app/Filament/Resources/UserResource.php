@@ -174,10 +174,11 @@ class UserResource extends Resource
                     ->searchable()
                     ->color(fn (string $state): string => match ($state) {
                         'super_admin', 'admin' => 'success',
+                        'owner' => 'success',
                         'manager' => 'warning',
                         'cashier' => 'info',
-                        'staff' => 'gray',
-                        default => 'primary',
+                        'cleaner' => 'primary',
+                        default => 'gray',
                     }),
                 Tables\Columns\TextColumn::make('locations.name')
                     ->label('Assigned Locations')
