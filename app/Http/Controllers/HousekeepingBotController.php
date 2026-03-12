@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Jobs\SendTelegramNotificationJob;
 use App\Models\LostFoundItem;
 use App\Models\RoomIssue;
 use App\Models\TelegramPosSession;
@@ -597,26 +598,12 @@ class HousekeepingBotController extends Controller
             . "📍 {$issue->room_number}-xona\n"
             . "👤 {$name}{$desc}";
 
-        try {
-            $resp = Http::timeout(15)->post(
-                "https://api.telegram.org/bot{$this->botToken}/sendPhoto",
-                [
-                    'chat_id'    => $this->mgmtGroupId,
-                    'photo'      => $fileId,
-                    'caption'    => $caption,
-                    'parse_mode' => 'HTML',
-                ]
-            );
-
-            if (!$resp->successful()) {
-                Log::warning('HousekeepingBot: failed to forward issue to management group', [
-                    'status' => $resp->status(),
-                    'body'   => $resp->body(),
-                ]);
-            }
-        } catch (\Throwable $e) {
-            Log::error('HousekeepingBot: error forwarding issue', ['error' => $e->getMessage()]);
-        }
+        SendTelegramNotificationJob::dispatch($this->botToken, 'sendPhoto', [
+            'chat_id'    => $this->mgmtGroupId,
+            'photo'      => $fileId,
+            'caption'    => $caption,
+            'parse_mode' => 'HTML',
+        ]);
     }
 
     // ── HELP ───────────────────────────────────────────────────
@@ -793,19 +780,12 @@ class HousekeepingBotController extends Controller
                 . "📝 {$desc}\n"
                 . "👤 {$name}";
 
-            try {
-                Http::timeout(15)->post(
-                    "https://api.telegram.org/bot{$this->botToken}/sendPhoto",
-                    [
-                        'chat_id'    => $this->mgmtGroupId,
-                        'photo'      => $fileId,
-                        'caption'    => $caption,
-                        'parse_mode' => 'HTML',
-                    ]
-                );
-            } catch (\Throwable $e) {
-                Log::error('HousekeepingBot: error sending L&F to group', ['error' => $e->getMessage()]);
-            }
+            SendTelegramNotificationJob::dispatch($this->botToken, 'sendPhoto', [
+                'chat_id'    => $this->mgmtGroupId,
+                'photo'      => $fileId,
+                'caption'    => $caption,
+                'parse_mode' => 'HTML',
+            ]);
         }
 
         $session->update(['state' => 'hk_main', 'data' => null]);
@@ -886,18 +866,11 @@ class HousekeepingBotController extends Controller
                     . "🧴 {$text}\n"
                     . "👤 {$name}";
 
-                try {
-                    Http::timeout(10)->post(
-                        "https://api.telegram.org/bot{$this->botToken}/sendMessage",
-                        [
-                            'chat_id'    => $this->mgmtGroupId,
-                            'text'       => $alert,
-                            'parse_mode' => 'HTML',
-                        ]
-                    );
-                } catch (\Throwable $e) {
-                    Log::error('HousekeepingBot: error sending stock alert', ['error' => $e->getMessage()]);
-                }
+                SendTelegramNotificationJob::dispatch($this->botToken, 'sendMessage', [
+                    'chat_id'    => $this->mgmtGroupId,
+                    'text'       => $alert,
+                    'parse_mode' => 'HTML',
+                ]);
             }
 
             $session->update(['state' => 'hk_main', 'data' => null]);
@@ -968,18 +941,11 @@ class HousekeepingBotController extends Controller
             ->get();
 
         foreach ($sessions as $s) {
-            try {
-                Http::timeout(5)->post(
-                    "https://api.telegram.org/bot{$this->botToken}/sendMessage",
-                    [
-                        'chat_id'    => $s->chat_id,
-                        'text'       => $msg,
-                        'parse_mode' => 'HTML',
-                    ]
-                );
-            } catch (\Throwable $e) {
-                Log::warning('HousekeepingBot: rush notify failed', ['chat' => $s->chat_id, 'error' => $e->getMessage()]);
-            }
+            SendTelegramNotificationJob::dispatch($this->botToken, 'sendMessage', [
+                'chat_id'    => $s->chat_id,
+                'text'       => $msg,
+                'parse_mode' => 'HTML',
+            ]);
         }
     }
 

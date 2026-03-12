@@ -2,8 +2,11 @@
 
 namespace App\Http\Controllers;
 
+use App\Jobs\ProcessBeds24WebhookJob;
+use App\Jobs\SendTelegramNotificationJob;
 use App\Models\Beds24Booking;
 use App\Models\Beds24BookingChange;
+use App\Models\Beds24WebhookEvent;
 use App\Models\CashTransaction;
 use App\Models\TelegramPosSession;
 use App\Enums\TransactionType;
@@ -38,32 +41,46 @@ class Beds24WebhookController extends Controller
      */
     public function handle(Request $request): Response
     {
-        // Return 200 immediately for Beds24 (re-tries on non-200)
-        try {
-            $this->processWebhook($request);
-        } catch (\Throwable $e) {
-            Log::error('Beds24WebhookController: Unhandled exception', [
-                'error'   => $e->getMessage(),
-                'trace'   => $e->getTraceAsString(),
-                'payload' => $request->all(),
-            ]);
+        $raw = $request->all();
+
+        Log::info('Beds24 Webhook received', ['payload_keys' => array_keys($raw)]);
+
+        // Idempotency: hash the payload to prevent duplicate processing
+        $eventHash = hash('sha256', json_encode($raw));
+
+        // Check if already processed
+        $existing = Beds24WebhookEvent::where('event_hash', $eventHash)->first();
+        if ($existing && $existing->status === 'processed') {
+            Log::info('Beds24 Webhook: Duplicate event skipped', ['event_id' => $existing->id]);
+            return response('OK', 200);
         }
+
+        // Extract booking ID for indexing
+        $bookingId = (string) ($raw['bookId'] ?? $raw['bookid'] ?? $raw['id'] ?? '');
+
+        // Store webhook event (never lose data)
+        $event = Beds24WebhookEvent::updateOrCreate(
+            ['event_hash' => $eventHash],
+            [
+                'booking_id' => $bookingId ?: null,
+                'payload'    => $raw,
+                'status'     => 'pending',
+            ]
+        );
+
+        // Dispatch async processing
+        ProcessBeds24WebhookJob::dispatch($event->id);
 
         return response('OK', 200);
     }
 
-    // -------------------------------------------------------------------------
-    // Core processing
-    // -------------------------------------------------------------------------
-
-    private function processWebhook(Request $request): void
+    /**
+     * Process a stored webhook payload. Called by ProcessBeds24WebhookJob.
+     */
+    public function processWebhookPayload(array $raw): void
     {
-        $raw = $request->all();
+        Log::info('Beds24 Webhook processing', ['payload' => $raw]);
 
-        Log::info('Beds24 Webhook received', ['payload' => $raw]);
-
-        // Parse the incoming payload into a normalised booking array.
-        // Beds24 can send either V1 (key-value flat) or V2 (JSON) format.
         $data = $this->parsePayload($raw);
 
         if (!$data) {
@@ -77,13 +94,12 @@ class Beds24WebhookController extends Controller
             return;
         }
 
-        // Load or create the booking record
         $existing = Beds24Booking::where('beds24_booking_id', $bookingId)->first();
 
         // If invoice_balance was not in webhook payload, calculate from invoiceItems
         if (($data['invoice_balance'] ?? 0) == -999) {
             $calculated = $this->calculateBalanceFromItems($raw);
-            $data['invoice_balance'] = $calculated ?? (float) ($data['total_amount'] ?? 0); // default to total (unpaid)
+            $data['invoice_balance'] = $calculated ?? (float) ($data['total_amount'] ?? 0);
             Log::info('Beds24 Webhook: Calculated balance from invoiceItems', [
                 'booking_id' => $bookingId,
                 'calculated_balance' => $data['invoice_balance'],
@@ -553,35 +569,23 @@ class Beds24WebhookController extends Controller
             . "🏨 {$propertyName}\n\n"
             . "🧹 Tozalashni boshlash mumkin!";
 
-        // Send to all authenticated housekeeping bot sessions
+        // Send to all authenticated housekeeping bot sessions (queued)
         $sessions = TelegramPosSession::whereNotNull('user_id')
             ->where('state', '!=', 'idle')
             ->get();
 
-        $sent = 0;
         foreach ($sessions as $session) {
-            try {
-                Http::timeout(5)->post(
-                    "https://api.telegram.org/bot{$botToken}/sendMessage",
-                    [
-                        'chat_id'    => $session->chat_id,
-                        'text'       => $text,
-                        'parse_mode' => 'HTML',
-                    ]
-                );
-                $sent++;
-            } catch (\Throwable $e) {
-                Log::warning('Beds24 Checkout: Failed to notify cleaner', [
-                    'chat_id' => $session->chat_id,
-                    'error'   => $e->getMessage(),
-                ]);
-            }
+            SendTelegramNotificationJob::dispatch($botToken, 'sendMessage', [
+                'chat_id'    => $session->chat_id,
+                'text'       => $text,
+                'parse_mode' => 'HTML',
+            ]);
         }
 
-        Log::info('Beds24 Checkout: Cleaners notified', [
+        Log::info('Beds24 Checkout: Cleaner notifications queued', [
             'booking_id' => $booking->beds24_booking_id,
             'room_name'  => $roomName,
-            'sent_to'    => $sent,
+            'queued_for' => $sessions->count(),
         ]);
     }
 
