@@ -8,6 +8,7 @@ use App\Models\CashTransaction;
 use App\Services\OwnerAlertService;
 use Carbon\Carbon;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Log;
 
 class SendMonthlyCashReport extends Command
 {
@@ -20,6 +21,17 @@ class SendMonthlyCashReport extends Command
     }
 
     public function handle(): int
+    {
+        try {
+            return $this->generateReport();
+        } catch (\Throwable $e) {
+            Log::error('Monthly cash report failed', ['error' => $e->getMessage()]);
+            $this->error("Report failed: {$e->getMessage()}");
+            return self::FAILURE;
+        }
+    }
+
+    private function generateReport(): int
     {
         if ($this->option('month')) {
             $month = Carbon::parse($this->option('month') . '-01', 'Asia/Tashkent');
@@ -39,7 +51,15 @@ class SendMonthlyCashReport extends Command
         $transactions = CashTransaction::whereBetween('occurred_at', [$startOfMonth, $endOfMonth])->get();
 
         if ($transactions->isEmpty()) {
-            $this->info('No transactions found for this month. Skipping report.');
+            $this->alertService->sendMonthlyCashReport([
+                'period'                => $month->translatedFormat('F Y'),
+                'income'                => [],
+                'expenses'              => [],
+                'balance'               => [],
+                'shifts_count'          => 0,
+                'prev_month_comparison' => null,
+            ]);
+            $this->info('No transactions — sent empty report.');
             return self::SUCCESS;
         }
 
