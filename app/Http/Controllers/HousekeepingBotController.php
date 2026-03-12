@@ -112,7 +112,7 @@ class HousekeepingBotController extends Controller
 
         // Reply keyboard button texts
         $user = User::find($session->user_id);
-        $isManager = $user && in_array($user->role, ['admin', 'manager', 'owner']);
+        $isManager = $user && $user->hasAnyRole(['super_admin', 'admin', 'manager', 'owner']);
 
         // Commands & button handlers
         if ($text === '/start' || $text === '🏠 Bosh sahifa') return $this->showWelcome($chatId, $session);
@@ -209,7 +209,7 @@ class HousekeepingBotController extends Controller
         if (!$session || !$session->user_id) return response('OK');
 
         $user = User::find($session->user_id);
-        $isManager = $user && in_array($user->role, ['admin', 'manager', 'owner']);
+        $isManager = $user && $user->hasAnyRole(['super_admin', 'admin', 'manager', 'owner']);
 
         return match(true) {
             $data === 'status' => $this->showStatus($chatId),
@@ -251,7 +251,7 @@ class HousekeepingBotController extends Controller
 
         $user = User::find($session->user_id);
         $name = $user?->name ?? '';
-        $isManager = $user && in_array($user->role, ['admin', 'manager', 'owner']);
+        $isManager = $user && $user->hasAnyRole(['super_admin', 'admin', 'manager', 'owner']);
 
         $text = "🧹 <b>Jahongir Hotel — Tozalik Bot</b>\n\n"
             . "Salom, <b>{$name}</b>! 👋\n\n"
@@ -310,7 +310,7 @@ class HousekeepingBotController extends Controller
             $text = "✅ {$nums}-xonalar — Toza!\n👤 {$name} | 🕐 {$time}";
         }
 
-        $isManager = $user && in_array($user->role, ['admin', 'manager', 'owner']);
+        $isManager = $user && $user->hasAnyRole(['super_admin', 'admin', 'manager', 'owner']);
         $this->send($chatId, $text, $this->mainKb($isManager));
         return response('OK');
     }
@@ -321,7 +321,7 @@ class HousekeepingBotController extends Controller
     {
         $user = User::find($session->user_id);
 
-        if (!$user || !in_array($user->role, ['admin', 'manager', 'owner'])) {
+        if (!$user || !$user->hasAnyRole(['super_admin', 'admin', 'manager', 'owner'])) {
             $this->send($chatId, "Bu buyruq faqat rahbariyat uchun.");
             return response('OK');
         }
@@ -362,7 +362,7 @@ class HousekeepingBotController extends Controller
     {
         $user = User::find($session->user_id);
 
-        if (!$user || !in_array($user->role, ['admin', 'manager', 'owner'])) {
+        if (!$user || !$user->hasAnyRole(['super_admin', 'admin', 'manager', 'owner'])) {
             $this->send($chatId, "Bu buyruq faqat rahbariyat uchun.");
             return response('OK');
         }
@@ -477,7 +477,7 @@ class HousekeepingBotController extends Controller
         // Reset session
         $session->update(['state' => 'hk_main', 'data' => null]);
 
-        $isManager = $user && in_array($user->role, ['admin', 'manager', 'owner']);
+        $isManager = $user && $user->hasAnyRole(['super_admin', 'admin', 'manager', 'owner']);
         $this->send($chatId, "✅ Muammo saqlandi! Rahbariyatga xabar berildi.", $this->mainKb($isManager));
         return response('OK');
     }
@@ -727,7 +727,7 @@ class HousekeepingBotController extends Controller
         if ($text === '/cancel' || $text === '❌ Bekor qilish') {
             $session->update(['state' => 'hk_main', 'data' => null]);
             $user = User::find($session->user_id);
-            $isManager = $user && in_array($user->role, ['admin', 'manager', 'owner']);
+            $isManager = $user && $user->hasAnyRole(['super_admin', 'admin', 'manager', 'owner']);
             $this->send($chatId, "Bekor qilindi.", $this->mainKb($isManager));
             return response('OK');
         }
@@ -810,7 +810,7 @@ class HousekeepingBotController extends Controller
 
         $session->update(['state' => 'hk_main', 'data' => null]);
 
-        $isManager = $user && in_array($user->role, ['admin', 'manager', 'owner']);
+        $isManager = $user && $user->hasAnyRole(['super_admin', 'admin', 'manager', 'owner']);
         $this->send($chatId, "✅ Topilma saqlandi! #{$item->id}\n📍 {$roomNum}-xona | 📝 {$desc}", $this->mainKb($isManager));
         return response('OK');
     }
@@ -847,7 +847,7 @@ class HousekeepingBotController extends Controller
         if ($text === '/cancel' || $text === '❌ Bekor qilish') {
             $session->update(['state' => 'hk_main', 'data' => null]);
             $user = User::find($session->user_id);
-            $isManager = $user && in_array($user->role, ['admin', 'manager', 'owner']);
+            $isManager = $user && $user->hasAnyRole(['super_admin', 'admin', 'manager', 'owner']);
             $this->send($chatId, "Bekor qilindi.", $this->mainKb($isManager));
             return response('OK');
         }
@@ -902,7 +902,7 @@ class HousekeepingBotController extends Controller
 
             $session->update(['state' => 'hk_main', 'data' => null]);
 
-            $isManager = $user && in_array($user->role, ['admin', 'manager', 'owner']);
+            $isManager = $user && $user->hasAnyRole(['super_admin', 'admin', 'manager', 'owner']);
             $this->send($chatId, "✅ Xabar yuborildi!\n📍 {$roomNum}-xona | 🧴 {$text}", $this->mainKb($isManager));
             return response('OK');
         }
