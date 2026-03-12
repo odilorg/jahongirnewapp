@@ -430,6 +430,18 @@ class Beds24WebhookController extends Controller
     private function createPaymentTransaction(Beds24Booking $booking, float $amount, string $notes, string $method = '', string $description = '', ?string $reference = null): void
     {
         try {
+            // Only create CashTransaction for cash payments (naqd)
+            // Card, transfer, OTA payments don't hit the physical cash register
+            $cashMethods = ['naqd', 'cash', 'наличные'];
+            if (!in_array(mb_strtolower(trim($method)), $cashMethods)) {
+                Log::info('Beds24 Payment: Skipped non-cash payment (no CashTransaction)', [
+                    'booking_id' => $booking->beds24_booking_id,
+                    'amount' => $amount,
+                    'method' => $method,
+                ]);
+                return;
+            }
+
             $ref = $reference;
             // Deduplication check
             if ($ref) {
