@@ -78,6 +78,16 @@ class Beds24WebhookController extends Controller
         // Load or create the booking record
         $existing = Beds24Booking::where('beds24_booking_id', $bookingId)->first();
 
+        // If invoice_balance was not in webhook payload, calculate from invoiceItems
+        if (($data['invoice_balance'] ?? 0) == -999) {
+            $calculated = $this->calculateBalanceFromItems($raw);
+            $data['invoice_balance'] = $calculated ?? (float) ($data['total_amount'] ?? 0); // default to total (unpaid)
+            Log::info('Beds24 Webhook: Calculated balance from invoiceItems', [
+                'booking_id' => $bookingId,
+                'calculated_balance' => $data['invoice_balance'],
+            ]);
+        }
+
         if ($existing) {
             $this->handleUpdate($existing, $data, $raw);
         } else {
@@ -520,7 +530,7 @@ class Beds24WebhookController extends Controller
             'total_amount'   => (float) ($raw['price'] ?? $raw['totalAmount'] ?? $raw['invoiceTotal'] ?? 0),
             'currency'       => $raw['currency'] ?? 'USD',
             'status'         => $raw['status'] ?? 'confirmed',
-            'invoice_balance'=> (float) ($raw['invoiceBalance'] ?? $raw['balance'] ?? 0),
+            'invoice_balance'=> (float) ($raw['invoiceBalance'] ?? $raw['balance'] ?? -999),
         ];
     }
 
@@ -674,6 +684,27 @@ class Beds24WebhookController extends Controller
         }
 
         return null; // Nothing meaningful
+    }
+
+    /**
+     * Calculate invoice balance from invoiceItems when invoiceBalance is not provided.
+     * Balance = sum of charges - sum of payments
+     */
+    private function calculateBalanceFromItems(array $raw): ?float
+    {
+        $items = $raw['invoiceItems'] ?? $raw['booking']['invoiceItems'] ?? [];
+        if (empty($items)) {
+            return null;
+        }
+
+        // Beds24 invoiceItems: charges have positive lineTotal, payments have NEGATIVE lineTotal
+        // So balance = sum of all lineTotals (positive = unpaid, 0 = fully paid)
+        $balance = 0;
+        foreach ($items as $item) {
+            $balance += (float) ($item['lineTotal'] ?? 0);
+        }
+
+        return max(0, $balance); // balance can't be negative
     }
 
     private function parseDate(?string $value): ?string
