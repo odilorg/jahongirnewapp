@@ -8,6 +8,7 @@ use App\Models\CashTransaction;
 use App\Services\OwnerAlertService;
 use Carbon\Carbon;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Log;
 
 class SendDailyCashReport extends Command
 {
@@ -20,6 +21,17 @@ class SendDailyCashReport extends Command
     }
 
     public function handle(): int
+    {
+        try {
+            return $this->generateReport();
+        } catch (\Throwable $e) {
+            Log::error('Daily cash report failed', ['error' => $e->getMessage()]);
+            $this->error("Report failed: {$e->getMessage()}");
+            return self::FAILURE;
+        }
+    }
+
+    private function generateReport(): int
     {
         $date = $this->option('date')
             ? Carbon::parse($this->option('date'), 'Asia/Tashkent')
@@ -34,7 +46,14 @@ class SendDailyCashReport extends Command
         $transactions = CashTransaction::whereBetween('occurred_at', [$startOfDay, $endOfDay])->get();
 
         if ($transactions->isEmpty()) {
-            $this->info('No transactions found for this day. Skipping report.');
+            $this->alertService->sendDailyCashReport([
+                'date'       => $date->format('d.m.Y'),
+                'income'     => [],
+                'expenses'   => [],
+                'balance'    => [],
+                'shift_info' => null,
+            ]);
+            $this->info('No transactions — sent empty report.');
             return self::SUCCESS;
         }
 

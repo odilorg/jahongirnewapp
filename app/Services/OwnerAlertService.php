@@ -8,7 +8,7 @@ use App\Models\CashTransaction;
 use App\Models\CashierShift;
 use App\Enums\TransactionType;
 use App\Enums\Currency;
-use Illuminate\Support\Facades\Http;
+use App\Jobs\SendTelegramNotificationJob;
 use Illuminate\Support\Facades\Log;
 use Carbon\Carbon;
 
@@ -20,10 +20,9 @@ class OwnerAlertService
 
     public function __construct()
     {
-        // Use the dedicated alert bot token (passed in task spec)
-        $this->botToken   = config('services.owner_alert_bot.token', env('OWNER_ALERT_BOT_TOKEN', '8404071021:AAF3uET88mdd-PxNsmOnUkdgETA1nJiM5_4'));
-        $this->ownerChatId = (int) config('services.owner_alert_bot.owner_chat_id', env('OWNER_TELEGRAM_ID', '38738713'));
-        $this->apiBase    = "https://api.telegram.org/bot{$this->botToken}";
+        $this->botToken    = config('services.owner_alert_bot.token', env('OWNER_ALERT_BOT_TOKEN', ''));
+        $this->ownerChatId = (int) config('services.owner_alert_bot.owner_chat_id', env('OWNER_TELEGRAM_ID', '0'));
+        $this->apiBase     = "https://api.telegram.org/bot{$this->botToken}";
     }
 
     // -------------------------------------------------------------------------
@@ -435,25 +434,20 @@ class OwnerAlertService
 
     private function send(string $text): void
     {
-        try {
-            $response = Http::timeout(10)->post("{$this->apiBase}/sendMessage", [
+        if (empty($this->botToken) || $this->ownerChatId === 0) {
+            Log::warning('OwnerAlertService: Bot token or chat ID not configured');
+            return;
+        }
+
+        SendTelegramNotificationJob::dispatch(
+            $this->botToken,
+            'sendMessage',
+            [
                 'chat_id'    => $this->ownerChatId,
                 'text'       => $text,
                 'parse_mode' => 'HTML',
-            ]);
-
-            if (!$response->successful()) {
-                Log::warning('OwnerAlertService: Failed to send Telegram message', [
-                    'status'   => $response->status(),
-                    'response' => $response->body(),
-                ]);
-            }
-        } catch (\Throwable $e) {
-            // Never let a Telegram failure break webhook processing
-            Log::error('OwnerAlertService: Exception sending Telegram message', [
-                'error' => $e->getMessage(),
-            ]);
-        }
+            ]
+        );
     }
 
     // -------------------------------------------------------------------------

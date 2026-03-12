@@ -6,6 +6,7 @@ use App\Models\Beds24Booking;
 use App\Models\Beds24BookingChange;
 use App\Services\OwnerAlertService;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Log;
 use Carbon\Carbon;
 
 class SendDailyOwnerReport extends Command
@@ -19,6 +20,17 @@ class SendDailyOwnerReport extends Command
     }
 
     public function handle(): int
+    {
+        try {
+            return $this->generateReport();
+        } catch (\Throwable $e) {
+            Log::error('Daily owner report failed', ['error' => $e->getMessage()]);
+            $this->error("Report failed: {$e->getMessage()}");
+            return self::FAILURE;
+        }
+    }
+
+    private function generateReport(): int
     {
         $this->info('Generating daily Beds24 owner report...');
 
@@ -70,15 +82,39 @@ class SendDailyOwnerReport extends Command
                 ->whereDate('departure_date', $tomorrow)
                 ->count();
 
-            // Revenue today (new bookings created today)
-            $revenueToday = Beds24Booking::forProperty($propertyId)
+            // Revenue today: sum of payments received today (from Beds24BookingChange)
+            // This tracks actual payment events, not booking creation dates
+            $paymentChanges = Beds24BookingChange::where('change_type', 'payment_updated')
+                ->whereDate('detected_at', $today)
+                ->whereIn('beds24_booking_id', function ($q) use ($propertyId) {
+                    $q->select('beds24_booking_id')
+                        ->from('beds24_bookings')
+                        ->where('property_id', $propertyId);
+                })
+                ->get();
+
+            $revenueToday = 0;
+            foreach ($paymentChanges as $pc) {
+                $oldBal = (float) ($pc->old_data['invoice_balance'] ?? 0);
+                $newBal = (float) ($pc->new_data['invoice_balance'] ?? 0);
+                if ($newBal < $oldBal) {
+                    $revenueToday += ($oldBal - $newBal);
+                }
+            }
+
+            // Also count new bookings that arrived pre-paid today
+            $prePaidToday = Beds24Booking::forProperty($propertyId)
                 ->whereDate('created_at', $today)
                 ->where('booking_status', '!=', 'cancelled')
+                ->where('invoice_balance', '<=', 0)
+                ->where('total_amount', '>', 0)
                 ->sum('total_amount');
+            $revenueToday += (float) $prePaidToday;
 
-            // Get primary currency for this property
             $primaryCurrency = Beds24Booking::forProperty($propertyId)
-                ->whereDate('created_at', $today)
+                ->where('booking_status', '!=', 'cancelled')
+                ->where('arrival_date', '<=', $today)
+                ->where('departure_date', '>=', $today)
                 ->groupBy('currency')
                 ->orderByRaw('COUNT(*) DESC')
                 ->value('currency') ?? 'USD';
