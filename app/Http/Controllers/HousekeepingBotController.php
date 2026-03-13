@@ -749,9 +749,23 @@ class HousekeepingBotController extends Controller
                 && !in_array($b['status'], ['cancelled', 'declined']);
         });
 
-        // Filter cancelled bookings from arrivals/departures
-        $arrivals = array_filter($arrivals, fn($b) => !in_array($b['status'], ['cancelled', 'declined']));
-        $departures = array_filter($departures, fn($b) => !in_array($b['status'], ['cancelled', 'declined']));
+        // Filter cancelled bookings and deduplicate by booking ID
+        $dedup = fn(array $list) => array_values(collect($list)
+            ->filter(fn($b) => !in_array($b['status'], ['cancelled', 'declined']))
+            ->unique('id')
+            ->all());
+
+        $arrivals = $dedup($arrivals);
+        $departures = $dedup($departures);
+        $stayovers = array_values($stayovers); // re-index
+
+        // Deduplicate stayovers by booking ID too
+        $seenIds = [];
+        $stayovers = array_filter($stayovers, function ($b) use (&$seenIds) {
+            if (in_array($b['id'], $seenIds)) return false;
+            $seenIds[] = $b['id'];
+            return true;
+        });
 
         // Build the message
         $lines = ["📅 <b>{$dayLabel} — Tozalash rejimi</b>"];
@@ -760,50 +774,46 @@ class HousekeepingBotController extends Controller
 
         // Departures = rooms to deep-clean for turnover
         if (!empty($departures)) {
-            $lines[] = "🔴 <b>Ketayotgan mehmonlar (" . count($departures) . "):</b>";
-            $lines[] = "<i>Xonalarni chuqur tozalash kerak</i>";
+            $lines[] = "🔴 <b>Ketayotgan (" . count($departures) . "):</b>";
+            $lines[] = "<i>Chuqur tozalash kerak</i>";
             foreach ($departures as $b) {
                 $roomKey = $b['roomId'] . '_' . $b['unitId'];
                 $roomNum = $roomMap[$roomKey] ?? '?';
-                $name = trim($b['firstName'] . ' ' . $b['lastName']);
-                $lines[] = "  🚪 <b>{$roomNum}</b>-xona — {$name}";
+                $guests = ($b['numAdult'] ?? 0) + ($b['numChild'] ?? 0);
+                $lines[] = "  🚪 <b>{$roomNum}</b>-xona · {$guests} kishi";
             }
             $lines[] = '';
         }
 
         // Arrivals = rooms to prepare for new guests
         if (!empty($arrivals)) {
-            $lines[] = "🟢 <b>Kelayotgan mehmonlar (" . count($arrivals) . "):</b>";
-            $lines[] = "<i>Xonalarni yangi mehmon uchun tayyorlash</i>";
+            $lines[] = "🟢 <b>Kelayotgan (" . count($arrivals) . "):</b>";
+            $lines[] = "<i>Yangi mehmon uchun tayyorlash</i>";
             foreach ($arrivals as $b) {
                 $roomKey = $b['roomId'] . '_' . $b['unitId'];
                 $roomNum = $roomMap[$roomKey] ?? '?';
-                $name = trim($b['firstName'] . ' ' . $b['lastName']);
+                $guests = ($b['numAdult'] ?? 0) + ($b['numChild'] ?? 0);
                 $nights = '';
                 try {
-                    $nights = \Carbon\Carbon::parse($b['arrival'])->diffInDays(\Carbon\Carbon::parse($b['departure']));
-                    $nights = " ({$nights} kecha)";
+                    $nights = Carbon::parse($b['arrival'])->diffInDays(Carbon::parse($b['departure']));
+                    $nights = " · {$nights} kecha";
                 } catch (\Throwable $e) {}
-                $arrival = $b['arrivalTime'] ? " ⏰ {$b['arrivalTime']}" : '';
-                $guests = $b['numAdult'] + $b['numChild'];
-                $lines[] = "  🛬 <b>{$roomNum}</b>-xona — {$name}{$nights}{$arrival}";
-                if ($guests > 1) {
-                    $lines[-1] = end($lines); // keep same line
-                }
+                $arrival = $b['arrivalTime'] ? " · ⏰ {$b['arrivalTime']}" : '';
+                $lines[] = "  🛬 <b>{$roomNum}</b>-xona · {$guests} kishi{$nights}{$arrival}";
             }
             $lines[] = '';
         }
 
         // Stayovers = rooms for light cleaning
         if (!empty($stayovers)) {
-            $lines[] = "🔵 <b>Qolayotgan mehmonlar (" . count($stayovers) . "):</b>";
-            $lines[] = "<i>Yengil tozalash (sochiq, axlat, xona)</i>";
+            $lines[] = "🔵 <b>Qolayotgan (" . count($stayovers) . "):</b>";
+            $lines[] = "<i>Yengil tozalash (sochiq, axlat)</i>";
             foreach ($stayovers as $b) {
                 $roomKey = $b['roomId'] . '_' . $b['unitId'];
                 $roomNum = $roomMap[$roomKey] ?? '?';
-                $name = trim($b['firstName'] . ' ' . $b['lastName']);
-                $depDate = \Carbon\Carbon::parse($b['departure'])->format('d.m');
-                $lines[] = "  🛏 <b>{$roomNum}</b>-xona — {$name} (→{$depDate})";
+                $guests = ($b['numAdult'] ?? 0) + ($b['numChild'] ?? 0);
+                $depDate = Carbon::parse($b['departure'])->format('d.m');
+                $lines[] = "  🛏 <b>{$roomNum}</b>-xona · {$guests} kishi (→{$depDate})";
             }
             $lines[] = '';
         }
