@@ -92,9 +92,15 @@ class HousekeepingBotController extends Controller
             return $this->handlePhoto($chatId, $session, $photo);
         }
 
-        // Voice message received — start issue report with voice
+        // Voice message received
         if ($voice) {
             return $this->handleVoice($chatId, $session, $voice);
+        }
+
+        // Voice in caption (photo + voice not possible in TG, but handle video_note)
+        // Video notes (round video messages)
+        if ($message['video_note'] ?? null) {
+            return $this->handleVoice($chatId, $session, $message['video_note']);
         }
 
         // State-based handling (issue reporting flow)
@@ -128,7 +134,7 @@ class HousekeepingBotController extends Controller
         if ($text === '/help' || $text === '❓ Yordam') return $this->showHelp($chatId, $isManager);
         if ($text === '📸 Muammo yuborish') {
             $session->update(['state' => 'hk_issue_photo', 'data' => null]);
-            $this->send($chatId, "📸 Muammo rasmini yuboring.", $this->mainKb($isManager));
+            $this->send($chatId, "📸 Rasm yoki 🎤 ovozli xabar yuboring.", $this->mainKb($isManager));
             return response('OK');
         }
         // New feature buttons
@@ -179,7 +185,7 @@ class HousekeepingBotController extends Controller
 
         // State: waiting for issue photo
         if ($session->state === 'hk_issue_photo') {
-            $this->send($chatId, "📸 Rasm yuboring yoki /cancel bosing.");
+            $this->send($chatId, "📸 Rasm yoki 🎤 ovozli xabar yuboring.\n/cancel — bekor qilish");
             return response('OK');
         }
 
@@ -419,7 +425,35 @@ class HousekeepingBotController extends Controller
         $fileId = $voice['file_id'] ?? null;
         if (!$fileId) return response('OK');
 
-        // Store voice file_id in session, ask for room number
+        $state = $session->state;
+        $data  = $session->data ?? [];
+
+        // Voice during "waiting for photo" step — use as alternative to photo
+        if ($state === 'hk_issue_photo') {
+            $session->update([
+                'state' => 'hk_issue_room',
+                'data'  => ['voice_file_id' => $fileId],
+            ]);
+            $this->send($chatId, "🎤 Ovozli xabar qabul qilindi.\n\nNechanchi xona? (1-15)");
+            return response('OK');
+        }
+
+        // Voice during "description" step — attach as voice description
+        if ($state === 'hk_issue_desc') {
+            $data['voice_file_id'] = $fileId;
+            $data['description'] = $data['description'] ?? '🎤 Ovozli xabar';
+            return $this->saveIssue($chatId, $session, $data);
+        }
+
+        // Voice during "room number" step — save voice, still need room
+        if ($state === 'hk_issue_room') {
+            $data['voice_file_id'] = $fileId;
+            $session->update(['data' => $data]);
+            $this->send($chatId, "🎤 Ovozli xabar qabul qilindi.\n\nNechanchi xona? (1-15)");
+            return response('OK');
+        }
+
+        // Default: start new issue report with voice
         $session->update([
             'state' => 'hk_issue_room',
             'data'  => ['voice_file_id' => $fileId],
@@ -445,7 +479,7 @@ class HousekeepingBotController extends Controller
             $roomNum = $rooms[0];
             $data['room_number'] = $roomNum;
             $session->update(['state' => 'hk_issue_desc', 'data' => $data]);
-            $this->send($chatId, "Muammo nima? (Qisqacha yozing yoki /skip yuboring)");
+            $this->send($chatId, "Muammo nima?\n\n✍️ Qisqacha yozing\n🎤 Ovozli xabar yuboring\n/skip — o'tkazish");
             return response('OK');
         }
 
