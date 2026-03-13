@@ -491,6 +491,54 @@ class HousekeepingBotController extends Controller
             return response('OK');
         }
 
+        // ── Stock alert flow states ──
+
+        // Voice during stock "item" step — use as item description
+        if ($state === 'hk_stock_item') {
+            $data['voice_file_id'] = $fileId;
+            $data['item'] = '🎤 Ovozli xabar';
+            $user = User::find($session->user_id);
+            $name = $user?->name ?? 'Noma\'lum';
+            $roomNum = $data['room_number'] ?? '?';
+
+            Log::info('HousekeepingBot: stock alert with voice', [
+                'room_number' => $roomNum,
+                'user_name'   => $name,
+            ]);
+
+            if ($this->mgmtGroupId) {
+                $caption = "📢 <b>Kam narsa!</b>\n"
+                    . "📍 {$roomNum}-xona\n"
+                    . "👤 {$name}";
+
+                SendTelegramNotificationJob::dispatch($this->botToken, 'sendVoice', [
+                    'chat_id'    => $this->mgmtGroupId,
+                    'voice'      => $fileId,
+                    'caption'    => $caption,
+                    'parse_mode' => 'HTML',
+                ]);
+            }
+
+            $session->update(['state' => 'hk_main', 'data' => null]);
+            $isManager = $user && $user->hasAnyRole(['super_admin', 'admin', 'manager', 'owner']);
+            $this->send($chatId, "✅ Xabar yuborildi!\n📍 {$roomNum}-xona | 🎤 Ovozli xabar", $this->mainKb($isManager));
+            return response('OK');
+        }
+
+        // Voice during stock "room" step — save voice, still need room
+        if ($state === 'hk_stock_room') {
+            $data['voice_file_id'] = $fileId;
+            $session->update(['data' => $data]);
+            $this->send($chatId, "🎤 Ovozli xabar saqlandi.\n\nQaysi xonada kam narsa bor? (1-15)");
+            return response('OK');
+        }
+
+        // Voice during other active flows — ignore voice, remind current step
+        if (in_array($state, ['hk_rush_room', 'hk_dirty_room'])) {
+            $this->send($chatId, "🎤 Ovozli xabar saqlanmadi.\n\nAvval xona raqamini kiriting (1-15):");
+            return response('OK');
+        }
+
         // Default: start new issue report with voice
         $session->update([
             'state' => 'hk_issue_room',
@@ -993,7 +1041,7 @@ class HousekeepingBotController extends Controller
             }
             $data['room_number'] = $rooms[0];
             $session->update(['state' => 'hk_stock_item', 'data' => $data]);
-            $this->send($chatId, "Nima kam? (masalan: <code>sochiq</code>, <code>shampun</code>, <code>sovun</code>)");
+            $this->send($chatId, "Nima kam?\n✍️ Yozing (masalan: <code>sochiq</code>, <code>shampun</code>)\n🎤 Yoki ovozli xabar yuboring");
             return response('OK');
         }
 
