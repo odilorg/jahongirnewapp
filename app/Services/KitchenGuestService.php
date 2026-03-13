@@ -17,9 +17,14 @@ class KitchenGuestService
     }
 
     /**
-     * Get guest count for a specific date.
-     * For breakfast: stayovers (arrived before, depart on or after) + arrivals that day
-     * Departures ARE included — they haven't left yet at breakfast time.
+     * Get breakfast guest count for a specific date.
+     *
+     * Breakfast = people who SLEPT in the hotel last night:
+     *   - Stayovers: arrived before this date, depart after this date
+     *   - Departures: leaving today (slept last night, eat breakfast before checkout)
+     *
+     * Arrivals are NOT included — they check in later in the day.
+     * Arrivals are returned in breakdown for informational display only.
      *
      * Returns: ['total' => int, 'adults' => int, 'children' => int, 'bookings' => int]
      */
@@ -28,14 +33,14 @@ class KitchenGuestService
         $dateStr = $date;
 
         try {
-            // Arrivals for this date
+            // Arrivals for this date (NOT counted for breakfast — informational only)
             $arrivalsResp = $this->beds24->getBookings([
                 'arrival' => $dateStr,
                 'propertyId' => [(string) self::PROPERTY_ID],
             ]);
             $arrivals = $this->filterActive($arrivalsResp['data'] ?? []);
 
-            // Departures for this date (they're still in hotel at breakfast)
+            // Departures for this date (they slept last night → eat breakfast)
             $departuresResp = $this->beds24->getBookings([
                 'departure' => $dateStr,
                 'propertyId' => [(string) self::PROPERTY_ID],
@@ -50,29 +55,28 @@ class KitchenGuestService
             $currentAll = $currentResp['data'] ?? [];
 
             // Stayovers = arrived before this date AND depart after this date
-            // (not same-day arrivals, not same-day departures — those are separate)
             $stayovers = $this->filterActive(array_filter($currentAll, function ($b) use ($dateStr) {
                 return $b['arrival'] < $dateStr && $b['departure'] > $dateStr;
             }));
 
-            // Merge all unique bookings: stayovers + departures + arrivals
-            $allBookings = collect(array_merge($stayovers, $departures, $arrivals))
+            // Breakfast guests = stayovers + departures (NOT arrivals)
+            $breakfastGuests = collect(array_merge($stayovers, $departures))
                 ->unique('id')
                 ->values();
 
-            $adults = $allBookings->sum(fn($b) => (int) ($b['numAdult'] ?? 0));
-            $children = $allBookings->sum(fn($b) => (int) ($b['numChild'] ?? 0));
+            $adults = $breakfastGuests->sum(fn($b) => (int) ($b['numAdult'] ?? 0));
+            $children = $breakfastGuests->sum(fn($b) => (int) ($b['numChild'] ?? 0));
             $total = $adults + $children;
 
             return [
                 'total' => $total,
                 'adults' => $adults,
                 'children' => $children,
-                'bookings' => $allBookings->count(),
+                'bookings' => $breakfastGuests->count(),
                 'breakdown' => [
                     'stayovers' => count($stayovers),
                     'departures' => count($departures),
-                    'arrivals' => count($arrivals),
+                    'arrivals' => count($arrivals), // info only, not in total
                 ],
             ];
         } catch (\Throwable $e) {

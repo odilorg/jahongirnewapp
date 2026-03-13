@@ -358,10 +358,10 @@ class KitchenBotController extends Controller
         $text .= "🏨 Jami bronlar: {$counts['bookings']}\n\n";
 
         if (!empty($bd)) {
-            $text .= "📋 <b>Tafsilot:</b>\n";
+            $text .= "📋 <b>Nonushta tafsiloti:</b>\n";
             if ($bd['stayovers'] > 0) $text .= "  🛏 Qolayotgan: {$bd['stayovers']} bron\n";
             if ($bd['departures'] > 0) $text .= "  🚪 Ketayotgan: {$bd['departures']} bron\n";
-            if ($bd['arrivals'] > 0) $text .= "  🛬 Kelayotgan: {$bd['arrivals']} bron\n";
+            if ($bd['arrivals'] > 0) $text .= "  🛬 Kelayotgan: {$bd['arrivals']} bron <i>(nonushtaga kirmaydi)</i>\n";
             $text .= "\n";
         }
 
