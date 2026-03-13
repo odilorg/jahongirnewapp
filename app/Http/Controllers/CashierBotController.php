@@ -161,6 +161,18 @@ class CashierBotController extends Controller
         if ($this->getShift($s->user_id)) { $this->send($chatId, "Смена уже открыта."); return $this->showMainMenu($chatId, $s); }
         $drawer = \App\Models\CashDrawer::where('is_active', true)->first();
         if (!$drawer) { $this->send($chatId, "Нет активной кассы."); return response('OK'); }
+
+        // Prevent multiple open shifts on the same drawer
+        $existingShift = CashierShift::where('cash_drawer_id', $drawer->id)
+            ->where('status', 'open')
+            ->with('user')
+            ->first();
+        if ($existingShift) {
+            $name = $existingShift->user->name ?? 'другой кассир';
+            $this->send($chatId, "⚠️ Касса занята!\n\nСмена уже открыта: {$name}\nОткрыта: " . $existingShift->opened_at->timezone('Asia/Tashkent')->format('d.m H:i') . "\n\nДождитесь закрытия смены.");
+            return response('OK');
+        }
+
         $shift = CashierShift::create(['cash_drawer_id' => $drawer->id, 'user_id' => $s->user_id, 'status' => 'open', 'opened_at' => now()]);
 
         // Carry forward balances from last closed shift on same drawer
