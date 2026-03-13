@@ -64,7 +64,7 @@ class KitchenBotController extends Controller
         // Auth: phone contact
         if ($contact) return $this->handleAuth($chatId, $contact);
 
-        $session = TelegramPosSession::where('chat_id', $chatId)->first();
+        $session = $this->getSession($chatId);
 
         // Not authenticated
         if (!$session || !$session->user_id) {
@@ -153,13 +153,34 @@ class KitchenBotController extends Controller
             return response('OK');
         }
 
+        // Use negative chat_id to avoid session collision with other bots
+        $sessionChatId = $this->sessionChatId($chatId);
+
         TelegramPosSession::updateOrCreate(
-            ['chat_id' => $chatId],
-            ['user_id' => $user->id, 'state' => 'kitchen_main', 'data' => null]
+            ['chat_id' => $sessionChatId],
+            ['telegram_user_id' => $chatId, 'user_id' => $user->id, 'state' => 'kitchen_main', 'data' => null]
         );
 
         $this->send($chatId, "✅ Xush kelibsiz, {$user->name}!");
-        return $this->showWelcome($chatId, TelegramPosSession::where('chat_id', $chatId)->first());
+        return $this->showWelcome($chatId, $this->getSession($chatId));
+    }
+
+    /**
+     * Get session for this kitchen bot user.
+     * Uses negative chat_id to avoid collision with housekeeping/cashier bots.
+     */
+    protected function getSession(int $chatId): ?TelegramPosSession
+    {
+        return TelegramPosSession::where('chat_id', $this->sessionChatId($chatId))->first();
+    }
+
+    /**
+     * Offset chat_id for kitchen bot sessions to avoid collision.
+     * Housekeeping uses positive chat_id, kitchen uses negative.
+     */
+    protected function sessionChatId(int $chatId): int
+    {
+        return -abs($chatId);
     }
 
     // ── WELCOME ──────────────────────────────────────────────────
