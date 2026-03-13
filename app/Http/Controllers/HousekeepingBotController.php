@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Jobs\SendTelegramNotificationJob;
+use Carbon\Carbon;
 use App\Models\LostFoundItem;
 use App\Models\RoomIssue;
 use App\Models\TelegramPosSession;
@@ -129,6 +130,7 @@ class HousekeepingBotController extends Controller
 
         // Commands & button handlers
         if ($text === '/start' || $text === '🏠 Bosh sahifa') return $this->showWelcome($chatId, $session);
+        if ($text === '/today' || $text === '📅 Bugungi rejim') return $this->showDailyPlan($chatId, now()->timezone('Asia/Tashkent')->format('Y-m-d'));
         if ($text === '/status' || $text === '📊 Xonalar holati') return $this->showStatus($chatId);
         if ($text === '/issues' || $text === '🔴 Muammolar') return $this->showIssues($chatId);
         if ($text === '/help' || $text === '❓ Yordam') return $this->showHelp($chatId, $isManager);
@@ -228,6 +230,7 @@ class HousekeepingBotController extends Controller
             $data === 'status' => $this->showStatus($chatId),
             $data === 'issues' => $this->showIssues($chatId),
             $data === 'help' => $this->showHelp($chatId, $isManager),
+            str_starts_with($data, 'plan_') => $this->showDailyPlan($chatId, substr($data, 5)),
             str_starts_with($data, 'resolve_') => $this->resolveIssue($chatId, $session, (int) substr($data, 8)),
             str_starts_with($data, 'clean_') => $this->markRoomsClean($chatId, $session, [(int) substr($data, 6)]),
             str_starts_with($data, 'dirty_') => $this->markDirty($chatId, $session, (int) substr($data, 6)),
@@ -269,9 +272,10 @@ class HousekeepingBotController extends Controller
         $text = "🧹 <b>Jahongir Hotel — Tozalik Bot</b>\n\n"
             . "Salom, <b>{$name}</b>! 👋\n\n"
             . "📌 <b>Asosiy imkoniyatlar:</b>\n"
+            . "• 📅 Bugungi rejim — kim keladi, kim ketadi\n"
             . "• Xona raqamini yozing → toza deb belgilanadi\n"
             . "  Masalan: <code>7</code> yoki <code>3,5,11</code>\n"
-            . "• 📸 Rasm yuboring → muammo haqida xabar\n"
+            . "• 📸 Rasm yoki 🎤 ovozli xabar → muammo haqida\n"
             . "• 📊 Xonalar holati — barcha xonalar\n"
             . "• 🔴 Muammolar — ochiq muammolar ro'yxati";
 
@@ -687,6 +691,158 @@ class HousekeepingBotController extends Controller
             array_unshift($buttons, [['text' => '⬆️ Toza deb belgilash:', 'callback_data' => 'noop']]);
             $p['reply_markup'] = json_encode(['inline_keyboard' => $buttons]);
         }
+
+        Http::timeout(10)->post("https://api.telegram.org/bot{$this->botToken}/sendMessage", $p);
+        return response('OK');
+    }
+
+    // ── DAILY PLAN (ARRIVALS / DEPARTURES / STAYOVERS) ──────────
+
+    protected function showDailyPlan(int $chatId, string $date)
+    {
+        try {
+            $dateObj = \Carbon\Carbon::parse($date)->startOfDay();
+        } catch (\Throwable $e) {
+            $dateObj = now()->timezone('Asia/Tashkent')->startOfDay();
+        }
+
+        $dateStr = $dateObj->format('Y-m-d');
+        $today = now()->timezone('Asia/Tashkent')->startOfDay();
+        $isToday = $dateObj->eq($today);
+        $isTomorrow = $dateObj->eq($today->copy()->addDay());
+
+        $dayLabel = $isToday ? 'Bugun' : ($isTomorrow ? 'Ertaga' : $dateObj->format('d.m (D)'));
+
+        // Build room map: roomTypeId + unitId → room number
+        $roomStatuses = $this->beds24->getRoomStatuses(self::PROPERTY_ID);
+        $roomMap = [];
+        foreach ($roomStatuses as $r) {
+            $key = $r['room_type_id'] . '_' . $r['unit_id'];
+            $roomMap[$key] = $r['room_number'];
+        }
+
+        // Fetch arrivals for this date
+        $arrivalsResp = $this->beds24->getBookings([
+            'arrival' => $dateStr,
+            'propertyId' => [(string) self::PROPERTY_ID],
+        ]);
+        $arrivals = $arrivalsResp['data'] ?? [];
+
+        // Fetch departures for this date
+        $departuresResp = $this->beds24->getBookings([
+            'departure' => $dateStr,
+            'propertyId' => [(string) self::PROPERTY_ID],
+        ]);
+        $departures = $departuresResp['data'] ?? [];
+
+        // Fetch current bookings to find stayovers
+        // Stayovers = arrived before this date AND departing after this date
+        $currentResp = $this->beds24->getBookings([
+            'filter' => 'current',
+            'propertyId' => [(string) self::PROPERTY_ID],
+        ]);
+        $currentAll = $currentResp['data'] ?? [];
+
+        // Filter: stayovers are guests who arrived before $date and depart after $date
+        $stayovers = array_filter($currentAll, function ($b) use ($dateStr) {
+            return $b['arrival'] < $dateStr && $b['departure'] > $dateStr
+                && !in_array($b['status'], ['cancelled', 'declined']);
+        });
+
+        // Filter cancelled bookings from arrivals/departures
+        $arrivals = array_filter($arrivals, fn($b) => !in_array($b['status'], ['cancelled', 'declined']));
+        $departures = array_filter($departures, fn($b) => !in_array($b['status'], ['cancelled', 'declined']));
+
+        // Build the message
+        $lines = ["📅 <b>{$dayLabel} — Tozalash rejimi</b>"];
+        $lines[] = "📆 {$dateObj->format('d.m.Y')}";
+        $lines[] = '';
+
+        // Departures = rooms to deep-clean for turnover
+        if (!empty($departures)) {
+            $lines[] = "🔴 <b>Ketayotgan mehmonlar (" . count($departures) . "):</b>";
+            $lines[] = "<i>Xonalarni chuqur tozalash kerak</i>";
+            foreach ($departures as $b) {
+                $roomKey = $b['roomId'] . '_' . $b['unitId'];
+                $roomNum = $roomMap[$roomKey] ?? '?';
+                $name = trim($b['firstName'] . ' ' . $b['lastName']);
+                $lines[] = "  🚪 <b>{$roomNum}</b>-xona — {$name}";
+            }
+            $lines[] = '';
+        }
+
+        // Arrivals = rooms to prepare for new guests
+        if (!empty($arrivals)) {
+            $lines[] = "🟢 <b>Kelayotgan mehmonlar (" . count($arrivals) . "):</b>";
+            $lines[] = "<i>Xonalarni yangi mehmon uchun tayyorlash</i>";
+            foreach ($arrivals as $b) {
+                $roomKey = $b['roomId'] . '_' . $b['unitId'];
+                $roomNum = $roomMap[$roomKey] ?? '?';
+                $name = trim($b['firstName'] . ' ' . $b['lastName']);
+                $nights = '';
+                try {
+                    $nights = \Carbon\Carbon::parse($b['arrival'])->diffInDays(\Carbon\Carbon::parse($b['departure']));
+                    $nights = " ({$nights} kecha)";
+                } catch (\Throwable $e) {}
+                $arrival = $b['arrivalTime'] ? " ⏰ {$b['arrivalTime']}" : '';
+                $guests = $b['numAdult'] + $b['numChild'];
+                $lines[] = "  🛬 <b>{$roomNum}</b>-xona — {$name}{$nights}{$arrival}";
+                if ($guests > 1) {
+                    $lines[-1] = end($lines); // keep same line
+                }
+            }
+            $lines[] = '';
+        }
+
+        // Stayovers = rooms for light cleaning
+        if (!empty($stayovers)) {
+            $lines[] = "🔵 <b>Qolayotgan mehmonlar (" . count($stayovers) . "):</b>";
+            $lines[] = "<i>Yengil tozalash (sochiq, axlat, xona)</i>";
+            foreach ($stayovers as $b) {
+                $roomKey = $b['roomId'] . '_' . $b['unitId'];
+                $roomNum = $roomMap[$roomKey] ?? '?';
+                $name = trim($b['firstName'] . ' ' . $b['lastName']);
+                $depDate = \Carbon\Carbon::parse($b['departure'])->format('d.m');
+                $lines[] = "  🛏 <b>{$roomNum}</b>-xona — {$name} (→{$depDate})";
+            }
+            $lines[] = '';
+        }
+
+        if (empty($arrivals) && empty($departures) && empty($stayovers)) {
+            $lines[] = "✨ Bugun mehmonlar yo'q.";
+            $lines[] = '';
+        }
+
+        // Summary
+        $totalClean = count($departures) + count($arrivals) + count($stayovers);
+        $lines[] = "━━━━━━━━━━━━━━━━━━";
+        $lines[] = "🧹 Jami tozalash: <b>{$totalClean}</b> xona";
+        if (!empty($departures)) $lines[] = "  🔴 Chuqur: " . count($departures);
+        if (!empty($arrivals)) $lines[] = "  🟢 Yangi mehmon: " . count($arrivals);
+        if (!empty($stayovers)) $lines[] = "  🔵 Yengil: " . count($stayovers);
+
+        $text = implode("\n", $lines);
+
+        // Navigation buttons
+        $prevDate = $dateObj->copy()->subDay()->format('Y-m-d');
+        $nextDate = $dateObj->copy()->addDay()->format('Y-m-d');
+        $buttons = [
+            [
+                ['text' => '⬅️ Oldingi kun', 'callback_data' => "plan_{$prevDate}"],
+                ['text' => 'Keyingi kun ➡️', 'callback_data' => "plan_{$nextDate}"],
+            ],
+        ];
+        if (!$isToday) {
+            $todayDate = $today->format('Y-m-d');
+            $buttons[] = [['text' => '📅 Bugun', 'callback_data' => "plan_{$todayDate}"]];
+        }
+
+        $p = [
+            'chat_id' => $chatId,
+            'text' => $text,
+            'parse_mode' => 'HTML',
+            'reply_markup' => json_encode(['inline_keyboard' => $buttons]),
+        ];
 
         Http::timeout(10)->post("https://api.telegram.org/bot{$this->botToken}/sendMessage", $p);
         return response('OK');
@@ -1266,7 +1422,7 @@ class HousekeepingBotController extends Controller
     protected function mainKb(bool $isManager = false): array
     {
         $rows = [
-            [['text' => '📊 Xonalar holati']],
+            [['text' => '📅 Bugungi rejim'], ['text' => '📊 Xonalar holati']],
             [['text' => '📸 Muammo yuborish'], ['text' => '🔴 Muammolar']],
             [['text' => '📦 Topilma'], ['text' => '📢 Kam narsa']],
             [['text' => '❓ Yordam']],
