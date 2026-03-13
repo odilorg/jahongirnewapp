@@ -323,7 +323,7 @@ class KitchenBotController extends Controller
             : 0;
 
         // Visual progress bar
-        $filled = (int) round($pct / 10);
+        $filled = min(10, max(0, (int) round($pct / 10)));
         $bar = str_repeat('▓', $filled) . str_repeat('░', 10 - $filled);
 
         $text = "📊 <b>Bugungi nonushta holati</b>\n\n"
