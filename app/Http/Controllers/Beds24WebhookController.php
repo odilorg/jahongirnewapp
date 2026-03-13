@@ -626,8 +626,10 @@ class Beds24WebhookController extends Controller
             . "🧹 Tozalashni boshlash mumkin!";
 
         // Send to all authenticated housekeeping bot sessions (queued)
+        // Exclude kitchen bot sessions (negative chat_id) and other non-HK states
         $sessions = TelegramPosSession::whereNotNull('user_id')
-            ->where('state', '!=', 'idle')
+            ->where('chat_id', '>', 0)
+            ->where('state', 'LIKE', 'hk_%')
             ->get();
 
         foreach ($sessions as $session) {
@@ -638,10 +640,21 @@ class Beds24WebhookController extends Controller
             ]);
         }
 
+        // Also send to management group
+        $mgmtGroupId = (int) config('services.housekeeping_bot.mgmt_group_id', 0);
+        if ($mgmtGroupId) {
+            SendTelegramNotificationJob::dispatch($botToken, 'sendMessage', [
+                'chat_id'    => $mgmtGroupId,
+                'text'       => $text,
+                'parse_mode' => 'HTML',
+            ]);
+        }
+
         Log::info('Beds24 Checkout: Cleaner notifications queued', [
             'booking_id' => $booking->beds24_booking_id,
             'room_name'  => $roomName,
             'queued_for' => $sessions->count(),
+            'mgmt_group' => (bool) $mgmtGroupId,
         ]);
     }
 
