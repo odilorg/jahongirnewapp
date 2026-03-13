@@ -437,6 +437,8 @@ class HousekeepingBotController extends Controller
         $state = $session->state;
         $data  = $session->data ?? [];
 
+        // ── Issue flow states ──
+
         // Voice during "waiting for photo" step — use as alternative to photo
         if ($state === 'hk_issue_photo') {
             $session->update([
@@ -459,6 +461,33 @@ class HousekeepingBotController extends Controller
             $data['voice_file_id'] = $fileId;
             $session->update(['data' => $data]);
             $this->send($chatId, "🎤 Ovozli xabar qabul qilindi.\n\nNechanchi xona? (1-15)");
+            return response('OK');
+        }
+
+        // ── Lost & Found flow states ──
+
+        // Voice during L&F "waiting for photo" step — use as alternative
+        if ($state === 'hk_lf_photo') {
+            $session->update([
+                'state' => 'hk_lf_room',
+                'data'  => ['voice_file_id' => $fileId],
+            ]);
+            $this->send($chatId, "🎤 Ovozli xabar qabul qilindi.\n\nQaysi xonadan topildi? (1-15)");
+            return response('OK');
+        }
+
+        // Voice during L&F "description" step — attach as voice description
+        if ($state === 'hk_lf_desc') {
+            $data['voice_file_id'] = $fileId;
+            $data['description'] = $data['description'] ?? '🎤 Ovozli xabar';
+            return $this->saveLostFoundItem($chatId, $session, $data);
+        }
+
+        // Voice during L&F "room number" step — save voice, still need room
+        if ($state === 'hk_lf_room') {
+            $data['voice_file_id'] = $fileId;
+            $session->update(['data' => $data]);
+            $this->send($chatId, "🎤 Qo'shimcha ovozli xabar saqlandi.\n\nQaysi xonadan topildi? (1-15)");
             return response('OK');
         }
 
@@ -844,18 +873,20 @@ class HousekeepingBotController extends Controller
 
     protected function saveLostFoundItem(int $chatId, $session, array $data)
     {
-        $user    = User::find($session->user_id);
-        $fileId  = $data['photo_file_id'] ?? null;
-        $roomNum = $data['room_number'] ?? null;
-        $desc    = $data['description'] ?? '';
+        $user         = User::find($session->user_id);
+        $photoFileId  = $data['photo_file_id'] ?? null;
+        $voiceFileId  = $data['voice_file_id'] ?? null;
+        $roomNum      = $data['room_number'] ?? null;
+        $desc         = $data['description'] ?? '';
 
-        $photoPath = $fileId ? $this->downloadTelegramPhoto($fileId, 'lost-found') : null;
+        $photoPath = $photoFileId ? $this->downloadTelegramPhoto($photoFileId, 'lost-found') : null;
+        $voicePath = $voiceFileId ? $this->downloadTelegramVoice($voiceFileId) : null;
 
         $item = LostFoundItem::create([
             'room_number'      => $roomNum,
             'found_by'         => $session->user_id,
             'photo_path'       => $photoPath,
-            'telegram_file_id' => $fileId,
+            'telegram_file_id' => $photoFileId ?? $voiceFileId,
             'description'      => $desc,
             'status'           => 'found',
         ]);
@@ -865,22 +896,46 @@ class HousekeepingBotController extends Controller
             'room_number' => $roomNum,
             'description' => $desc,
             'user_name'   => $user?->name,
+            'has_photo'   => (bool) $photoFileId,
+            'has_voice'   => (bool) $voiceFileId,
         ]);
 
         // Notify management group
-        if ($this->mgmtGroupId && $fileId) {
+        if ($this->mgmtGroupId) {
             $name = $user?->name ?? 'Noma\'lum';
             $caption = "📦 <b>Topilma!</b>\n"
                 . "📍 {$roomNum}-xona\n"
                 . "📝 {$desc}\n"
                 . "👤 {$name}";
 
-            SendTelegramNotificationJob::dispatch($this->botToken, 'sendPhoto', [
-                'chat_id'    => $this->mgmtGroupId,
-                'photo'      => $fileId,
-                'caption'    => $caption,
-                'parse_mode' => 'HTML',
-            ]);
+            if ($photoFileId) {
+                SendTelegramNotificationJob::dispatch($this->botToken, 'sendPhoto', [
+                    'chat_id'    => $this->mgmtGroupId,
+                    'photo'      => $photoFileId,
+                    'caption'    => $caption,
+                    'parse_mode' => 'HTML',
+                ]);
+            }
+
+            if ($voiceFileId) {
+                $voiceCaption = $photoFileId
+                    ? "🎤 Ovozli xabar — {$roomNum}-xona topilma"
+                    : $caption;
+                SendTelegramNotificationJob::dispatch($this->botToken, 'sendVoice', [
+                    'chat_id'    => $this->mgmtGroupId,
+                    'voice'      => $voiceFileId,
+                    'caption'    => $voiceCaption,
+                    'parse_mode' => 'HTML',
+                ]);
+            }
+
+            if (!$photoFileId && !$voiceFileId) {
+                SendTelegramNotificationJob::dispatch($this->botToken, 'sendMessage', [
+                    'chat_id'    => $this->mgmtGroupId,
+                    'text'       => $caption,
+                    'parse_mode' => 'HTML',
+                ]);
+            }
         }
 
         $session->update(['state' => 'hk_main', 'data' => null]);
