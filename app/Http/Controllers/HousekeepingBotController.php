@@ -65,6 +65,7 @@ class HousekeepingBotController extends Controller
         $chatId  = $message['chat']['id'] ?? null;
         $text    = trim($message['text'] ?? '');
         $photo   = $message['photo'] ?? null;
+        $voice   = $message['voice'] ?? null;
         $contact = $message['contact'] ?? null;
 
         if (!$chatId) return response('OK');
@@ -89,6 +90,11 @@ class HousekeepingBotController extends Controller
                 return $this->handleLostFoundPhoto($chatId, $session, $photo);
             }
             return $this->handlePhoto($chatId, $session, $photo);
+        }
+
+        // Voice message received — start issue report with voice
+        if ($voice) {
+            return $this->handleVoice($chatId, $session, $voice);
         }
 
         // State-based handling (issue reporting flow)
@@ -408,6 +414,21 @@ class HousekeepingBotController extends Controller
         return response('OK');
     }
 
+    protected function handleVoice(int $chatId, $session, array $voice)
+    {
+        $fileId = $voice['file_id'] ?? null;
+        if (!$fileId) return response('OK');
+
+        // Store voice file_id in session, ask for room number
+        $session->update([
+            'state' => 'hk_issue_room',
+            'data'  => ['voice_file_id' => $fileId],
+        ]);
+
+        $this->send($chatId, "🎤 Ovozli xabar qabul qilindi.\n\nNechanchi xona? (1-15)");
+        return response('OK');
+    }
+
     protected function handleIssueFlow(int $chatId, $session, string $text)
     {
         $state = $session->state;
@@ -440,26 +461,29 @@ class HousekeepingBotController extends Controller
 
     protected function saveIssue(int $chatId, $session, array $data)
     {
-        $roomNum    = $data['room_number'] ?? null;
-        $fileId     = $data['photo_file_id'] ?? null;
-        $desc       = $data['description'] ?? null;
-        $user       = User::find($session->user_id);
+        $roomNum      = $data['room_number'] ?? null;
+        $photoFileId  = $data['photo_file_id'] ?? null;
+        $voiceFileId  = $data['voice_file_id'] ?? null;
+        $desc         = $data['description'] ?? null;
+        $user         = User::find($session->user_id);
 
-        if (!$roomNum || !$fileId) {
-            $this->send($chatId, "Xatolik yuz berdi. Qaytadan rasm yuboring.");
+        if (!$roomNum || (!$photoFileId && !$voiceFileId)) {
+            $this->send($chatId, "Xatolik yuz berdi. Qaytadan rasm yoki ovozli xabar yuboring.");
             $session->update(['state' => 'hk_main', 'data' => null]);
             return response('OK');
         }
 
-        // Download photo from Telegram and save locally
-        $photoPath = $this->downloadTelegramPhoto($fileId);
+        // Download media from Telegram and save locally
+        $photoPath = $photoFileId ? $this->downloadTelegramPhoto($photoFileId) : null;
+        $voicePath = $voiceFileId ? $this->downloadTelegramVoice($voiceFileId) : null;
 
         // Save issue record
         $issue = RoomIssue::create([
             'room_number'      => $roomNum,
             'reported_by'      => $session->user_id,
             'photo_path'       => $photoPath,
-            'telegram_file_id' => $fileId,
+            'voice_path'       => $voicePath,
+            'telegram_file_id' => $photoFileId ?? $voiceFileId,
             'description'      => $desc,
             'priority'         => 'medium',
             'status'           => 'open',
@@ -470,10 +494,12 @@ class HousekeepingBotController extends Controller
             'room_number' => $roomNum,
             'user_id'     => $session->user_id,
             'user_name'   => $user?->name,
+            'has_photo'   => (bool) $photoFileId,
+            'has_voice'   => (bool) $voiceFileId,
         ]);
 
         // Forward alert to management group
-        $this->forwardIssueToManagement($issue, $fileId, $user);
+        $this->forwardIssueToManagement($issue, $photoFileId, $user, $voiceFileId);
 
         // Reset session
         $session->update(['state' => 'hk_main', 'data' => null]);
@@ -587,7 +613,7 @@ class HousekeepingBotController extends Controller
 
     // ── FORWARD ISSUE TO MANAGEMENT GROUP ────────────────────────
 
-    protected function forwardIssueToManagement(RoomIssue $issue, string $fileId, ?User $reporter)
+    protected function forwardIssueToManagement(RoomIssue $issue, ?string $photoFileId, ?User $reporter, ?string $voiceFileId = null)
     {
         if (!$this->mgmtGroupId) return;
 
@@ -598,12 +624,38 @@ class HousekeepingBotController extends Controller
             . "📍 {$issue->room_number}-xona\n"
             . "👤 {$name}{$desc}";
 
-        SendTelegramNotificationJob::dispatch($this->botToken, 'sendPhoto', [
-            'chat_id'    => $this->mgmtGroupId,
-            'photo'      => $fileId,
-            'caption'    => $caption,
-            'parse_mode' => 'HTML',
-        ]);
+        if ($photoFileId) {
+            SendTelegramNotificationJob::dispatch($this->botToken, 'sendPhoto', [
+                'chat_id'    => $this->mgmtGroupId,
+                'photo'      => $photoFileId,
+                'caption'    => $caption,
+                'parse_mode' => 'HTML',
+            ]);
+        }
+
+        if ($voiceFileId) {
+            // If no photo, include the caption with the voice message
+            // If photo was already sent, just send voice as follow-up
+            $voiceCaption = $photoFileId
+                ? "🎤 Ovozli xabar — {$issue->room_number}-xona"
+                : $caption;
+
+            SendTelegramNotificationJob::dispatch($this->botToken, 'sendVoice', [
+                'chat_id'    => $this->mgmtGroupId,
+                'voice'      => $voiceFileId,
+                'caption'    => $voiceCaption,
+                'parse_mode' => 'HTML',
+            ]);
+        }
+
+        // If neither photo nor voice, send text-only alert
+        if (!$photoFileId && !$voiceFileId) {
+            SendTelegramNotificationJob::dispatch($this->botToken, 'sendMessage', [
+                'chat_id'    => $this->mgmtGroupId,
+                'text'       => $caption,
+                'parse_mode' => 'HTML',
+            ]);
+        }
     }
 
     // ── HELP ───────────────────────────────────────────────────
@@ -1024,6 +1076,43 @@ class HousekeepingBotController extends Controller
             return $filename;
         } catch (\Throwable $e) {
             Log::error('HousekeepingBot: downloadTelegramPhoto error', ['error' => $e->getMessage()]);
+            return null;
+        }
+    }
+
+    protected function downloadTelegramVoice(string $fileId): ?string
+    {
+        try {
+            $resp = Http::timeout(10)->get(
+                "https://api.telegram.org/bot{$this->botToken}/getFile",
+                ['file_id' => $fileId]
+            );
+
+            if (!$resp->successful() || !$resp->json('ok')) {
+                Log::warning('HousekeepingBot: getFile failed for voice', ['file_id' => $fileId]);
+                return null;
+            }
+
+            $filePath = $resp->json('result.file_path');
+            if (!$filePath) return null;
+
+            $fileResp = Http::timeout(30)->get(
+                "https://api.telegram.org/file/bot{$this->botToken}/{$filePath}"
+            );
+
+            if (!$fileResp->successful()) {
+                Log::warning('HousekeepingBot: voice download failed', ['path' => $filePath]);
+                return null;
+            }
+
+            $ext      = pathinfo($filePath, PATHINFO_EXTENSION) ?: 'ogg';
+            $filename = 'room-issues/' . date('Y/m') . '/' . uniqid('voice_', true) . '.' . $ext;
+
+            Storage::disk('public')->put($filename, $fileResp->body());
+
+            return $filename;
+        } catch (\Throwable $e) {
+            Log::error('HousekeepingBot: downloadTelegramVoice error', ['error' => $e->getMessage()]);
             return null;
         }
     }
