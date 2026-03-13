@@ -313,7 +313,7 @@ class HousekeepingBotController extends Controller
             return response('OK');
         }
 
-        $time = now()->format('H:i');
+        $time = now()->timezone('Asia/Tashkent')->format('H:i');
         $name = $user?->name ?? 'Noma\'lum';
 
         if (count($cleaned) === 1) {
@@ -321,6 +321,15 @@ class HousekeepingBotController extends Controller
         } else {
             $nums = implode(', ', $cleaned);
             $text = "✅ {$nums}-xonalar — Toza!\n👤 {$name} | 🕐 {$time}";
+        }
+
+        // Notify management group
+        if ($this->mgmtGroupId) {
+            SendTelegramNotificationJob::dispatch($this->botToken, 'sendMessage', [
+                'chat_id'    => $this->mgmtGroupId,
+                'text'       => $text,
+                'parse_mode' => 'HTML',
+            ]);
         }
 
         $isManager = $user && $user->hasAnyRole(['super_admin', 'admin', 'manager', 'owner']);
