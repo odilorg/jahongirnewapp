@@ -93,3 +93,7 @@ Route::get('/beds24/health', function () {
 // Housekeeping Bot Webhook
 Route::post('/telegram/housekeeping/webhook', [\App\Http\Controllers\HousekeepingBotController::class, 'handleWebhook'])
     ->name('telegram.housekeeping.webhook');
+
+// Kitchen Bot Webhook
+Route::post('/telegram/kitchen/webhook', [\App\Http\Controllers\KitchenBotController::class, 'handleWebhook'])
+    ->name('telegram.kitchen.webhook');

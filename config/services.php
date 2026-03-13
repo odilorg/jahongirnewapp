@@ -86,4 +86,8 @@ return [
         'mgmt_group_id' => env('HOUSEKEEPING_MGMT_GROUP_ID', ''),
     ],
 
+    'kitchen_bot' => [
+        'token' => env('KITCHEN_BOT_TOKEN', ''),
+    ],
+
 ];
