@@ -153,6 +153,12 @@ class KitchenBotController extends Controller
             return response('OK');
         }
 
+        // Only kitchen staff, managers, and admins can use this bot
+        if (!$user->hasAnyRole(['kitchen', 'admin', 'manager', 'owner', 'super_admin'])) {
+            $this->send($chatId, "❌ Sizga oshxona botiga kirish ruxsati yo'q.\nRahbariyatga murojaat qiling.");
+            return response('OK');
+        }
+
         // Use negative chat_id to avoid session collision with other bots
         $sessionChatId = $this->sessionChatId($chatId);
 
