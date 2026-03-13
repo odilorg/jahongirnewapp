@@ -8,6 +8,7 @@ enum TransactionCategory: string
     case REFUND = 'refund';
     case EXPENSE = 'expense';
     case DEPOSIT = 'deposit';
+    case EXCHANGE = 'exchange';
     case CHANGE = 'change';
     case OTHER = 'other';
 
@@ -18,6 +19,7 @@ enum TransactionCategory: string
             self::REFUND => 'Refund',
             self::EXPENSE => 'Expense',
             self::DEPOSIT => 'Deposit',
+            self::EXCHANGE => 'Exchange',
             self::CHANGE => 'Change',
             self::OTHER => 'Other',
         };
@@ -30,6 +32,7 @@ enum TransactionCategory: string
             self::REFUND => 'warning',
             self::EXPENSE => 'danger',
             self::DEPOSIT => 'info',
+            self::EXCHANGE => 'primary',
             self::CHANGE => 'gray',
             self::OTHER => 'secondary',
         };
@@ -42,6 +45,7 @@ enum TransactionCategory: string
             self::REFUND => 'heroicon-o-arrow-uturn-left',
             self::EXPENSE => 'heroicon-o-minus-circle',
             self::DEPOSIT => 'heroicon-o-plus-circle',
+            self::EXCHANGE => 'heroicon-o-arrows-right-left',
             self::CHANGE => 'heroicon-o-currency-dollar',
             self::OTHER => 'heroicon-o-question-mark-circle',
         };
