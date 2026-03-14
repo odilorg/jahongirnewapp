@@ -91,6 +91,7 @@ class KitchenBotController extends Controller
 
         if ($text === '📊 Qoldiq' || $text === '/remaining') return $this->showRemaining($chatId, $today);
         if ($text === '🍳 Bugun jami' || $text === '/today') return $this->showTodayFull($chatId, $today);
+        if ($text === '📅 Ertaga' || $text === '/tomorrow') return $this->showTomorrow($chatId);
         if ($text === '📊 Haftalik' || $text === '/week') return $this->showWeekly($chatId);
         if ($text === '📅 Sana tanlash' || $text === '/date') {
             $session->update(['state' => 'kitchen_date_input', 'data' => null]);
@@ -379,6 +380,36 @@ class KitchenBotController extends Controller
         return response('OK');
     }
 
+    // ── TOMORROW FORECAST ──────────────────────────────────────
+
+    protected function showTomorrow(int $chatId)
+    {
+        $tomorrow = now()->timezone('Asia/Tashkent')->addDay()->format('Y-m-d');
+        $counts = $this->kitchen->getGuestCountForDate($tomorrow);
+        $dayLabel = Carbon::parse($tomorrow)->format('d.m.Y (l)');
+
+        $text = "📅 <b>Ertaga — {$dayLabel}</b>\n\n"
+            . "👥 Nonushtaga kutilmoqda: <b>{$counts['total']}</b>\n";
+
+        if ($counts['children'] > 0) {
+            $text .= "   👨 Kattalar: {$counts['adults']}\n"
+                . "   👶 Bolalar: {$counts['children']}\n";
+        }
+
+        $text .= "🏨 Bronlar: {$counts['bookings']}\n";
+
+        $bd = $counts['breakdown'] ?? [];
+        if (!empty($bd)) {
+            $text .= "\n📋 Tafsilot:\n";
+            if ($bd['stayovers'] > 0) $text .= "  🛏 Qolayotgan: {$bd['stayovers']}\n";
+            if ($bd['departures'] > 0) $text .= "  🚪 Ketayotgan: {$bd['departures']}\n";
+            if ($bd['arrivals'] > 0) $text .= "  🛬 Kelayotgan: {$bd['arrivals']} <i>(nonushtaga kirmaydi)</i>\n";
+        }
+
+        $this->send($chatId, $text, $this->mainKb());
+        return response('OK');
+    }
+
     // ── WEEKLY FORECAST ─────────────────────────────────────────
 
     protected function showWeekly(int $chatId)
@@ -498,6 +529,7 @@ class KitchenBotController extends Controller
             . "• <b>➖ Qaytarish</b> — xato bo'lsa, 1 ta qaytarish\n"
             . "• <b>📊 Qoldiq</b> — qancha mehmon hali kelmagan\n"
             . "• <b>🍳 Bugun jami</b> — to'liq hisobot\n"
+            . "• <b>📅 Ertaga</b> — ertangi nonushta prognozi\n"
             . "• <b>📊 Haftalik</b> — 7 kunlik prognoz\n"
             . "• <b>📅 Sana tanlash</b> — istalgan kunga prognoz\n"
             . "• <b>🔄 Yangilash</b> — Beds24 dan yangi ma'lumot\n\n"
@@ -518,7 +550,8 @@ class KitchenBotController extends Controller
             'keyboard' => [
                 [['text' => '➕ 1 mehmon'], ['text' => '➕ 2'], ['text' => '➕ 3']],
                 [['text' => '➖ Qaytarish'], ['text' => '📊 Qoldiq']],
-                [['text' => '🍳 Bugun jami'], ['text' => '📊 Haftalik']],
+                [['text' => '🍳 Bugun jami'], ['text' => '📅 Ertaga']],
+                [['text' => '📊 Haftalik']],
                 [['text' => '📅 Sana tanlash'], ['text' => '🔄 Yangilash']],
                 [['text' => '❓ Yordam'], ['text' => '🚪 Chiqish']],
             ],
