@@ -22,7 +22,7 @@ class TourSendReminders extends Command
         parent::__construct();
         $this->botToken            = config('services.owner_alert_bot.token', env('OWNER_ALERT_BOT_TOKEN', ''));
         $this->ownerChatId         = (int) config('services.owner_alert_bot.owner_chat_id', env('OWNER_TELEGRAM_ID', '0'));
-        $this->driverGuideBotToken = env('TELEGRAM_BOT_TOKEN_DRIVER_GUIDE', '');
+        $this->driverGuideBotToken = config('services.driver_guide_bot.token', env('TELEGRAM_BOT_TOKEN_DRIVER_GUIDE', ''));
     }
 
     public function handle(): int
@@ -140,6 +140,9 @@ class TourSendReminders extends Command
         /** @var array<string,true> $phonesThisRun In-memory dedup set */
         $phonesThisRun = [];
 
+        /** @var array<int,array> $pendingMessages Messages to send after loop (stop wacli-sync once) */
+        $pendingMessages = [];
+
         foreach ($bookings as $booking) {
             $rawPhone  = trim($booking->phone ?? '');
             $guestName = trim("{$booking->first_name} {$booking->last_name}");
@@ -207,48 +210,57 @@ class TourSendReminders extends Command
                 continue;
             }
 
-            // ── Actually send via wacli ───────────────────────────────────────
-            // Convert E.164 (+818041119503) → JID format (818041119503@s.whatsapp.net)
-            $jid            = ltrim($phone, '+') . '@s.whatsapp.net';
-            $escapedJid     = escapeshellarg($jid);
-            $escapedMessage = escapeshellarg($waMessage);
-            $cmd            = "wacli send text --to {$escapedJid} --message {$escapedMessage} 2>&1";
+            // Collect valid messages to send — we stop/start wacli-sync once outside the loop
+            $pendingMessages[] = [
+                'phone'    => $phone,
+                'jid'      => ltrim($phone, '+') . '@s.whatsapp.net',
+                'message'  => $waMessage,
+                'booking'  => $booking,
+                'name'     => $guestName,
+            ];
+        }
 
-            // Stop wacli-sync before sending, always restart after
+        // ── Stop wacli-sync once, send all, restart once ──────────────────────
+        if (!empty($pendingMessages) && !$dryRun) {
             exec('pm2 stop wacli-sync 2>&1');
-            sleep(1);
 
-            $output     = [];
-            $returnCode = 0;
-            exec($cmd, $output, $returnCode);
+            foreach ($pendingMessages as $item) {
+                $escapedJid     = escapeshellarg($item['jid']);
+                $escapedMessage = escapeshellarg($item['message']);
+                $cmd            = "wacli send text --to {$escapedJid} --message {$escapedMessage} 2>&1";
 
-            exec('pm2 start wacli-sync 2>&1');
+                $output     = [];
+                $returnCode = 0;
+                exec($cmd, $output, $returnCode);
 
-            if ($returnCode === 0) {
-                $this->info("     ✅ Sent to {$phone}");
-                Log::info('TourSendReminders: WhatsApp sent', [
-                    'phone'      => $phone,
-                    'guest'      => $guestName,
-                    'tour'       => $booking->tour_title,
-                    'booking_id' => $booking->id,
-                ]);
-                $this->logWhatsApp($booking, $phone, 'sent', null, $tomorrow, false);
-                $sent++;
-            } else {
-                $outputStr = implode(' ', $output);
-                $this->error("     ❌ Failed for {$phone}: {$outputStr}");
-                Log::error('TourSendReminders: WhatsApp failed', [
-                    'phone'      => $phone,
-                    'guest'      => $guestName,
-                    'tour'       => $booking->tour_title,
-                    'booking_id' => $booking->id,
-                    'output'     => $outputStr,
-                ]);
-                $this->logWhatsApp($booking, $phone, 'failed', $outputStr, $tomorrow, false);
-                $failed++;
+                if ($returnCode === 0) {
+                    $this->info("     ✅ Sent to {$item['phone']}");
+                    Log::info('TourSendReminders: WhatsApp sent', [
+                        'phone'      => $item['phone'],
+                        'guest'      => $item['name'],
+                        'tour'       => $item['booking']->tour_title,
+                        'booking_id' => $item['booking']->id,
+                    ]);
+                    $this->logWhatsApp($item['booking'], $item['phone'], 'sent', null, $tomorrow, false);
+                    $sent++;
+                } else {
+                    $outputStr = implode(' ', $output);
+                    $this->error("     ❌ Failed for {$item['phone']}: {$outputStr}");
+                    Log::error('TourSendReminders: WhatsApp failed', [
+                        'phone'      => $item['phone'],
+                        'guest'      => $item['name'],
+                        'tour'       => $item['booking']->tour_title,
+                        'booking_id' => $item['booking']->id,
+                        'output'     => $outputStr,
+                    ]);
+                    $this->logWhatsApp($item['booking'], $item['phone'], 'failed', $outputStr, $tomorrow, false);
+                    $failed++;
+                }
+
+                usleep(700000); // 0.7s anti-throttle delay between messages
             }
 
-            usleep(700000); // 0.7s anti-throttle delay
+            exec('pm2 start wacli-sync 2>&1');
         }
 
         $this->info("WhatsApp summary: {$sent} sent, {$skipped} skipped, {$failed} failed.");
@@ -308,7 +320,30 @@ class TourSendReminders extends Command
                     $message = $this->buildDriverGuideMessage($assignedBookings, $dateLabel);
                     $this->info("  🚗 Telegram → Driver: {$driver->first_name} {$driver->last_name}");
                     if (!$dryRun) {
-                        $this->sendTelegramDirect($driver->telegram_chat_id, $message);
+                        // Idempotency: skip if already sent today for this driver + date
+                        $alreadySent = DB::table('tour_reminder_logs')
+                            ->where('channel', 'telegram_driver')
+                            ->where('scheduled_for_date', $tomorrow)
+                            ->where('guest_id', $driver->id) // repurpose guest_id to store driver_id
+                            ->exists();
+
+                        if (!$alreadySent) {
+                            $ok = $this->sendTelegramDirect($driver->telegram_chat_id, $message);
+                            DB::table('tour_reminder_logs')->insert([
+                                'booking_id'         => null,
+                                'guest_id'           => $driver->id,
+                                'channel'            => 'telegram_driver',
+                                'scheduled_for_date' => $tomorrow,
+                                'phone'              => null,
+                                'status'             => $ok ? 'sent' : 'failed',
+                                'error_message'      => null,
+                                'reminded_at'        => now(),
+                                'created_at'         => now(),
+                                'updated_at'         => now(),
+                            ]);
+                        } else {
+                            $this->warn("  ⚠ Driver {$driver->first_name} already notified today — skipping.");
+                        }
                     }
                     $notified[$key] = true;
                 }
@@ -323,7 +358,29 @@ class TourSendReminders extends Command
                     $message = $this->buildDriverGuideMessage($assignedBookings, $dateLabel);
                     $this->info("  🎒 Telegram → Guide: {$guide->first_name} {$guide->last_name}");
                     if (!$dryRun) {
-                        $this->sendTelegramDirect($guide->telegram_chat_id, $message);
+                        $alreadySent = DB::table('tour_reminder_logs')
+                            ->where('channel', 'telegram_guide')
+                            ->where('scheduled_for_date', $tomorrow)
+                            ->where('guest_id', $guide->id)
+                            ->exists();
+
+                        if (!$alreadySent) {
+                            $ok = $this->sendTelegramDirect($guide->telegram_chat_id, $message);
+                            DB::table('tour_reminder_logs')->insert([
+                                'booking_id'         => null,
+                                'guest_id'           => $guide->id,
+                                'channel'            => 'telegram_guide',
+                                'scheduled_for_date' => $tomorrow,
+                                'phone'              => null,
+                                'status'             => $ok ? 'sent' : 'failed',
+                                'error_message'      => null,
+                                'reminded_at'        => now(),
+                                'created_at'         => now(),
+                                'updated_at'         => now(),
+                            ]);
+                        } else {
+                            $this->warn("  ⚠ Guide {$guide->first_name} already notified today — skipping.");
+                        }
                     }
                     $notified[$key] = true;
                 }
@@ -380,7 +437,7 @@ class TourSendReminders extends Command
         return implode("\n", $lines);
     }
 
-    private function sendTelegramDirect(string $chatId, string $text): void
+    private function sendTelegramDirect(string $chatId, string $text): bool
     {
         try {
             $url  = "https://api.telegram.org/bot{$this->driverGuideBotToken}/sendMessage";
@@ -395,14 +452,32 @@ class TourSendReminders extends Command
                 'header'  => "Content-Type: application/x-www-form-urlencoded\r\n",
                 'content' => $data,
                 'timeout' => 10,
+                'ignore_errors' => true,
             ]]);
 
-            file_get_contents($url, false, $ctx);
+            $response = file_get_contents($url, false, $ctx);
+
+            if ($response === false) {
+                Log::error('TourSendReminders: driver/guide Telegram request failed', ['chat_id' => $chatId]);
+                return false;
+            }
+
+            $decoded = json_decode($response, true);
+            if (!($decoded['ok'] ?? false)) {
+                Log::error('TourSendReminders: driver/guide Telegram API error', [
+                    'chat_id'  => $chatId,
+                    'response' => $decoded,
+                ]);
+                return false;
+            }
+
+            return true;
         } catch (\Exception $e) {
-            Log::error('TourSendReminders: driver/guide Telegram failed', [
+            Log::error('TourSendReminders: driver/guide Telegram exception', [
                 'chat_id' => $chatId,
                 'error'   => $e->getMessage(),
             ]);
+            return false;
         }
     }
 
@@ -706,23 +781,71 @@ class TourSendReminders extends Command
     private function countryFlag(string $country): string
     {
         $map = [
-            'france'         => '🇫🇷',
-            'japan'          => '🇯🇵',
-            'germany'        => '🇩🇪',
-            'italy'          => '🇮🇹',
-            'spain'          => '🇪🇸',
-            'united states'  => '🇺🇸',
-            'usa'            => '🇺🇸',
-            'us'             => '🇺🇸',
-            'sweden'         => '🇸🇪',
-            'czech republic' => '🇨🇿',
-            'czechia'        => '🇨🇿',
-            'poland'         => '🇵🇱',
-            'kazakhstan'     => '🇰🇿',
-            'denmark'        => '🇩🇰',
-            'hungary'        => '🇭🇺',
-            'south korea'    => '🇰🇷',
-            'korea'          => '🇰🇷',
+            // Asia-Pacific
+            'japan'               => '🇯🇵',
+            'south korea'         => '🇰🇷',
+            'korea'               => '🇰🇷',
+            'china'               => '🇨🇳',
+            'hong kong'           => '🇭🇰',
+            'hk'                  => '🇭🇰',
+            'taiwan'              => '🇹🇼',
+            'singapore'           => '🇸🇬',
+            'thailand'            => '🇹🇭',
+            'vietnam'             => '🇻🇳',
+            'indonesia'           => '🇮🇩',
+            'malaysia'            => '🇲🇾',
+            'india'               => '🇮🇳',
+            'australia'           => '🇦🇺',
+            'new zealand'         => '🇳🇿',
+            // Europe
+            'france'              => '🇫🇷',
+            'germany'             => '🇩🇪',
+            'italy'               => '🇮🇹',
+            'spain'               => '🇪🇸',
+            'united kingdom'      => '🇬🇧',
+            'uk'                  => '🇬🇧',
+            'great britain'       => '🇬🇧',
+            'sweden'              => '🇸🇪',
+            'norway'              => '🇳🇴',
+            'finland'             => '🇫🇮',
+            'denmark'             => '🇩🇰',
+            'netherlands'         => '🇳🇱',
+            'holland'             => '🇳🇱',
+            'belgium'             => '🇧🇪',
+            'switzerland'         => '🇨🇭',
+            'austria'             => '🇦🇹',
+            'poland'              => '🇵🇱',
+            'czech republic'      => '🇨🇿',
+            'czechia'             => '🇨🇿',
+            'hungary'             => '🇭🇺',
+            'portugal'            => '🇵🇹',
+            'greece'              => '🇬🇷',
+            'romania'             => '🇷🇴',
+            'ukraine'             => '🇺🇦',
+            'russia'              => '🇷🇺',
+            // Americas
+            'united states'       => '🇺🇸',
+            'usa'                 => '🇺🇸',
+            'us'                  => '🇺🇸',
+            'canada'              => '🇨🇦',
+            'brazil'              => '🇧🇷',
+            'argentina'           => '🇦🇷',
+            'mexico'              => '🇲🇽',
+            // Middle East & Africa
+            'israel'              => '🇮🇱',
+            'turkey'              => '🇹🇷',
+            'iran'                => '🇮🇷',
+            'saudi arabia'        => '🇸🇦',
+            'uae'                 => '🇦🇪',
+            'south africa'        => '🇿🇦',
+            // CIS
+            'kazakhstan'          => '🇰🇿',
+            'uzbekistan'          => '🇺🇿',
+            'kyrgyzstan'          => '🇰🇬',
+            'tajikistan'          => '🇹🇯',
+            'azerbaijan'          => '🇦🇿',
+            'georgia'             => '🇬🇪',
+            'armenia'             => '🇦🇲',
         ];
 
         $key = strtolower(trim($country));
