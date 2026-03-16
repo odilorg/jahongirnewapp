@@ -321,9 +321,19 @@ class TelegramDriverGuideSignUpController extends Controller
 
         Log::info("DriverGuideBot: registered {$type} {$name} → chat_id {$chatId}");
 
-        $this->sendMessage($chatId,
-            "✅ Rahmat, {$name}!\n\nSiz {$type} sifatida ro'yxatdan o'tdingiz. Endi tur rejalari avtomatik ravishda sizga yuboriladi. 🗓️"
-        );
+        // Remove the share-phone keyboard after successful registration
+        try {
+            $this->telegramClient->post("/bot{$this->botToken}/sendMessage", [
+                'json' => [
+                    'chat_id'      => $chatId,
+                    'text'         => "✅ Rahmat, {$name}!\n\nSiz {$type} sifatida ro'yxatdan o'tdingiz. Endi tur rejalari avtomatik ravishda sizga yuboriladi. 🗓️",
+                    'parse_mode'   => 'HTML',
+                    'reply_markup' => ['remove_keyboard' => true],
+                ],
+            ]);
+        } catch (\Exception $e) {
+            Log::error('DriverGuideBot: sendMessage error', ['error' => $e->getMessage()]);
+        }
 
         // Show calendar for drivers
         if ($driver && $id) {
