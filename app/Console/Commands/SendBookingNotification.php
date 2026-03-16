@@ -9,12 +9,13 @@ use Illuminate\Support\Facades\Log;
 
 class SendBookingNotification extends Command
 {
-    protected $signature   = 'booking:notify {booking_id : The booking ID to notify driver and partner about}';
-    protected $description = 'Send booking confirmation request to assigned driver and partner (Yurt Camp etc)';
+    protected $signature   = 'booking:notify {booking_id} {--driver= : Driver ID to offer this booking to (does NOT assign until confirmed)}';
+    protected $description = 'Offer booking to a driver (confirm-before-assign) and notify partner + ask guest dietary';
 
     public function handle(): int
     {
         $bookingId = (int) $this->argument('booking_id');
+        $driverId  = $this->option('driver') ? (int) $this->option('driver') : null;
 
         $booking = DB::table('bookings')
             ->join('guests', 'bookings.guest_id', '=', 'guests.id')
@@ -43,17 +44,21 @@ class SendBookingNotification extends Command
 
         $controller = app(TelegramDriverGuideSignUpController::class);
 
-        // ── Notify driver ──────────────────────────────────────────────────
-        if ($booking->driver_id) {
-            $driver = DB::table('drivers')->where('id', $booking->driver_id)->first();
-            if ($driver?->telegram_chat_id) {
-                $controller->sendDriverBookingRequest($bookingId);
-                $this->info("✅ Driver request sent → {$driver->first_name} {$driver->last_name}");
+        // ── Offer to driver (confirm-before-assign) ────────────────────────
+        if ($driverId) {
+            $driver = DB::table('drivers')->where('id', $driverId)->first();
+            if (!$driver) {
+                $this->error("Driver #{$driverId} not found.");
+                return self::FAILURE;
+            }
+            if (!$driver->telegram_chat_id) {
+                $this->warn("⚠ Driver {$driver->first_name} has no Telegram — cannot send offer.");
             } else {
-                $this->warn("⚠ Driver has no Telegram — skipped.");
+                $controller->sendDriverBookingOffer($bookingId, $driverId);
+                $this->info("✅ Offer sent → {$driver->first_name} {$driver->last_name} (driver_id NOT set until confirmed)");
             }
         } else {
-            $this->warn("⚠ No driver assigned — skipped.");
+            $this->warn("ℹ No --driver option given — skipping driver offer.");
         }
 
         // ── Notify partner ─────────────────────────────────────────────────
@@ -65,11 +70,9 @@ class SendBookingNotification extends Command
         if ($partner) {
             $controller->sendPartnerBookingRequest($bookingId);
             $this->info("✅ Partner request sent → {$partner->name}");
-
-            // Ask guest dietary requirements via WhatsApp (Yurt Camp needs to prepare lunch)
             $this->sendDietaryQuestion($booking);
         } else {
-            $this->info("ℹ No partner registered for this tour — skipped.");
+            $this->info("ℹ No partner for this tour — skipped.");
         }
 
         return self::SUCCESS;
@@ -83,10 +86,9 @@ class SendBookingNotification extends Command
             return;
         }
 
-        // Normalize phone to E.164
         $phone = preg_replace('/[\s\-().]+/', '', $phone);
         if (str_starts_with($phone, '00')) $phone = '+' . substr($phone, 2);
-        if (!str_starts_with($phone, '+')) $phone = '+' . $phone;
+        if (!str_starts_with($phone, '+'))  $phone = '+' . $phone;
 
         $jid     = ltrim($phone, '+') . '@s.whatsapp.net';
         $name    = $booking->first_name;
@@ -106,22 +108,14 @@ class SendBookingNotification extends Command
         $this->info("  🍽 Sending dietary question → {$phone} ({$name})");
 
         exec('pm2 stop wacli-sync 2>&1');
-
-        $output     = [];
-        $returnCode = 0;
-        exec('wacli send text --to ' . escapeshellarg($jid) . ' --message ' . escapeshellarg($message) . ' 2>&1',
-            $output, $returnCode);
-
+        $output = []; $returnCode = 0;
+        exec('wacli send text --to ' . escapeshellarg($jid) . ' --message ' . escapeshellarg($message) . ' 2>&1', $output, $returnCode);
         exec('pm2 start wacli-sync 2>&1');
 
         if ($returnCode === 0) {
             $this->info("  ✅ Dietary question sent to {$name}");
-            Log::info('SendBookingNotification: dietary question sent', [
-                'booking_id' => $booking->id,
-                'phone'      => $phone,
-            ]);
         } else {
-            $this->warn("  ⚠ Failed to send dietary question: " . implode(' ', $output));
+            $this->warn("  ⚠ Failed: " . implode(' ', $output));
         }
     }
 }

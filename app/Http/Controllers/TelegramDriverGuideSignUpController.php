@@ -811,7 +811,11 @@ class TelegramDriverGuideSignUpController extends Controller
     // Driver Booking Request / Confirm
     // =========================================================================
 
-    public function sendDriverBookingRequest(int $bookingId): void
+    /**
+     * Offer a booking to a driver WITHOUT setting driver_id in DB.
+     * driver_id is only set when the driver taps ✅ (confirm-before-assign).
+     */
+    public function sendDriverBookingOffer(int $bookingId, int $driverId): void
     {
         $booking = DB::table('bookings')
             ->join('guests', 'bookings.guest_id', '=', 'guests.id')
@@ -822,7 +826,6 @@ class TelegramDriverGuideSignUpController extends Controller
                 'bookings.booking_number',
                 'bookings.booking_start_date_time',
                 'bookings.pickup_location',
-                'bookings.driver_id',
                 'bookings.tour_id',
                 'guests.first_name',
                 'guests.last_name',
@@ -834,9 +837,9 @@ class TelegramDriverGuideSignUpController extends Controller
             ])
             ->first();
 
-        if (!$booking || !$booking->driver_id) return;
+        if (!$booking) return;
 
-        $driver = DB::table('drivers')->where('id', $booking->driver_id)->first();
+        $driver = DB::table('drivers')->where('id', $driverId)->first();
         if (!$driver || !$driver->telegram_chat_id) return;
 
         $date    = Carbon::parse($booking->booking_start_date_time)->timezone('Asia/Tashkent');
@@ -864,16 +867,13 @@ class TelegramDriverGuideSignUpController extends Controller
         $this->sendInlineKeyboard($driver->telegram_chat_id, $text, $keyboard);
 
         $now = now();
-        DB::table('bookings')->where('id', $bookingId)->update([
-            'driver_status'      => 'pending',
-            'driver_notified_at' => $now,
-        ]);
+        // NOTE: driver_id is NOT set on bookings yet — only set when driver confirms
 
         DB::table('driver_booking_logs')->insert([
             'booking_id'       => $bookingId,
             'driver_id'        => $driver->id,
             'telegram_chat_id' => $driver->telegram_chat_id,
-            'action'           => 'request_sent',
+            'action'           => 'offer_sent',
             'booking_number'   => $booking->booking_number,
             'guest_name'       => trim("{$booking->first_name} {$booking->last_name}"),
             'tour_date'        => $date->toDateString(),
@@ -883,7 +883,7 @@ class TelegramDriverGuideSignUpController extends Controller
             'updated_at'       => $now,
         ]);
 
-        Log::info("DriverGuideBot: booking request sent to driver", [
+        Log::info("DriverGuideBot: booking offer sent to driver (not yet assigned)", [
             'driver_id'  => $driver->id,
             'booking_id' => $bookingId,
         ]);
@@ -895,10 +895,17 @@ class TelegramDriverGuideSignUpController extends Controller
         $driver = Driver::where('telegram_chat_id', $chatId)->first();
         if (!$driver) return response()->json(['ok' => true]);
 
+        // Security: verify this driver was offered this booking
+        $wasOffered = DB::table('driver_booking_logs')
+            ->where('booking_id', $bookingId)
+            ->where('driver_id', $driver->id)
+            ->whereIn('action', ['offer_sent', 'request_sent'])
+            ->exists();
+        if (!$wasOffered) return response()->json(['ok' => true]);
+
         $booking = DB::table('bookings')
             ->join('guests', 'bookings.guest_id', '=', 'guests.id')
             ->where('bookings.id', $bookingId)
-            ->where('bookings.driver_id', $driver->id) // security: driver owns this booking
             ->select(['bookings.id', 'bookings.booking_number', 'guests.first_name', 'guests.last_name', 'guests.number_of_people'])
             ->first();
 
@@ -920,7 +927,19 @@ class TelegramDriverGuideSignUpController extends Controller
         $label  = $action === 'DCONFIRM' ? 'Tasdiqlandi' : 'Rad etildi';
         $now    = now();
 
-        DB::table('bookings')->where('id', $bookingId)->update(['driver_status' => $status]);
+        if ($action === 'DCONFIRM') {
+            // Assign driver only now that they confirmed
+            DB::table('bookings')->where('id', $bookingId)->update([
+                'driver_id'          => $driver->id,
+                'driver_status'      => 'confirmed',
+                'driver_notified_at' => $now,
+            ]);
+        } else {
+            // Rejected — leave driver_id unset, just log
+            DB::table('bookings')->where('id', $bookingId)->update([
+                'driver_status' => 'rejected',
+            ]);
+        }
 
         // Audit log
         DB::table('driver_booking_logs')->insert([
