@@ -563,7 +563,7 @@ class TelegramDriverGuideSignUpController extends Controller
                 'guests.last_name',
                 'guests.number_of_people',
                 'guests.country',
-                'tours.tour_id',
+                'bookings.tour_id',
                 'tours.title as tour_title',
                 DB::raw("TIME_FORMAT(bookings.booking_start_date_time,'%H:%i') as pickup_time"),
             ])
