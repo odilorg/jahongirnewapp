@@ -601,6 +601,21 @@ class TelegramDriverGuideSignUpController extends Controller
             'partner_status'      => 'pending',
             'partner_notified_at' => now(),
         ]);
+
+        // Audit log: request sent
+        DB::table('partner_booking_logs')->insert([
+            'booking_id'      => $bookingId,
+            'partner_id'      => $partner->id,
+            'telegram_chat_id'=> $partner->telegram_chat_id,
+            'action'          => 'request_sent',
+            'booking_number'  => $booking->booking_number,
+            'guest_name'      => trim("{$booking->first_name} {$booking->last_name}"),
+            'tour_date'       => $date->toDateString(),
+            'pax'             => $pax,
+            'actioned_at'     => now(),
+            'created_at'      => now(),
+            'updated_at'      => now(),
+        ]);
     }
 
     private function handlePartnerBookingResponse(
@@ -624,23 +639,45 @@ class TelegramDriverGuideSignUpController extends Controller
         $emoji   = $action === 'APPROVE' ? '✅' : '❌';
         $label   = $action === 'APPROVE' ? 'Qabul qilindi' : 'Rad etildi';
 
+        $now = now();
         DB::table('bookings')->where('id', $bookingId)->update(['partner_status' => $status]);
 
-        // Edit the request message to show result
-        $this->editMessageText($chatId, $messageId,
-            "{$emoji} <b>{$label}</b>\n\n👤 {$booking->first_name} {$booking->last_name}\n📋 {$booking->booking_number}"
-        );
+        // Audit log: response recorded with full snapshot
+        DB::table('partner_booking_logs')->insert([
+            'booking_id'       => $bookingId,
+            'partner_id'       => $partner->id,
+            'telegram_chat_id' => $chatId,
+            'action'           => $status, // 'approved' or 'rejected'
+            'booking_number'   => $booking->booking_number,
+            'guest_name'       => trim("{$booking->first_name} {$booking->last_name}"),
+            'tour_date'        => null, // already in booking record
+            'pax'              => null,
+            'actioned_at'      => $now,
+            'created_at'       => $now,
+            'updated_at'       => $now,
+        ]);
 
-        // Notify owner
-        $ownerText = "{$emoji} <b>Yurt Camp javobi:</b> {$label}\n\n"
+        // Edit the request message to show result + timestamp
+        $this->editMessageText($chatId, $messageId,
+            "{$emoji} <b>{$label}</b>\n\n"
             . "👤 {$booking->first_name} {$booking->last_name}\n"
             . "📋 {$booking->booking_number}\n"
-            . "🏕 {$partner->name}";
+            . "🕐 " . $now->timezone('Asia/Tashkent')->format('d M Y, H:i') . " (Toshkent vaqti)"
+        );
+
+        // Notify owner with full detail + timestamp
+        $ownerText = "{$emoji} <b>Yurt Camp javobi: {$label}</b>\n\n"
+            . "👤 {$booking->first_name} {$booking->last_name}\n"
+            . "📋 {$booking->booking_number}\n"
+            . "🏕 {$partner->name}\n"
+            . "🕐 " . $now->timezone('Asia/Tashkent')->format('d M Y, H:i') . " (Toshkent)";
         $this->sendMessage($this->ownerChatId, $ownerText);
 
         Log::info("DriverGuideBot: partner {$action} booking {$bookingId}", [
-            'partner' => $partner->name,
-            'status'  => $status,
+            'partner'    => $partner->name,
+            'status'     => $status,
+            'chat_id'    => $chatId,
+            'actioned_at'=> $now->toIso8601String(),
         ]);
 
         return response()->json(['ok' => true]);
