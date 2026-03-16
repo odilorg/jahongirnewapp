@@ -340,7 +340,7 @@ class TelegramDriverGuideSignUpController extends Controller
 
         // ── Driver booking confirm/reject ──────────────────────────────────
         if ($action === 'DCONFIRM' || $action === 'DREJECT') {
-            return $this->handleDriverBookingResponse($chatId, $messageId, $action, (int)($parts[2] ?? 0));
+            return $this->handleDriverBookingResponse($chatId, $messageId, $action, (int)($parts[2] ?? 0), data_get($callbackQuery, 'id', ''));
         }
 
         // Guard: driverId must be positive
@@ -890,7 +890,7 @@ class TelegramDriverGuideSignUpController extends Controller
     }
 
     private function handleDriverBookingResponse(
-        string $chatId, int $messageId, string $action, int $bookingId
+        string $chatId, int $messageId, string $action, int $bookingId, string $callbackQueryId = ''
     ): \Illuminate\Http\JsonResponse {
         $driver = Driver::where('telegram_chat_id', $chatId)->first();
         if (!$driver) return response()->json(['ok' => true]);
@@ -903,6 +903,17 @@ class TelegramDriverGuideSignUpController extends Controller
             ->first();
 
         if (!$booking) return response()->json(['ok' => true]);
+
+        // Idempotency: ignore if already actioned
+        $alreadyActioned = DB::table('driver_booking_logs')
+            ->where('booking_id', $bookingId)
+            ->where('driver_id', $driver->id)
+            ->whereIn('action', ['confirmed', 'rejected'])
+            ->exists();
+        if ($alreadyActioned) {
+            $this->answerCallbackQuery($callbackQueryId ?? '');
+            return response()->json(['ok' => true]);
+        }
 
         $status = $action === 'DCONFIRM' ? 'confirmed' : 'rejected';
         $emoji  = $action === 'DCONFIRM' ? '✅' : '❌';
