@@ -2,179 +2,127 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Chat;
-use App\Models\Guide;
 use App\Models\Driver;
+use App\Models\Guide;
 use GuzzleHttp\Client;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 
 class TelegramDriverGuideSignUpController extends Controller
 {
-    protected $botToken;
-    protected $telegramClient;
+    protected string $botToken;
+    protected Client $telegramClient;
 
     public function __construct()
     {
-        // Read from .env (TELEGRAM_BOT_TOKEN_DRIVER_GUIDE) directly
         $this->botToken = env('TELEGRAM_BOT_TOKEN_DRIVER_GUIDE');
-
-        // Log the token on instantiation
-        Log::info('TelegramDriverGuideSignUpController: Bot token from env is: ' . ($this->botToken ?? 'NULL/EMPTY'));
-
-        // Create a Guzzle client to interact with Telegram
-        $this->telegramClient = new Client([
-            'base_uri' => 'https://api.telegram.org',
-        ]);
+        $this->telegramClient = new Client(['base_uri' => 'https://api.telegram.org']);
     }
 
-    public function handleWebhook(Request $request)
+    public function handleWebhook(Request $request): \Illuminate\Http\JsonResponse
     {
-        // Grab the entire payload from Telegram
-        $update = $request->all();
-        Log::info('handleWebhook: Received update', $update);
-
-        // Extract relevant fields
+        $update  = $request->all();
         $chatId  = data_get($update, 'message.chat.id');
         $text    = data_get($update, 'message.text');
         $contact = data_get($update, 'message.contact');
 
-        Log::info("handleWebhook: chatId={$chatId}, text={$text}");
-        if ($contact) {
-            Log::info('handleWebhook: contact data', $contact);
-        }
+        Log::info('DriverGuideBot: update', compact('chatId', 'text'));
 
-        // If user typed "/start", show a request-contact keyboard
+        // /start — ask for phone number
         if ($text === '/start') {
-            Log::info('handleWebhook: User invoked /start, sending contact request');
-            $this->sendContactRequest($chatId, "Please share your phone number by tapping the button below.");
+            $this->sendContactRequest($chatId,
+                "👋 Salom! Telefon raqamingizni ulashing, biz sizni aniqlaylik."
+            );
             return response()->json(['ok' => true]);
         }
 
-        // If a contact was shared, handle phone-based lookup
+        // Contact shared — look up and register
         if ($contact) {
-            $phoneNumber = $contact['phone_number'];
-            Log::info("handleWebhook: user shared phone number '{$phoneNumber}'");
+            $phone = $contact['phone_number'];
+            // Normalise: ensure leading +
+            $phone = str_starts_with($phone, '+') ? $phone : '+' . $phone;
 
-            // Example: strip "+" if your DB doesn't store it
-            // $phoneNumber = ltrim($phoneNumber, '+');
+            Log::info("DriverGuideBot: phone shared = {$phone}");
 
-            // Check Drivers table first
-            $driver = Driver::where('phone01', $phoneNumber)
-                            ->orWhere('phone02', $phoneNumber)
-                            ->first();
+            // Search drivers first, then guides
+            $driver = Driver::where('phone01', $phone)->orWhere('phone02', $phone)->first();
+            $guide  = $driver ? null : Guide::where('phone01', $phone)->orWhere('phone02', $phone)->first();
 
-            // If no Driver found, check Guides
-            $guide = null;
-            if (! $driver) {
-                $guide = Guide::where('phone01', $phoneNumber)
-                              ->orWhere('phone02', $phoneNumber)
-                              ->first();
+            if (!$driver && !$guide) {
+                // Try without leading + as fallback
+                $phoneNoPlus = ltrim($phone, '+');
+                $driver = Driver::where('phone01', $phoneNoPlus)->orWhere('phone02', $phoneNoPlus)->first();
+                $guide  = $driver ? null : Guide::where('phone01', $phoneNoPlus)->orWhere('phone02', $phoneNoPlus)->first();
             }
 
-            // If neither found, respond with error
-            if (! $driver && ! $guide) {
-                Log::info("handleWebhook: No matching driver or guide for phone='{$phoneNumber}'");
-                $this->sendMessage($chatId, "No matching driver or guide found. Please contact Javohit at +998 91 555 08 08.");
+            if (!$driver && !$guide) {
+                Log::warning("DriverGuideBot: no match for phone {$phone}");
+                $this->sendMessage($chatId,
+                    "❌ Sizning raqamingiz topilmadi. Iltimos, Odiljon bilan bog'laning: +998 91 555 08 08"
+                );
                 return response()->json(['ok' => true]);
             }
 
-            // Determine which type it was
+            // Save telegram_chat_id
             if ($driver) {
-                $name   = $driver->full_name;
-                $userId = $driver->id;
-                $type   = 'driver';
+                $driver->update(['telegram_chat_id' => (string) $chatId]);
+                $name = $driver->full_name;
+                $type = 'haydovchi (driver)';
             } else {
-                $name   = $guide->full_name;
-                $userId = $guide->id;
-                $type   = 'guide';
+                $guide->update(['telegram_chat_id' => (string) $chatId]);
+                $name = $guide->full_name;
+                $type = 'gid (guide)';
             }
-            Log::info("handleWebhook: Found user [type={$type}, id={$userId}, name={$name}]");
 
-            // Store/update the chat record
-            Chat::updateOrCreate(
-                ['chat_id' => $chatId],
-                [
-                    'name'      => $name,
-                    'id'        => $userId,  // or use 'user_id' => $userId if that's your column
-                    'user_type' => $type,
-                ]
+            Log::info("DriverGuideBot: registered {$type} {$name} → chat_id {$chatId}");
+
+            $this->sendMessage($chatId,
+                "✅ Rahmat, {$name}!\n\nSiz {$type} sifatida ro'yxatdan o'tdingiz. Endi tur rejalari avtomatik ravishda sizga yuboriladi. 🗓️"
             );
-            Log::info("handleWebhook: Chat record created/updated for chat_id={$chatId}");
 
-            // Send success message
-            $this->sendMessage($chatId, "Thanks, $name! We have recognized you as a $type and saved your chat.");
             return response()->json(['ok' => true]);
         }
 
-        // Fallback if some other message was sent
-        Log::info('handleWebhook: Received unknown or unexpected message, sending fallback info');
-        $this->sendMessage($chatId, "Please type /start to begin or share your phone number using the button.");
+        // Fallback
+        $this->sendMessage($chatId, "Boshlash uchun /start ni bosing.");
         return response()->json(['ok' => true]);
     }
 
-    /**
-     * Send a text message back to the user.
-     */
-    private function sendMessage($chatId, $text)
+    private function sendMessage(int|string $chatId, string $text): void
     {
-        Log::info("sendMessage: Sending message to chat_id={$chatId}, text='{$text}'");
-
         try {
-            $response = $this->telegramClient->post("/bot{$this->botToken}/sendMessage", [
+            $this->telegramClient->post("/bot{$this->botToken}/sendMessage", [
                 'json' => [
-                    'chat_id' => $chatId,
-                    'text'    => $text,
+                    'chat_id'    => $chatId,
+                    'text'       => $text,
+                    'parse_mode' => 'HTML',
                 ],
             ]);
-            Log::info('sendMessage: Telegram response', [
-                'status_code' => $response->getStatusCode(),
-                'body'        => $response->getBody()->getContents(),
-            ]);
         } catch (\Exception $e) {
-            Log::error('sendMessage: Error sending message to Telegram', [
-                'exception' => $e->getMessage(),
-            ]);
+            Log::error('DriverGuideBot: sendMessage error', ['error' => $e->getMessage()]);
         }
     }
 
-    /**
-     * Send a custom keyboard that requests the user's contact (phone number).
-     */
-    private function sendContactRequest($chatId, $prompt)
+    private function sendContactRequest(int|string $chatId, string $prompt): void
     {
-        Log::info("sendContactRequest: chatId={$chatId}, prompt='{$prompt}'");
-
-        // Keyboard with a single button that shares phone contact
         $replyMarkup = [
-            'keyboard' => [
-                [
-                    [
-                        'text'            => 'Поделиться телефон номером',
-                        'request_contact' => true
-                    ]
-                ]
-            ],
+            'keyboard' => [[
+                ['text' => '📱 Telefon raqamni ulashish', 'request_contact' => true]
+            ]],
             'resize_keyboard'   => true,
-            'one_time_keyboard' => true
+            'one_time_keyboard' => true,
         ];
 
         try {
-            $response = $this->telegramClient->post("/bot{$this->botToken}/sendMessage", [
+            $this->telegramClient->post("/bot{$this->botToken}/sendMessage", [
                 'json' => [
                     'chat_id'      => $chatId,
                     'text'         => $prompt,
                     'reply_markup' => $replyMarkup,
                 ],
             ]);
-            Log::info('sendContactRequest: Telegram response', [
-                'status_code' => $response->getStatusCode(),
-                'body'        => $response->getBody()->getContents(),
-            ]);
         } catch (\Exception $e) {
-            Log::error('sendContactRequest: Error sending keyboard to Telegram', [
-                'exception' => $e->getMessage(),
-            ]);
+            Log::error('DriverGuideBot: sendContactRequest error', ['error' => $e->getMessage()]);
         }
     }
 }
