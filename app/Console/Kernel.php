@@ -64,5 +64,23 @@ class Kernel extends ConsoleKernel
             ->monthlyOn(1, '09:00')
             ->timezone('Asia/Tashkent')
             ->withoutOverlapping();
+
+        // Daily tour reminders at 20:00 Tashkent — staff Telegram + guest WhatsApp + driver/guide DM
+        $schedule->command('tour:send-reminders')
+            ->dailyAt('20:00')
+            ->timezone('Asia/Tashkent')
+            ->withoutOverlapping();
+
+        // Post-tour review requests at 10:00 Tashkent — WhatsApp/email guests whose tour ended yesterday
+        $schedule->command('tour:send-review-requests')
+            ->dailyAt('10:00')
+            ->timezone('Asia/Tashkent')
+            ->withoutOverlapping();
+
+        // Hotel pickup requests at 09:00 Tashkent — email guests with bookings 3-30 days out, no hotel set
+        $schedule->command('tour:send-hotel-requests')
+            ->dailyAt('09:00')
+            ->timezone('Asia/Tashkent')
+            ->withoutOverlapping();
     }
 }
