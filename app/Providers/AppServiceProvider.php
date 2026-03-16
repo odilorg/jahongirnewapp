@@ -4,7 +4,9 @@ namespace App\Providers;
 
 use Illuminate\Support\ServiceProvider;
 use App\Models\AiInstruction;
+use App\Models\Booking;
 use App\Observers\AiInstructionObserver;
+use App\Observers\BookingObserver;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -21,7 +23,6 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        
-
+        Booking::observe(BookingObserver::class);
     }
 }
