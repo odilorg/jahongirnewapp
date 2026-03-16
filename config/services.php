@@ -75,7 +75,9 @@ return [
     ],
 
     'driver_guide_bot' => [
-        'token' => env('TELEGRAM_BOT_TOKEN_DRIVER_GUIDE', ''),
+        'token'          => env('TELEGRAM_BOT_TOKEN_DRIVER_GUIDE', ''),
+        'webhook_secret' => env('DRIVER_GUIDE_WEBHOOK_SECRET', ''),
+        'owner_chat_id'  => env('TELEGRAM_OWNER_CHAT_ID', '38738713'),
     ],
 
 

@@ -12,14 +12,16 @@ use Illuminate\Support\Facades\Log;
 
 class TelegramDriverGuideSignUpController extends Controller
 {
-    protected ?string $botToken;
+    protected string  $botToken;
+    protected string  $webhookSecret;
+    protected string  $ownerChatId;
     protected Client  $telegramClient;
-
-    const OWNER_CHAT_ID = '38738713';
 
     public function __construct()
     {
-        $this->botToken       = config('services.driver_guide_bot.token', env('TELEGRAM_BOT_TOKEN_DRIVER_GUIDE'));
+        $this->botToken      = config('services.driver_guide_bot.token', '');
+        $this->webhookSecret = config('services.driver_guide_bot.webhook_secret', '');
+        $this->ownerChatId   = config('services.driver_guide_bot.owner_chat_id', '38738713');
         $this->telegramClient = new Client(['base_uri' => 'https://api.telegram.org']);
     }
 
@@ -29,24 +31,37 @@ class TelegramDriverGuideSignUpController extends Controller
 
     public function handleWebhook(Request $request): \Illuminate\Http\JsonResponse
     {
+        // ── Security: validate Telegram webhook secret ─────────────────────
+        if ($this->webhookSecret) {
+            $header = $request->header('X-Telegram-Bot-Api-Secret-Token', '');
+            if (!hash_equals($this->webhookSecret, $header)) {
+                Log::warning('DriverGuideBot: invalid webhook secret', ['ip' => $request->ip()]);
+                return response()->json(['ok' => false], 403);
+            }
+        }
+
         $update        = $request->all();
-        $chatId        = data_get($update, 'message.chat.id')
-                      ?? data_get($update, 'callback_query.message.chat.id');
+        $chatId        = (string) (data_get($update, 'message.chat.id')
+                      ?? data_get($update, 'callback_query.message.chat.id') ?? '');
         $text          = data_get($update, 'message.text');
         $contact       = data_get($update, 'message.contact');
         $callbackQuery = data_get($update, 'callback_query');
+
+        if (!$chatId) {
+            return response()->json(['ok' => true]);
+        }
 
         Log::info('DriverGuideBot: update', compact('chatId', 'text'));
 
         // ── Inline calendar button taps ────────────────────────────────────
         if ($callbackQuery) {
             $this->answerCallbackQuery(data_get($callbackQuery, 'id'));
-            return $this->handleCalendarCallback($callbackQuery);
+            return $this->handleCalendarCallback($chatId, $callbackQuery);
         }
 
         // ── /start ─────────────────────────────────────────────────────────
         if ($text === '/start') {
-            $driver = Driver::where('telegram_chat_id', (string) $chatId)->first();
+            $driver = Driver::where('telegram_chat_id', $chatId)->first();
             if ($driver) {
                 $this->sendMainMenu($chatId, $driver->first_name);
             } else {
@@ -62,25 +77,27 @@ class TelegramDriverGuideSignUpController extends Controller
             return $this->handleContactRegistration($chatId, $contact);
         }
 
-        // ── Persistent menu buttons ────────────────────────────────────────
-        $driver = Driver::where('telegram_chat_id', (string) $chatId)->first();
+        // ── Persistent menu buttons — single driver lookup ─────────────────
+        $driver = Driver::where('telegram_chat_id', $chatId)->first();
 
         if ($text === '📋 Mening bronlarim') {
-            if ($driver) $this->sendMyBookings($chatId, $driver->id);
+            $driver
+                ? $this->sendMyBookings($chatId, $driver->id)
+                : $this->sendMessage($chatId, "Boshlash uchun /start ni bosing.");
             return response()->json(['ok' => true]);
         }
 
         if ($text === '📅 Mening jadvalim' || $text === '/calendar') {
-            if ($driver) $this->sendCalendar($chatId, $driver->id, Carbon::now('Asia/Tashkent'));
+            $driver
+                ? $this->sendCalendar($chatId, $driver->id, Carbon::now('Asia/Tashkent'))
+                : $this->sendMessage($chatId, "Boshlash uchun /start ni bosing.");
             return response()->json(['ok' => true]);
         }
 
         // ── Fallback ───────────────────────────────────────────────────────
-        if ($driver) {
-            $this->sendMainMenu($chatId, $driver->first_name);
-        } else {
-            $this->sendMessage($chatId, "Boshlash uchun /start ni bosing.");
-        }
+        $driver
+            ? $this->sendMainMenu($chatId, $driver->first_name)
+            : $this->sendMessage($chatId, "Boshlash uchun /start ni bosing.");
 
         return response()->json(['ok' => true]);
     }
@@ -89,22 +106,21 @@ class TelegramDriverGuideSignUpController extends Controller
     // Registration
     // =========================================================================
 
-    private function handleContactRegistration(int|string $chatId, array $contact): \Illuminate\Http\JsonResponse
+    private function handleContactRegistration(string $chatId, array $contact): \Illuminate\Http\JsonResponse
     {
-        $phone = $contact['phone_number'];
+        $phone = $contact['phone_number'] ?? '';
         $phone = str_starts_with($phone, '+') ? $phone : '+' . $phone;
 
         Log::info("DriverGuideBot: phone shared = {$phone}");
 
-        // Try with + prefix
+        // Try with + prefix, then without
         $driver = Driver::where('phone01', $phone)->orWhere('phone02', $phone)->first();
         $guide  = $driver ? null : Guide::where('phone01', $phone)->orWhere('phone02', $phone)->first();
 
-        // Try without + prefix
         if (!$driver && !$guide) {
-            $phoneNoPlus = ltrim($phone, '+');
-            $driver = Driver::where('phone01', $phoneNoPlus)->orWhere('phone02', $phoneNoPlus)->first();
-            $guide  = $driver ? null : Guide::where('phone01', $phoneNoPlus)->orWhere('phone02', $phoneNoPlus)->first();
+            $noPlus = ltrim($phone, '+');
+            $driver = Driver::where('phone01', $noPlus)->orWhere('phone02', $noPlus)->first();
+            $guide  = $driver ? null : Guide::where('phone01', $noPlus)->orWhere('phone02', $noPlus)->first();
         }
 
         if (!$driver && !$guide) {
@@ -116,26 +132,25 @@ class TelegramDriverGuideSignUpController extends Controller
         }
 
         if ($driver) {
-            $driver->update(['telegram_chat_id' => (string) $chatId]);
+            $driver->update(['telegram_chat_id' => $chatId]);
             $name = $driver->first_name;
             $type = 'haydovchi (driver)';
         } else {
-            $guide->update(['telegram_chat_id' => (string) $chatId]);
+            $guide->update(['telegram_chat_id' => $chatId]);
             $name = $guide->first_name;
             $type = 'gid (guide)';
         }
 
         Log::info("DriverGuideBot: registered {$type} {$name} → chat_id {$chatId}");
 
-        // 1. Confirm registration + remove phone-share keyboard + set persistent menu
+        // Confirm + set persistent menu (no sleep — just send both quickly)
         $this->sendMessageWithMenu(
             $chatId,
             "✅ Rahmat, <b>{$name}</b>!\n\nSiz {$type} sifatida ro'yxatdan o'tdingiz. Endi tur rejalari avtomatik ravishda sizga yuboriladi. 🗓️\n\nQuyidagi tugmalardan foydalaning:"
         );
 
-        // 2. Auto-show calendar for drivers
+        // Auto-show calendar for drivers (no sleep — Telegram queues messages)
         if ($driver) {
-            sleep(1);
             $this->sendCalendar($chatId, $driver->id, Carbon::now('Asia/Tashkent'));
         }
 
@@ -146,7 +161,7 @@ class TelegramDriverGuideSignUpController extends Controller
     // My Bookings
     // =========================================================================
 
-    private function sendMyBookings(int|string $chatId, int $driverId): void
+    private function sendMyBookings(string $chatId, int $driverId): void
     {
         $bookings = DB::table('bookings')
             ->join('guests', 'bookings.guest_id', '=', 'guests.id')
@@ -175,7 +190,7 @@ class TelegramDriverGuideSignUpController extends Controller
         foreach ($bookings as $b) {
             $date   = Carbon::parse($b->booking_start_date_time)->timezone('Asia/Tashkent');
             $pax    = $b->number_of_people ? " ({$b->number_of_people} pax)" : '';
-            $pickup = $b->pickup_location ?: 'Samarkand';
+            $pickup = $b->pickup_location ?: 'Samarkand (aniqlanmoqda)';
 
             $lines[] = "━━━━━━━━━━━━━━━━━";
             $lines[] = "🗓 <b>" . $date->format('D, d M Y') . "</b> soat <b>" . $date->format('H:i') . "</b>";
@@ -193,7 +208,7 @@ class TelegramDriverGuideSignUpController extends Controller
     // Calendar UI
     // =========================================================================
 
-    private function sendCalendar(int|string $chatId, int $driverId, Carbon $month, ?int $messageId = null): void
+    private function sendCalendar(string $chatId, int $driverId, Carbon $month, ?int $messageId = null): void
     {
         $keyboard = $this->buildCalendarKeyboard($driverId, $month);
         $text     = "📅 <b>" . $month->format('F Y') . "</b>\n\n✅ = bo'sh  ❌ = band\nKunni bosib o'zgartiring:";
@@ -270,16 +285,14 @@ class TelegramDriverGuideSignUpController extends Controller
             $rows[] = $row;
         }
 
-        // Done button
         $rows[] = [['text' => '✅ Tayyor', 'callback_data' => "CAL|DONE|{$driverId}"]];
 
         return $rows;
     }
 
-    private function handleCalendarCallback($callbackQuery): \Illuminate\Http\JsonResponse
+    private function handleCalendarCallback(string $chatId, array $callbackQuery): \Illuminate\Http\JsonResponse
     {
-        $chatId    = data_get($callbackQuery, 'message.chat.id');
-        $messageId = data_get($callbackQuery, 'message.message_id');
+        $messageId = (int) data_get($callbackQuery, 'message.message_id');
         $data      = data_get($callbackQuery, 'data', '');
         $parts     = explode('|', $data);
         $action    = $parts[1] ?? 'NOOP';
@@ -289,9 +302,34 @@ class TelegramDriverGuideSignUpController extends Controller
             return response()->json(['ok' => true]);
         }
 
+        // Guard: driverId must be positive
+        if ($driverId <= 0) {
+            Log::warning('DriverGuideBot: invalid driverId in callback', ['data' => $data]);
+            return response()->json(['ok' => true]);
+        }
+
+        // Security: verify the chatId owns this driverId
+        $ownerCheck = Driver::where('id', $driverId)
+            ->where('telegram_chat_id', $chatId)
+            ->exists();
+        if (!$ownerCheck) {
+            Log::warning('DriverGuideBot: chatId mismatch on calendar action', [
+                'chatId'   => $chatId,
+                'driverId' => $driverId,
+                'action'   => $action,
+            ]);
+            return response()->json(['ok' => true]);
+        }
+
         if ($action === 'TOGGLE' && isset($parts[3])) {
             $date     = $parts[3];
             $monthStr = $parts[4] ?? Carbon::now('Asia/Tashkent')->format('Y-m');
+
+            // Validate date format Y-m-d
+            if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) || !strtotime($date)) {
+                Log::warning('DriverGuideBot: invalid date in TOGGLE', compact('date'));
+                return response()->json(['ok' => true]);
+            }
 
             $current  = DB::table('driver_availability')
                 ->where('driver_id', $driverId)
@@ -305,8 +343,8 @@ class TelegramDriverGuideSignUpController extends Controller
                     'driver_id'      => $driverId,
                     'available_date' => $date,
                     'is_available'   => $newValue,
-                    'created_at'     => now(),
-                    'updated_at'     => now(),
+                    'created_at'     => Carbon::now('Asia/Tashkent'),
+                    'updated_at'     => Carbon::now('Asia/Tashkent'),
                 ],
                 ['driver_id', 'available_date'],
                 ['is_available', 'updated_at']
@@ -348,11 +386,9 @@ class TelegramDriverGuideSignUpController extends Controller
         if ($action === 'DONE') {
             $driver = Driver::find($driverId);
             $name   = $driver?->first_name ?? 'aka';
-            // Edit the calendar message away, then send menu
             $this->editMessageText($chatId, $messageId,
                 "✅ Jadval saqlandi! Rahmat, <b>{$name}</b> aka."
             );
-            sleep(1);
             $this->sendMessageWithMenu($chatId, "Bosh menyu 👇");
         }
 
@@ -386,7 +422,7 @@ class TelegramDriverGuideSignUpController extends Controller
         }
         $lines[] = "\nHaydovchini almashtirish kerak bo'lishi mumkin!";
 
-        $this->sendMessage(self::OWNER_CHAT_ID, implode("\n", $lines));
+        $this->sendMessage($this->ownerChatId, implode("\n", $lines));
 
         Log::warning('DriverGuideBot: conflict detected', [
             'driver_id' => $driverId,
@@ -399,7 +435,7 @@ class TelegramDriverGuideSignUpController extends Controller
     // Menus
     // =========================================================================
 
-    private function sendMainMenu(int|string $chatId, string $name): void
+    private function sendMainMenu(string $chatId, string $name): void
     {
         $this->sendMessageWithMenu(
             $chatId,
@@ -408,10 +444,10 @@ class TelegramDriverGuideSignUpController extends Controller
     }
 
     /**
-     * Send a message with the persistent bottom keyboard (📋 bronlar + 📅 jadval).
+     * Send a message with the persistent bottom keyboard.
      * This keyboard stays visible until explicitly removed.
      */
-    private function sendMessageWithMenu(int|string $chatId, string $text): void
+    private function sendMessageWithMenu(string $chatId, string $text): void
     {
         try {
             $this->telegramClient->post("/bot{$this->botToken}/sendMessage", [
@@ -420,14 +456,14 @@ class TelegramDriverGuideSignUpController extends Controller
                     'text'         => $text,
                     'parse_mode'   => 'HTML',
                     'reply_markup' => [
-                        'keyboard'         => [
+                        'keyboard'        => [
                             [
                                 ['text' => '📋 Mening bronlarim'],
                                 ['text' => '📅 Mening jadvalim'],
                             ],
                         ],
-                        'resize_keyboard'  => true,
-                        'persistent'       => true,
+                        'resize_keyboard' => true,
+                        'persistent'      => true,
                     ],
                 ],
             ]);
@@ -440,7 +476,7 @@ class TelegramDriverGuideSignUpController extends Controller
     // Telegram API helpers
     // =========================================================================
 
-    private function sendMessage(int|string $chatId, string $text): void
+    private function sendMessage(string $chatId, string $text): void
     {
         try {
             $this->telegramClient->post("/bot{$this->botToken}/sendMessage", [
@@ -451,7 +487,7 @@ class TelegramDriverGuideSignUpController extends Controller
         }
     }
 
-    private function sendInlineKeyboard(int|string $chatId, string $text, array $keyboard): void
+    private function sendInlineKeyboard(string $chatId, string $text, array $keyboard): void
     {
         try {
             $this->telegramClient->post("/bot{$this->botToken}/sendMessage", [
@@ -467,7 +503,7 @@ class TelegramDriverGuideSignUpController extends Controller
         }
     }
 
-    private function editMessage(int|string $chatId, int $messageId, string $text, array $keyboard): void
+    private function editMessage(string $chatId, int $messageId, string $text, array $keyboard): void
     {
         try {
             $this->telegramClient->post("/bot{$this->botToken}/editMessageText", [
@@ -484,7 +520,7 @@ class TelegramDriverGuideSignUpController extends Controller
         }
     }
 
-    private function editMessageText(int|string $chatId, int $messageId, string $text): void
+    private function editMessageText(string $chatId, int $messageId, string $text): void
     {
         try {
             $this->telegramClient->post("/bot{$this->botToken}/editMessageText", [
@@ -495,7 +531,7 @@ class TelegramDriverGuideSignUpController extends Controller
         }
     }
 
-    private function sendContactRequest(int|string $chatId, string $prompt): void
+    private function sendContactRequest(string $chatId, string $prompt): void
     {
         try {
             $this->telegramClient->post("/bot{$this->botToken}/sendMessage", [
@@ -521,7 +557,7 @@ class TelegramDriverGuideSignUpController extends Controller
                 'json' => ['callback_query_id' => $callbackQueryId],
             ]);
         } catch (\Exception $e) {
-            // silent
+            // silent — not critical
         }
     }
 }
