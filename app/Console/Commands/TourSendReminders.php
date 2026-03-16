@@ -58,15 +58,17 @@ class TourSendReminders extends Command
                 'bookings.booking_source',
                 'bookings.booking_number',
                 'bookings.do_not_remind',
-                'tours.title       as tour_title',
-                'tours.pickup_time as tour_pickup_time',
+                'bookings.special_requests',
+                'tours.title        as tour_title',
+                'tours.pickup_time  as tour_pickup_time',
+                'tours.driver_route as tour_driver_route',
+                'tours.driver_brief as tour_driver_brief',
                 DB::raw("TIME_FORMAT(bookings.booking_start_date_time, '%H:%i') as booking_pickup_time"),
                 'guests.first_name',
                 'guests.last_name',
                 'guests.phone',
                 'guests.country',
                 'guests.number_of_people',
-                'bookings.special_requests',
             ])
             ->orderBy('tours.title')
             ->orderBy('guests.last_name')
@@ -411,28 +413,55 @@ class TourSendReminders extends Command
         $lines   = [];
         $lines[] = "📋 <b>Ertangi tur rejasi — {$dateLabel}</b>";
 
-        foreach ($bookings as $b) {
-            $guestName  = trim("{$b->first_name} {$b->last_name}");
-            $pax        = (int) $b->number_of_people;
-            $pickup     = $b->pickup_location ?: 'TBD';
-            $flag       = $this->countryFlag($b->country ?? '');
-            $pickupTime = $b->booking_pickup_time
-                ?: ($b->tour_pickup_time ? substr($b->tour_pickup_time, 0, 5) : '08:30');
+        // Group by tour so route/brief appear once per tour, not per guest
+        $byTour = $bookings->groupBy('tour_title');
+
+        foreach ($byTour as $tourTitle => $tourBookings) {
+            $firstBooking = $tourBookings->first();
+            $route        = trim($firstBooking->tour_driver_route ?? '');
+            $brief        = trim($firstBooking->tour_driver_brief ?? '');
 
             $lines[] = '';
-            $lines[] = "🗺 <b>{$b->tour_title}</b>";
-            $lines[] = "👤 Mehmon: {$guestName} {$flag}";
-            $lines[] = "🕗 Vaqti: {$pickupTime}";
-            $lines[] = "👥 Odam soni: {$pax}";
-            $lines[] = "🏨 Manzil: {$pickup}";
+            $lines[] = "━━━━━━━━━━━━━━━━━━━━";
+            $lines[] = "🏕 <b>{$tourTitle}</b>";
 
-            if (!empty($b->special_requests)) {
-                $lines[] = "⚠️ Izoh: {$b->special_requests}";
+            // Route if available
+            if ($route) {
+                $lines[] = '';
+                $lines[] = "🗺 <b>Marshrut:</b>";
+                $lines[] = $route;
+            }
+
+            // Guest list
+            $lines[] = '';
+            $lines[] = "👥 <b>Mehmonlar:</b>";
+            foreach ($tourBookings as $b) {
+                $guestName  = trim("{$b->first_name} {$b->last_name}");
+                $pax        = (int) $b->number_of_people;
+                $flag       = $this->countryFlag($b->country ?? '');
+                $pickup     = $b->pickup_location ?: 'TBD';
+                $pickupTime = $b->booking_pickup_time
+                    ?: ($b->tour_pickup_time ? substr($b->tour_pickup_time, 0, 5) : '08:30');
+
+                $lines[] = "• {$guestName} {$flag} — {$pax} pax";
+                $lines[] = "  🕗 {$pickupTime} | 🏨 {$pickup}";
+
+                if (!empty($b->special_requests)) {
+                    $lines[] = "  ⚠️ {$b->special_requests}";
+                }
+            }
+
+            // Driver brief/notes if available
+            if ($brief) {
+                $lines[] = '';
+                $lines[] = "📝 <b>Ko'rsatmalar:</b>";
+                $lines[] = $brief;
             }
         }
 
         $lines[] = '';
-        $lines[] = "Savollar uchun: +998 91 555 08 08 📞";
+        $lines[] = "━━━━━━━━━━━━━━━━━━━━";
+        $lines[] = "📞 Savollar uchun: +998 91 555 08 08";
 
         return implode("\n", $lines);
     }
