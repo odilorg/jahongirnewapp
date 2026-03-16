@@ -338,6 +338,11 @@ class TelegramDriverGuideSignUpController extends Controller
             return $this->handlePartnerBookingResponse($chatId, $messageId, $action, (int)($parts[2] ?? 0));
         }
 
+        // ── Driver booking confirm/reject ──────────────────────────────────
+        if ($action === 'DCONFIRM' || $action === 'DREJECT') {
+            return $this->handleDriverBookingResponse($chatId, $messageId, $action, (int)($parts[2] ?? 0));
+        }
+
         // Guard: driverId must be positive
         if ($driverId <= 0) {
             Log::warning('DriverGuideBot: invalid driverId in callback', ['data' => $data]);
@@ -800,6 +805,153 @@ class TelegramDriverGuideSignUpController extends Controller
         } catch (\Exception $e) {
             Log::error('DriverGuideBot: sendContactRequest error', ['error' => $e->getMessage()]);
         }
+    }
+
+    // =========================================================================
+    // Driver Booking Request / Confirm
+    // =========================================================================
+
+    public function sendDriverBookingRequest(int $bookingId): void
+    {
+        $booking = DB::table('bookings')
+            ->join('guests', 'bookings.guest_id', '=', 'guests.id')
+            ->join('tours',  'bookings.tour_id',  '=', 'tours.id')
+            ->where('bookings.id', $bookingId)
+            ->select([
+                'bookings.id',
+                'bookings.booking_number',
+                'bookings.booking_start_date_time',
+                'bookings.pickup_location',
+                'bookings.driver_id',
+                'bookings.tour_id',
+                'guests.first_name',
+                'guests.last_name',
+                'guests.number_of_people',
+                'guests.country',
+                'tours.title as tour_title',
+                'tours.driver_route as tour_driver_route',
+                DB::raw("TIME_FORMAT(bookings.booking_start_date_time,'%H:%i') as pickup_time"),
+            ])
+            ->first();
+
+        if (!$booking || !$booking->driver_id) return;
+
+        $driver = DB::table('drivers')->where('id', $booking->driver_id)->first();
+        if (!$driver || !$driver->telegram_chat_id) return;
+
+        $date    = Carbon::parse($booking->booking_start_date_time)->timezone('Asia/Tashkent');
+        $pax     = $booking->number_of_people ?? 0;
+        $pickup  = $booking->pickup_location ?: 'Samarkand (aniqlanmoqda)';
+        $route   = $booking->tour_driver_route ? "\n🗺 {$booking->tour_driver_route}" : '';
+
+        $text = implode("\n", [
+            "🚗 <b>Yangi tur tayinlandi!</b>",
+            "",
+            "🏕 <b>{$booking->tour_title}</b>",
+            "📅 " . $date->format('D, d M Y') . " — 🕗 {$booking->pickup_time}",
+            "👤 {$booking->first_name} {$booking->last_name} — {$pax} kishi",
+            "🏨 {$pickup}" . $route,
+            "📋 <code>{$booking->booking_number}</code>",
+            "",
+            "Tasdiqlaysizmi?",
+        ]);
+
+        $keyboard = [[
+            ['text' => '✅ Qabul',   'callback_data' => "BOOKING|DCONFIRM|{$bookingId}"],
+            ['text' => '❌ Rad etish', 'callback_data' => "BOOKING|DREJECT|{$bookingId}"],
+        ]];
+
+        $this->sendInlineKeyboard($driver->telegram_chat_id, $text, $keyboard);
+
+        $now = now();
+        DB::table('bookings')->where('id', $bookingId)->update([
+            'driver_status'      => 'pending',
+            'driver_notified_at' => $now,
+        ]);
+
+        DB::table('driver_booking_logs')->insert([
+            'booking_id'       => $bookingId,
+            'driver_id'        => $driver->id,
+            'telegram_chat_id' => $driver->telegram_chat_id,
+            'action'           => 'request_sent',
+            'booking_number'   => $booking->booking_number,
+            'guest_name'       => trim("{$booking->first_name} {$booking->last_name}"),
+            'tour_date'        => $date->toDateString(),
+            'pax'              => $pax,
+            'actioned_at'      => $now,
+            'created_at'       => $now,
+            'updated_at'       => $now,
+        ]);
+
+        Log::info("DriverGuideBot: booking request sent to driver", [
+            'driver_id'  => $driver->id,
+            'booking_id' => $bookingId,
+        ]);
+    }
+
+    private function handleDriverBookingResponse(
+        string $chatId, int $messageId, string $action, int $bookingId
+    ): \Illuminate\Http\JsonResponse {
+        $driver = Driver::where('telegram_chat_id', $chatId)->first();
+        if (!$driver) return response()->json(['ok' => true]);
+
+        $booking = DB::table('bookings')
+            ->join('guests', 'bookings.guest_id', '=', 'guests.id')
+            ->where('bookings.id', $bookingId)
+            ->where('bookings.driver_id', $driver->id) // security: driver owns this booking
+            ->select(['bookings.id', 'bookings.booking_number', 'guests.first_name', 'guests.last_name', 'guests.number_of_people'])
+            ->first();
+
+        if (!$booking) return response()->json(['ok' => true]);
+
+        $status = $action === 'DCONFIRM' ? 'confirmed' : 'rejected';
+        $emoji  = $action === 'DCONFIRM' ? '✅' : '❌';
+        $label  = $action === 'DCONFIRM' ? 'Tasdiqlandi' : 'Rad etildi';
+        $now    = now();
+
+        DB::table('bookings')->where('id', $bookingId)->update(['driver_status' => $status]);
+
+        // Audit log
+        DB::table('driver_booking_logs')->insert([
+            'booking_id'       => $bookingId,
+            'driver_id'        => $driver->id,
+            'telegram_chat_id' => $chatId,
+            'action'           => $status,
+            'booking_number'   => $booking->booking_number,
+            'guest_name'       => trim("{$booking->first_name} {$booking->last_name}"),
+            'tour_date'        => null,
+            'pax'              => $booking->number_of_people,
+            'actioned_at'      => $now,
+            'created_at'       => $now,
+            'updated_at'       => $now,
+        ]);
+
+        // Edit message — show result + timestamp
+        $this->editMessageText($chatId, $messageId,
+            "{$emoji} <b>{$label}</b>\n\n"
+            . "👤 {$booking->first_name} {$booking->last_name}\n"
+            . "📋 {$booking->booking_number}\n"
+            . "🕐 " . $now->timezone('Asia/Tashkent')->format('d M Y, H:i') . " (Toshkent)"
+        );
+
+        // Notify owner
+        $driverName = trim("{$driver->first_name} {$driver->last_name}");
+        $pax        = $booking->number_of_people ?? 0;
+        $this->sendMessage($this->ownerChatId,
+            "{$emoji} <b>Haydovchi javobi: {$label}</b>\n\n"
+            . "🚗 {$driverName}\n"
+            . "👤 {$booking->first_name} {$booking->last_name} ({$pax} pax)\n"
+            . "📋 {$booking->booking_number}\n"
+            . "🕐 " . $now->timezone('Asia/Tashkent')->format('d M Y, H:i') . " (Toshkent)"
+        );
+
+        Log::info("DriverGuideBot: driver {$action} booking {$bookingId}", [
+            'driver_id'   => $driver->id,
+            'status'      => $status,
+            'actioned_at' => $now->toIso8601String(),
+        ]);
+
+        return response()->json(['ok' => true]);
     }
 
     private function answerCallbackQuery(string $callbackQueryId): void
