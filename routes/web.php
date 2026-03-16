@@ -146,3 +146,13 @@ Route::get('/payment/success', [OctoCallbackController::class, 'success'])->name
 
 //     return 'Failed to dispatch job.';
 // });
+
+// GYG API routes (also accessible without /api prefix for GYG compatibility)
+Route::prefix('1')->middleware('gyg.auth')->group(function () {
+    Route::get('/get-availabilities/',  [\App\Http\Controllers\GygController::class, 'getAvailabilities']);
+    Route::post('/reserve/',            [\App\Http\Controllers\GygController::class, 'reserve']);
+    Route::post('/cancel-reservation/', [\App\Http\Controllers\GygController::class, 'cancelReservation']);
+    Route::post('/book/',               [\App\Http\Controllers\GygController::class, 'book']);
+    Route::post('/cancel-booking/',     [\App\Http\Controllers\GygController::class, 'cancelBooking']);
+    Route::post('/notify/',             [\App\Http\Controllers\GygController::class, 'notify']);
+});
