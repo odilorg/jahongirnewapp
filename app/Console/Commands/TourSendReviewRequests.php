@@ -66,9 +66,17 @@ class TourSendReviewRequests extends Command
             if ($phone) {
                 $this->line("     → WhatsApp: {$phone}");
                 if (!$dryRun) {
+                    // Stop wacli-sync before sending
+                    exec("pm2 stop wacli-sync 2>&1");
+                    sleep(1);
+
                     $jid = ltrim($phone, '+') . '@s.whatsapp.net';
                     $cmd = "wacli send text --to " . escapeshellarg($jid) . " --message " . escapeshellarg($message) . " 2>&1";
                     exec($cmd, $out, $code);
+
+                    // Always restart wacli-sync after
+                    exec("pm2 start wacli-sync 2>&1");
+
                     if ($code === 0) {
                         $sent = true;
                         Log::info('TourSendReviewRequests: WhatsApp sent', ['booking_id' => $booking->id, 'phone' => $phone]);
