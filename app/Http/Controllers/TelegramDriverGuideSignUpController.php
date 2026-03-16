@@ -379,8 +379,7 @@ class TelegramDriverGuideSignUpController extends Controller
                 'bookings.booking_number',
                 'bookings.booking_start_date_time',
                 'bookings.pickup_location',
-                'bookings.number_of_adult',
-                'bookings.number_of_children',
+                'guests.number_of_people',
                 'guests.first_name',
                 'guests.last_name',
                 'tours.title',
@@ -395,7 +394,7 @@ class TelegramDriverGuideSignUpController extends Controller
         $lines = ["📋 <b>Sizning bronlaringiz:</b>\n"];
         foreach ($bookings as $b) {
             $date    = Carbon::parse($b->booking_start_date_time)->timezone('Asia/Tashkent');
-            $pax     = ($b->number_of_adult ?? 0) + ($b->number_of_children ?? 0);
+            $pax     = $b->number_of_people ?? 0;
             $pickup  = $b->pickup_location ?: 'Samarkand';
             $lines[] = "🗓 <b>" . $date->format('D, d M Y') . "</b> — " . $date->format('H:i');
             $lines[] = "🏕 " . $b->title;
