@@ -10,12 +10,12 @@ use Illuminate\Support\Facades\Log;
 
 class TelegramDriverGuideSignUpController extends Controller
 {
-    protected string $botToken;
+    protected ?string $botToken;
     protected Client $telegramClient;
 
     public function __construct()
     {
-        $this->botToken = env('TELEGRAM_BOT_TOKEN_DRIVER_GUIDE');
+        $this->botToken = config('services.driver_guide_bot.token', env('TELEGRAM_BOT_TOKEN_DRIVER_GUIDE'));
         $this->telegramClient = new Client(['base_uri' => 'https://api.telegram.org']);
     }
 

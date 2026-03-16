@@ -74,6 +74,10 @@ return [
         'owner_chat_id' => env('OWNER_TELEGRAM_ID', ''),
     ],
 
+    'driver_guide_bot' => [
+        'token' => env('TELEGRAM_BOT_TOKEN_DRIVER_GUIDE', ''),
+    ],
+
 
 
     'cashier_bot' => [
@@ -90,4 +94,12 @@ return [
         'token' => env('KITCHEN_BOT_TOKEN', ''),
     ],
 
+
+    'gyg' => [
+        'username' => env('GYG_API_USERNAME', 'Jahongirtravel'),
+        'password' => env('GYG_API_PASSWORD'),
+        'api_url'  => env('GYG_API_URL', 'https://supplier-api.getyourguide.com'),
+    ],
+
 ];
+

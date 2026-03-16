@@ -18,7 +18,7 @@ use Illuminate\Database\Eloquent\Relations\HasOneThrough;
 class Driver extends Model
 {
     use HasFactory;
-    protected $fillable = ['address_city', 'extra_details', 'car_id', 'first_name', 'last_name', 'email', 'phone01', 'phone02', 'fuel_type', 'driver_image'];
+    protected $fillable = ['address_city', 'extra_details', 'car_id', 'first_name', 'last_name', 'email', 'phone01', 'phone02', 'fuel_type', 'driver_image', 'telegram_chat_id'];
 
     
     // public function carsplates(): HasMany

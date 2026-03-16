@@ -15,7 +15,7 @@ class Guide extends Model
         'lang_spoken' => 'array',
     ];
 
-    protected $fillable = ['first_name', 'last_name', 'email', 'phone01', 'phone02', 'lang_spoken', 'guide_image'];
+    protected $fillable = ['first_name', 'last_name', 'email', 'phone01', 'phone02', 'lang_spoken', 'guide_image', 'telegram_chat_id'];
 
     public function languages(): BelongsToMany
     {
