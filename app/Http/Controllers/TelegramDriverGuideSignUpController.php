@@ -63,6 +63,24 @@ class TelegramDriverGuideSignUpController extends Controller
             return response()->json(['ok' => true]);
         }
 
+        // ── 📋 My bookings ─────────────────────────────────────────────────
+        if ($text === '📋 Mening bronlarim') {
+            $driver = Driver::where('telegram_chat_id', (string) $chatId)->first();
+            if ($driver) {
+                $this->sendMyBookings($chatId, $driver->id);
+            }
+            return response()->json(['ok' => true]);
+        }
+
+        // ── 📅 My calendar ─────────────────────────────────────────────────
+        if ($text === '📅 Mening jadvalim') {
+            $driver = Driver::where('telegram_chat_id', (string) $chatId)->first();
+            if ($driver) {
+                $this->sendCalendar($chatId, $driver->id, Carbon::now('Asia/Tashkent'));
+            }
+            return response()->json(['ok' => true]);
+        }
+
         // ── Contact shared → registration ──────────────────────────────────
         if ($contact) {
             return $this->handleContactRegistration($chatId, $contact);
@@ -345,27 +363,83 @@ class TelegramDriverGuideSignUpController extends Controller
     }
 
     // =========================================================================
+    // My Bookings
+    // =========================================================================
+
+    private function sendMyBookings(int|string $chatId, int $driverId): void
+    {
+        $bookings = DB::table('bookings')
+            ->join('guests', 'bookings.guest_id', '=', 'guests.id')
+            ->join('tours', 'bookings.tour_id', '=', 'tours.id')
+            ->where('bookings.driver_id', $driverId)
+            ->where('bookings.booking_status', 'confirmed')
+            ->whereDate('bookings.booking_start_date_time', '>=', now('Asia/Tashkent')->toDateString())
+            ->orderBy('bookings.booking_start_date_time')
+            ->select([
+                'bookings.booking_number',
+                'bookings.booking_start_date_time',
+                'bookings.pickup_location',
+                'bookings.number_of_adult',
+                'bookings.number_of_children',
+                'guests.first_name',
+                'guests.last_name',
+                'tours.title',
+            ])
+            ->get();
+
+        if ($bookings->isEmpty()) {
+            $this->sendMessageWithMenu($chatId, "📋 Hozircha tayinlangan bronlar yo'q.");
+            return;
+        }
+
+        $lines = ["📋 <b>Sizning bronlaringiz:</b>\n"];
+        foreach ($bookings as $b) {
+            $date    = Carbon::parse($b->booking_start_date_time)->timezone('Asia/Tashkent');
+            $pax     = ($b->number_of_adult ?? 0) + ($b->number_of_children ?? 0);
+            $pickup  = $b->pickup_location ?: 'Samarkand';
+            $lines[] = "🗓 <b>" . $date->format('D, d M Y') . "</b> — " . $date->format('H:i');
+            $lines[] = "🏕 " . $b->title;
+            $lines[] = "👤 {$b->first_name} {$b->last_name}" . ($pax ? " ({$pax} pax)" : '');
+            $lines[] = "📍 {$pickup}";
+            $lines[] = "📋 {$b->booking_number}";
+            $lines[] = "";
+        }
+
+        $this->sendMessageWithMenu($chatId, implode("\n", $lines));
+    }
+
+    // =========================================================================
     // Menus
     // =========================================================================
 
     private function sendMainMenu(int|string $chatId, string $name): void
     {
-        $keyboard = [[
-            ['text' => '📅 Mening jadvalim', 'callback_data' => 'MENU|CALENDAR'],
-        ]];
+        $this->sendMessageWithMenu($chatId, "👋 Salom, <b>{$name}</b> aka!\n\nQuyidagi tugmalardan foydalaning:");
+    }
 
-        // Find driver id for calendar
-        $driver = Driver::where('telegram_chat_id', (string) $chatId)->first();
-        if ($driver) {
-            $keyboard = [[
-                ['text' => '📅 Mening jadvalim', 'callback_data' => "CAL|OPEN|{$driver->id}|" . Carbon::now('Asia/Tashkent')->format('Y-m')],
-            ]];
+    private function sendMessageWithMenu(int|string $chatId, string $text): void
+    {
+        try {
+            $this->telegramClient->post("/bot{$this->botToken}/sendMessage", [
+                'json' => [
+                    'chat_id'      => $chatId,
+                    'text'         => $text,
+                    'parse_mode'   => 'HTML',
+                    'reply_markup' => [
+                        'keyboard' => [
+                            [
+                                ['text' => '📋 Mening bronlarim'],
+                                ['text' => '📅 Mening jadvalim'],
+                            ],
+                        ],
+                        'resize_keyboard'  => true,
+                        'persistent'       => true,
+                    ],
+                ],
+            ]);
+        } catch (\Exception $e) {
+            Log::error('DriverGuideBot: sendMessageWithMenu error', ['error' => $e->getMessage()]);
         }
-
-        $this->sendInlineKeyboard($chatId,
-            "👋 Salom, {$name} aka!\n\nNimani xohlaysiz?",
-            $keyboard
-        );
     }
 
     // =========================================================================
