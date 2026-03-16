@@ -105,17 +105,30 @@ class SendBookingNotification extends Command
             "— Jahongir Travel",
         ]);
 
-        $this->info("  🍽 Sending dietary question → {$phone} ({$name})");
+        $this->info("  🍽 Queuing dietary question → {$phone} ({$name})");
 
-        exec('pm2 stop wacli-sync 2>&1');
-        $output = []; $returnCode = 0;
-        exec('wacli send text --to ' . escapeshellarg($jid) . ' --message ' . escapeshellarg($message) . ' 2>&1', $output, $returnCode);
-        exec('pm2 start wacli-sync 2>&1');
+        $payload = json_encode([
+            'to'         => $jid,
+            'message'    => $message,
+            'dedupe_key' => 'dietary-' . $booking->id,
+        ]);
+        $ch = curl_init('http://127.0.0.1:8765/send');
+        curl_setopt_array($ch, [
+            CURLOPT_POST           => true,
+            CURLOPT_POSTFIELDS     => $payload,
+            CURLOPT_HTTPHEADER     => ['Content-Type: application/json'],
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT        => 5,
+        ]);
+        $resp = curl_exec($ch);
+        $err  = curl_error($ch);
+        curl_close($ch);
 
-        if ($returnCode === 0) {
-            $this->info("  ✅ Dietary question sent to {$name}");
+        if ($err) {
+            $this->warn("  ⚠ Queue API error: {$err}");
         } else {
-            $this->warn("  ⚠ Failed: " . implode(' ', $output));
+            $data = json_decode($resp, true);
+            $this->info("  ✅ Queued (id={$data['id']}, status={$data['status']})");
         }
     }
 }

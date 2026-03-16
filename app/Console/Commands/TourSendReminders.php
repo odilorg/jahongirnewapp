@@ -222,47 +222,45 @@ class TourSendReminders extends Command
             ];
         }
 
-        // ── Stop wacli-sync once, send all, restart once ──────────────────────
+        // ── Queue messages via wa-queue HTTP API ──────────────────────────────
         if (!empty($pendingMessages) && !$dryRun) {
-            exec('pm2 stop wacli-sync 2>&1');
-
             foreach ($pendingMessages as $item) {
-                $escapedJid     = escapeshellarg($item['jid']);
-                $escapedMessage = escapeshellarg($item['message']);
-                $cmd            = "wacli send text --to {$escapedJid} --message {$escapedMessage} 2>&1";
+                $dedupeKey = 'reminder-' . $item['booking']->id . '-' . $tomorrow;
+                $payload   = json_encode([
+                    'to'         => $item['jid'],
+                    'message'    => $item['message'],
+                    'dedupe_key' => $dedupeKey,
+                ]);
 
-                $output     = [];
-                $returnCode = 0;
-                exec($cmd, $output, $returnCode);
+                $ch = curl_init('http://127.0.0.1:8765/send');
+                curl_setopt_array($ch, [
+                    CURLOPT_POST           => true,
+                    CURLOPT_POSTFIELDS     => $payload,
+                    CURLOPT_HTTPHEADER     => ['Content-Type: application/json'],
+                    CURLOPT_RETURNTRANSFER => true,
+                    CURLOPT_TIMEOUT        => 5,
+                ]);
+                $resp    = curl_exec($ch);
+                $curlErr = curl_error($ch);
+                curl_close($ch);
 
-                if ($returnCode === 0) {
-                    $this->info("     ✅ Sent to {$item['phone']}");
-                    Log::info('TourSendReminders: WhatsApp sent', [
+                if ($curlErr) {
+                    $this->error("     ❌ Queue API error for {$item['phone']}: {$curlErr}");
+                    $this->logWhatsApp($item['booking'], $item['phone'], 'failed', $curlErr, $tomorrow, false);
+                    $failed++;
+                } else {
+                    $data = json_decode($resp, true);
+                    $this->info("     ✅ Queued for {$item['phone']} (id={$data['id']})");
+                    Log::info('TourSendReminders: WhatsApp queued', [
                         'phone'      => $item['phone'],
                         'guest'      => $item['name'],
-                        'tour'       => $item['booking']->tour_title,
+                        'queue_id'   => $data['id'],
                         'booking_id' => $item['booking']->id,
                     ]);
                     $this->logWhatsApp($item['booking'], $item['phone'], 'sent', null, $tomorrow, false);
                     $sent++;
-                } else {
-                    $outputStr = implode(' ', $output);
-                    $this->error("     ❌ Failed for {$item['phone']}: {$outputStr}");
-                    Log::error('TourSendReminders: WhatsApp failed', [
-                        'phone'      => $item['phone'],
-                        'guest'      => $item['name'],
-                        'tour'       => $item['booking']->tour_title,
-                        'booking_id' => $item['booking']->id,
-                        'output'     => $outputStr,
-                    ]);
-                    $this->logWhatsApp($item['booking'], $item['phone'], 'failed', $outputStr, $tomorrow, false);
-                    $failed++;
                 }
-
-                usleep(700000); // 0.7s anti-throttle delay between messages
             }
-
-            exec('pm2 start wacli-sync 2>&1');
         }
 
         $this->info("WhatsApp summary: {$sent} sent, {$skipped} skipped, {$failed} failed.");
