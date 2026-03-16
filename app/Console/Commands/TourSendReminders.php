@@ -1,0 +1,725 @@
+<?php
+
+namespace App\Console\Commands;
+
+use App\Jobs\SendTelegramNotificationJob;
+use Carbon\Carbon;
+use Illuminate\Console\Command;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+
+class TourSendReminders extends Command
+{
+    protected $signature   = 'tour:send-reminders {--dry-run : Print output without actually sending messages}';
+    protected $description = 'Send daily tour reminders — Telegram staff alert (Phase 1) + WhatsApp guest reminders (Phase 2)';
+
+    private string $botToken;
+    private int    $ownerChatId;
+    private string $driverGuideBotToken;
+
+    public function __construct()
+    {
+        parent::__construct();
+        $this->botToken            = config('services.owner_alert_bot.token', env('OWNER_ALERT_BOT_TOKEN', ''));
+        $this->ownerChatId         = (int) config('services.owner_alert_bot.owner_chat_id', env('OWNER_TELEGRAM_ID', '0'));
+        $this->driverGuideBotToken = env('TELEGRAM_BOT_TOKEN_DRIVER_GUIDE', '');
+    }
+
+    public function handle(): int
+    {
+        $dryRun    = $this->option('dry-run');
+        $tz        = 'Asia/Tashkent';
+        $tomorrow  = Carbon::now($tz)->addDay()->toDateString();
+        $dateLabel = Carbon::now($tz)->addDay()->format('D, d M Y');
+        $today     = Carbon::now($tz)->toDateString();
+
+        if ($dryRun) {
+            $this->info('[DRY-RUN] No messages will be sent.');
+        }
+
+        $this->info("Fetching confirmed bookings for tomorrow: {$tomorrow}");
+
+        // -----------------------------------------------------------------------
+        // Query tomorrow's confirmed bookings (all — including do_not_remind, so
+        // we can calculate accurate summary totals)
+        // -----------------------------------------------------------------------
+        $allBookings = DB::table('bookings')
+            ->join('guests', 'bookings.guest_id', '=', 'guests.id')
+            ->join('tours',  'bookings.tour_id',  '=', 'tours.id')
+            ->whereDate('bookings.booking_start_date_time', $tomorrow)
+            ->where('bookings.booking_status', 'confirmed')
+            ->select([
+                'bookings.id',
+                'bookings.guest_id',
+                'bookings.driver_id',
+                'bookings.guide_id',
+                'bookings.pickup_location',
+                'bookings.booking_start_date_time',
+                'bookings.booking_source',
+                'bookings.booking_number',
+                'bookings.do_not_remind',
+                'tours.title       as tour_title',
+                'tours.pickup_time as tour_pickup_time',
+                DB::raw("TIME_FORMAT(bookings.booking_start_date_time, '%H:%i') as booking_pickup_time"),
+                'guests.first_name',
+                'guests.last_name',
+                'guests.phone',
+                'guests.country',
+                'guests.number_of_people',
+                'bookings.special_requests',
+            ])
+            ->orderBy('tours.title')
+            ->orderBy('guests.last_name')
+            ->get();
+
+        // Bookings eligible for reminders (do_not_remind = false)
+        $bookings = $allBookings->where('do_not_remind', false)->values();
+
+        // -----------------------------------------------------------------------
+        // Pre-calculate summary totals for Telegram message
+        // -----------------------------------------------------------------------
+        $summaryTotalTours    = $allBookings->groupBy('tour_title')->count();
+        $summaryTotalBookings = $allBookings->count();
+        $summaryTotalPax      = $allBookings->sum('number_of_people');
+        $summaryOptedOut      = $allBookings->where('do_not_remind', true)->count();
+
+        $summaryWhatsappEligible = 0;
+        $summaryNoPhone          = 0;
+        foreach ($bookings as $b) {
+            $raw = trim($b->phone ?? '');
+            if (empty($raw)) {
+                $summaryNoPhone++;
+            } else {
+                $normalized = $this->normalizePhone($raw);
+                if ($normalized !== null) {
+                    $summaryWhatsappEligible++;
+                } else {
+                    $summaryNoPhone++;
+                }
+            }
+        }
+
+        // -----------------------------------------------------------------------
+        // Phase 1 — Staff Telegram Alert
+        // -----------------------------------------------------------------------
+        $telegramMessage = $this->buildStaffMessage(
+            $bookings,
+            $dateLabel,
+            $summaryTotalTours,
+            $summaryTotalBookings,
+            $summaryTotalPax,
+            $summaryWhatsappEligible,
+            $summaryOptedOut,
+            $summaryNoPhone
+        );
+
+        $this->info('--- Telegram Staff Message ---');
+        $this->line($telegramMessage);
+        $this->info('------------------------------');
+
+        if (!$dryRun) {
+            $telegramOk = $this->sendTelegram($telegramMessage);
+            $this->logTelegram($telegramOk ? 'sent' : 'failed', $tomorrow);
+            $this->info($telegramOk ? '✅ Telegram staff alert dispatched.' : '⚠ Telegram dispatch failed.');
+        } else {
+            $this->info('[DRY-RUN] Telegram alert would be sent.');
+        }
+
+        // -----------------------------------------------------------------------
+        // Phase 2 — Guest WhatsApp Reminders
+        // -----------------------------------------------------------------------
+        if ($bookings->isEmpty()) {
+            $this->info('No bookings → skipping WhatsApp reminders.');
+            return self::SUCCESS;
+        }
+
+        $sent    = 0;
+        $skipped = 0;
+        $failed  = 0;
+
+        /** @var array<string,true> $phonesThisRun In-memory dedup set */
+        $phonesThisRun = [];
+
+        foreach ($bookings as $booking) {
+            $rawPhone  = trim($booking->phone ?? '');
+            $guestName = trim("{$booking->first_name} {$booking->last_name}");
+
+            // ── Phone validation ──────────────────────────────────────────────
+            if (empty($rawPhone)) {
+                $this->warn("  ⚠ Skipping {$guestName} — no phone number.");
+                $this->logWhatsApp($booking, null, 'skipped', 'no phone number', $tomorrow, $dryRun);
+                $skipped++;
+                continue;
+            }
+
+            $phone = $this->normalizePhone($rawPhone);
+
+            if ($phone === null) {
+                $this->warn("  ⚠ Skipping {$guestName} — invalid phone format: {$rawPhone}");
+                $this->logWhatsApp($booking, $rawPhone, 'skipped', 'invalid phone format', $tomorrow, $dryRun);
+                $skipped++;
+                continue;
+            }
+
+            // ── Duplicate phone (within this run) ────────────────────────────
+            if (isset($phonesThisRun[$phone])) {
+                $this->warn("  ⚠ Skipping {$guestName} ({$phone}) — duplicate phone, already messaged this run.");
+                $this->logWhatsApp($booking, $phone, 'skipped', 'duplicate phone, already messaged this run', $tomorrow, $dryRun);
+                $skipped++;
+                continue;
+            }
+
+            // ── Idempotency: already sent for this tour date? ─────────────────
+            // Key: booking_id + channel + scheduled_for_date (the actual tour date)
+            $alreadySent = DB::table('tour_reminder_logs')
+                ->where('booking_id', $booking->id)
+                ->where('channel', 'whatsapp')
+                ->where('scheduled_for_date', $tomorrow)
+                ->exists();
+
+            if ($alreadySent) {
+                $this->warn("  ⚠ Skipping {$guestName} — already sent WhatsApp for tour date {$tomorrow} (booking #{$booking->id}).");
+                $skipped++;
+                continue;
+            }
+
+            // ── Build message ─────────────────────────────────────────────────
+            $pickupTime = $booking->booking_pickup_time   // exact time from booking (from GYG)
+                ?: ($booking->tour_pickup_time
+                    ? substr($booking->tour_pickup_time, 0, 5)
+                    : '08:30');
+
+            $waMessage = $this->buildGuestMessage(
+                $booking->first_name,
+                $booking->tour_title,
+                $dateLabel,
+                $booking->pickup_location,
+                $pickupTime
+            );
+
+            $this->info("  📱 WhatsApp → {$phone} ({$guestName})");
+            $this->line("     Message preview:\n" . $this->indent($waMessage, 5));
+
+            $phonesThisRun[$phone] = true;
+
+            if ($dryRun) {
+                $sent++;
+                continue;
+            }
+
+            // ── Actually send via wacli ───────────────────────────────────────
+            // Convert E.164 (+818041119503) → JID format (818041119503@s.whatsapp.net)
+            $jid            = ltrim($phone, '+') . '@s.whatsapp.net';
+            $escapedJid     = escapeshellarg($jid);
+            $escapedMessage = escapeshellarg($waMessage);
+            $cmd            = "wacli send text --to {$escapedJid} --message {$escapedMessage} 2>&1";
+
+            $output     = [];
+            $returnCode = 0;
+            exec($cmd, $output, $returnCode);
+
+            if ($returnCode === 0) {
+                $this->info("     ✅ Sent to {$phone}");
+                Log::info('TourSendReminders: WhatsApp sent', [
+                    'phone'      => $phone,
+                    'guest'      => $guestName,
+                    'tour'       => $booking->tour_title,
+                    'booking_id' => $booking->id,
+                ]);
+                $this->logWhatsApp($booking, $phone, 'sent', null, $tomorrow, false);
+                $sent++;
+            } else {
+                $outputStr = implode(' ', $output);
+                $this->error("     ❌ Failed for {$phone}: {$outputStr}");
+                Log::error('TourSendReminders: WhatsApp failed', [
+                    'phone'      => $phone,
+                    'guest'      => $guestName,
+                    'tour'       => $booking->tour_title,
+                    'booking_id' => $booking->id,
+                    'output'     => $outputStr,
+                ]);
+                $this->logWhatsApp($booking, $phone, 'failed', $outputStr, $tomorrow, false);
+                $failed++;
+            }
+
+            usleep(700000); // 0.7s anti-throttle delay
+        }
+
+        $this->info("WhatsApp summary: {$sent} sent, {$skipped} skipped, {$failed} failed.");
+
+        // -----------------------------------------------------------------------
+        // Phase 3 — Driver & Guide Telegram Notifications
+        // -----------------------------------------------------------------------
+        $this->info('--- Phase 3: Driver/Guide Telegram Notifications ---');
+        $this->sendDriverGuideNotifications($allBookings, $dateLabel, $dryRun);
+
+        return self::SUCCESS;
+    }
+
+    private function sendDriverGuideNotifications(
+        \Illuminate\Support\Collection $bookings,
+        string $dateLabel,
+        bool $dryRun
+    ): void {
+        if (empty($this->driverGuideBotToken)) {
+            $this->warn('TELEGRAM_BOT_TOKEN_DRIVER_GUIDE not set — skipping driver/guide notifications.');
+            return;
+        }
+
+        // Collect unique driver/guide IDs across all bookings
+        $driverIds = $bookings->pluck('driver_id')->filter()->unique()->values();
+        $guideIds  = $bookings->pluck('guide_id')->filter()->unique()->values();
+
+        if ($driverIds->isEmpty() && $guideIds->isEmpty()) {
+            $this->info('No drivers or guides assigned to tomorrow\'s bookings.');
+            return;
+        }
+
+        // Fetch drivers with telegram_chat_id
+        $drivers = DB::table('drivers')
+            ->whereIn('id', $driverIds)
+            ->whereNotNull('telegram_chat_id')
+            ->get()
+            ->keyBy('id');
+
+        // Fetch guides with telegram_chat_id
+        $guides = DB::table('guides')
+            ->whereIn('id', $guideIds)
+            ->whereNotNull('telegram_chat_id')
+            ->get()
+            ->keyBy('id');
+
+        // Group bookings by driver_id then guide_id and send one message per person
+        $notified = [];
+
+        foreach ($bookings as $booking) {
+            // Notify driver
+            if ($booking->driver_id && isset($drivers[$booking->driver_id])) {
+                $driver = $drivers[$booking->driver_id];
+                $key    = 'driver_' . $driver->id;
+                if (!isset($notified[$key])) {
+                    $assignedBookings = $bookings->where('driver_id', $booking->driver_id);
+                    $message = $this->buildDriverGuideMessage($assignedBookings, $dateLabel);
+                    $this->info("  🚗 Telegram → Driver: {$driver->first_name} {$driver->last_name}");
+                    if (!$dryRun) {
+                        $this->sendTelegramDirect($driver->telegram_chat_id, $message);
+                    }
+                    $notified[$key] = true;
+                }
+            }
+
+            // Notify guide
+            if ($booking->guide_id && isset($guides[$booking->guide_id])) {
+                $guide = $guides[$booking->guide_id];
+                $key   = 'guide_' . $guide->id;
+                if (!isset($notified[$key])) {
+                    $assignedBookings = $bookings->where('guide_id', $booking->guide_id);
+                    $message = $this->buildDriverGuideMessage($assignedBookings, $dateLabel);
+                    $this->info("  🎒 Telegram → Guide: {$guide->first_name} {$guide->last_name}");
+                    if (!$dryRun) {
+                        $this->sendTelegramDirect($guide->telegram_chat_id, $message);
+                    }
+                    $notified[$key] = true;
+                }
+            }
+        }
+
+        // Warn about unregistered staff
+        foreach ($driverIds as $dId) {
+            if (!isset($drivers[$dId])) {
+                $d = DB::table('drivers')->find($dId);
+                if ($d) $this->warn("  ⚠ Driver {$d->first_name} {$d->last_name} has no Telegram registered.");
+            }
+        }
+        foreach ($guideIds as $gId) {
+            if (!isset($guides[$gId])) {
+                $g = DB::table('guides')->find($gId);
+                if ($g) $this->warn("  ⚠ Guide {$g->first_name} {$g->last_name} has no Telegram registered.");
+            }
+        }
+
+        $this->info('Driver/guide notifications done. Notified: ' . count($notified));
+    }
+
+    private function buildDriverGuideMessage(
+        \Illuminate\Support\Collection $bookings,
+        string $dateLabel
+    ): string {
+        $lines   = [];
+        $lines[] = "📋 <b>Ertangi tur rejasi — {$dateLabel}</b>";
+
+        foreach ($bookings as $b) {
+            $guestName  = trim("{$b->first_name} {$b->last_name}");
+            $pax        = (int) $b->number_of_people;
+            $pickup     = $b->pickup_location ?: 'TBD';
+            $flag       = $this->countryFlag($b->country ?? '');
+            $pickupTime = $b->booking_pickup_time
+                ?: ($b->tour_pickup_time ? substr($b->tour_pickup_time, 0, 5) : '08:30');
+
+            $lines[] = '';
+            $lines[] = "🗺 <b>{$b->tour_title}</b>";
+            $lines[] = "👤 Mehmon: {$guestName} {$flag}";
+            $lines[] = "🕗 Vaqti: {$pickupTime}";
+            $lines[] = "👥 Odam soni: {$pax}";
+            $lines[] = "🏨 Manzil: {$pickup}";
+
+            if (!empty($b->special_requests)) {
+                $lines[] = "⚠️ Izoh: {$b->special_requests}";
+            }
+        }
+
+        $lines[] = '';
+        $lines[] = "Savollar uchun: +998 91 555 08 08 📞";
+
+        return implode("\n", $lines);
+    }
+
+    private function sendTelegramDirect(string $chatId, string $text): void
+    {
+        try {
+            $url  = "https://api.telegram.org/bot{$this->driverGuideBotToken}/sendMessage";
+            $data = http_build_query([
+                'chat_id'    => $chatId,
+                'text'       => $text,
+                'parse_mode' => 'HTML',
+            ]);
+
+            $ctx = stream_context_create(['http' => [
+                'method'  => 'POST',
+                'header'  => "Content-Type: application/x-www-form-urlencoded\r\n",
+                'content' => $data,
+                'timeout' => 10,
+            ]]);
+
+            file_get_contents($url, false, $ctx);
+        } catch (\Exception $e) {
+            Log::error('TourSendReminders: driver/guide Telegram failed', [
+                'chat_id' => $chatId,
+                'error'   => $e->getMessage(),
+            ]);
+        }
+    }
+
+    // =========================================================================
+    // Message builders
+    // =========================================================================
+
+    private function buildStaffMessage(
+        \Illuminate\Support\Collection $bookings,
+        string $dateLabel,
+        int $summaryTotalTours,
+        int $summaryTotalBookings,
+        int $summaryTotalPax,
+        int $summaryWhatsappEligible,
+        int $summaryOptedOut,
+        int $summaryNoPhone
+    ): string {
+        if ($bookings->isEmpty() && $summaryTotalBookings === 0) {
+            return "✅ No tours scheduled for tomorrow.";
+        }
+
+        $grouped     = $bookings->groupBy('tour_title');
+        $totalTours  = $grouped->count();
+        $totalGuests = $bookings->sum('number_of_people');
+
+        $lines   = [];
+        $lines[] = "📅 <b>Tomorrow's Tours — {$dateLabel}</b>";
+
+        if ($bookings->isEmpty()) {
+            $lines[] = '';
+            $lines[] = "<i>All bookings are marked do-not-remind.</i>";
+        } else {
+            foreach ($grouped as $tourName => $tourBookings) {
+                $lines[] = '';
+                $lines[] = "🏕 <b>{$tourName}</b>";
+                foreach ($tourBookings as $b) {
+                    $fullName = trim("{$b->first_name} {$b->last_name}");
+                    $pax      = (int) $b->number_of_people;
+                    $pickup   = $b->pickup_location ?: 'TBD';
+
+                    $pickupTime = $b->booking_pickup_time
+                        ?: ($b->tour_pickup_time
+                            ? substr($b->tour_pickup_time, 0, 5)
+                            : '08:30');
+
+                    $ref    = $b->booking_number ? " | Ref: {$b->booking_number}" : '';
+                    $source = $b->booking_source ? " [{$b->booking_source}]" : '';
+
+                    $lines[] = "• {$fullName} ({$pax} pax) — pickup: {$pickup} at {$pickupTime}{$ref}{$source}";
+                }
+            }
+        }
+
+        // ── Pickup Groups block ────────────────────────────────────────────────
+        if ($bookings->isNotEmpty()) {
+            // Group by pickup_location → pickup_time (sort by time ascending)
+            $byLocation = $bookings->groupBy(function ($b) {
+                return $b->pickup_location ?: 'TBD';
+            })->sortKeys();
+
+            $lines[] = '';
+            $lines[] = "🚐 <b>Pickup Groups:</b>";
+
+            foreach ($byLocation as $location => $locationBookings) {
+                // Sort by pickup_time ascending within each location
+                $byTime = $locationBookings->groupBy(function ($b) {
+                    return $b->booking_pickup_time
+                        ?: ($b->tour_pickup_time
+                            ? substr($b->tour_pickup_time, 0, 5)
+                            : '08:30');
+                })->sortKeys();
+
+                foreach ($byTime as $time => $timeBookings) {
+                    $lines[] = '';
+                    $lines[] = "📍 {$location} — {$time}";
+                    foreach ($timeBookings as $b) {
+                        $fullName  = trim("{$b->first_name} {$b->last_name}");
+                        $pax       = (int) $b->number_of_people;
+                        $tourShort = $b->tour_title;
+                        $lines[]   = "  • {$fullName} ({$pax} pax) — {$tourShort}";
+                    }
+                }
+            }
+        }
+
+        // ── Driver Briefing Draft block ────────────────────────────────────────
+        if ($bookings->isNotEmpty()) {
+            $lines[] = '';
+            $lines[] = '━━━━━━━━━━━━━━━━━━━━';
+            $lines[] = '📋 <b>DRIVER BRIEFING DRAFT</b>';
+            $lines[] = '<i>(copy &amp; send manually)</i>';
+            $lines[] = '━━━━━━━━━━━━━━━━━━━━';
+            $lines[] = '';
+            $lines[] = "🚗 <b>Tomorrow's Tour Briefing — {$dateLabel}</b>";
+
+            $groupedForBriefing = $bookings->groupBy('tour_title');
+            foreach ($groupedForBriefing as $tourName => $tourBookings) {
+                $firstBooking = $tourBookings->first();
+
+                $pickupTime = $firstBooking->booking_pickup_time
+                    ?: ($firstBooking->tour_pickup_time
+                        ? substr($firstBooking->tour_pickup_time, 0, 5)
+                        : '08:30');
+                $pickupLocation = $firstBooking->pickup_location ?: 'TBD';
+
+                $lines[] = '';
+                $lines[] = "🏕 <b>{$tourName}</b>";
+                $lines[] = "🕗 {$pickupTime} | 📍 {$pickupLocation}";
+                $lines[] = '';
+                $lines[] = 'Guests:';
+
+                $tourPax = 0;
+                $specialRequests = [];
+                foreach ($tourBookings as $b) {
+                    $fullName = trim("{$b->first_name} {$b->last_name}");
+                    $pax      = (int) $b->number_of_people;
+                    $tourPax += $pax;
+                    $flag     = $this->countryFlag($b->country ?? '');
+                    $phone    = trim($b->phone ?? '');
+                    $phoneStr = !empty($phone) ? "📞 {$phone}" : 'no phone';
+                    $lines[]  = "• {$fullName} {$flag} — {$pax} pax | {$phoneStr}";
+
+                    $sr = trim($b->special_requests ?? '');
+                    if (!empty($sr)) {
+                        $specialRequests[] = "⚠️ {$fullName}: {$sr}";
+                    }
+                }
+
+                $lines[] = '';
+                $lines[] = "Total pax: {$tourPax}";
+
+                if (!empty($specialRequests)) {
+                    $lines[] = '';
+                    foreach ($specialRequests as $sr) {
+                        $lines[] = $sr;
+                    }
+                }
+            }
+
+            $lines[] = '';
+            $lines[] = '━━━━━━━━━━━━━━━━━━━━';
+        }
+
+        // ── Summary block ──────────────────────────────────────────────────────
+        $lines[] = '';
+        $lines[] = "📊 <b>Summary:</b>";
+        $lines[] = "• Tours tomorrow: {$summaryTotalTours}";
+        $lines[] = "• Total bookings: {$summaryTotalBookings}";
+        $lines[] = "• Total pax: {$summaryTotalPax}";
+        $lines[] = "• WhatsApp-eligible: {$summaryWhatsappEligible} (have valid phone)";
+        $lines[] = "• Opted out: {$summaryOptedOut} (do_not_remind)";
+        $lines[] = "• No phone: {$summaryNoPhone}";
+
+        $lines[] = '';
+        $lines[] = "<i>Total: {$totalTours} " . ($totalTours === 1 ? 'tour' : 'tours') . ", {$totalGuests} " . ($totalGuests === 1 ? 'guest' : 'guests') . "</i>";
+
+        return implode("\n", $lines);
+    }
+
+    private function buildGuestMessage(
+        string  $firstName,
+        string  $tourName,
+        string  $dateLabel,
+        ?string $pickupLocation,
+        string  $pickupTime = '08:30'
+    ): string {
+        $pickup = $pickupLocation ?: 'your hotel';
+
+        return implode("\n", [
+            "Hi {$firstName}! 👋",
+            "",
+            "Just a friendly reminder that your tour \"{$tourName}\" is tomorrow.",
+            "",
+            "📍 Pickup: {$pickup}",
+            "🕗 Time: {$pickupTime}",
+            "",
+            "Please be ready 5 minutes early.",
+            "If you have any questions, feel free to reply here.",
+            "",
+            "— Jahongir Travel",
+        ]);
+    }
+
+    // =========================================================================
+    // Phone normalisation (E.164)
+    // =========================================================================
+
+    /**
+     * Normalise a raw phone string to E.164 (+XXXXXXXXXXX) or return null if invalid.
+     */
+    private function normalizePhone(string $raw): ?string
+    {
+        // Strip common formatting characters
+        $stripped = preg_replace('/[\s\-().]+/', '', $raw);
+
+        // 00... → +...
+        if (str_starts_with($stripped, '00')) {
+            $stripped = '+' . substr($stripped, 2);
+        }
+
+        // If still no leading +, add one
+        if (!str_starts_with($stripped, '+')) {
+            $stripped = '+' . $stripped;
+        }
+
+        // Count digits only (excluding the leading +)
+        $digitsOnly = preg_replace('/\D/', '', $stripped);
+        $digitCount = strlen($digitsOnly);
+
+        if ($digitCount < 7 || $digitCount > 15) {
+            return null;
+        }
+
+        return $stripped;
+    }
+
+    // =========================================================================
+    // Audit logging helpers
+    // =========================================================================
+
+    private function logWhatsApp(
+        object  $booking,
+        ?string $phone,
+        string  $status,
+        ?string $errorMessage,
+        string  $scheduledForDate,
+        bool    $dryRun
+    ): void {
+        if ($dryRun) {
+            return; // don't write DB rows in dry-run
+        }
+
+        DB::table('tour_reminder_logs')->insert([
+            'booking_id'         => $booking->id,
+            'guest_id'           => $booking->guest_id ?? null,
+            'channel'            => 'whatsapp',
+            'scheduled_for_date' => $scheduledForDate,
+            'phone'              => $phone,
+            'status'             => $status,
+            'error_message'      => $errorMessage,
+            'reminded_at'        => now(),
+            'created_at'         => now(),
+            'updated_at'         => now(),
+        ]);
+    }
+
+    private function logTelegram(string $status, string $scheduledForDate): void
+    {
+        DB::table('tour_reminder_logs')->insert([
+            'booking_id'         => null,
+            'guest_id'           => null,
+            'channel'            => 'telegram',
+            'scheduled_for_date' => $scheduledForDate,
+            'phone'              => null,
+            'status'             => $status,
+            'error_message'      => null,
+            'reminded_at'        => now(),
+            'created_at'         => now(),
+            'updated_at'         => now(),
+        ]);
+    }
+
+    // =========================================================================
+    // Telegram dispatch
+    // =========================================================================
+
+    /**
+     * @return bool true on success (job dispatched), false on missing config
+     */
+    private function sendTelegram(string $text): bool
+    {
+        if (empty($this->botToken) || $this->ownerChatId === 0) {
+            Log::warning('TourSendReminders: Telegram bot token or chat ID not configured');
+            $this->warn('Telegram credentials not configured — skipping.');
+            return false;
+        }
+
+        SendTelegramNotificationJob::dispatch(
+            $this->botToken,
+            'sendMessage',
+            [
+                'chat_id'    => $this->ownerChatId,
+                'text'       => $text,
+                'parse_mode' => 'HTML',
+            ]
+        );
+
+        return true;
+    }
+
+    // =========================================================================
+    // Utility
+    // =========================================================================
+
+    private function indent(string $text, int $spaces): string
+    {
+        $pad = str_repeat(' ', $spaces);
+        return $pad . implode("\n{$pad}", explode("\n", $text));
+    }
+
+    private function countryFlag(string $country): string
+    {
+        $map = [
+            'france'         => '🇫🇷',
+            'japan'          => '🇯🇵',
+            'germany'        => '🇩🇪',
+            'italy'          => '🇮🇹',
+            'spain'          => '🇪🇸',
+            'united states'  => '🇺🇸',
+            'usa'            => '🇺🇸',
+            'us'             => '🇺🇸',
+            'sweden'         => '🇸🇪',
+            'czech republic' => '🇨🇿',
+            'czechia'        => '🇨🇿',
+            'poland'         => '🇵🇱',
+            'kazakhstan'     => '🇰🇿',
+            'denmark'        => '🇩🇰',
+            'hungary'        => '🇭🇺',
+            'south korea'    => '🇰🇷',
+            'korea'          => '🇰🇷',
+        ];
+
+        $key = strtolower(trim($country));
+        return $map[$key] ?? '🌍';
+    }
+}
