@@ -214,9 +214,15 @@ class TourSendReminders extends Command
             $escapedMessage = escapeshellarg($waMessage);
             $cmd            = "wacli send text --to {$escapedJid} --message {$escapedMessage} 2>&1";
 
+            // Stop wacli-sync before sending, always restart after
+            exec('pm2 stop wacli-sync 2>&1');
+            sleep(1);
+
             $output     = [];
             $returnCode = 0;
             exec($cmd, $output, $returnCode);
+
+            exec('pm2 start wacli-sync 2>&1');
 
             if ($returnCode === 0) {
                 $this->info("     ✅ Sent to {$phone}");
