@@ -445,10 +445,6 @@ class TourSendReminders extends Command
 
                 $lines[] = "• {$guestName} {$flag} — {$pax} pax";
                 $lines[] = "  🕗 {$pickupTime} | 🏨 {$pickup}";
-
-                if (!empty($b->special_requests)) {
-                    $lines[] = "  ⚠️ {$b->special_requests}";
-                }
             }
 
             // Driver brief/notes if available
