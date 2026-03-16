@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Driver;
 use App\Models\Guide;
+use App\Models\Partner;
 use Carbon\Carbon;
 use GuzzleHttp\Client;
 use Illuminate\Http\Request;
@@ -61,9 +62,13 @@ class TelegramDriverGuideSignUpController extends Controller
 
         // ── /start ─────────────────────────────────────────────────────────
         if ($text === '/start') {
-            $driver = Driver::where('telegram_chat_id', $chatId)->first();
+            $driver  = Driver::where('telegram_chat_id', $chatId)->first();
+            $partner = !$driver ? Partner::where('telegram_chat_id', $chatId)->first() : null;
+
             if ($driver) {
                 $this->sendMainMenu($chatId, $driver->first_name);
+            } elseif ($partner) {
+                $this->sendPartnerMenu($chatId, $partner->name);
             } else {
                 $this->sendContactRequest($chatId,
                     "👋 Salom! Telefon raqamingizni ulashing, biz sizni aniqlaylik."
@@ -77,9 +82,21 @@ class TelegramDriverGuideSignUpController extends Controller
             return $this->handleContactRegistration($chatId, $contact);
         }
 
-        // ── Persistent menu buttons — single driver lookup ─────────────────
-        $driver = Driver::where('telegram_chat_id', $chatId)->first();
+        // ── Resolve role: driver or partner ───────────────────────────────
+        $driver  = Driver::where('telegram_chat_id', $chatId)->first();
+        $partner = !$driver ? Partner::where('telegram_chat_id', $chatId)->first() : null;
 
+        // ── Partner menu buttons ───────────────────────────────────────────
+        if ($partner) {
+            if ($text === '📋 Bronlarim') {
+                $this->sendPartnerBookings($chatId, $partner);
+            } else {
+                $this->sendPartnerMenu($chatId, $partner->name);
+            }
+            return response()->json(['ok' => true]);
+        }
+
+        // ── Driver menu buttons ────────────────────────────────────────────
         if ($text === '📋 Mening bronlarim') {
             $driver
                 ? $this->sendMyBookings($chatId, $driver->id)
@@ -121,6 +138,20 @@ class TelegramDriverGuideSignUpController extends Controller
             $noPlus = ltrim($phone, '+');
             $driver = Driver::where('phone01', $noPlus)->orWhere('phone02', $noPlus)->first();
             $guide  = $driver ? null : Guide::where('phone01', $noPlus)->orWhere('phone02', $noPlus)->first();
+        }
+
+        // Try partners table
+        if (!$driver && !$guide) {
+            $partner = Partner::where('phone', $phone)->orWhere('phone', ltrim($phone, '+'))->first();
+            if ($partner) {
+                $partner->update(['telegram_chat_id' => $chatId]);
+                Log::info("DriverGuideBot: registered partner {$partner->name} → chat_id {$chatId}");
+                $this->sendPartnerMenu($chatId,
+                    $partner->name,
+                    "✅ Rahmat! Siz <b>{$partner->name}</b> sifatida ro'yxatdan o'tdingiz.\n\nEndi bronlar va so'rovlar avtomatik yuboriladi. 🗓️"
+                );
+                return response()->json(['ok' => true]);
+            }
         }
 
         if (!$driver && !$guide) {
@@ -302,6 +333,11 @@ class TelegramDriverGuideSignUpController extends Controller
             return response()->json(['ok' => true]);
         }
 
+        // ── Partner booking approve/reject ─────────────────────────────────
+        if ($action === 'APPROVE' || $action === 'REJECT') {
+            return $this->handlePartnerBookingResponse($chatId, $messageId, $action, (int)($parts[2] ?? 0));
+        }
+
         // Guard: driverId must be positive
         if ($driverId <= 0) {
             Log::warning('DriverGuideBot: invalid driverId in callback', ['data' => $data]);
@@ -429,6 +465,185 @@ class TelegramDriverGuideSignUpController extends Controller
             'date'      => $date,
             'bookings'  => $bookings->count(),
         ]);
+    }
+
+    // =========================================================================
+    // Partner Methods
+    // =========================================================================
+
+    private function sendPartnerMenu(string $chatId, string $name, ?string $intro = null): void
+    {
+        $text = $intro ?? "👋 Salom, <b>{$name}</b>!\n\nQuyidagi tugmadan foydalaning:";
+        try {
+            $this->telegramClient->post("/bot{$this->botToken}/sendMessage", [
+                'json' => [
+                    'chat_id'      => $chatId,
+                    'text'         => $text,
+                    'parse_mode'   => 'HTML',
+                    'reply_markup' => [
+                        'keyboard'        => [[['text' => '📋 Bronlarim']]],
+                        'resize_keyboard' => true,
+                        'persistent'      => true,
+                    ],
+                ],
+            ]);
+        } catch (\Exception $e) {
+            Log::error('DriverGuideBot: sendPartnerMenu error', ['error' => $e->getMessage()]);
+        }
+    }
+
+    private function sendPartnerBookings(string $chatId, Partner $partner): void
+    {
+        $tourIds = $partner->tour_ids ?? [];
+        if (empty($tourIds)) {
+            $this->sendMessage($chatId, "📋 Hozircha bronlar yo'q.");
+            return;
+        }
+
+        $bookings = DB::table('bookings')
+            ->join('guests', 'bookings.guest_id', '=', 'guests.id')
+            ->join('tours',  'bookings.tour_id',  '=', 'tours.id')
+            ->whereIn('bookings.tour_id', $tourIds)
+            ->where('bookings.booking_status', 'confirmed')
+            ->whereDate('bookings.booking_start_date_time', '>=', Carbon::now('Asia/Tashkent')->toDateString())
+            ->orderBy('bookings.booking_start_date_time')
+            ->select([
+                'bookings.booking_number',
+                'bookings.booking_start_date_time',
+                'bookings.partner_status',
+                'guests.first_name',
+                'guests.last_name',
+                'guests.number_of_people',
+                'tours.title',
+            ])
+            ->get();
+
+        if ($bookings->isEmpty()) {
+            $this->sendMessage($chatId, "📋 Hozircha kelgusi bronlar yo'q.");
+            return;
+        }
+
+        $lines = ["📋 <b>Kelgusi bronlar:</b>\n"];
+        foreach ($bookings as $b) {
+            $date    = Carbon::parse($b->booking_start_date_time)->timezone('Asia/Tashkent');
+            $pax     = $b->number_of_people ?? 0;
+            $status  = match($b->partner_status) {
+                'approved' => '✅',
+                'rejected' => '❌',
+                default    => '⏳',
+            };
+            $lines[] = "━━━━━━━━━━━━━━━━━━━━";
+            $lines[] = "{$status} <b>" . $date->format('D, d M Y') . "</b> — " . $date->format('H:i');
+            $lines[] = "👤 {$b->first_name} {$b->last_name} ({$pax} kishi)";
+            $lines[] = "🏕 {$b->title}";
+            $lines[] = "📋 <code>{$b->booking_number}</code>";
+        }
+        $lines[] = "━━━━━━━━━━━━━━━━━━━━";
+
+        $this->sendMessage($chatId, implode("\n", $lines));
+    }
+
+    public function sendPartnerBookingRequest(int $bookingId): void
+    {
+        $booking = DB::table('bookings')
+            ->join('guests', 'bookings.guest_id', '=', 'guests.id')
+            ->join('tours',  'bookings.tour_id',  '=', 'tours.id')
+            ->where('bookings.id', $bookingId)
+            ->select([
+                'bookings.id',
+                'bookings.booking_number',
+                'bookings.booking_start_date_time',
+                'bookings.special_requests',
+                'guests.first_name',
+                'guests.last_name',
+                'guests.number_of_people',
+                'guests.country',
+                'tours.tour_id',
+                'tours.title as tour_title',
+                DB::raw("TIME_FORMAT(bookings.booking_start_date_time,'%H:%i') as pickup_time"),
+            ])
+            ->first();
+
+        if (!$booking) return;
+
+        // Find partner for this tour
+        $partner = Partner::whereJsonContains('tour_ids', $booking->tour_id ?? 0)->first()
+            ?? Partner::whereJsonContains('tour_ids', (int) DB::table('bookings')->where('id', $bookingId)->value('tour_id'))->first();
+
+        if (!$partner || !$partner->telegram_chat_id) return;
+
+        $date  = Carbon::parse($booking->booking_start_date_time)->timezone('Asia/Tashkent');
+        $pax   = $booking->number_of_people ?? 0;
+        $notes = $booking->special_requests ? "\n⚠️ <i>{$booking->special_requests}</i>" : '';
+
+        $text = implode("\n", [
+            "🏕 <b>Yangi bron so'rovi — Jahongir Travel</b>",
+            "",
+            "👤 Mehmon: <b>{$booking->first_name} {$booking->last_name}</b>",
+            "📅 Sana: <b>" . $date->format('D, d M Y') . "</b>",
+            "👥 Kishi soni: <b>{$pax}</b>",
+            "🕗 Kelish: ~{$booking->pickup_time}" . $notes,
+            "",
+            "Tasdiqlaysizmi?",
+        ]);
+
+        $keyboard = [
+            [
+                ['text' => '✅ Qabul qilish', 'callback_data' => "BOOKING|APPROVE|{$bookingId}"],
+                ['text' => '❌ Rad etish',    'callback_data' => "BOOKING|REJECT|{$bookingId}"],
+            ],
+        ];
+
+        $this->sendInlineKeyboard($partner->telegram_chat_id, $text, $keyboard);
+
+        // Mark as notified
+        DB::table('bookings')->where('id', $bookingId)->update([
+            'partner_status'      => 'pending',
+            'partner_notified_at' => now(),
+        ]);
+    }
+
+    private function handlePartnerBookingResponse(
+        string $chatId, int $messageId, string $action, int $bookingId
+    ): \Illuminate\Http\JsonResponse {
+        // Verify this partner manages this booking's tour
+        $partner = Partner::where('telegram_chat_id', $chatId)->first();
+        if (!$partner) return response()->json(['ok' => true]);
+
+        $booking = DB::table('bookings')
+            ->join('guests', 'bookings.guest_id', '=', 'guests.id')
+            ->where('bookings.id', $bookingId)
+            ->select(['bookings.id', 'bookings.tour_id', 'bookings.booking_number', 'guests.first_name', 'guests.last_name'])
+            ->first();
+
+        if (!$booking || !$partner->managesTour((int) $booking->tour_id)) {
+            return response()->json(['ok' => true]);
+        }
+
+        $status  = $action === 'APPROVE' ? 'approved' : 'rejected';
+        $emoji   = $action === 'APPROVE' ? '✅' : '❌';
+        $label   = $action === 'APPROVE' ? 'Qabul qilindi' : 'Rad etildi';
+
+        DB::table('bookings')->where('id', $bookingId)->update(['partner_status' => $status]);
+
+        // Edit the request message to show result
+        $this->editMessageText($chatId, $messageId,
+            "{$emoji} <b>{$label}</b>\n\n👤 {$booking->first_name} {$booking->last_name}\n📋 {$booking->booking_number}"
+        );
+
+        // Notify owner
+        $ownerText = "{$emoji} <b>Yurt Camp javobi:</b> {$label}\n\n"
+            . "👤 {$booking->first_name} {$booking->last_name}\n"
+            . "📋 {$booking->booking_number}\n"
+            . "🏕 {$partner->name}";
+        $this->sendMessage($this->ownerChatId, $ownerText);
+
+        Log::info("DriverGuideBot: partner {$action} booking {$bookingId}", [
+            'partner' => $partner->name,
+            'status'  => $status,
+        ]);
+
+        return response()->json(['ok' => true]);
     }
 
     // =========================================================================

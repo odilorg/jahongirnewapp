@@ -47,22 +47,24 @@ class KitchenGuestService
             ]);
             $departures = $this->filterActive($departuresResp['data'] ?? []);
 
-            // Current bookings (to find stayovers)
-            $currentResp = $this->beds24->getBookings([
-                'filter' => 'current',
+            // Breakfast guests = everyone sleeping the night BEFORE this date
+            // Arrived on or before yesterday, departs on or after today
+            $prevDay = \Carbon\Carbon::parse($dateStr)->subDay()->format('Y-m-d');
+            $overnightResp = $this->beds24->getBookings([
+                'arrivalFrom' => '2020-01-01',
+                'arrivalTo' => $prevDay,
+                'departureFrom' => $dateStr,
                 'propertyId' => [(string) self::PROPERTY_ID],
             ]);
-            $currentAll = $currentResp['data'] ?? [];
+            $overnightAll = $this->filterActive($overnightResp['data'] ?? []);
 
-            // Stayovers = arrived before this date AND depart after this date
-            $stayovers = $this->filterActive(array_filter($currentAll, function ($b) use ($dateStr) {
-                return $b['arrival'] < $dateStr && $b['departure'] > $dateStr;
-            }));
-
-            // Breakfast guests = stayovers + departures (NOT arrivals)
-            $breakfastGuests = collect(array_merge($stayovers, $departures))
+            // Breakfast guests = everyone who slept the previous night
+            $breakfastGuests = collect($overnightAll)
                 ->unique('id')
                 ->values();
+
+            // Stayovers for breakdown = those continuing past today
+            $stayovers = $breakfastGuests->filter(fn($b) => $b['departure'] > $dateStr)->values()->all();
 
             $adults = $breakfastGuests->sum(fn($b) => (int) ($b['numAdult'] ?? 0));
             $children = $breakfastGuests->sum(fn($b) => (int) ($b['numChild'] ?? 0));
