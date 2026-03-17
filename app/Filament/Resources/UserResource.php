@@ -34,6 +34,7 @@ class UserResource extends Resource
                         Forms\Components\TextInput::make('email')
                             ->email()
                             ->required()
+                            ->unique(ignoreRecord: true)
                             ->maxLength(255),
                         Forms\Components\TextInput::make('password')
                             ->password()
@@ -178,6 +179,7 @@ class UserResource extends Resource
                         'manager' => 'warning',
                         'cashier' => 'info',
                         'cleaner' => 'primary',
+                        'kitchen' => 'danger',
                         default => 'gray',
                     }),
                 Tables\Columns\TextColumn::make('locations.name')

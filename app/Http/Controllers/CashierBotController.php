@@ -714,8 +714,9 @@ class CashierBotController extends Controller
 
     // ── HELPERS ──────────────────────────────────────────────────
 
-    protected function getShift(int $uid): ?CashierShift
+    protected function getShift(?int $uid): ?CashierShift
     {
+        if (!$uid) return null;
         return CashierShift::where('user_id', $uid)->where('status', 'open')->latest('opened_at')->first();
     }
 

@@ -74,6 +74,12 @@ return [
         'owner_chat_id' => env('OWNER_TELEGRAM_ID', ''),
     ],
 
+    'driver_guide_bot' => [
+        'token'          => env('TELEGRAM_BOT_TOKEN_DRIVER_GUIDE', ''),
+        'webhook_secret' => env('DRIVER_GUIDE_WEBHOOK_SECRET', ''),
+        'owner_chat_id'  => env('TELEGRAM_OWNER_CHAT_ID', '38738713'),
+    ],
+
 
 
     'cashier_bot' => [
@@ -86,4 +92,16 @@ return [
         'mgmt_group_id' => env('HOUSEKEEPING_MGMT_GROUP_ID', ''),
     ],
 
+    'kitchen_bot' => [
+        'token' => env('KITCHEN_BOT_TOKEN', ''),
+    ],
+
+
+    'gyg' => [
+        'username' => env('GYG_API_USERNAME', 'Jahongirtravel'),
+        'password' => env('GYG_API_PASSWORD'),
+        'api_url'  => env('GYG_API_URL', 'https://supplier-api.getyourguide.com'),
+    ],
+
 ];
+
