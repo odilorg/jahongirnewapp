@@ -98,6 +98,12 @@ class GygApplyBookings extends Command
             return;
         }
 
+        // Reset notification state so reprocessed emails get fresh notifications
+        // (prevents failure notification from blocking success notification on retry)
+        if ($email->notified_at !== null) {
+            $email->update(['notified_at' => null]);
+        }
+
         $result = match ($type) {
             'new_booking'  => $this->applyNewBooking($email, $ref, $stats),
             'cancellation' => $this->applyCancellation($email, $ref, $stats),

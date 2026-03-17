@@ -116,36 +116,38 @@ class GygNotifier
 
     private function sendTelegram(string $message): bool
     {
-        // Try tg-api (personal Telegram) first
+        // Primary: Telegram Bot API (reliable, always authorized)
+        $botToken = config('services.driver_guide_bot.token', '');
+        if (! empty($botToken)) {
+            try {
+                $response = Http::timeout(10)->post("https://api.telegram.org/bot{$botToken}/sendMessage", [
+                    'chat_id' => self::OWNER_CHAT_ID,
+                    'text'    => $message,
+                ]);
+
+                if ($response->successful() && ($response->json('ok') ?? false)) {
+                    return true;
+                }
+
+                Log::warning('GygNotifier: bot API returned non-ok', [
+                    'status' => $response->status(),
+                    'body'   => mb_substr($response->body(), 0, 200),
+                ]);
+            } catch (\Throwable $e) {
+                Log::warning('GygNotifier: bot API failed, trying tg-api', ['error' => $e->getMessage()]);
+            }
+        }
+
+        // Fallback: tg-api (Telethon personal session — may be unauthorized)
         try {
             $response = Http::timeout(10)->post(self::TG_API_URL, [
                 'to'      => self::OWNER_CHAT_ID,
                 'message' => $message,
             ]);
 
-            if ($response->successful() && ($response->json('ok') ?? false)) {
-                return true;
-            }
-        } catch (\Throwable $e) {
-            Log::warning('GygNotifier: tg-api unavailable, trying bot API', ['error' => $e->getMessage()]);
-        }
-
-        // Fallback: direct Telegram Bot API
-        $botToken = config('services.driver_guide_bot.token', '');
-        if (empty($botToken)) {
-            Log::error('GygNotifier: no Telegram bot token available');
-            return false;
-        }
-
-        try {
-            $response = Http::timeout(10)->post("https://api.telegram.org/bot{$botToken}/sendMessage", [
-                'chat_id' => self::OWNER_CHAT_ID,
-                'text'    => $message,
-            ]);
-
             return $response->successful() && ($response->json('ok') ?? false);
         } catch (\Throwable $e) {
-            Log::error('GygNotifier: bot API also failed', ['error' => $e->getMessage()]);
+            Log::error('GygNotifier: all Telegram send methods failed', ['error' => $e->getMessage()]);
             return false;
         }
     }
