@@ -71,6 +71,12 @@ class HousekeepingBotController extends Controller
 
         if (!$chatId) return response('OK');
 
+        // Skip auth flow for group chats — phone requests only work in private
+        $chatType = $message['chat']['type'] ?? 'private';
+        if ($chatType !== 'private') {
+            return $this->handleGroupMessage($chatId, $message);
+        }
+
         // Auth: phone contact
         if ($contact) return $this->handleAuth($chatId, $contact);
 
@@ -1311,6 +1317,18 @@ class HousekeepingBotController extends Controller
                 'parse_mode' => 'HTML',
             ]);
         }
+    }
+
+    // ── GROUP MESSAGES ────────────────────────────────────────────
+
+    /**
+     * Handle messages from group chats. Group chats cannot request phone numbers,
+     * so we skip auth and just return OK for now.
+     */
+    protected function handleGroupMessage(int $chatId, array $message)
+    {
+        // Group messages are informational only — no bot interaction needed
+        return response('OK');
     }
 
     // ── HELPERS ──────────────────────────────────────────────────
