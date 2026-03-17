@@ -16,6 +16,7 @@ class GygInboundEmail extends Model
         'classified_at' => 'datetime',
         'parsed_at'     => 'datetime',
         'applied_at'    => 'datetime',
+        'notified_at'   => 'datetime',
         'price'         => 'decimal:2',
         'pax'           => 'integer',
     ];

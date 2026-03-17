@@ -108,6 +108,116 @@ class GygBookingApplicator
         return ['applied' => false, 'booking_id' => null, 'skipped_reason' => null, 'error' => $error ?? 'Unknown error'];
     }
 
+    /**
+     * Apply a cancellation email to an existing booking.
+     *
+     * @return array{applied: bool, booking_id: ?int, skipped_reason: ?string, error: ?string}
+     */
+    public function applyCancellation(GygInboundEmail $email): array
+    {
+        $ref = $email->gyg_booking_reference;
+
+        if (! $ref) {
+            return ['applied' => false, 'booking_id' => null, 'skipped_reason' => null, 'error' => 'Missing gyg_booking_reference'];
+        }
+
+        $booking = DB::table('bookings')
+            ->where('booking_number', $ref)
+            ->first();
+
+        if (! $booking) {
+            // Booking not found — needs manual review
+            $email->update([
+                'processing_status' => 'needs_review',
+                'apply_error'       => "Booking not found for cancellation: {$ref}",
+            ]);
+
+            Log::warning('GygBookingApplicator: cancellation target not found', [
+                'email_id' => $email->id,
+                'ref'      => $ref,
+            ]);
+
+            return ['applied' => false, 'booking_id' => null, 'skipped_reason' => null, 'error' => "Booking not found: {$ref}"];
+        }
+
+        // Idempotency: already cancelled
+        if ($booking->booking_status === 'cancelled') {
+            $email->update([
+                'booking_id'        => $booking->id,
+                'processing_status' => 'applied',
+                'applied_at'        => now(),
+            ]);
+
+            return ['applied' => true, 'booking_id' => $booking->id, 'skipped_reason' => 'already_cancelled', 'error' => null];
+        }
+
+        // Valid transition: confirmed → cancelled
+        DB::transaction(function () use ($booking, $email) {
+            DB::table('bookings')
+                ->where('id', $booking->id)
+                ->update([
+                    'booking_status' => 'cancelled',
+                    'updated_at'     => now(),
+                ]);
+
+            $email->update([
+                'booking_id'        => $booking->id,
+                'processing_status' => 'applied',
+                'applied_at'        => now(),
+            ]);
+        });
+
+        Log::info('GygBookingApplicator: booking cancelled', [
+            'email_id'   => $email->id,
+            'booking_id' => $booking->id,
+            'ref'        => $ref,
+        ]);
+
+        return ['applied' => true, 'booking_id' => $booking->id, 'skipped_reason' => null, 'error' => null];
+    }
+
+    /**
+     * Handle an amendment email.
+     *
+     * Amendments are too variable for safe automatic application.
+     * Strategy: link to booking if found, mark needs_review, notify owner.
+     * The owner reviews and applies changes manually.
+     *
+     * @return array{applied: bool, booking_id: ?int, skipped_reason: ?string, error: ?string}
+     */
+    public function handleAmendment(GygInboundEmail $email): array
+    {
+        $ref = $email->gyg_booking_reference;
+
+        if (! $ref) {
+            return ['applied' => false, 'booking_id' => null, 'skipped_reason' => null, 'error' => 'Missing gyg_booking_reference'];
+        }
+
+        $booking = DB::table('bookings')
+            ->where('booking_number', $ref)
+            ->first();
+
+        $email->update([
+            'booking_id'        => $booking?->id,
+            'processing_status' => 'needs_review',
+            'apply_error'       => 'Amendment requires manual review — auto-apply not safe',
+            'applied_at'        => now(),
+        ]);
+
+        Log::info('GygBookingApplicator: amendment marked for review', [
+            'email_id'   => $email->id,
+            'booking_id' => $booking?->id,
+            'ref'        => $ref,
+        ]);
+
+        return [
+            'applied'        => false,
+            'booking_id'     => $booking?->id,
+            'skipped_reason' => 'amendment_needs_review',
+            'error'          => null,
+        ];
+    }
+
     // ── Guest matching/creation ──────────────────────────
 
     /**
