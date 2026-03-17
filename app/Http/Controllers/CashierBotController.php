@@ -15,6 +15,7 @@ use App\Models\TelegramPosSession;
 use App\Models\ExpenseCategory;
 use App\Services\OwnerAlertService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Carbon\Carbon;
@@ -97,17 +98,39 @@ class CashierBotController extends Controller
         return response('OK');
     }
 
+    /** Actions that create financial side effects — must be idempotency-guarded */
+    private const IDEMPOTENT_ACTIONS = [
+        'confirm_payment',
+        'confirm_expense',
+        'confirm_exchange',
+        'confirm_close',
+    ];
+
     protected function handleCallback(array $cb)
     {
         $chatId = $cb['message']['chat']['id'] ?? null;
         $data = $cb['data'] ?? '';
+        $callbackId = $cb['id'] ?? '';
         if (!$chatId) return response('OK');
-        $this->aCb($cb['id'] ?? '');
+        $this->aCb($callbackId);
 
         // Handle owner approval callbacks (owner may not have a session)
         if (preg_match('/^(approve|reject)_expense_(\d+)$/', $data, $matches)) {
             return app(\App\Http\Controllers\OwnerBotController::class)
-                ->handleExpenseAction($chatId, $cb['message']['message_id'] ?? null, $cb['id'] ?? '', $matches[1], (int)$matches[2]);
+                ->handleExpenseAction($chatId, $cb['message']['message_id'] ?? null, $callbackId, $matches[1], (int)$matches[2]);
+        }
+
+        // Idempotency guard for financial confirm actions
+        if (in_array($data, self::IDEMPOTENT_ACTIONS, true) && $callbackId) {
+            if ($this->isCallbackProcessed($callbackId, $chatId, $data)) {
+                Log::info('CashierBot: duplicate callback blocked', [
+                    'callback_id' => $callbackId,
+                    'action'      => $data,
+                    'chat_id'     => $chatId,
+                ]);
+                $this->send($chatId, "⚠️ Эта операция уже обработана.");
+                return response('OK');
+            }
         }
 
         $s = TelegramPosSession::where('chat_id', $chatId)->first();
@@ -136,6 +159,28 @@ class CashierBotController extends Controller
             str_starts_with($data, 'guide_') => $this->showGuideTopic($chatId, substr($data, 6)),
             default => response('OK'),
         };
+    }
+
+    /**
+     * Check if a callback has already been processed. If not, record it atomically.
+     * Uses MySQL UNIQUE constraint on callback_query_id for concurrency safety.
+     *
+     * @return bool true if already processed (duplicate), false if new
+     */
+    private function isCallbackProcessed(string $callbackId, int $chatId, string $action): bool
+    {
+        try {
+            \DB::table('telegram_processed_callbacks')->insert([
+                'callback_query_id' => $callbackId,
+                'chat_id'           => $chatId,
+                'action'            => $action,
+                'result'            => 'processed',
+                'processed_at'      => now(),
+            ]);
+            return false; // Successfully inserted — first time processing
+        } catch (\Illuminate\Database\UniqueConstraintViolationException $e) {
+            return true; // Already exists — duplicate
+        }
     }
 
     protected function handleState($s, int $chatId, string $text)

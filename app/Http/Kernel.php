@@ -26,6 +26,7 @@ class Kernel extends HttpKernel
     protected $routeMiddleware = [
         // Other middleware
         'protect.n8n' => \App\Http\Middleware\ProtectN8n::class,
+        'verify.telegram.webhook' => \App\Http\Middleware\VerifyTelegramWebhook::class,
     ];
 
     /**
