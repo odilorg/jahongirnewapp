@@ -61,10 +61,12 @@ esac
 echo -e "${YELLOW}📡 Deploying main to VPS...${NC}"
 ssh main-vps bash -c "'
 cd /var/www/jahongirnewapp
-git pull origin main
+git fetch origin && git reset --hard origin/main
+php artisan migrate --force 2>/dev/null
+php artisan config:cache
+php artisan route:cache
 systemctl restart php8.3-fpm
-php artisan route:cache 2>/dev/null
-php artisan config:cache 2>/dev/null
+pm2 restart hotel-queue 2>/dev/null
 echo DEPLOYED
 '"
 
