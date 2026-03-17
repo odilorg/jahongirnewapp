@@ -67,10 +67,11 @@ class GygBookingApplicator
             $tourId = $this->matchTour($email->tour_name);
 
             // Step 3: Build booking_start_date_time
-            $startDateTime = $this->buildDateTime($email->travel_date, $email->travel_time);
+            $timeDefaulted = false;
+            $startDateTime = $this->buildDateTime($email->travel_date, $email->travel_time, $timeDefaulted);
 
             // Step 4: Build special_requests with parsed metadata
-            $specialRequests = $this->buildSpecialRequests($email);
+            $specialRequests = $this->buildSpecialRequests($email, $timeDefaulted);
 
             // Step 5: Create booking
             $bookingId = DB::table('bookings')->insertGetId([
@@ -109,6 +110,19 @@ class GygBookingApplicator
 
     // ── Guest matching/creation ──────────────────────────
 
+    /**
+     * Find or create a guest record.
+     *
+     * Matching rules (PM-approved, Phase 5.1):
+     * - Match by phone only (strong identifier)
+     * - Match by email only (strong identifier)
+     * - Match by name + phone (strong)
+     * - Match by name + email (strong)
+     * - Do NOT match by name alone (risk of wrong linkage)
+     *
+     * If no strong match found, create a new guest.
+     * If guest_name is absent, create with auditable synthetic name.
+     */
     private function findOrCreateGuest(GygInboundEmail $email): int
     {
         $firstName = null;
@@ -119,27 +133,28 @@ class GygBookingApplicator
             $firstName = $parts['first'];
             $lastName  = $parts['last'];
 
-            // Try to match existing guest by name + phone/email
-            $query = DB::table('guests')
-                ->where('first_name', $firstName)
-                ->where('last_name', $lastName);
-
+            // Strong match: phone (globally unique for travel bookings)
             if ($email->guest_phone) {
-                $match = (clone $query)->where('phone', $email->guest_phone)->first();
-                if ($match) return $match->id;
-            }
-            if ($email->guest_email) {
-                $match = (clone $query)->where('email', $email->guest_email)->first();
+                $match = DB::table('guests')->where('phone', $email->guest_phone)->first();
                 if ($match) return $match->id;
             }
 
-            // No match by name+contact — check name-only to avoid near-duplicates
-            $nameMatch = $query->first();
-            if ($nameMatch) return $nameMatch->id;
+            // Strong match: email
+            if ($email->guest_email) {
+                $match = DB::table('guests')->where('email', $email->guest_email)->first();
+                if ($match) return $match->id;
+            }
+
+            // No strong identifier available — do NOT match by name alone.
+            // Create a new guest to avoid wrong linkage.
         } else {
-            // No guest name — use auditable placeholder
+            // No guest name — auditable synthetic placeholder
             $firstName = 'GYG Guest';
             $lastName  = $email->gyg_booking_reference ?? 'Unknown';
+
+            Log::info('GygBookingApplicator: creating synthetic guest (no name in email)', [
+                'ref' => $email->gyg_booking_reference,
+            ]);
         }
 
         return DB::table('guests')->insertGetId([
@@ -190,21 +205,31 @@ class GygBookingApplicator
 
     // ── Helpers ─────────────────────────────────────────
 
-    private function buildDateTime(?string $date, ?string $time): ?string
+    /**
+     * Build booking_start_date_time from parsed date and time.
+     * If time is missing, defaults to 09:00:00 and sets $timeDefaulted flag.
+     */
+    private function buildDateTime(?string $date, ?string $time, bool &$timeDefaulted): ?string
     {
+        $timeDefaulted = false;
+
         if (! $date) return null;
 
         $dateStr = $date instanceof \DateTimeInterface ? $date->format('Y-m-d') : $date;
-        $timeStr = $time ?? '09:00:00';
 
-        return $dateStr . ' ' . $timeStr;
+        if ($time) {
+            return $dateStr . ' ' . $time;
+        }
+
+        $timeDefaulted = true;
+        return $dateStr . ' 09:00:00';
     }
 
     /**
      * Build structured special_requests string with all parsed metadata
      * that doesn't have a dedicated column in the bookings table.
      */
-    private function buildSpecialRequests(GygInboundEmail $email): string
+    private function buildSpecialRequests(GygInboundEmail $email, bool $timeDefaulted): string
     {
         $parts = [];
 
@@ -227,6 +252,9 @@ class GygBookingApplicator
         }
         if ($email->pax) {
             $parts[] = "{$email->pax} Adults";
+        }
+        if ($timeDefaulted) {
+            $parts[] = "Time: defaulted to 09:00 (not present in source email)";
         }
 
         return implode('. ', $parts);
