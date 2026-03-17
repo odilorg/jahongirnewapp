@@ -84,6 +84,7 @@ return [
 
     'cashier_bot' => [
         'token' => env('CASHIER_BOT_TOKEN', ''),
+        'webhook_secret' => env('CASHIER_BOT_WEBHOOK_SECRET', ''),
         'expense_approval_threshold_uzs' => env('EXPENSE_APPROVAL_THRESHOLD', 500000),
     ],
 
