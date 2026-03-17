@@ -91,5 +91,14 @@ class Kernel extends ConsoleKernel
             ->onFailure(function () {
                 \Illuminate\Support\Facades\Log::error('Scheduled gyg:fetch-emails FAILED');
             });
+
+        // GYG email processing — classify and extract fields from fetched emails
+        $schedule->command('gyg:process-emails')
+            ->everyFiveMinutes()
+            ->withoutOverlapping()
+            ->runInBackground()
+            ->onFailure(function () {
+                \Illuminate\Support\Facades\Log::error('Scheduled gyg:process-emails FAILED');
+            });
     }
 }
