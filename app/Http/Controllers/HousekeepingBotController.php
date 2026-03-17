@@ -688,18 +688,13 @@ class HousekeepingBotController extends Controller
         }
         if (!empty($row)) $buttons[] = $row;
 
-        $p = [
-            'chat_id' => $chatId,
-            'text' => implode("\n", $lines),
-            'parse_mode' => 'HTML',
-        ];
-
+        $kb = null;
         if (!empty($buttons)) {
             array_unshift($buttons, [['text' => '⬆️ Toza deb belgilash:', 'callback_data' => 'noop']]);
-            $p['reply_markup'] = json_encode(['inline_keyboard' => $buttons]);
+            $kb = ['inline_keyboard' => $buttons];
         }
 
-        Http::timeout(10)->post("https://api.telegram.org/bot{$this->botToken}/sendMessage", $p);
+        $this->send($chatId, implode("\n", $lines), $kb);
         return response('OK');
     }
 
@@ -854,14 +849,7 @@ class HousekeepingBotController extends Controller
             $buttons[] = [['text' => '📅 Bugun', 'callback_data' => "plan_{$todayDate}"]];
         }
 
-        $p = [
-            'chat_id' => $chatId,
-            'text' => $text,
-            'parse_mode' => 'HTML',
-            'reply_markup' => json_encode(['inline_keyboard' => $buttons]),
-        ];
-
-        Http::timeout(10)->post("https://api.telegram.org/bot{$this->botToken}/sendMessage", $p);
+        $this->send($chatId, $text, ['inline_keyboard' => $buttons]);
         return response('OK');
     }
 
@@ -893,14 +881,7 @@ class HousekeepingBotController extends Controller
 
         $text = implode("\n\n", $lines);
 
-        $p = [
-            'chat_id' => $chatId,
-            'text' => $text,
-            'parse_mode' => 'HTML',
-            'reply_markup' => json_encode(['inline_keyboard' => $buttons]),
-        ];
-
-        Http::timeout(10)->post("https://api.telegram.org/bot{$this->botToken}/sendMessage", $p);
+        $this->send($chatId, $text, ['inline_keyboard' => $buttons]);
         return response('OK');
     }
 

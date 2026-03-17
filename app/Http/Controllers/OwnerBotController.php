@@ -165,7 +165,16 @@ class OwnerBotController extends Controller
     {
         try {
             $cashierUser = $expense->creator;
-            if (!$cashierUser || !$cashierUser->telegram_user_id) return;
+            if (!$cashierUser) return;
+
+            // Prefer the cashier bot session chat_id (where the cashier actually interacts)
+            // Fall back to telegram_user_id if no session exists
+            $session = \App\Models\TelegramPosSession::where('user_id', $cashierUser->id)
+                ->where('chat_id', '>', 0)
+                ->latest('last_activity_at')
+                ->first();
+            $targetChatId = $session?->chat_id ?? $cashierUser->telegram_user_id;
+            if (!$targetChatId) return;
 
             $emoji = $decision === 'approved' ? '✅' : '❌';
             $label = $decision === 'approved' ? 'одобрен' : 'отклонён';
@@ -182,7 +191,7 @@ class OwnerBotController extends Controller
             // Send via cashier bot (since that's where cashier interacts)
             $cashierBotToken = config('services.cashier_bot.token', env('TELEGRAM_CASHIER_BOT_TOKEN'));
             Http::timeout(10)->post("https://api.telegram.org/bot{$cashierBotToken}/sendMessage", [
-                'chat_id' => $cashierUser->telegram_user_id,
+                'chat_id' => $targetChatId,
                 'text' => $text,
                 'parse_mode' => 'HTML',
             ]);
