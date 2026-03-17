@@ -224,6 +224,7 @@ class HousekeepingBotController extends Controller
         $cbId   = $cb['id'] ?? '';
 
         if (!$chatId) return response('OK');
+        if (($cb['message']['chat']['type'] ?? 'private') !== 'private') return response('OK');
         $this->aCb($cbId);
 
         $session = TelegramPosSession::where('chat_id', $chatId)->first();
@@ -1306,8 +1307,14 @@ class HousekeepingBotController extends Controller
 
         $msg .= "\n\n🧹 Iltimos, imkon qadar tez tozalang!";
 
+        // Only send to housekeeping sessions (positive chat_id, hk_ state prefix)
+        // Avoids cross-bot broadcast to cashier/kitchen sessions sharing the same table
         $sessions = TelegramPosSession::whereNotNull('user_id')
-            ->where('state', '!=', 'idle')
+            ->where('chat_id', '>', 0)
+            ->where(function ($q) {
+                $q->where('state', 'LIKE', 'hk_%')
+                  ->orWhere('state', 'main_menu');
+            })
             ->get();
 
         foreach ($sessions as $s) {
