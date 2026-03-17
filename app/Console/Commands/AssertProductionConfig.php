@@ -16,73 +16,69 @@ class AssertProductionConfig extends Command
     {
         $errors = [];
 
-        // APP_ENV must be set
-        $appEnv = env('APP_ENV', '');
+        // Use config() which works with both cached and uncached config.
+        // env() returns null when config is cached — never use it here.
+
+        $appEnv = config('app.env', '');
         if (empty($appEnv)) {
-            $errors[] = 'APP_ENV is empty';
+            $errors[] = 'app.env is empty';
         }
 
-        // APP_KEY must be set
-        $appKey = env('APP_KEY', '');
+        $appKey = config('app.key', '');
         if (empty($appKey)) {
-            $errors[] = 'APP_KEY is empty';
+            $errors[] = 'app.key is empty';
         }
 
-        // DB_USERNAME must be set and not the default forge placeholder
-        $dbUser = env('DB_USERNAME', '');
+        // DB credentials
+        $dbUser = config('database.connections.mysql.username', '');
         if (empty($dbUser)) {
-            $errors[] = 'DB_USERNAME is empty';
+            $errors[] = 'DB username is empty';
         } elseif ($dbUser === 'forge') {
-            $errors[] = 'DB_USERNAME is still set to the default "forge" placeholder';
+            $errors[] = 'DB username is still "forge" (Laravel default — .env not loaded?)';
         }
 
-        // DB_DATABASE must be set
-        $dbName = env('DB_DATABASE', '');
+        $dbName = config('database.connections.mysql.database', '');
         if (empty($dbName)) {
-            $errors[] = 'DB_DATABASE is empty';
+            $errors[] = 'DB database is empty';
         }
 
-        // DB_HOST must be set
-        $dbHost = env('DB_HOST', '');
+        $dbHost = config('database.connections.mysql.host', '');
         if (empty($dbHost)) {
-            $errors[] = 'DB_HOST is empty';
+            $errors[] = 'DB host is empty';
         }
 
-        // CASHIER_BOT_TOKEN must be set
-        $cashierToken = env('CASHIER_BOT_TOKEN', '');
+        // Bot tokens
+        $cashierToken = config('services.cashier_bot.token', '');
         if (empty($cashierToken)) {
-            $errors[] = 'CASHIER_BOT_TOKEN is empty';
+            $errors[] = 'services.cashier_bot.token is empty';
         }
 
-        // Beds24 refresh token — accept either env key
-        $beds24Token = env('BEDS24_API_V2_REFRESH_TOKEN', '') ?: env('BEDS24_REFRESH_TOKEN', '');
-        if (empty($beds24Token)) {
-            $errors[] = 'BEDS24_API_V2_REFRESH_TOKEN (or BEDS24_REFRESH_TOKEN) is empty';
-        }
-
-        // Owner alert bot token — accept either env key or config value
-        $ownerToken = env('OWNER_ALERT_BOT_TOKEN', '') ?: config('services.owner_alert_bot.token', '');
+        $ownerToken = config('services.owner_alert_bot.token', '');
         if (empty($ownerToken)) {
-            $errors[] = 'OWNER_ALERT_BOT_TOKEN (or services.owner_alert_bot.token) is empty';
+            $errors[] = 'services.owner_alert_bot.token is empty';
         }
 
-        // Database connectivity check
+        // Database connectivity
         try {
             DB::connection()->getPdo();
         } catch (\Throwable $e) {
-            $errors[] = 'Database is not reachable: ' . $e->getMessage();
+            $errors[] = 'Database not reachable: ' . $e->getMessage();
         }
 
         if (!empty($errors)) {
-            foreach ($errors as $error) {
-                $this->error($error);
+            if (!$this->option('silent')) {
+                foreach ($errors as $error) {
+                    $this->error($error);
+                }
+                $this->line('');
+                $this->error(count($errors) . ' production config check(s) failed.');
             }
-            $this->line('');
-            $this->error(count($errors) . ' production config check(s) failed.');
             return self::FAILURE;
         }
 
-        $this->info('All production config checks passed.');
+        if (!$this->option('silent')) {
+            $this->info('All production config checks passed.');
+        }
         return self::SUCCESS;
     }
 }

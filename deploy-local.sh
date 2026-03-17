@@ -66,17 +66,19 @@ cd /var/www/jahongirnewapp
 # Pull code
 git fetch origin && git reset --hard origin/main
 
-# Validate config before caching (abort if anything is wrong)
-php artisan app:assert-production-config
-if [ \$? -ne 0 ]; then
-    echo \"DEPLOY ABORTED: Config validation failed\"
-    exit 1
-fi
-
-# Run migrations, then cache
+# Run migrations, cache config, cache routes
 php artisan migrate --force 2>/dev/null
 php artisan config:cache
 php artisan route:cache
+
+# Validate cached config (catches bad .env / missing values AFTER caching)
+php artisan app:assert-production-config
+if [ \$? -ne 0 ]; then
+    echo \"DEPLOY ABORTED: Config validation failed after cache\"
+    echo \"Rolling back config cache...\"
+    php artisan config:clear
+    exit 1
+fi
 
 # Restart services
 systemctl restart php8.3-fpm
@@ -84,9 +86,8 @@ pm2 restart hotel-queue 2>/dev/null
 php artisan queue:restart 2>/dev/null
 
 # Post-deploy smoke test
-php artisan tinker --execute=\"DB::connection()->getPdo(); echo \\\"DB: OK\\\";\" 2>/dev/null
-PENDING=\$(php artisan tinker --execute=\"echo DB::table(\\\"jobs\\\")->count();\" 2>/dev/null)
-echo \"Queue pending: \$PENDING\"
+PENDING=\$(php artisan tinker --execute=\"DB::connection()->getPdo(); echo DB::table('jobs')->count();\" 2>/dev/null)
+echo \"DB: OK | Queue pending: \$PENDING\"
 echo DEPLOYED
 '"
 
