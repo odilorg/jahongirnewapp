@@ -8,6 +8,7 @@ use App\Models\Beds24Booking;
 use App\Models\Beds24BookingChange;
 use App\Models\Beds24WebhookEvent;
 use App\Models\CashTransaction;
+use App\Models\IncomingWebhook;
 use App\Models\TelegramPosSession;
 use App\Enums\TransactionType;
 use App\Enums\TransactionCategory;
@@ -58,6 +59,17 @@ class Beds24WebhookController extends Controller
         // Extract booking ID for indexing
         $bookingId = (string) ($raw['bookId'] ?? $raw['bookid'] ?? $raw['id'] ?? '');
 
+        // --- Durable inbox: record raw payload before any processing ---
+        // This ensures we never lose a webhook even if the job fails or the
+        // worker is down. The incoming_webhook_id is passed to the job so it
+        // can update the record's status throughout its lifecycle.
+        $incomingWebhook = IncomingWebhook::create([
+            'source'   => 'beds24',
+            'event_id' => $bookingId ?: $eventHash,
+            'payload'  => $raw,
+            'status'   => IncomingWebhook::STATUS_PENDING,
+        ]);
+
         // Store webhook event (never lose data)
         $event = Beds24WebhookEvent::updateOrCreate(
             ['event_hash' => $eventHash],
@@ -68,8 +80,8 @@ class Beds24WebhookController extends Controller
             ]
         );
 
-        // Dispatch async processing
-        ProcessBeds24WebhookJob::dispatch($event->id);
+        // Dispatch async processing, passing the durable inbox record ID
+        ProcessBeds24WebhookJob::dispatch($event->id, $incomingWebhook->id);
 
         return response('OK', 200);
     }
