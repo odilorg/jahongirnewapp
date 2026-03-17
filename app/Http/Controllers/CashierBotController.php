@@ -627,7 +627,9 @@ class CashierBotController extends Controller
             if ($callbackId) $this->failCallback($callbackId, $e->getMessage());
             Log::error('Close shift failed', ['e' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
             $this->alertOwnerOnError('Close shift', $e, $s->user_id);
-            $this->send($chatId, "Ошибка при закрытии смены. Обратитесь к руководству.");
+            // Clear stale counted amounts so retry forces re-count
+            $s->update(['state' => 'main_menu', 'data' => null]);
+            $this->send($chatId, "Ошибка при закрытии смены. Попробуйте заново.");
         }
 
         return $this->showMainMenu($chatId, $s);

@@ -39,6 +39,9 @@ class TelegramDriverGuideSignUpController extends Controller
                 Log::warning('DriverGuideBot: invalid webhook secret', ['ip' => $request->ip()]);
                 return response()->json(['ok' => false], 403);
             }
+        } elseif (!cache()->has('driver_bot_secret_warned')) {
+            Log::warning('DriverGuideBot: webhook_secret not configured — requests are unverified');
+            cache()->put('driver_bot_secret_warned', true, now()->addHours(24));
         }
 
         $update        = $request->all();
@@ -577,11 +580,12 @@ class TelegramDriverGuideSignUpController extends Controller
 
         if (!$booking) return;
 
-        // Find partner for this tour
-        $partner = Partner::whereJsonContains('tour_ids', $booking->tour_id ?? 0)->first()
-            ?? Partner::whereJsonContains('tour_ids', (int) DB::table('bookings')->where('id', $bookingId)->value('tour_id'))->first();
+        // Find partner(s) for this tour and notify all of them
+        $tourId = (int) ($booking->tour_id ?? 0);
+        $partners = Partner::whereJsonContains('tour_ids', $tourId)->get();
 
-        if (!$partner || !$partner->telegram_chat_id) return;
+        $validPartners = $partners->filter(fn($p) => !empty($p->telegram_chat_id));
+        if ($validPartners->isEmpty()) return;
 
         $date  = Carbon::parse($booking->booking_start_date_time)->timezone('Asia/Tashkent');
         $pax   = $booking->number_of_people ?? 0;
@@ -605,27 +609,29 @@ class TelegramDriverGuideSignUpController extends Controller
             ],
         ];
 
-        $this->sendInlineKeyboard($partner->telegram_chat_id, $text, $keyboard);
+        // Notify all partners for this tour (not just the first)
+        foreach ($validPartners as $partner) {
+            $this->sendInlineKeyboard($partner->telegram_chat_id, $text, $keyboard);
 
-        // Mark as notified
+            DB::table('partner_booking_logs')->insert([
+                'booking_id'      => $bookingId,
+                'partner_id'      => $partner->id,
+                'telegram_chat_id'=> $partner->telegram_chat_id,
+                'action'          => 'request_sent',
+                'booking_number'  => $booking->booking_number,
+                'guest_name'      => trim("{$booking->first_name} {$booking->last_name}"),
+                'tour_date'       => $date->toDateString(),
+                'pax'             => $pax,
+                'actioned_at'     => now(),
+                'created_at'      => now(),
+                'updated_at'      => now(),
+            ]);
+        }
+
+        // Mark booking as notified
         DB::table('bookings')->where('id', $bookingId)->update([
             'partner_status'      => 'pending',
             'partner_notified_at' => now(),
-        ]);
-
-        // Audit log: request sent
-        DB::table('partner_booking_logs')->insert([
-            'booking_id'      => $bookingId,
-            'partner_id'      => $partner->id,
-            'telegram_chat_id'=> $partner->telegram_chat_id,
-            'action'          => 'request_sent',
-            'booking_number'  => $booking->booking_number,
-            'guest_name'      => trim("{$booking->first_name} {$booking->last_name}"),
-            'tour_date'       => $date->toDateString(),
-            'pax'             => $pax,
-            'actioned_at'     => now(),
-            'created_at'      => now(),
-            'updated_at'      => now(),
         ]);
     }
 
