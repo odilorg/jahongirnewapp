@@ -104,6 +104,8 @@ php artisan queue:restart 2>/dev/null || true
 log "    Queue workers signaled to restart"
 
 # ── Step 7: Health checks ───────────────────────────────────
+# Disable exit-on-error for health checks — failures are logged, not fatal
+set +e
 log "==> Running health checks"
 
 CHECKS_PASSED=0
@@ -140,6 +142,7 @@ else
     ((CHECKS_PASSED++))
 fi
 
+set -e
 # ── Summary ─────────────────────────────────────────────────
 log "==> Deploy complete: $RELEASE_REF ($DEPLOYED_SHA)"
 log "    Health: $CHECKS_PASSED/$CHECKS_TOTAL checks passed"
