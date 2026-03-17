@@ -12,11 +12,12 @@ class GygInboundEmail extends Model
 
     protected $casts = [
         'email_date'    => 'datetime',
-        'tour_date'     => 'date',
+        'travel_date'   => 'date',
         'classified_at' => 'datetime',
         'parsed_at'     => 'datetime',
         'applied_at'    => 'datetime',
-        'total_price'   => 'decimal:2',
+        'price'         => 'decimal:2',
+        'pax'           => 'integer',
     ];
 
     // ── Status helpers ──────────────────────────────

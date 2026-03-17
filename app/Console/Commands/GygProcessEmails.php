@@ -127,7 +127,7 @@ class GygProcessEmails extends Command
             $icon = $isValid ? '✅' : '⚠️';
             $ref   = $extracted['gyg_booking_reference'] ?? 'null';
             $guest = $extracted['guest_name'] ?? 'null';
-            $date  = $extracted['tour_date'] ?? 'null';
+            $date  = $extracted['travel_date'] ?? 'null';
             $this->line("    {$icon} ref={$ref} guest={$guest} date={$date}");
             if (! empty($extracted['option_title'])) {
                 $this->line("    📦 option: {$extracted['option_title']}");
@@ -151,10 +151,10 @@ class GygProcessEmails extends Command
             'guest_name'            => $extracted['guest_name'] ?? null,
             'guest_email'           => $extracted['guest_email'] ?? null,
             'guest_phone'           => $extracted['guest_phone'] ?? null,
-            'tour_date'             => $extracted['tour_date'] ?? null,
-            'tour_time'             => $extracted['tour_time'] ?? null,
-            'number_of_guests'      => $extracted['number_of_guests'] ?? null,
-            'total_price'           => $extracted['total_price'] ?? null,
+            'travel_date'           => $extracted['travel_date'] ?? null,
+            'travel_time'           => $extracted['travel_time'] ?? null,
+            'pax'                   => $extracted['pax'] ?? null,
+            'price'                 => $extracted['price'] ?? null,
             'currency'              => $extracted['currency'] ?? null,
             'language'              => $extracted['language'] ?? null,
             'tour_type'             => $extracted['tour_type'] ?? null,

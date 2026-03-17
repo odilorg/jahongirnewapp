@@ -3,38 +3,27 @@
 namespace App\Services;
 
 use Carbon\Carbon;
-use Illuminate\Support\Facades\Log;
 
 /**
  * Deterministic field extractor for GYG booking emails.
  * Uses anchored regex patterns against the plain-text email body.
  * No AI. If a required field cannot be safely extracted, returns null
  * and lets the caller decide whether to mark as needs_review.
+ *
+ * Canonical field names (PM-approved):
+ *   travel_date, travel_time, pax, price, currency
  */
 class GygEmailParser
 {
+    /** Metadata keywords that disqualify a line from being option_title */
+    private const METADATA_KEYWORDS = [
+        'reference', 'date', 'number of', 'main customer', 'phone',
+        'price', 'language', 'open booking', 'we\'re here', 'contact',
+        'participants', 'booking reference',
+    ];
+
     /**
      * Extract fields from a new booking email.
-     *
-     * @return array{
-     *   gyg_booking_reference: ?string,
-     *   tour_name: ?string,
-     *   option_title: ?string,
-     *   guest_name: ?string,
-     *   guest_email: ?string,
-     *   guest_phone: ?string,
-     *   tour_date: ?string,
-     *   tour_time: ?string,
-     *   number_of_guests: ?int,
-     *   total_price: ?float,
-     *   currency: ?string,
-     *   language: ?string,
-     *   tour_type: ?string,
-     *   tour_type_source: ?string,
-     *   guide_status: ?string,
-     *   guide_status_source: ?string,
-     *   parse_errors: string[],
-     * }
      */
     public function parseNewBooking(string $body, string $subject): array
     {
@@ -46,10 +35,10 @@ class GygEmailParser
             'guest_name'            => null,
             'guest_email'           => null,
             'guest_phone'           => null,
-            'tour_date'             => null,
-            'tour_time'             => null,
-            'number_of_guests'      => null,
-            'total_price'           => null,
+            'travel_date'           => null,
+            'travel_time'           => null,
+            'pax'                   => null,
+            'price'                 => null,
             'currency'              => null,
             'language'              => null,
             'tour_type'             => null,
@@ -60,49 +49,60 @@ class GygEmailParser
         ];
 
         // --- Booking reference ---
-        // From subject: "Booking - S374926 - GYGZGZ5XLFNQ"
         if (preg_match('/\b(GYG[A-Z0-9]{8,})\b/i', $subject, $m)) {
             $result['gyg_booking_reference'] = strtoupper($m[1]);
         }
-        // Fallback: from body "Reference numbergygzgz5xlfnq" (no space in plain text render)
         if (! $result['gyg_booking_reference'] && preg_match('/Reference\s*number\s*([a-z0-9]+)/i', $body, $m)) {
             $result['gyg_booking_reference'] = strtoupper($m[1]);
         }
 
         // --- Tour name + Option title ---
-        // Pattern: "Your offer has been booked:\n\n<Tour Name>\n\n<Option Title>"
-        // OR plain text renders as: "Your offer has been booked:\n\n<Tour>\n\n<Option>"
-        if (preg_match('/(?:has been booked|great news!)[:\s]*\n+(.+?)(?:\n+(.+?))?\n+(?:Reference|Booking reference)/si', $body, $m)) {
-            $result['tour_name'] = $this->cleanLine($m[1]);
-            if (! empty($m[2])) {
-                $result['option_title'] = $this->cleanLine($m[2]);
+        // GYG booking emails have this structure in the body:
+        //   "Your offer has been booked:" or "great news!"
+        //   <blank line>
+        //   <Tour Product Title>
+        //   <blank line>
+        //   <Option/Variant Title>
+        //   <blank line>
+        //   "Reference number..." or "Booking reference..."
+        //
+        // We extract both lines and then validate the second line is truly
+        // an option title, not a metadata label that ran together.
+        if (preg_match('/(?:has been booked|great news!)[:\s]*\n+(.+?)\n+(.+?)\n+(?:Reference|Booking reference)/si', $body, $m)) {
+            $line1 = $this->cleanLine($m[1]);
+            $line2 = $this->cleanLine($m[2]);
+
+            $result['tour_name'] = $line1;
+
+            // Validate line2 is a real option title, not metadata
+            if ($this->isValidOptionTitle($line2)) {
+                $result['option_title'] = $line2;
+            } else {
+                $errors[] = "option_title candidate rejected (looks like metadata): " . mb_substr($line2, 0, 60);
             }
+        } elseif (preg_match('/(?:has been booked|great news!)[:\s]*\n+(.+?)\n+(?:Reference|Booking reference)/si', $body, $m)) {
+            // Only tour_name found, no option_title line
+            $result['tour_name'] = $this->cleanLine($m[1]);
+            $errors[] = "option_title not found in expected position";
         }
 
         // --- Date + Time ---
-        // Pattern: "DateApril 19, 2026 9:00 AM" (no space after "Date" in plain text)
-        // Or: "Date\nApril 19, 2026 9:00 AM"
         if (preg_match('/Date\s*\n?\s*([A-Z][a-z]+ \d{1,2},? \d{4}(?:\s+\d{1,2}:\d{2}\s*(?:AM|PM))?)/i', $body, $m)) {
-            $dateStr = trim($m[1]);
             try {
-                $parsed = Carbon::parse($dateStr);
-                $result['tour_date'] = $parsed->format('Y-m-d');
-                $result['tour_time'] = $parsed->format('H:i:s');
+                $parsed = Carbon::parse(trim($m[1]));
+                $result['travel_date'] = $parsed->format('Y-m-d');
+                $result['travel_time'] = $parsed->format('H:i:s');
             } catch (\Exception $e) {
-                $errors[] = "Could not parse date: {$dateStr}";
+                $errors[] = "Could not parse date: " . trim($m[1]);
             }
         }
 
         // --- Participants ---
-        // Pattern: "Number of participantsN x Adults (Age 0 - 99)"
-        // Or: "Number of participants\n2 x Adults"
         if (preg_match('/Number of participants\s*\n?\s*(\d+)\s*x/i', $body, $m)) {
-            $result['number_of_guests'] = (int) $m[1];
+            $result['pax'] = (int) $m[1];
         }
 
         // --- Customer name ---
-        // Pattern: "Main customerKatrine Arps Studskjær customer-..."
-        // Or: "Main customer\nName Surname customer-..."
         if (preg_match('/Main\s*customer\s*\n?\s*(.+?)\s*(?:customer-|[a-z0-9._+-]+@)/i', $body, $m)) {
             $result['guest_name'] = $this->cleanLine($m[1]);
         }
@@ -118,11 +118,10 @@ class GygEmailParser
         }
 
         // --- Price + Currency ---
-        // Pattern: "Price$ 330.00" or "Price€ 150.00" or "Price\n$ 330.00"
         if (preg_match('/Price\s*\n?\s*([€$£¥])\s*([\d,]+\.?\d*)/i', $body, $m)) {
             $currencyMap = ['$' => 'USD', '€' => 'EUR', '£' => 'GBP', '¥' => 'JPY'];
             $result['currency'] = $currencyMap[$m[1]] ?? $m[1];
-            $result['total_price'] = (float) str_replace(',', '', $m[2]);
+            $result['price'] = (float) str_replace(',', '', $m[2]);
         }
 
         // --- Language ---
@@ -161,41 +160,35 @@ class GygEmailParser
         $result = [
             'gyg_booking_reference' => null,
             'guest_name'            => null,
-            'tour_date'             => null,
+            'travel_date'           => null,
             'tour_name'             => null,
             'option_title'          => null,
             'parse_errors'          => [],
         ];
 
-        // Reference from subject
         if (preg_match('/\b(GYG[A-Z0-9]{8,})\b/i', $subject, $m)) {
             $result['gyg_booking_reference'] = strtoupper($m[1]);
         }
-        // Fallback from body: "Reference Number: GYGWZBBA7MMR"
         if (! $result['gyg_booking_reference'] && preg_match('/Reference\s*Number:\s*([A-Z0-9]+)/i', $body, $m)) {
             $result['gyg_booking_reference'] = strtoupper($m[1]);
         }
 
-        // "Name: Søren Sørit"
         if (preg_match('/Name:\s*(.+?)(?:Date:|$)/si', $body, $m)) {
             $result['guest_name'] = $this->cleanLine($m[1]);
         }
 
-        // "Date: April 29, 2026, 4:00 AM"
         if (preg_match('/Date:\s*([A-Z][a-z]+ \d{1,2},? \d{4})/i', $body, $m)) {
             try {
-                $result['tour_date'] = Carbon::parse(trim($m[1]))->format('Y-m-d');
+                $result['travel_date'] = Carbon::parse(trim($m[1]))->format('Y-m-d');
             } catch (\Exception $e) {
                 $result['parse_errors'][] = "Could not parse cancellation date";
             }
         }
 
-        // "Tour: From Samarkand: Shahrisabz Day Trip & Mountain Pass Tour"
         if (preg_match('/Tour:\s*(.+?)(?:Tour Option:|Please remove|$)/si', $body, $m)) {
             $result['tour_name'] = $this->cleanLine($m[1]);
         }
 
-        // "Tour Option: Group Tour with Guide – Shahrisabz Day Trip"
         if (preg_match('/Tour Option:\s*(.+?)(?:Please remove|Best regards|$)/si', $body, $m)) {
             $result['option_title'] = $this->cleanLine($m[1]);
         }
@@ -212,28 +205,26 @@ class GygEmailParser
             'gyg_booking_reference' => null,
             'tour_name'             => null,
             'option_title'          => null,
-            'tour_date'             => null,
+            'travel_date'           => null,
             'parse_errors'          => [],
         ];
 
-        // Reference from subject
         if (preg_match('/\b(GYG[A-Z0-9]{8,})\b/i', $subject, $m)) {
             $result['gyg_booking_reference'] = strtoupper($m[1]);
         }
 
-        // Tour name + option: lines after "the following booking has changed"
-        if (preg_match('/has changed\.?\s*\n+(.+?)(?:\n+(.+?))?\n+(?:Booking reference|Date)/si', $body, $m)) {
+        if (preg_match('/has changed\.?\s*\n+(.+?)\n+(.+?)\n+(?:Booking reference|Date)/si', $body, $m)) {
             $result['tour_name'] = $this->cleanLine($m[1]);
-            if (! empty($m[2])) {
-                $result['option_title'] = $this->cleanLine($m[2]);
+            $line2 = $this->cleanLine($m[2]);
+            if ($this->isValidOptionTitle($line2)) {
+                $result['option_title'] = $line2;
             }
         }
 
-        // Date
         if (preg_match('/Date\s*\n?\s*([A-Z][a-z]+ \d{1,2},? \d{4}(?:\s+(?:at\s+)?\d{1,2}:\d{2}\s*(?:AM|PM))?)/i', $body, $m)) {
             try {
                 $parsed = Carbon::parse(str_replace(' at ', ' ', trim($m[1])));
-                $result['tour_date'] = $parsed->format('Y-m-d');
+                $result['travel_date'] = $parsed->format('Y-m-d');
             } catch (\Exception $e) {
                 $result['parse_errors'][] = "Could not parse amendment date";
             }
@@ -245,12 +236,16 @@ class GygEmailParser
     /**
      * Validate required fields for a given email type.
      *
+     * new_booking required: gyg_booking_reference, tour_name, option_title, travel_date, pax
+     * cancellation required: gyg_booking_reference
+     * amendment required: gyg_booking_reference
+     *
      * @return string[] List of missing required fields (empty = valid)
      */
     public function validateRequired(string $emailType, array $extracted): array
     {
         $rules = [
-            'new_booking'  => ['gyg_booking_reference', 'guest_name', 'tour_date'],
+            'new_booking'  => ['gyg_booking_reference', 'tour_name', 'option_title', 'travel_date', 'pax'],
             'cancellation' => ['gyg_booking_reference'],
             'amendment'    => ['gyg_booking_reference'],
         ];
@@ -269,9 +264,36 @@ class GygEmailParser
 
     // ── Helpers ─────────────────────────────────────────
 
+    /**
+     * Check if a candidate line is a valid option/variant title,
+     * not a metadata label that ran together in plain text.
+     */
+    private function isValidOptionTitle(string $line): bool
+    {
+        $lower = strtolower($line);
+
+        // Reject if it contains metadata keywords
+        foreach (self::METADATA_KEYWORDS as $keyword) {
+            if (str_contains($lower, $keyword)) {
+                return false;
+            }
+        }
+
+        // Reject if too short (likely a parsing artifact)
+        if (mb_strlen($line) < 5) {
+            return false;
+        }
+
+        // Reject if it looks like a URL
+        if (str_starts_with($lower, 'http')) {
+            return false;
+        }
+
+        return true;
+    }
+
     private function cleanLine(string $text): string
     {
-        // Remove URLs, tracking links, excessive whitespace
         $text = preg_replace('/\(https?:\/\/[^\)]+\)/', '', $text);
         $text = preg_replace('/https?:\/\/\S+/', '', $text);
         $text = preg_replace('/\s+/', ' ', $text);
