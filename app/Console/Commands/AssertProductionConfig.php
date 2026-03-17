@@ -8,7 +8,7 @@ use Illuminate\Support\Facades\DB;
 class AssertProductionConfig extends Command
 {
     protected $signature = 'app:assert-production-config
-                            {--quiet : Suppress output, only use exit code}';
+                            {--silent : Suppress output, only use exit code}';
 
     protected $description = 'Validate all required production config values are set correctly';
 
