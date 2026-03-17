@@ -13,6 +13,8 @@ use App\Models\BeginningSaldo;
 use App\Models\Beds24Booking;
 use App\Models\TelegramPosSession;
 use App\Models\ExpenseCategory;
+use App\Services\CashierExchangeService;
+use App\Services\CashierExpenseService;
 use App\Services\CashierPaymentService;
 use App\Services\CashierShiftService;
 use App\Services\OwnerAlertService;
@@ -28,16 +30,22 @@ class CashierBotController extends Controller
     protected OwnerAlertService $ownerAlert;
     protected CashierPaymentService $paymentService;
     protected CashierShiftService $shiftService;
+    protected CashierExpenseService $expenseService;
+    protected CashierExchangeService $exchangeService;
 
     public function __construct(
         OwnerAlertService $ownerAlert,
         CashierPaymentService $paymentService,
         CashierShiftService $shiftService,
+        CashierExpenseService $expenseService,
+        CashierExchangeService $exchangeService,
     ) {
         $this->botToken = config('services.cashier_bot.token', config('services.owner_alert_bot.token'));
         $this->ownerAlert = $ownerAlert;
         $this->paymentService = $paymentService;
         $this->shiftService = $shiftService;
+        $this->expenseService = $expenseService;
+        $this->exchangeService = $exchangeService;
     }
 
     public function handleWebhook(Request $request)
@@ -486,33 +494,10 @@ class CashierBotController extends Controller
             return $this->showMainMenu($chatId, $s);
         }
 
-        $expense = null;
         try {
-            DB::transaction(function () use ($shift, $d, $s, $callbackId, &$expense) {
-                // Lock shift row and revalidate — another request may have closed it
-                $lockedShift = CashierShift::where('id', $shift->id)->lockForUpdate()->first();
-                if (!$lockedShift || !$lockedShift->isOpen()) {
-                    throw new \RuntimeException('Shift closed during confirmation');
-                }
+            $expense = $this->expenseService->recordExpense($shift->id, $d, $s->user_id, $callbackId);
 
-                $expense = CashExpense::create([
-                    'cashier_shift_id' => $lockedShift->id, 'expense_category_id' => $d['cat_id'],
-                    'amount' => $d['amount'], 'currency' => $d['currency'], 'description' => $d['desc'],
-                    'requires_approval' => $d['needs_approval'] ?? false,
-                    'created_by' => $s->user_id, 'occurred_at' => now(),
-                ]);
-
-                CashTransaction::create([
-                    'cashier_shift_id' => $lockedShift->id, 'type' => 'out', 'amount' => $d['amount'],
-                    'currency' => $d['currency'], 'category' => 'expense',
-                    'reference' => "Расход: {$d['cat_name']}", 'notes' => $d['desc'],
-                    'created_by' => $s->user_id, 'occurred_at' => now(),
-                ]);
-
-                if ($callbackId) $this->succeedCallback($callbackId);
-            });
-
-            // Outside transaction: non-critical notifications
+            // Outside transaction: non-critical approval notification
             if (($d['needs_approval'] ?? false) && $expense) {
                 try {
                     app(\App\Http\Controllers\OwnerBotController::class)->sendApprovalRequest($expense);
@@ -797,37 +782,7 @@ class CashierBotController extends Controller
         }
 
         try {
-            DB::transaction(function () use ($shift, $d, $s, $callbackId) {
-                // Lock shift row and revalidate — another request may have closed it
-                $lockedShift = CashierShift::where('id', $shift->id)->lockForUpdate()->first();
-                if (!$lockedShift || !$lockedShift->isOpen()) {
-                    throw new \RuntimeException('Shift closed during confirmation');
-                }
-
-                $ref = 'EX-' . now()->format('YmdHis');
-
-                // Cash IN (receiving money) — must succeed together with cash OUT
-                CashTransaction::create([
-                    'cashier_shift_id' => $lockedShift->id, 'type' => 'in',
-                    'amount' => $d['in_amount'], 'currency' => $d['in_currency'],
-                    'related_currency' => $d['out_currency'], 'related_amount' => $d['out_amount'],
-                    'category' => 'exchange', 'reference' => $ref,
-                    'notes' => "Обмен: " . number_format($d['in_amount'], 0) . " {$d['in_currency']} ← " . number_format($d['out_amount'], 0) . " {$d['out_currency']}",
-                    'created_by' => $s->user_id, 'occurred_at' => now(),
-                ]);
-
-                // Cash OUT (giving money) — atomic with cash IN
-                CashTransaction::create([
-                    'cashier_shift_id' => $lockedShift->id, 'type' => 'out',
-                    'amount' => $d['out_amount'], 'currency' => $d['out_currency'],
-                    'related_currency' => $d['in_currency'], 'related_amount' => $d['in_amount'],
-                    'category' => 'exchange', 'reference' => $ref,
-                    'notes' => "Обмен: " . number_format($d['out_amount'], 0) . " {$d['out_currency']} → " . number_format($d['in_amount'], 0) . " {$d['in_currency']}",
-                    'created_by' => $s->user_id, 'occurred_at' => now(),
-                ]);
-
-                if ($callbackId) $this->succeedCallback($callbackId);
-            });
+            $this->exchangeService->recordExchange($shift->id, $d, $s->user_id, $callbackId);
 
             // Outside transaction: non-critical messaging
             $this->send($chatId, "✅ Обмен записан!\n\n📥 +" . number_format($d['in_amount'], 0) . " {$d['in_currency']}\n📤 -" . number_format($d['out_amount'], 0) . " {$d['out_currency']}\n\nБаланс: " . $this->fmtBal($this->getBal($shift->fresh())));
