@@ -109,5 +109,11 @@ class Kernel extends ConsoleKernel
             ->onFailure(function () {
                 \Illuminate\Support\Facades\Log::error('Scheduled gyg:apply-bookings FAILED');
             });
+
+        // Queue health: alert if jobs stuck >10 min (catches dead workers)
+        $schedule->command('queue:health-check')
+            ->everyFiveMinutes()
+            ->withoutOverlapping()
+            ->runInBackground();
     }
 }
