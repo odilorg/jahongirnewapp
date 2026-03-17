@@ -71,7 +71,14 @@ class OwnerBotController extends Controller
         }
 
         $ownerUser = User::where('telegram_user_id', $chatId)->first();
-        $ownerId = $ownerUser?->id;
+
+        // Only owner/admin/super_admin can approve or reject expenses
+        if (!$ownerUser || !$ownerUser->hasAnyRole(['super_admin', 'admin', 'manager'])) {
+            $this->answerCallback($callbackId, '⛔ Доступ запрещён');
+            return response('OK');
+        }
+
+        $ownerId = $ownerUser->id;
 
         if ($action === 'approve') {
             $expense->update([

@@ -133,6 +133,11 @@ class KitchenBotController extends Controller
 
         if (!$chatId) return response('OK');
 
+        // Only allow callbacks from private chats with authenticated sessions
+        if (($cb['message']['chat']['type'] ?? 'private') !== 'private') return response('OK');
+        $session = $this->getSession($chatId);
+        if (!$session || !$session->user_id) return response('OK');
+
         $this->aCb($cbId);
 
         // Inline callbacks for quick +1, +2, +3, -1

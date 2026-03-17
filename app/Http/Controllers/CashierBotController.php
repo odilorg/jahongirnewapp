@@ -927,7 +927,12 @@ class CashierBotController extends Controller
 
     protected function aCb(string $id)
     {
-        Http::post("https://api.telegram.org/bot{$this->botToken}/answerCallbackQuery", ['callback_query_id' => $id]);
+        if (!$id) return;
+        try {
+            Http::timeout(5)->post("https://api.telegram.org/bot{$this->botToken}/answerCallbackQuery", ['callback_query_id' => $id]);
+        } catch (\Throwable $e) {
+            Log::warning('CashierBot aCb failed', ['id' => $id, 'error' => $e->getMessage()]);
+        }
     }
 
     protected function alertOwnerOnError(string $context, \Throwable $e, ?int $userId = null): void
