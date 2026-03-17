@@ -14,8 +14,24 @@ set -Eeuo pipefail
 APP_DIR="/var/www/jahongirnewapp"
 RELEASE_REF="${1:?Usage: deploy-production.sh <tag-or-commit>}"
 LOG_FILE="/var/log/jahongirnewapp-deploy.log"
+DEPLOY_HISTORY="$APP_DIR/.deploy-history"
+OPERATOR="${SUDO_USER:-${USER:-unknown}}"
 
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG_FILE"; }
+
+# ── Ref validation ──────────────────────────────────────────
+# Accept only: release-* tags, full 40-char SHAs, short SHAs (7+ hex chars)
+# Reject branch names outright.
+is_release_tag()  { [[ "$1" =~ ^release- ]]; }
+is_full_sha()     { [[ "$1" =~ ^[0-9a-f]{40}$ ]]; }
+is_short_sha()    { [[ "$1" =~ ^[0-9a-f]{7,39}$ ]]; }
+
+if ! is_release_tag "$RELEASE_REF" && ! is_full_sha "$RELEASE_REF" && ! is_short_sha "$RELEASE_REF"; then
+    echo "ERROR: '$RELEASE_REF' looks like a branch name or unsupported ref." >&2
+    echo "       Only release-* tags or commit SHAs (7–40 hex chars) are allowed." >&2
+    echo "       Use: git tag release-YYYY-MM-DD-description && git push --tags" >&2
+    exit 1
+fi
 
 log "==> Starting deploy: $RELEASE_REF"
 
@@ -38,7 +54,17 @@ git clean -fd
 
 DEPLOYED_SHA=$(git rev-parse HEAD)
 DEPLOYED_TAG=$(git describe --tags --exact-match 2>/dev/null || echo "no-tag")
+DEPLOYED_AT=$(date '+%Y-%m-%d %H:%M:%S')
 log "==> Deployed: $DEPLOYED_SHA ($DEPLOYED_TAG)"
+
+# ── Write .version file ─────────────────────────────────────
+# Read by the /healthz endpoint so it never needs to shell out.
+cat > "$APP_DIR/.version" <<EOF
+SHA=$DEPLOYED_SHA
+TAG=$DEPLOYED_TAG
+DEPLOYED_AT=$DEPLOYED_AT
+EOF
+log "==> Wrote .version (sha=${DEPLOYED_SHA:0:8}, tag=$DEPLOYED_TAG)"
 
 # ── Step 3: Dependencies ────────────────────────────────────
 log "==> Installing dependencies"
@@ -121,7 +147,16 @@ log "    Tag: $DEPLOYED_TAG"
 
 if [ "$CHECKS_PASSED" -lt "$CHECKS_TOTAL" ]; then
     log "⚠️  DEPLOY COMPLETED WITH WARNINGS — check health failures above"
+    # Still record the deploy attempt in history even on partial success
+    echo "${DEPLOYED_AT} | ${DEPLOYED_TAG} | ${DEPLOYED_SHA:0:8} | ${OPERATOR}" >> "$DEPLOY_HISTORY"
     exit 1
 fi
 
+# ── Record deploy history ───────────────────────────────────
+echo "${DEPLOYED_AT} | ${DEPLOYED_TAG} | ${DEPLOYED_SHA:0:8} | ${OPERATOR}" >> "$DEPLOY_HISTORY"
+
 log "✅ Deploy successful"
+log ""
+log "── Last 5 deploys ──────────────────────────────────────"
+tail -5 "$DEPLOY_HISTORY" | while IFS= read -r line; do log "    $line"; done
+log "────────────────────────────────────────────────────────"

@@ -86,6 +86,34 @@ Route::post("/telegram/owner/webhook", [\App\Http\Controllers\OwnerBotController
     ->name("telegram.owner.webhook");
 
 
+// ── Health / version endpoint ────────────────────────────────────────────────
+// No auth required. Reads $APP_DIR/.version (written by deploy script).
+// Falls back to live git commands if the file doesn't exist.
+Route::get('/healthz', function () {
+    $versionFile = base_path('.version');
+
+    if (file_exists($versionFile)) {
+        $lines = parse_ini_file($versionFile);
+        $sha        = $lines['SHA']         ?? 'unknown';
+        $tag        = $lines['TAG']         ?? 'unknown';
+        $deployedAt = $lines['DEPLOYED_AT'] ?? 'unknown';
+    } else {
+        // Fallback: shell out (only happens before first deploy with new script)
+        $sha        = trim(shell_exec('git -C ' . escapeshellarg(base_path()) . ' rev-parse HEAD 2>/dev/null') ?? 'unknown');
+        $tag        = trim(shell_exec('git -C ' . escapeshellarg(base_path()) . ' describe --tags --exact-match 2>/dev/null') ?? 'no-tag');
+        $deployedAt = 'unknown';
+    }
+
+    return response()->json([
+        'status'      => 'ok',
+        'sha'         => $sha,
+        'tag'         => $tag,
+        'deployed_at' => $deployedAt,
+        'php'         => PHP_VERSION,
+        'laravel'     => app()->version(),
+    ]);
+})->name('healthz');
+
 // Beds24 token health check
 Route::get('/beds24/health', function () {
     $service = app(\App\Services\Beds24BookingService::class);
