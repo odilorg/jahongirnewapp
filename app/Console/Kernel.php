@@ -100,5 +100,14 @@ class Kernel extends ConsoleKernel
             ->onFailure(function () {
                 \Illuminate\Support\Facades\Log::error('Scheduled gyg:process-emails FAILED');
             });
+
+        // GYG booking application — create bookings from parsed emails
+        $schedule->command('gyg:apply-bookings')
+            ->everyFiveMinutes()
+            ->withoutOverlapping()
+            ->runInBackground()
+            ->onFailure(function () {
+                \Illuminate\Support\Facades\Log::error('Scheduled gyg:apply-bookings FAILED');
+            });
     }
 }
