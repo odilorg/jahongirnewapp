@@ -122,14 +122,16 @@ class OwnerBotController extends Controller
     protected function reverseExpenseTransaction(CashExpense $expense): void
     {
         try {
-            // Find the matching transaction and delete it or create a reversal
-            $tx = CashTransaction::where('cashier_shift_id', $expense->cashier_shift_id)
-                ->where('type', 'out')
-                ->where('amount', $expense->amount)
-                ->where('currency', $expense->currency)
-                ->where('notes', $expense->description)
-                ->latest()
-                ->first();
+            // Find the exact transaction via deterministic reference (expense:{id})
+            // Falls back to fuzzy match for transactions created before the FK reference was added
+            $tx = CashTransaction::where('reference', "expense:{$expense->id}")->first()
+                ?? CashTransaction::where('cashier_shift_id', $expense->cashier_shift_id)
+                    ->where('type', 'out')
+                    ->where('amount', $expense->amount)
+                    ->where('currency', $expense->currency)
+                    ->where('notes', $expense->description)
+                    ->latest()
+                    ->first();
 
             if ($tx) {
                 // Create a reversal transaction (money back in)
@@ -139,12 +141,14 @@ class OwnerBotController extends Controller
                     'amount' => $expense->amount,
                     'currency' => $expense->currency,
                     'category' => 'other',
-                    'reference' => "Возврат: отклонённый расход #{$expense->id}",
+                    'reference' => "reversal:expense:{$expense->id}",
                     'notes' => "Отклонено: {$expense->description}",
                     'occurred_at' => now(),
                 ]);
 
                 Log::info('Expense reversed', ['expense_id' => $expense->id, 'tx_id' => $tx->id]);
+            } else {
+                Log::warning('Expense reversal: no matching transaction found', ['expense_id' => $expense->id]);
             }
         } catch (\Throwable $e) {
             Log::error('Failed to reverse expense transaction', [

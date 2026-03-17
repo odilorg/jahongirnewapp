@@ -52,8 +52,8 @@ class CashierExpenseService
                 'amount'           => $expenseData['amount'],
                 'currency'         => $expenseData['currency'],
                 'category'         => 'expense',
-                'reference'        => "Расход: {$expenseData['cat_name']}",
-                'notes'            => $expenseData['desc'],
+                'reference'        => "expense:{$expense->id}",
+                'notes'            => "Расход: {$expenseData['cat_name']} — {$expenseData['desc']}",
                 'created_by'       => $createdBy,
                 'occurred_at'      => now(),
             ]);
