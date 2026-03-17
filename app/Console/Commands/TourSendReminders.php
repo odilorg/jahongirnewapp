@@ -269,7 +269,7 @@ class TourSendReminders extends Command
         // Phase 3 — Driver & Guide Telegram Notifications
         // -----------------------------------------------------------------------
         $this->info('--- Phase 3: Driver/Guide Telegram Notifications ---');
-        $this->sendDriverGuideNotifications($allBookings, $dateLabel, $dryRun);
+        $this->sendDriverGuideNotifications($allBookings, $dateLabel, $dryRun, $tomorrow);
 
         return self::SUCCESS;
     }
@@ -277,7 +277,7 @@ class TourSendReminders extends Command
     private function sendDriverGuideNotifications(
         \Illuminate\Support\Collection $bookings,
         string $dateLabel,
-        bool $dryRun
+        bool $dryRun, string $tomorrow
     ): void {
         if (empty($this->driverGuideBotToken)) {
             $this->warn('TELEGRAM_BOT_TOKEN_DRIVER_GUIDE not set — skipping driver/guide notifications.');
