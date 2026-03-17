@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\Process;
 class GygFetchEmails extends Command
 {
     protected $signature = 'gyg:fetch-emails
-        {--limit=50 : Maximum number of emails to fetch per run}
+        {--limit=200 : Maximum number of emails to fetch per run}
         {--dry-run : Fetch and display but do not persist}';
 
     protected $description = 'Fetch GYG booking emails from Gmail and persist for processing';
@@ -51,13 +51,16 @@ class GygFetchEmails extends Command
             return self::SUCCESS;
         }
 
-        // Step 3: Persist each email idempotently
+        // Step 3: Preload known message IDs for in-memory dedupe (single query)
+        $knownIds = GygInboundEmail::pluck('email_message_id')->flip();
+
+        // Step 4: Persist each email idempotently
         $stats = ['new' => 0, 'duplicate' => 0, 'error' => 0];
 
         foreach ($gygEnvelopes as $envelope) {
             // Fetch Message-ID header + body in one call (mailbox-safe via --preview)
-            $fetched = $this->fetchMessageWithId($envelope['id']);
-            $messageId = $fetched['message_id'] ?? $this->syntheticMessageId($envelope);
+            $fetched = $this->fetchMessageWithId($envelope['id'], $envelope);
+            $messageId = $fetched['message_id'] ?? $this->syntheticMessageId($envelope, $fetched['body']);
 
             if (! $messageId) {
                 $this->warn("[gyg:fetch-emails] Skipping email without any usable ID: " . ($envelope['subject'] ?? 'no subject'));
@@ -66,8 +69,8 @@ class GygFetchEmails extends Command
                 continue;
             }
 
-            // Idempotency: skip if already stored
-            if (GygInboundEmail::where('email_message_id', $messageId)->exists()) {
+            // Idempotency: skip if already stored (in-memory check, no DB query)
+            if ($knownIds->has($messageId)) {
                 $this->line("  ⏭ Already stored: " . $this->truncate($envelope['subject'] ?? '', 60));
                 $stats['duplicate']++;
                 continue;
@@ -93,6 +96,7 @@ class GygFetchEmails extends Command
                     'processing_status' => 'fetched',
                 ]);
 
+                $knownIds[$messageId] = true; // track within this run
                 $this->line("  ✅ Stored: " . $this->truncate($envelope['subject'] ?? '', 60));
                 Log::info('gyg:fetch-emails: email stored', [
                     'message_id' => $messageId,
@@ -162,7 +166,7 @@ class GygFetchEmails extends Command
      *
      * @return array{message_id: ?string, body: ?string}
      */
-    private function fetchMessageWithId(string $envelopeId): array
+    private function fetchMessageWithId(string $envelopeId, array $envelope = []): array
     {
         $result = Process::timeout(15)->run([
             self::HIMALAYA_BIN, 'message', 'read',
@@ -173,8 +177,11 @@ class GygFetchEmails extends Command
 
         if (! $result->successful()) {
             Log::warning('gyg:fetch-emails: message read failed', [
-                'id'     => $envelopeId,
-                'stderr' => $result->errorOutput(),
+                'id'      => $envelopeId,
+                'subject' => $envelope['subject'] ?? 'unknown',
+                'sender'  => $this->extractAddress($envelope['from'] ?? []),
+                'folder'  => 'INBOX',
+                'stderr'  => $result->errorOutput(),
             ]);
             return ['message_id' => null, 'body' => null];
         }
@@ -221,20 +228,25 @@ class GygFetchEmails extends Command
 
     /**
      * Fallback dedupe key when RFC Message-ID header is unavailable.
-     * Prefixed with 'gmail-uid:' to distinguish from real Message-IDs.
+     * Uses a deterministic content-based hash (not Gmail UID, which can change
+     * on UIDVALIDITY reset). Includes body preview to distinguish amendments
+     * and cancellations that may share similar subjects.
+     *
      * Should be extremely rare — GYG uses SendGrid which always sets Message-ID.
      */
-    private function syntheticMessageId(array $envelope): ?string
+    private function syntheticMessageId(array $envelope, ?string $body = null): ?string
     {
-        $uid     = $envelope['id'] ?? '';
-        $subject = $envelope['subject'] ?? '';
-        $date    = $envelope['date'] ?? '';
+        $sender  = strtolower(trim($this->extractAddress($envelope['from'] ?? [])));
+        $subject = strtolower(trim($envelope['subject'] ?? ''));
+        $date    = trim($envelope['date'] ?? '');
 
-        if (empty($uid)) {
+        if (empty($subject) && empty($date)) {
             return null;
         }
 
-        return 'gmail-uid:' . $uid . ':' . md5($subject . $date);
+        $preview = $body ? substr(trim($body), 0, 500) : '';
+
+        return 'synthetic:' . hash('sha256', $sender . '|' . $subject . '|' . $date . '|' . $preview);
     }
 
     private function extractAddress(array|string|null $from): string
