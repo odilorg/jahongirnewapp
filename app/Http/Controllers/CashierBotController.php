@@ -397,11 +397,14 @@ class CashierBotController extends Controller
 
         try {
             DB::transaction(function () use ($shift, $d, $s, $callbackId) {
-                // Lock shift row to prevent concurrent writes
-                CashierShift::where('id', $shift->id)->lockForUpdate()->first();
+                // Lock shift row and revalidate — another request may have closed it
+                $lockedShift = CashierShift::where('id', $shift->id)->lockForUpdate()->first();
+                if (!$lockedShift || !$lockedShift->isOpen()) {
+                    throw new \RuntimeException('Shift closed during confirmation');
+                }
 
                 CashTransaction::create([
-                    'cashier_shift_id' => $shift->id, 'type' => 'in', 'amount' => $d['amount'],
+                    'cashier_shift_id' => $lockedShift->id, 'type' => 'in', 'amount' => $d['amount'],
                     'currency' => $d['currency'], 'category' => 'sale',
                     'beds24_booking_id' => $d['booking_id'] ?? null, 'payment_method' => $d['method'],
                     'guest_name' => $d['guest_name'], 'room_number' => $d['room'],
@@ -495,17 +498,21 @@ class CashierBotController extends Controller
         $expense = null;
         try {
             DB::transaction(function () use ($shift, $d, $s, $callbackId, &$expense) {
-                CashierShift::where('id', $shift->id)->lockForUpdate()->first();
+                // Lock shift row and revalidate — another request may have closed it
+                $lockedShift = CashierShift::where('id', $shift->id)->lockForUpdate()->first();
+                if (!$lockedShift || !$lockedShift->isOpen()) {
+                    throw new \RuntimeException('Shift closed during confirmation');
+                }
 
                 $expense = CashExpense::create([
-                    'cashier_shift_id' => $shift->id, 'expense_category_id' => $d['cat_id'],
+                    'cashier_shift_id' => $lockedShift->id, 'expense_category_id' => $d['cat_id'],
                     'amount' => $d['amount'], 'currency' => $d['currency'], 'description' => $d['desc'],
                     'requires_approval' => $d['needs_approval'] ?? false,
                     'created_by' => $s->user_id, 'occurred_at' => now(),
                 ]);
 
                 CashTransaction::create([
-                    'cashier_shift_id' => $shift->id, 'type' => 'out', 'amount' => $d['amount'],
+                    'cashier_shift_id' => $lockedShift->id, 'type' => 'out', 'amount' => $d['amount'],
                     'currency' => $d['currency'], 'category' => 'expense',
                     'reference' => "Расход: {$d['cat_name']}", 'notes' => $d['desc'],
                     'created_by' => $s->user_id, 'occurred_at' => now(),
@@ -841,14 +848,17 @@ class CashierBotController extends Controller
 
         try {
             DB::transaction(function () use ($shift, $d, $s, $callbackId) {
-                // Lock shift to prevent concurrent exchange writes
-                CashierShift::where('id', $shift->id)->lockForUpdate()->first();
+                // Lock shift row and revalidate — another request may have closed it
+                $lockedShift = CashierShift::where('id', $shift->id)->lockForUpdate()->first();
+                if (!$lockedShift || !$lockedShift->isOpen()) {
+                    throw new \RuntimeException('Shift closed during confirmation');
+                }
 
                 $ref = 'EX-' . now()->format('YmdHis');
 
                 // Cash IN (receiving money) — must succeed together with cash OUT
                 CashTransaction::create([
-                    'cashier_shift_id' => $shift->id, 'type' => 'in',
+                    'cashier_shift_id' => $lockedShift->id, 'type' => 'in',
                     'amount' => $d['in_amount'], 'currency' => $d['in_currency'],
                     'related_currency' => $d['out_currency'], 'related_amount' => $d['out_amount'],
                     'category' => 'exchange', 'reference' => $ref,
@@ -858,7 +868,7 @@ class CashierBotController extends Controller
 
                 // Cash OUT (giving money) — atomic with cash IN
                 CashTransaction::create([
-                    'cashier_shift_id' => $shift->id, 'type' => 'out',
+                    'cashier_shift_id' => $lockedShift->id, 'type' => 'out',
                     'amount' => $d['out_amount'], 'currency' => $d['out_currency'],
                     'related_currency' => $d['in_currency'], 'related_amount' => $d['in_amount'],
                     'category' => 'exchange', 'reference' => $ref,

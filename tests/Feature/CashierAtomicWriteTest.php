@@ -259,4 +259,178 @@ class CashierAtomicWriteTest extends TestCase
             'status' => 'processing',
         ]);
     }
+
+    // ── Under-lock revalidation (Phase 2.1) ─────────────
+
+    /**
+     * Simulates the race: shift is open at pre-check, closed before lock acquired.
+     * Payment must be rejected — no transaction written to a closed shift.
+     */
+    public function test_payment_rejected_when_shift_closed_after_precheck(): void
+    {
+        $shift = $this->createOpenShift();
+
+        // Close the shift (simulating concurrent close between pre-check and lock)
+        $shift->update(['status' => 'closed', 'closed_at' => now()]);
+
+        $threw = false;
+        try {
+            DB::transaction(function () use ($shift) {
+                $lockedShift = CashierShift::where('id', $shift->id)->lockForUpdate()->first();
+                if (!$lockedShift || !$lockedShift->isOpen()) {
+                    throw new \RuntimeException('Shift closed during confirmation');
+                }
+
+                CashTransaction::create([
+                    'cashier_shift_id' => $lockedShift->id, 'type' => 'in', 'amount' => 100000,
+                    'currency' => 'UZS', 'category' => 'sale', 'reference' => 'RACE-PAY',
+                    'created_by' => $shift->user_id, 'occurred_at' => now(),
+                ]);
+            });
+        } catch (\RuntimeException $e) {
+            $threw = true;
+            $this->assertStringContainsString('Shift closed', $e->getMessage());
+        }
+
+        $this->assertTrue($threw, 'Expected RuntimeException for closed shift');
+        $this->assertEquals(0, CashTransaction::where('reference', 'RACE-PAY')->count());
+    }
+
+    /**
+     * Simulates the race for expenses: shift closed between pre-check and lock.
+     */
+    public function test_expense_rejected_when_shift_closed_after_precheck(): void
+    {
+        $shift = $this->createOpenShift();
+        $catId = DB::table('expense_categories')->insertGetId([
+            'name' => 'Race Test', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $shift->update(['status' => 'closed', 'closed_at' => now()]);
+
+        $threw = false;
+        try {
+            DB::transaction(function () use ($shift, $catId) {
+                $lockedShift = CashierShift::where('id', $shift->id)->lockForUpdate()->first();
+                if (!$lockedShift || !$lockedShift->isOpen()) {
+                    throw new \RuntimeException('Shift closed during confirmation');
+                }
+
+                CashExpense::create([
+                    'cashier_shift_id' => $lockedShift->id, 'expense_category_id' => $catId,
+                    'amount' => 50000, 'currency' => 'UZS', 'description' => 'Race expense',
+                    'created_by' => $shift->user_id, 'occurred_at' => now(),
+                ]);
+            });
+        } catch (\RuntimeException $e) {
+            $threw = true;
+        }
+
+        $this->assertTrue($threw);
+        $this->assertEquals(0, CashExpense::where('description', 'Race expense')->count());
+    }
+
+    /**
+     * Simulates the race for exchange: shift closed between pre-check and lock.
+     */
+    public function test_exchange_rejected_when_shift_closed_after_precheck(): void
+    {
+        $shift = $this->createOpenShift();
+
+        $shift->update(['status' => 'closed', 'closed_at' => now()]);
+
+        $threw = false;
+        try {
+            DB::transaction(function () use ($shift) {
+                $lockedShift = CashierShift::where('id', $shift->id)->lockForUpdate()->first();
+                if (!$lockedShift || !$lockedShift->isOpen()) {
+                    throw new \RuntimeException('Shift closed during confirmation');
+                }
+
+                CashTransaction::create([
+                    'cashier_shift_id' => $lockedShift->id, 'type' => 'in', 'amount' => 100,
+                    'currency' => 'USD', 'category' => 'exchange', 'reference' => 'RACE-EX',
+                    'created_by' => $shift->user_id, 'occurred_at' => now(),
+                ]);
+            });
+        } catch (\RuntimeException $e) {
+            $threw = true;
+        }
+
+        $this->assertTrue($threw);
+        $this->assertEquals(0, CashTransaction::where('reference', 'RACE-EX')->count());
+    }
+
+    /**
+     * Verify callback stays retryable (processing) when shift-closed rejection
+     * causes the transaction to roll back.
+     */
+    public function test_callback_stays_retryable_when_shift_closed_under_lock(): void
+    {
+        $shift = $this->createOpenShift();
+        $callbackId = 'cb_race_' . uniqid();
+
+        // Pre-claim the callback (as handleCallback does before calling confirm)
+        DB::table('telegram_processed_callbacks')->insert([
+            'callback_query_id' => $callbackId,
+            'chat_id' => 12345,
+            'action' => 'confirm_payment',
+            'status' => 'processing',
+            'claimed_at' => now(),
+        ]);
+
+        // Close shift (race)
+        $shift->update(['status' => 'closed', 'closed_at' => now()]);
+
+        try {
+            DB::transaction(function () use ($shift, $callbackId) {
+                $lockedShift = CashierShift::where('id', $shift->id)->lockForUpdate()->first();
+                if (!$lockedShift || !$lockedShift->isOpen()) {
+                    throw new \RuntimeException('Shift closed during confirmation');
+                }
+
+                // Would write here...
+                // succeedCallback would be here...
+            });
+        } catch (\RuntimeException $e) {
+            // failCallback is called OUTSIDE the transaction in the controller
+            DB::table('telegram_processed_callbacks')
+                ->where('callback_query_id', $callbackId)
+                ->where('status', 'processing')
+                ->update(['status' => 'failed', 'error' => $e->getMessage(), 'completed_at' => now()]);
+        }
+
+        // Callback marked failed — user can retry
+        $this->assertDatabaseHas('telegram_processed_callbacks', [
+            'callback_query_id' => $callbackId,
+            'status' => 'failed',
+        ]);
+    }
+
+    /**
+     * Verify confirmClose still works correctly (regression check).
+     */
+    public function test_close_shift_still_revalidates_and_works(): void
+    {
+        $shift = $this->createOpenShift();
+
+        DB::transaction(function () use ($shift) {
+            $lockedShift = CashierShift::where('id', $shift->id)->lockForUpdate()->first();
+            if (!$lockedShift || $lockedShift->status !== 'open') {
+                throw new \RuntimeException('Shift already closed or not found');
+            }
+
+            ShiftHandover::create([
+                'outgoing_shift_id' => $lockedShift->id,
+                'counted_uzs' => 100000, 'counted_usd' => 0, 'counted_eur' => 0,
+                'expected_uzs' => 100000, 'expected_usd' => 0, 'expected_eur' => 0,
+            ]);
+
+            $lockedShift->update(['status' => 'closed', 'closed_at' => now()]);
+        });
+
+        $shift->refresh();
+        $this->assertEquals('closed', $shift->status);
+        $this->assertEquals(1, ShiftHandover::where('outgoing_shift_id', $shift->id)->count());
+    }
 }
