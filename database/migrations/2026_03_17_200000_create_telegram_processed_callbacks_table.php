@@ -7,12 +7,12 @@ use Illuminate\Support\Facades\Schema;
 /**
  * Idempotency table for Telegram callback_query processing.
  *
- * Each Telegram callback_query has a globally unique ID. By inserting a row
- * before processing and relying on the UNIQUE constraint, we prevent
- * duplicate financial side effects from repeated button presses or
- * Telegram retries.
+ * Lifecycle: processing → succeeded | failed
+ * - 'processing': callback claimed, financial operation in progress
+ * - 'succeeded': operation completed — permanently blocks retries
+ * - 'failed': operation failed — allows retry (row deleted on re-claim)
  *
- * The table is append-only. Old rows can be pruned after 30+ days if needed.
+ * UNIQUE on callback_query_id prevents concurrent claims.
  */
 return new class extends Migration
 {
@@ -23,8 +23,10 @@ return new class extends Migration
             $table->string('callback_query_id', 64)->unique();
             $table->bigInteger('chat_id')->nullable();
             $table->string('action', 100)->nullable();
-            $table->string('result', 20)->default('processed'); // processed, duplicate, error
-            $table->timestamp('processed_at')->useCurrent();
+            $table->enum('status', ['processing', 'succeeded', 'failed'])->default('processing');
+            $table->string('error', 500)->nullable();
+            $table->timestamp('claimed_at')->useCurrent();
+            $table->timestamp('completed_at')->nullable();
         });
     }
 

@@ -60,33 +60,30 @@ class CashierBotSecurityTest extends TestCase
             'X-Telegram-Bot-Api-Secret-Token' => 'valid-secret',
         ]);
 
-        // Should not be 403 — the request passes auth.
-        // May return 200 (OK response from controller) even if no session exists.
         $response->assertStatus(200);
     }
 
-    // ── Callback idempotency ────────────────────────────
+    // ── Callback idempotency lifecycle ──────────────────
 
-    public function test_first_callback_is_recorded(): void
+    public function test_first_claim_succeeds_with_processing_status(): void
     {
-        $callbackId = 'cb_test_' . uniqid();
+        $callbackId = 'cb_first_' . uniqid();
 
-        // Insert directly to simulate what the controller does
         DB::table('telegram_processed_callbacks')->insert([
             'callback_query_id' => $callbackId,
             'chat_id'           => 12345,
             'action'            => 'confirm_payment',
-            'result'            => 'processed',
-            'processed_at'      => now(),
+            'status'            => 'processing',
+            'claimed_at'        => now(),
         ]);
 
         $this->assertDatabaseHas('telegram_processed_callbacks', [
             'callback_query_id' => $callbackId,
-            'action'            => 'confirm_payment',
+            'status'            => 'processing',
         ]);
     }
 
-    public function test_duplicate_callback_is_rejected_by_unique_constraint(): void
+    public function test_duplicate_claim_is_rejected_by_unique_constraint(): void
     {
         $callbackId = 'cb_dup_' . uniqid();
 
@@ -94,8 +91,8 @@ class CashierBotSecurityTest extends TestCase
             'callback_query_id' => $callbackId,
             'chat_id'           => 12345,
             'action'            => 'confirm_payment',
-            'result'            => 'processed',
-            'processed_at'      => now(),
+            'status'            => 'processing',
+            'claimed_at'        => now(),
         ]);
 
         $this->expectException(\Illuminate\Database\UniqueConstraintViolationException::class);
@@ -104,29 +101,141 @@ class CashierBotSecurityTest extends TestCase
             'callback_query_id' => $callbackId,
             'chat_id'           => 12345,
             'action'            => 'confirm_payment',
-            'result'            => 'processed',
-            'processed_at'      => now(),
+            'status'            => 'processing',
+            'claimed_at'        => now(),
         ]);
     }
 
-    public function test_different_callbacks_are_both_accepted(): void
+    public function test_succeeded_callback_blocks_retry(): void
     {
+        $callbackId = 'cb_success_' . uniqid();
+
         DB::table('telegram_processed_callbacks')->insert([
-            'callback_query_id' => 'cb_a_' . uniqid(),
+            'callback_query_id' => $callbackId,
             'chat_id'           => 12345,
             'action'            => 'confirm_payment',
-            'result'            => 'processed',
-            'processed_at'      => now(),
+            'status'            => 'succeeded',
+            'claimed_at'        => now(),
+            'completed_at'      => now(),
         ]);
+
+        // Attempting to insert again should fail
+        $this->expectException(\Illuminate\Database\UniqueConstraintViolationException::class);
 
         DB::table('telegram_processed_callbacks')->insert([
-            'callback_query_id' => 'cb_b_' . uniqid(),
+            'callback_query_id' => $callbackId,
             'chat_id'           => 12345,
-            'action'            => 'confirm_expense',
-            'result'            => 'processed',
-            'processed_at'      => now(),
+            'action'            => 'confirm_payment',
+            'status'            => 'processing',
+            'claimed_at'        => now(),
+        ]);
+    }
+
+    public function test_failed_callback_can_be_retried(): void
+    {
+        $callbackId = 'cb_fail_retry_' . uniqid();
+
+        // First attempt: claim and fail
+        DB::table('telegram_processed_callbacks')->insert([
+            'callback_query_id' => $callbackId,
+            'chat_id'           => 12345,
+            'action'            => 'confirm_payment',
+            'status'            => 'failed',
+            'error'             => 'DB connection lost',
+            'claimed_at'        => now(),
+            'completed_at'      => now(),
         ]);
 
-        $this->assertEquals(2, DB::table('telegram_processed_callbacks')->count());
+        // Delete failed row (as claimCallback does)
+        DB::table('telegram_processed_callbacks')
+            ->where('callback_query_id', $callbackId)
+            ->where('status', 'failed')
+            ->delete();
+
+        // Re-claim should succeed
+        DB::table('telegram_processed_callbacks')->insert([
+            'callback_query_id' => $callbackId,
+            'chat_id'           => 12345,
+            'action'            => 'confirm_payment',
+            'status'            => 'processing',
+            'claimed_at'        => now(),
+        ]);
+
+        $this->assertDatabaseHas('telegram_processed_callbacks', [
+            'callback_query_id' => $callbackId,
+            'status'            => 'processing',
+        ]);
+    }
+
+    public function test_processing_callback_blocks_concurrent_claim(): void
+    {
+        $callbackId = 'cb_concurrent_' . uniqid();
+
+        // First claim is in processing
+        DB::table('telegram_processed_callbacks')->insert([
+            'callback_query_id' => $callbackId,
+            'chat_id'           => 12345,
+            'action'            => 'confirm_payment',
+            'status'            => 'processing',
+            'claimed_at'        => now(),
+        ]);
+
+        // Second claim should fail
+        $this->expectException(\Illuminate\Database\UniqueConstraintViolationException::class);
+
+        DB::table('telegram_processed_callbacks')->insert([
+            'callback_query_id' => $callbackId,
+            'chat_id'           => 12345,
+            'action'            => 'confirm_payment',
+            'status'            => 'processing',
+            'claimed_at'        => now(),
+        ]);
+    }
+
+    public function test_status_transition_from_processing_to_succeeded(): void
+    {
+        $callbackId = 'cb_transition_' . uniqid();
+
+        DB::table('telegram_processed_callbacks')->insert([
+            'callback_query_id' => $callbackId,
+            'chat_id'           => 12345,
+            'action'            => 'confirm_payment',
+            'status'            => 'processing',
+            'claimed_at'        => now(),
+        ]);
+
+        DB::table('telegram_processed_callbacks')
+            ->where('callback_query_id', $callbackId)
+            ->where('status', 'processing')
+            ->update(['status' => 'succeeded', 'completed_at' => now()]);
+
+        $this->assertDatabaseHas('telegram_processed_callbacks', [
+            'callback_query_id' => $callbackId,
+            'status'            => 'succeeded',
+        ]);
+    }
+
+    public function test_status_transition_from_processing_to_failed(): void
+    {
+        $callbackId = 'cb_fail_' . uniqid();
+
+        DB::table('telegram_processed_callbacks')->insert([
+            'callback_query_id' => $callbackId,
+            'chat_id'           => 12345,
+            'action'            => 'confirm_expense',
+            'status'            => 'processing',
+            'claimed_at'        => now(),
+        ]);
+
+        DB::table('telegram_processed_callbacks')
+            ->where('callback_query_id', $callbackId)
+            ->where('status', 'processing')
+            ->update(['status' => 'failed', 'error' => 'Test error', 'completed_at' => now()]);
+
+        $this->assertDatabaseHas('telegram_processed_callbacks', [
+            'callback_query_id' => $callbackId,
+            'status'            => 'failed',
+            'error'             => 'Test error',
+        ]);
     }
 }

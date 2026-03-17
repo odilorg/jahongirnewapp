@@ -122,13 +122,17 @@ class CashierBotController extends Controller
 
         // Idempotency guard for financial confirm actions
         if (in_array($data, self::IDEMPOTENT_ACTIONS, true) && $callbackId) {
-            if ($this->isCallbackProcessed($callbackId, $chatId, $data)) {
-                Log::info('CashierBot: duplicate callback blocked', [
+            $claimResult = $this->claimCallback($callbackId, $chatId, $data);
+            if ($claimResult !== 'claimed') {
+                Log::info('CashierBot: callback not claimable', [
                     'callback_id' => $callbackId,
                     'action'      => $data,
-                    'chat_id'     => $chatId,
+                    'result'      => $claimResult,
                 ]);
-                $this->send($chatId, "⚠️ Эта операция уже обработана.");
+                $msg = $claimResult === 'succeeded'
+                    ? "⚠️ Эта операция уже обработана."
+                    : "⏳ Операция в процессе, подождите.";
+                $this->send($chatId, $msg);
                 return response('OK');
             }
         }
@@ -150,10 +154,10 @@ class CashierBotController extends Controller
             str_starts_with($data, 'exout_') => $this->selectExOutCur($s, $chatId, $data),
             str_starts_with($data, 'method_') => $this->selectMethod($s, $chatId, $data),
             str_starts_with($data, 'expcat_') => $this->selectExpCat($s, $chatId, $data),
-            $data === 'confirm_payment' => $this->confirmPayment($s, $chatId),
-            $data === 'confirm_expense' => $this->confirmExpense($s, $chatId),
-            $data === 'confirm_exchange' => $this->confirmExchange($s, $chatId),
-            $data === 'confirm_close' => $this->confirmClose($s, $chatId),
+            $data === 'confirm_payment' => $this->confirmPayment($s, $chatId, $callbackId),
+            $data === 'confirm_expense' => $this->confirmExpense($s, $chatId, $callbackId),
+            $data === 'confirm_exchange' => $this->confirmExchange($s, $chatId, $callbackId),
+            $data === 'confirm_close' => $this->confirmClose($s, $chatId, $callbackId),
             $data === 'cancel' => $this->showMainMenu($chatId, $s),
             $data === 'guide' => $this->showGuide($chatId),
             str_starts_with($data, 'guide_') => $this->showGuideTopic($chatId, substr($data, 6)),
@@ -161,26 +165,75 @@ class CashierBotController extends Controller
         };
     }
 
+    // ── Callback idempotency lifecycle ──────────────────────
+
     /**
-     * Check if a callback has already been processed. If not, record it atomically.
-     * Uses MySQL UNIQUE constraint on callback_query_id for concurrency safety.
+     * Attempt to claim a callback for processing.
      *
-     * @return bool true if already processed (duplicate), false if new
+     * @return 'claimed'|'succeeded'|'processing' — what happened
      */
-    private function isCallbackProcessed(string $callbackId, int $chatId, string $action): bool
+    private function claimCallback(string $callbackId, int $chatId, string $action): string
     {
+        // Check if already exists
+        $existing = DB::table('telegram_processed_callbacks')
+            ->where('callback_query_id', $callbackId)
+            ->first();
+
+        if ($existing) {
+            if ($existing->status === 'succeeded') return 'succeeded';
+            if ($existing->status === 'processing') return 'processing';
+
+            // status === 'failed' → allow retry by deleting the failed row
+            DB::table('telegram_processed_callbacks')
+                ->where('callback_query_id', $callbackId)
+                ->where('status', 'failed')
+                ->delete();
+        }
+
+        // Attempt to claim via INSERT with UNIQUE constraint
         try {
-            \DB::table('telegram_processed_callbacks')->insert([
+            DB::table('telegram_processed_callbacks')->insert([
                 'callback_query_id' => $callbackId,
                 'chat_id'           => $chatId,
                 'action'            => $action,
-                'result'            => 'processed',
-                'processed_at'      => now(),
+                'status'            => 'processing',
+                'claimed_at'        => now(),
             ]);
-            return false; // Successfully inserted — first time processing
+            return 'claimed';
         } catch (\Illuminate\Database\UniqueConstraintViolationException $e) {
-            return true; // Already exists — duplicate
+            // Lost the race — another request claimed it between our check and insert
+            $row = DB::table('telegram_processed_callbacks')
+                ->where('callback_query_id', $callbackId)
+                ->first();
+            return $row?->status === 'succeeded' ? 'succeeded' : 'processing';
         }
+    }
+
+    /**
+     * Mark a claimed callback as succeeded. Called after financial operation completes.
+     */
+    private function succeedCallback(string $callbackId): void
+    {
+        DB::table('telegram_processed_callbacks')
+            ->where('callback_query_id', $callbackId)
+            ->where('status', 'processing')
+            ->update(['status' => 'succeeded', 'completed_at' => now()]);
+    }
+
+    /**
+     * Mark a claimed callback as failed. Called when financial operation fails.
+     * This allows the user to retry the same callback.
+     */
+    private function failCallback(string $callbackId, string $error = ''): void
+    {
+        DB::table('telegram_processed_callbacks')
+            ->where('callback_query_id', $callbackId)
+            ->where('status', 'processing')
+            ->update([
+                'status'       => 'failed',
+                'error'        => mb_substr($error, 0, 500),
+                'completed_at' => now(),
+            ]);
     }
 
     protected function handleState($s, int $chatId, string $text)
@@ -332,11 +385,11 @@ class CashierBotController extends Controller
         return response('OK');
     }
 
-    protected function confirmPayment($s, int $chatId)
+    protected function confirmPayment($s, int $chatId, string $callbackId = '')
     {
         $d = $s->data ?? [];
         $shift = CashierShift::find($d['shift_id'] ?? 0);
-        if (!$shift || !$shift->isOpen()) { $this->send($chatId, "Смена не найдена или закрыта."); return $this->showMainMenu($chatId, $s); }
+        if (!$shift || !$shift->isOpen()) { $this->send($chatId, "Смена не найдена или закрыта."); if ($callbackId) $this->failCallback($callbackId, 'Shift not found or closed'); return $this->showMainMenu($chatId, $s); }
         try {
             CashTransaction::create([
                 'cashier_shift_id' => $shift->id, 'type' => 'in', 'amount' => $d['amount'],
@@ -346,8 +399,10 @@ class CashierBotController extends Controller
                 'reference' => $d['booking_id'] ? "Beds24 #{$d['booking_id']}" : "Комната {$d['room']}",
                 'notes' => "Оплата: {$d['guest_name']}", 'created_by' => $s->user_id, 'occurred_at' => now(),
             ]);
+            if ($callbackId) $this->succeedCallback($callbackId);
             $this->send($chatId, "Оплата записана!\nБаланс: " . $this->fmtBal($this->getBal($shift)));
         } catch (\Exception $e) {
+            if ($callbackId) $this->failCallback($callbackId, $e->getMessage());
             Log::error('Payment failed', ['e' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
             $this->alertOwnerOnError('Payment', $e, $s->user_id);
             $this->send($chatId, "Ошибка при записи оплаты. Попробуйте снова.");
@@ -411,11 +466,11 @@ class CashierBotController extends Controller
         return response('OK');
     }
 
-    protected function confirmExpense($s, int $chatId)
+    protected function confirmExpense($s, int $chatId, string $callbackId = '')
     {
         $d = $s->data ?? [];
         $shift = CashierShift::find($d['shift_id'] ?? 0);
-        if (!$shift || !$shift->isOpen()) { $this->send($chatId, "Смена не найдена или закрыта."); return $this->showMainMenu($chatId, $s); }
+        if (!$shift || !$shift->isOpen()) { $this->send($chatId, "Смена не найдена или закрыта."); if ($callbackId) $this->failCallback($callbackId, 'Shift not found or closed'); return $this->showMainMenu($chatId, $s); }
         try {
             $expense = CashExpense::create([
                 'cashier_shift_id' => $shift->id, 'expense_category_id' => $d['cat_id'],
@@ -429,11 +484,13 @@ class CashierBotController extends Controller
                 'reference' => "Расход: {$d['cat_name']}", 'notes' => $d['desc'],
                 'created_by' => $s->user_id, 'occurred_at' => now(),
             ]);
+            if ($callbackId) $this->succeedCallback($callbackId);
             if ($d['needs_approval'] ?? false) {
                 app(\App\Http\Controllers\OwnerBotController::class)->sendApprovalRequest($expense);
             }
             $this->send($chatId, "Расход записан!\nБаланс: " . $this->fmtBal($this->getBal($shift)));
         } catch (\Exception $e) {
+            if ($callbackId) $this->failCallback($callbackId, $e->getMessage());
             Log::error('Expense failed', ['e' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
             $this->alertOwnerOnError('Expense', $e, $s->user_id);
             $this->send($chatId, "Ошибка при записи расхода. Попробуйте снова.");
@@ -518,11 +575,11 @@ class CashierBotController extends Controller
         return $this->showCloseConfirm($s, $chatId);
     }
 
-    protected function confirmClose($s, int $chatId)
+    protected function confirmClose($s, int $chatId, string $callbackId = '')
     {
         $d = $s->data ?? [];
         $shift = CashierShift::find($d['shift_id'] ?? 0);
-        if (!$shift) { $this->send($chatId, "Смена не найдена."); return $this->showMainMenu($chatId, $s); }
+        if (!$shift) { $this->send($chatId, "Смена не найдена."); if ($callbackId) $this->failCallback($callbackId, 'Shift not found'); return $this->showMainMenu($chatId, $s); }
         try {
             $ho = ShiftHandover::create([
                 'outgoing_shift_id' => $shift->id,
@@ -615,8 +672,10 @@ class CashierBotController extends Controller
                     'chat_id' => $oid, 'photo' => $d['photo_id'], 'caption' => '📸 Фото кассы при закрытии смены',
                 ]);
             }
+            if ($callbackId) $this->succeedCallback($callbackId);
             $this->send($chatId, "Смена закрыта!");
         } catch (\Exception $e) {
+            if ($callbackId) $this->failCallback($callbackId, $e->getMessage());
             Log::error('Close shift failed', ['e' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
             $this->alertOwnerOnError('Close shift', $e, $s->user_id);
             $this->send($chatId, "Ошибка при закрытии смены. Обратитесь к руководству.");
@@ -710,11 +769,11 @@ class CashierBotController extends Controller
         return response('OK');
     }
 
-    protected function confirmExchange($s, int $chatId)
+    protected function confirmExchange($s, int $chatId, string $callbackId = '')
     {
         $d = $s->data ?? [];
         $shift = CashierShift::find($d['shift_id'] ?? 0);
-        if (!$shift || !$shift->isOpen()) { $this->send($chatId, "Смена не найдена или закрыта."); return $this->showMainMenu($chatId, $s); }
+        if (!$shift || !$shift->isOpen()) { $this->send($chatId, "Смена не найдена или закрыта."); if ($callbackId) $this->failCallback($callbackId, 'Shift not found or closed'); return $this->showMainMenu($chatId, $s); }
         try {
             $ref = 'EX-' . now()->format('YmdHis');
 
@@ -748,8 +807,10 @@ class CashierBotController extends Controller
                 'occurred_at' => now(),
             ]);
 
+            if ($callbackId) $this->succeedCallback($callbackId);
             $this->send($chatId, "✅ Обмен записан!\n\n📥 +" . number_format($d['in_amount'], 0) . " {$d['in_currency']}\n📤 -" . number_format($d['out_amount'], 0) . " {$d['out_currency']}\n\nБаланс: " . $this->fmtBal($this->getBal($shift)));
         } catch (\Exception $e) {
+            if ($callbackId) $this->failCallback($callbackId, $e->getMessage());
             Log::error('Exchange failed', ['e' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
             $this->alertOwnerOnError('Exchange', $e, $s->user_id);
             $this->send($chatId, "Ошибка при записи обмена. Попробуйте снова.");
