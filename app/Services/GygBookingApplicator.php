@@ -320,13 +320,15 @@ class GygBookingApplicator
      * Build booking_start_date_time from parsed date and time.
      * If time is missing, defaults to 09:00:00 and sets $timeDefaulted flag.
      */
-    private function buildDateTime(?string $date, ?string $time, bool &$timeDefaulted): ?string
+    private function buildDateTime(mixed $date, ?string $time, bool &$timeDefaulted): ?string
     {
         $timeDefaulted = false;
 
         if (! $date) return null;
 
-        $dateStr = $date instanceof \DateTimeInterface ? $date->format('Y-m-d') : $date;
+        $dateStr = $date instanceof \DateTimeInterface
+            ? $date->format('Y-m-d')
+            : substr((string) $date, 0, 10);
 
         if ($time) {
             return $dateStr . ' ' . $time;
