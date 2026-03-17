@@ -8,6 +8,7 @@ use App\Models\GygNotification;
 use App\Models\GygProduct;
 use App\Models\GygReservation;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -111,34 +112,42 @@ class GygService
             return $this->error('VALIDATION_FAILURE', 'Invalid dateTime format');
         }
 
-        // Check availability
-        $availability = GygAvailability::where('gyg_product_id', $productId)
-            ->where('slot_datetime', $slotDt)
-            ->first();
-
         $totalRequested = collect($bookingItems)->sum('count');
-
-        if ($availability) {
-            if ($availability->vacancies < $totalRequested) {
-                return $this->error('NO_AVAILABILITY', 'Not enough vacancies for the requested slot');
-            }
-            // Decrement vacancies
-            $availability->decrement('vacancies', $totalRequested);
-        }
-
         $reservationRef = $this->generateReservationReference();
         $expiresAt      = Carbon::now()->addMinutes(self::RESERVATION_HOLD_MINUTES);
 
-        GygReservation::create([
-            'reservation_reference' => $reservationRef,
-            'gyg_booking_reference' => $gygBookingRef,
-            'gyg_product_id'        => $productId,
-            'slot_datetime'         => $slotDt,
-            'booking_items'         => $bookingItems,
-            'currency'              => $product->currency,
-            'status'                => 'active',
-            'expires_at'            => $expiresAt,
-        ]);
+        // Atomic: lock availability row → check vacancies → decrement → create reservation
+        // Prevents double-booking when two requests hit the same slot simultaneously.
+        DB::transaction(function () use ($productId, $slotDt, $totalRequested, $reservationRef, $gygBookingRef, $bookingItems, $product, $expiresAt, &$error) {
+            $availability = GygAvailability::where('gyg_product_id', $productId)
+                ->where('slot_datetime', $slotDt)
+                ->lockForUpdate()
+                ->first();
+
+            if ($availability && $availability->vacancies < $totalRequested) {
+                $error = $this->error('NO_AVAILABILITY', 'Not enough vacancies for the requested slot');
+                return;
+            }
+
+            if ($availability) {
+                $availability->decrement('vacancies', $totalRequested);
+            }
+
+            GygReservation::create([
+                'reservation_reference' => $reservationRef,
+                'gyg_booking_reference' => $gygBookingRef,
+                'gyg_product_id'        => $productId,
+                'slot_datetime'         => $slotDt,
+                'booking_items'         => $bookingItems,
+                'currency'              => $product->currency,
+                'status'                => 'active',
+                'expires_at'            => $expiresAt,
+            ]);
+        });
+
+        if (isset($error)) {
+            return $error;
+        }
 
         return [
             'data' => [
@@ -250,25 +259,34 @@ class GygService
         $bookingRef = $this->generateBookingReference();
         $tickets    = $this->generateTickets($bookingItems, $bookingRef);
 
-        GygBooking::create([
-            'booking_reference'       => $bookingRef,
-            'reservation_reference'   => $reservationRef,
-            'gyg_booking_reference'   => $gygBookingRef,
-            'gyg_activity_reference'  => $data['gygActivityReference'] ?? null,
-            'gyg_product_id'          => $productId,
-            'slot_datetime'           => $slotDt,
-            'booking_items'           => $bookingItems,
-            'travelers'               => $travelers,
-            'traveler_hotel'          => $travelerHotel,
-            'language'                => $language,
-            'comment'                 => $comment,
-            'currency'                => $currency,
-            'tickets'                 => $tickets,
-            'status'                  => 'confirmed',
-        ]);
+        // Atomic: create booking + mark reservation converted in one transaction.
+        // Prevents partial writes where booking exists but reservation is still 'active',
+        // which would cause GYG retries to create duplicate bookings.
+        DB::transaction(function () use (
+            $bookingRef, $reservationRef, $gygBookingRef, $data,
+            $productId, $slotDt, $bookingItems, $travelers,
+            $travelerHotel, $language, $comment, $currency,
+            $tickets, $reservation
+        ) {
+            GygBooking::create([
+                'booking_reference'       => $bookingRef,
+                'reservation_reference'   => $reservationRef,
+                'gyg_booking_reference'   => $gygBookingRef,
+                'gyg_activity_reference'  => $data['gygActivityReference'] ?? null,
+                'gyg_product_id'          => $productId,
+                'slot_datetime'           => $slotDt,
+                'booking_items'           => $bookingItems,
+                'travelers'               => $travelers,
+                'traveler_hotel'          => $travelerHotel,
+                'language'                => $language,
+                'comment'                 => $comment,
+                'currency'                => $currency,
+                'tickets'                 => $tickets,
+                'status'                  => 'confirmed',
+            ]);
 
-        // Mark reservation as converted
-        $reservation->update(['status' => 'converted']);
+            $reservation->update(['status' => 'converted']);
+        });
 
         return [
             'data' => [
