@@ -13,8 +13,13 @@ use App\Models\BeginningSaldo;
 use App\Models\Beds24Booking;
 use App\Models\TelegramPosSession;
 use App\Models\ExpenseCategory;
+use App\Services\CashierExchangeService;
+use App\Services\CashierExpenseService;
+use App\Services\CashierPaymentService;
+use App\Services\CashierShiftService;
 use App\Services\OwnerAlertService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Carbon\Carbon;
@@ -23,11 +28,24 @@ class CashierBotController extends Controller
 {
     protected string $botToken;
     protected OwnerAlertService $ownerAlert;
+    protected CashierPaymentService $paymentService;
+    protected CashierShiftService $shiftService;
+    protected CashierExpenseService $expenseService;
+    protected CashierExchangeService $exchangeService;
 
-    public function __construct(OwnerAlertService $ownerAlert)
-    {
+    public function __construct(
+        OwnerAlertService $ownerAlert,
+        CashierPaymentService $paymentService,
+        CashierShiftService $shiftService,
+        CashierExpenseService $expenseService,
+        CashierExchangeService $exchangeService,
+    ) {
         $this->botToken = config('services.cashier_bot.token', config('services.owner_alert_bot.token'));
         $this->ownerAlert = $ownerAlert;
+        $this->paymentService = $paymentService;
+        $this->shiftService = $shiftService;
+        $this->expenseService = $expenseService;
+        $this->exchangeService = $exchangeService;
     }
 
     public function handleWebhook(Request $request)
@@ -97,17 +115,43 @@ class CashierBotController extends Controller
         return response('OK');
     }
 
+    /** Actions that create financial side effects — must be idempotency-guarded */
+    private const IDEMPOTENT_ACTIONS = [
+        'confirm_payment',
+        'confirm_expense',
+        'confirm_exchange',
+        'confirm_close',
+    ];
+
     protected function handleCallback(array $cb)
     {
         $chatId = $cb['message']['chat']['id'] ?? null;
         $data = $cb['data'] ?? '';
+        $callbackId = $cb['id'] ?? '';
         if (!$chatId) return response('OK');
-        $this->aCb($cb['id'] ?? '');
+        $this->aCb($callbackId);
 
         // Handle owner approval callbacks (owner may not have a session)
         if (preg_match('/^(approve|reject)_expense_(\d+)$/', $data, $matches)) {
             return app(\App\Http\Controllers\OwnerBotController::class)
-                ->handleExpenseAction($chatId, $cb['message']['message_id'] ?? null, $cb['id'] ?? '', $matches[1], (int)$matches[2]);
+                ->handleExpenseAction($chatId, $cb['message']['message_id'] ?? null, $callbackId, $matches[1], (int)$matches[2]);
+        }
+
+        // Idempotency guard for financial confirm actions
+        if (in_array($data, self::IDEMPOTENT_ACTIONS, true) && $callbackId) {
+            $claimResult = $this->claimCallback($callbackId, $chatId, $data);
+            if ($claimResult !== 'claimed') {
+                Log::info('CashierBot: callback not claimable', [
+                    'callback_id' => $callbackId,
+                    'action'      => $data,
+                    'result'      => $claimResult,
+                ]);
+                $msg = $claimResult === 'succeeded'
+                    ? "⚠️ Эта операция уже обработана."
+                    : "⏳ Операция в процессе, подождите.";
+                $this->send($chatId, $msg);
+                return response('OK');
+            }
         }
 
         $s = TelegramPosSession::where('chat_id', $chatId)->first();
@@ -127,15 +171,86 @@ class CashierBotController extends Controller
             str_starts_with($data, 'exout_') => $this->selectExOutCur($s, $chatId, $data),
             str_starts_with($data, 'method_') => $this->selectMethod($s, $chatId, $data),
             str_starts_with($data, 'expcat_') => $this->selectExpCat($s, $chatId, $data),
-            $data === 'confirm_payment' => $this->confirmPayment($s, $chatId),
-            $data === 'confirm_expense' => $this->confirmExpense($s, $chatId),
-            $data === 'confirm_exchange' => $this->confirmExchange($s, $chatId),
-            $data === 'confirm_close' => $this->confirmClose($s, $chatId),
+            $data === 'confirm_payment' => $this->confirmPayment($s, $chatId, $callbackId),
+            $data === 'confirm_expense' => $this->confirmExpense($s, $chatId, $callbackId),
+            $data === 'confirm_exchange' => $this->confirmExchange($s, $chatId, $callbackId),
+            $data === 'confirm_close' => $this->confirmClose($s, $chatId, $callbackId),
             $data === 'cancel' => $this->showMainMenu($chatId, $s),
             $data === 'guide' => $this->showGuide($chatId),
             str_starts_with($data, 'guide_') => $this->showGuideTopic($chatId, substr($data, 6)),
             default => response('OK'),
         };
+    }
+
+    // ── Callback idempotency lifecycle ──────────────────────
+
+    /**
+     * Attempt to claim a callback for processing.
+     *
+     * @return 'claimed'|'succeeded'|'processing' — what happened
+     */
+    private function claimCallback(string $callbackId, int $chatId, string $action): string
+    {
+        // Check if already exists
+        $existing = DB::table('telegram_processed_callbacks')
+            ->where('callback_query_id', $callbackId)
+            ->first();
+
+        if ($existing) {
+            if ($existing->status === 'succeeded') return 'succeeded';
+            if ($existing->status === 'processing') return 'processing';
+
+            // status === 'failed' → allow retry by deleting the failed row
+            DB::table('telegram_processed_callbacks')
+                ->where('callback_query_id', $callbackId)
+                ->where('status', 'failed')
+                ->delete();
+        }
+
+        // Attempt to claim via INSERT with UNIQUE constraint
+        try {
+            DB::table('telegram_processed_callbacks')->insert([
+                'callback_query_id' => $callbackId,
+                'chat_id'           => $chatId,
+                'action'            => $action,
+                'status'            => 'processing',
+                'claimed_at'        => now(),
+            ]);
+            return 'claimed';
+        } catch (\Illuminate\Database\UniqueConstraintViolationException $e) {
+            // Lost the race — another request claimed it between our check and insert
+            $row = DB::table('telegram_processed_callbacks')
+                ->where('callback_query_id', $callbackId)
+                ->first();
+            return $row?->status === 'succeeded' ? 'succeeded' : 'processing';
+        }
+    }
+
+    /**
+     * Mark a claimed callback as succeeded. Called after financial operation completes.
+     */
+    private function succeedCallback(string $callbackId): void
+    {
+        DB::table('telegram_processed_callbacks')
+            ->where('callback_query_id', $callbackId)
+            ->where('status', 'processing')
+            ->update(['status' => 'succeeded', 'completed_at' => now()]);
+    }
+
+    /**
+     * Mark a claimed callback as failed. Called when financial operation fails.
+     * This allows the user to retry the same callback.
+     */
+    private function failCallback(string $callbackId, string $error = ''): void
+    {
+        DB::table('telegram_processed_callbacks')
+            ->where('callback_query_id', $callbackId)
+            ->where('status', 'processing')
+            ->update([
+                'status'       => 'failed',
+                'error'        => mb_substr($error, 0, 500),
+                'completed_at' => now(),
+            ]);
     }
 
     protected function handleState($s, int $chatId, string $text)
@@ -287,26 +402,29 @@ class CashierBotController extends Controller
         return response('OK');
     }
 
-    protected function confirmPayment($s, int $chatId)
+    protected function confirmPayment($s, int $chatId, string $callbackId = '')
     {
         $d = $s->data ?? [];
         $shift = CashierShift::find($d['shift_id'] ?? 0);
-        if (!$shift || !$shift->isOpen()) { $this->send($chatId, "Смена не найдена или закрыта."); return $this->showMainMenu($chatId, $s); }
+        if (!$shift || !$shift->isOpen()) {
+            $this->send($chatId, "Смена не найдена или закрыта.");
+            if ($callbackId) $this->failCallback($callbackId, 'Shift not found or closed');
+            return $this->showMainMenu($chatId, $s);
+        }
+
         try {
-            CashTransaction::create([
-                'cashier_shift_id' => $shift->id, 'type' => 'in', 'amount' => $d['amount'],
-                'currency' => $d['currency'], 'category' => 'sale',
-                'beds24_booking_id' => $d['booking_id'] ?? null, 'payment_method' => $d['method'],
-                'guest_name' => $d['guest_name'], 'room_number' => $d['room'],
-                'reference' => $d['booking_id'] ? "Beds24 #{$d['booking_id']}" : "Комната {$d['room']}",
-                'notes' => "Оплата: {$d['guest_name']}", 'created_by' => $s->user_id, 'occurred_at' => now(),
-            ]);
-            $this->send($chatId, "Оплата записана!\nБаланс: " . $this->fmtBal($this->getBal($shift)));
+            $this->paymentService->recordPayment($shift->id, $d, $s->user_id, $callbackId);
+
+            // Outside transaction: non-critical messaging
+            $this->send($chatId, "Оплата записана!\nБаланс: " . $this->fmtBal($this->getBal($shift->fresh())));
         } catch (\Exception $e) {
+            // Outside transaction: mark callback as failed (retryable)
+            if ($callbackId) $this->failCallback($callbackId, $e->getMessage());
             Log::error('Payment failed', ['e' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
             $this->alertOwnerOnError('Payment', $e, $s->user_id);
             $this->send($chatId, "Ошибка при записи оплаты. Попробуйте снова.");
         }
+
         return $this->showMainMenu($chatId, $s);
     }
 
@@ -366,33 +484,35 @@ class CashierBotController extends Controller
         return response('OK');
     }
 
-    protected function confirmExpense($s, int $chatId)
+    protected function confirmExpense($s, int $chatId, string $callbackId = '')
     {
         $d = $s->data ?? [];
         $shift = CashierShift::find($d['shift_id'] ?? 0);
-        if (!$shift || !$shift->isOpen()) { $this->send($chatId, "Смена не найдена или закрыта."); return $this->showMainMenu($chatId, $s); }
+        if (!$shift || !$shift->isOpen()) {
+            $this->send($chatId, "Смена не найдена или закрыта.");
+            if ($callbackId) $this->failCallback($callbackId, 'Shift not found or closed');
+            return $this->showMainMenu($chatId, $s);
+        }
+
         try {
-            $expense = CashExpense::create([
-                'cashier_shift_id' => $shift->id, 'expense_category_id' => $d['cat_id'],
-                'amount' => $d['amount'], 'currency' => $d['currency'], 'description' => $d['desc'],
-                'requires_approval' => $d['needs_approval'] ?? false,
-                'created_by' => $s->user_id, 'occurred_at' => now(),
-            ]);
-            CashTransaction::create([
-                'cashier_shift_id' => $shift->id, 'type' => 'out', 'amount' => $d['amount'],
-                'currency' => $d['currency'], 'category' => 'expense',
-                'reference' => "Расход: {$d['cat_name']}", 'notes' => $d['desc'],
-                'created_by' => $s->user_id, 'occurred_at' => now(),
-            ]);
-            if ($d['needs_approval'] ?? false) {
-                app(\App\Http\Controllers\OwnerBotController::class)->sendApprovalRequest($expense);
+            $expense = $this->expenseService->recordExpense($shift->id, $d, $s->user_id, $callbackId);
+
+            // Outside transaction: non-critical approval notification
+            if (($d['needs_approval'] ?? false) && $expense) {
+                try {
+                    app(\App\Http\Controllers\OwnerBotController::class)->sendApprovalRequest($expense);
+                } catch (\Exception $e) {
+                    Log::warning('Expense approval notification failed', ['expense_id' => $expense->id, 'e' => $e->getMessage()]);
+                }
             }
-            $this->send($chatId, "Расход записан!\nБаланс: " . $this->fmtBal($this->getBal($shift)));
+            $this->send($chatId, "Расход записан!\nБаланс: " . $this->fmtBal($this->getBal($shift->fresh())));
         } catch (\Exception $e) {
+            if ($callbackId) $this->failCallback($callbackId, $e->getMessage());
             Log::error('Expense failed', ['e' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
             $this->alertOwnerOnError('Expense', $e, $s->user_id);
             $this->send($chatId, "Ошибка при записи расхода. Попробуйте снова.");
         }
+
         return $this->showMainMenu($chatId, $s);
     }
 
@@ -473,94 +593,84 @@ class CashierBotController extends Controller
         return $this->showCloseConfirm($s, $chatId);
     }
 
-    protected function confirmClose($s, int $chatId)
+    protected function confirmClose($s, int $chatId, string $callbackId = '')
     {
         $d = $s->data ?? [];
         $shift = CashierShift::find($d['shift_id'] ?? 0);
-        if (!$shift) { $this->send($chatId, "Смена не найдена."); return $this->showMainMenu($chatId, $s); }
+        if (!$shift) {
+            $this->send($chatId, "Смена не найдена.");
+            if ($callbackId) $this->failCallback($callbackId, 'Shift not found');
+            return $this->showMainMenu($chatId, $s);
+        }
+
         try {
-            $ho = ShiftHandover::create([
-                'outgoing_shift_id' => $shift->id,
-                'counted_uzs' => $d['counted_uzs'] ?? 0, 'counted_usd' => $d['counted_usd'] ?? 0, 'counted_eur' => $d['counted_eur'] ?? 0,
-                'expected_uzs' => $d['expected']['UZS'] ?? 0, 'expected_usd' => $d['expected']['USD'] ?? 0, 'expected_eur' => $d['expected']['EUR'] ?? 0,
-                'cash_photo_path' => $d['photo_id'] ?? null,
-            ]);
-            $shift->update(['status' => 'closed', 'closed_at' => now()]);
+            $ho = $this->shiftService->closeShift($shift->id, $d, $callbackId);
 
-            // Create EndSaldo records for reports consistency
-            foreach (['UZS', 'USD', 'EUR'] as $cur) {
-                $exp = $d['expected'][$cur] ?? 0;
-                $cnt = $d['counted_' . strtolower($cur)] ?? 0;
-                if ($exp > 0 || $cnt > 0) {
-                    EndSaldo::updateOrCreate(
-                        ['cashier_shift_id' => $shift->id, 'currency' => Currency::from($cur)],
-                        [
-                            'expected_end_saldo' => $exp,
-                            'counted_end_saldo' => $cnt,
-                            'discrepancy' => round($cnt - $exp, 2),
-                            'discrepancy_reason' => abs($cnt - $exp) > 0.01 ? 'Via Telegram bot' : null,
-                        ]
-                    );
-                }
+            // === Outside transaction: non-critical notifications ===
+            $this->sendShiftCloseNotifications($shift->fresh(), $s, $d, $ho);
+
+            $this->send($chatId, "Смена закрыта!");
+        } catch (\Exception $e) {
+            if ($callbackId) $this->failCallback($callbackId, $e->getMessage());
+            Log::error('Close shift failed', ['e' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+            $this->alertOwnerOnError('Close shift', $e, $s->user_id);
+            $this->send($chatId, "Ошибка при закрытии смены. Обратитесь к руководству.");
+        }
+
+        return $this->showMainMenu($chatId, $s);
+    }
+
+    /**
+     * Build and send owner notification after shift close. Non-critical — failures are logged only.
+     */
+    private function sendShiftCloseNotifications(CashierShift $shift, $session, array $d, ShiftHandover $ho): void
+    {
+        $user = User::find($session->user_id);
+        $txn = CashTransaction::where('cashier_shift_id', $shift->id)->count();
+
+        // Build discrepancy data
+        $discrepancies = [];
+        foreach (['UZS', 'USD', 'EUR'] as $cur) {
+            $exp = $d['expected'][$cur] ?? 0;
+            $cnt = $d['counted_' . strtolower($cur)] ?? 0;
+            $diff = round($cnt - $exp, 2);
+            if ($exp > 0 || $cnt > 0) {
+                $discrepancies[$cur] = ['expected' => $exp, 'counted' => $cnt, 'diff' => $diff];
             }
+        }
 
-            $user = User::find($s->user_id);
-            $txn = CashTransaction::where('cashier_shift_id', $shift->id)->count();
-            $msg = "Смена закрыта\n\nСотрудник: " . ($user->name ?? '?')
-                . "\nВремя: " . $shift->opened_at->format('H:i') . '-' . now()->timezone('Asia/Tashkent')->format('H:i')
-                . "\nОпераций: {$txn}\n";
-            foreach (['UZS', 'USD', 'EUR'] as $c) {
-                $e = $d['expected'][$c] ?? 0;
-                $cnt = $d['counted_' . strtolower($c)] ?? 0;
-                if ($e > 0 || $cnt > 0) {
-                    $diff = round($cnt - $e, 2);
-                    $msg .= "\n{$c}: " . number_format($e, 0) . " -> " . number_format($cnt, 0);
-                    if ($diff != 0) $msg .= " (" . ($diff > 0 ? '+' : '') . number_format($diff, 0) . ")";
-                }
+        $hasDisc = $ho->hasDiscrepancy();
+        $maxDiffPct = 0;
+        foreach ($discrepancies as $cur => $vals) {
+            if ($vals['expected'] > 0) {
+                $pct = abs($vals['diff'] / $vals['expected']) * 100;
+                $maxDiffPct = max($maxDiffPct, $pct);
+            } elseif ($vals['counted'] != 0 && $vals['expected'] == 0) {
+                $maxDiffPct = 100;
             }
-            // Build owner notification
-            $discrepancies = [];
-            foreach (['UZS', 'USD', 'EUR'] as $cur) {
-                $exp = $d['expected'][$cur] ?? 0;
-                $cnt = $d['counted_' . strtolower($cur)] ?? 0;
-                $diff = round($cnt - $exp, 2);
-                if ($exp > 0 || $cnt > 0) {
-                    $discrepancies[$cur] = ['expected' => $exp, 'counted' => $cnt, 'diff' => $diff];
-                }
-            }
+        }
 
-            $hasDisc = $ho->hasDiscrepancy();
-            $maxDiffPct = 0;
-            foreach ($discrepancies as $cur => $vals) {
-                if ($vals['expected'] > 0) {
-                    $pct = abs($vals['diff'] / $vals['expected']) * 100;
-                    $maxDiffPct = max($maxDiffPct, $pct);
-                } elseif ($vals['counted'] != 0 && $vals['expected'] == 0) {
-                    $maxDiffPct = 100; // unexpected cash present
-                }
-            }
+        $severity = $maxDiffPct < 1 ? '🟢' : ($maxDiffPct < 5 ? '🟡' : '🔴');
+        $severityLabel = $maxDiffPct < 1 ? 'Без расхождений' : ($maxDiffPct < 5 ? 'Небольшое расхождение' : 'КРУПНОЕ РАСХОЖДЕНИЕ');
 
-            // Severity: 🟢 <1%, 🟡 1-5%, 🔴 >5%
-            $severity = $maxDiffPct < 1 ? '🟢' : ($maxDiffPct < 5 ? '🟡' : '🔴');
-            $severityLabel = $maxDiffPct < 1 ? 'Без расхождений' : ($maxDiffPct < 5 ? 'Небольшое расхождение' : 'КРУПНОЕ РАСХОЖДЕНИЕ');
+        $ownerMsg = "{$severity} <b>Смена закрыта</b>\n\n"
+            . "👤 Сотрудник: " . ($user->name ?? '?') . "\n"
+            . "⏰ " . $shift->opened_at->timezone('Asia/Tashkent')->format('H:i') . '–' . now('Asia/Tashkent')->format('H:i') . "\n"
+            . "📊 Операций: {$txn}\n\n";
 
-            $ownerMsg = "{$severity} <b>Смена закрыта</b>\n\n"
-                . "👤 Сотрудник: " . ($user->name ?? '?') . "\n"
-                . "⏰ " . $shift->opened_at->timezone('Asia/Tashkent')->format('H:i') . '–' . now('Asia/Tashkent')->format('H:i') . "\n"
-                . "📊 Операций: {$txn}\n\n";
+        foreach ($discrepancies as $cur => $vals) {
+            $diffSign = $vals['diff'] >= 0 ? '+' : '';
+            $diffStr = $vals['diff'] != 0 ? " (<b>{$diffSign}" . number_format($vals['diff'], 0) . "</b>)" : '';
+            $ownerMsg .= "<b>{$cur}:</b> " . number_format($vals['expected'], 0) . " → " . number_format($vals['counted'], 0) . $diffStr . "\n";
+        }
 
-            foreach ($discrepancies as $cur => $vals) {
-                $diffSign = $vals['diff'] >= 0 ? '+' : '';
-                $diffStr = $vals['diff'] != 0 ? " (<b>{$diffSign}" . number_format($vals['diff'], 0) . "</b>)" : '';
-                $ownerMsg .= "<b>{$cur}:</b> " . number_format($vals['expected'], 0) . " → " . number_format($vals['counted'], 0) . $diffStr . "\n";
-            }
+        if ($hasDisc) {
+            $ownerMsg .= "\n⚠️ <b>{$severityLabel}</b> (" . round($maxDiffPct, 1) . "%)";
+        } else {
+            $ownerMsg .= "\n✅ {$severityLabel}";
+        }
 
-            if ($hasDisc) {
-                $ownerMsg .= "\n⚠️ <b>{$severityLabel}</b> (" . round($maxDiffPct, 1) . "%)";
-            } else {
-                $ownerMsg .= "\n✅ {$severityLabel}";
-            }
-
+        try {
             $this->ownerAlert->sendShiftCloseReport($ownerMsg);
 
             if (!empty($d['photo_id'])) {
@@ -570,13 +680,9 @@ class CashierBotController extends Controller
                     'chat_id' => $oid, 'photo' => $d['photo_id'], 'caption' => '📸 Фото кассы при закрытии смены',
                 ]);
             }
-            $this->send($chatId, "Смена закрыта!");
         } catch (\Exception $e) {
-            Log::error('Close shift failed', ['e' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
-            $this->alertOwnerOnError('Close shift', $e, $s->user_id);
-            $this->send($chatId, "Ошибка при закрытии смены. Обратитесь к руководству.");
+            Log::warning('Close shift: owner notification failed', ['e' => $e->getMessage()]);
         }
-        return $this->showMainMenu($chatId, $s);
     }
 
 
@@ -665,50 +771,28 @@ class CashierBotController extends Controller
         return response('OK');
     }
 
-    protected function confirmExchange($s, int $chatId)
+    protected function confirmExchange($s, int $chatId, string $callbackId = '')
     {
         $d = $s->data ?? [];
         $shift = CashierShift::find($d['shift_id'] ?? 0);
-        if (!$shift || !$shift->isOpen()) { $this->send($chatId, "Смена не найдена или закрыта."); return $this->showMainMenu($chatId, $s); }
+        if (!$shift || !$shift->isOpen()) {
+            $this->send($chatId, "Смена не найдена или закрыта.");
+            if ($callbackId) $this->failCallback($callbackId, 'Shift not found or closed');
+            return $this->showMainMenu($chatId, $s);
+        }
+
         try {
-            $ref = 'EX-' . now()->format('YmdHis');
+            $this->exchangeService->recordExchange($shift->id, $d, $s->user_id, $callbackId);
 
-            // Cash IN transaction (receiving money)
-            CashTransaction::create([
-                'cashier_shift_id' => $shift->id,
-                'type' => 'in',
-                'amount' => $d['in_amount'],
-                'currency' => $d['in_currency'],
-                'related_currency' => $d['out_currency'],
-                'related_amount' => $d['out_amount'],
-                'category' => 'exchange',
-                'reference' => $ref,
-                'notes' => "Обмен: " . number_format($d['in_amount'], 0) . " {$d['in_currency']} ← " . number_format($d['out_amount'], 0) . " {$d['out_currency']}",
-                'created_by' => $s->user_id,
-                'occurred_at' => now(),
-            ]);
-
-            // Cash OUT transaction (giving money)
-            CashTransaction::create([
-                'cashier_shift_id' => $shift->id,
-                'type' => 'out',
-                'amount' => $d['out_amount'],
-                'currency' => $d['out_currency'],
-                'related_currency' => $d['in_currency'],
-                'related_amount' => $d['in_amount'],
-                'category' => 'exchange',
-                'reference' => $ref,
-                'notes' => "Обмен: " . number_format($d['out_amount'], 0) . " {$d['out_currency']} → " . number_format($d['in_amount'], 0) . " {$d['in_currency']}",
-                'created_by' => $s->user_id,
-                'occurred_at' => now(),
-            ]);
-
-            $this->send($chatId, "✅ Обмен записан!\n\n📥 +" . number_format($d['in_amount'], 0) . " {$d['in_currency']}\n📤 -" . number_format($d['out_amount'], 0) . " {$d['out_currency']}\n\nБаланс: " . $this->fmtBal($this->getBal($shift)));
+            // Outside transaction: non-critical messaging
+            $this->send($chatId, "✅ Обмен записан!\n\n📥 +" . number_format($d['in_amount'], 0) . " {$d['in_currency']}\n📤 -" . number_format($d['out_amount'], 0) . " {$d['out_currency']}\n\nБаланс: " . $this->fmtBal($this->getBal($shift->fresh())));
         } catch (\Exception $e) {
+            if ($callbackId) $this->failCallback($callbackId, $e->getMessage());
             Log::error('Exchange failed', ['e' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
             $this->alertOwnerOnError('Exchange', $e, $s->user_id);
             $this->send($chatId, "Ошибка при записи обмена. Попробуйте снова.");
         }
+
         return $this->showMainMenu($chatId, $s);
     }
 

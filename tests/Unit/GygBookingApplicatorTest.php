@@ -98,6 +98,7 @@ class GygBookingApplicatorTest extends TestCase
             'last_name'  => 'Doe',
             'phone'      => '+9999999999',
             'email'      => 'other@example.com',
+            'country'    => 'Test',
             'created_at' => now(),
             'updated_at' => now(),
         ]);
@@ -121,6 +122,7 @@ class GygBookingApplicatorTest extends TestCase
             'first_name' => 'Jane',
             'last_name'  => 'Smith',
             'phone'      => '+1234567890',
+            'country'    => 'Test',
             'created_at' => now(),
             'updated_at' => now(),
         ]);
@@ -177,7 +179,7 @@ class GygBookingApplicatorTest extends TestCase
         // Create existing booking
         DB::table('bookings')->insert([
             'booking_number' => $ref,
-            'guest_id'       => DB::table('guests')->insertGetId(['first_name' => 'Test', 'last_name' => 'Guest', 'created_at' => now(), 'updated_at' => now()]),
+            'guest_id'       => DB::table('guests')->insertGetId(['first_name' => 'Test', 'last_name' => 'Guest', 'country' => 'Test', 'created_at' => now(), 'updated_at' => now()]),
             'booking_status' => 'confirmed',
             'booking_source' => 'getyourguide',
             'created_at'     => now(),
@@ -202,7 +204,7 @@ class GygBookingApplicatorTest extends TestCase
 
         DB::table('bookings')->insert([
             'booking_number' => $ref,
-            'guest_id'       => DB::table('guests')->insertGetId(['first_name' => 'Test', 'last_name' => 'Guest', 'created_at' => now(), 'updated_at' => now()]),
+            'guest_id'       => DB::table('guests')->insertGetId(['first_name' => 'Test', 'last_name' => 'Guest', 'country' => 'Test', 'created_at' => now(), 'updated_at' => now()]),
             'booking_status' => 'cancelled',
             'booking_source' => 'getyourguide',
             'created_at'     => now(),
@@ -242,7 +244,7 @@ class GygBookingApplicatorTest extends TestCase
 
         DB::table('bookings')->insert([
             'booking_number' => $ref,
-            'guest_id'       => DB::table('guests')->insertGetId(['first_name' => 'Test', 'last_name' => 'Guest', 'created_at' => now(), 'updated_at' => now()]),
+            'guest_id'       => DB::table('guests')->insertGetId(['first_name' => 'Test', 'last_name' => 'Guest', 'country' => 'Test', 'created_at' => now(), 'updated_at' => now()]),
             'booking_status' => 'confirmed',
             'booking_source' => 'getyourguide',
             'created_at'     => now(),
