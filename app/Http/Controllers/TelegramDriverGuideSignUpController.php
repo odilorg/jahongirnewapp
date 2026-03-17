@@ -262,7 +262,7 @@ class TelegramDriverGuideSignUpController extends Controller
         $firstDay  = $month->copy()->startOfMonth();
         $lastDay   = $month->copy()->endOfMonth();
         $today     = Carbon::now('Asia/Tashkent')->startOfDay();
-        $yearEnd   = Carbon::create(2026, 12, 31, 0, 0, 0, 'Asia/Tashkent');
+        $yearEnd   = Carbon::now('Asia/Tashkent')->endOfYear();
 
         $availability = DB::table('driver_availability')
             ->where('driver_id', $driverId)
@@ -425,7 +425,7 @@ class TelegramDriverGuideSignUpController extends Controller
         if ($action === 'NEXT' && isset($parts[3])) {
             [$year, $mon] = explode('-', $parts[3]);
             $next = Carbon::create((int) $year, (int) $mon, 1, 0, 0, 0, 'Asia/Tashkent')->addMonth();
-            if ($next->lte(Carbon::create(2026, 12, 1, 0, 0, 0, 'Asia/Tashkent'))) {
+            if ($next->lte(Carbon::now('Asia/Tashkent')->endOfYear()->startOfMonth())) {
                 $this->sendCalendar($chatId, $driverId, $next, $messageId);
             }
         }
@@ -917,52 +917,66 @@ class TelegramDriverGuideSignUpController extends Controller
 
         if (!$booking) return response()->json(['ok' => true]);
 
-        // Idempotency: ignore if already actioned
-        $alreadyActioned = DB::table('driver_booking_logs')
-            ->where('booking_id', $bookingId)
-            ->where('driver_id', $driver->id)
-            ->whereIn('action', ['confirmed', 'rejected'])
-            ->exists();
-        if ($alreadyActioned) {
-            $this->answerCallbackQuery($callbackQueryId ?? '');
-            return response()->json(['ok' => true]);
-        }
-
         $status = $action === 'DCONFIRM' ? 'confirmed' : 'rejected';
         $emoji  = $action === 'DCONFIRM' ? '✅' : '❌';
         $label  = $action === 'DCONFIRM' ? 'Tasdiqlandi' : 'Rad etildi';
         $now    = now();
 
-        if ($action === 'DCONFIRM') {
-            // Assign driver only now that they confirmed
-            DB::table('bookings')->where('id', $bookingId)->update([
-                'driver_id'          => $driver->id,
-                'driver_status'      => 'confirmed',
-                'driver_notified_at' => $now,
+        // Atomic: lock booking row, recheck idempotency, then write
+        $alreadyDone = false;
+        DB::transaction(function () use ($bookingId, $driver, $chatId, $action, $status, $booking, $now, &$alreadyDone) {
+            // Lock the booking row to prevent double-assign race
+            $lockedBooking = DB::table('bookings')->where('id', $bookingId)->lockForUpdate()->first();
+            if (!$lockedBooking) return;
+
+            // Idempotency: ignore if already actioned by this driver
+            $alreadyActioned = DB::table('driver_booking_logs')
+                ->where('booking_id', $bookingId)
+                ->where('driver_id', $driver->id)
+                ->whereIn('action', ['confirmed', 'rejected'])
+                ->exists();
+            if ($alreadyActioned) { $alreadyDone = true; return; }
+
+            // Also reject if another driver already confirmed this booking
+            if ($action === 'DCONFIRM' && $lockedBooking->driver_id && $lockedBooking->driver_status === 'confirmed') {
+                $alreadyDone = true;
+                return;
+            }
+
+            if ($action === 'DCONFIRM') {
+                DB::table('bookings')->where('id', $bookingId)->update([
+                    'driver_id'          => $driver->id,
+                    'driver_status'      => 'confirmed',
+                    'driver_notified_at' => $now,
+                ]);
+            } else {
+                DB::table('bookings')->where('id', $bookingId)->update([
+                    'driver_status' => 'rejected',
+                ]);
+            }
+
+            // Audit log inside transaction
+            DB::table('driver_booking_logs')->insert([
+                'booking_id'       => $bookingId,
+                'driver_id'        => $driver->id,
+                'telegram_chat_id' => $chatId,
+                'action'           => $status,
+                'booking_number'   => $booking->booking_number,
+                'guest_name'       => trim("{$booking->first_name} {$booking->last_name}"),
+                'tour_date'        => null,
+                'pax'              => $booking->number_of_people,
+                'actioned_at'      => $now,
+                'created_at'       => $now,
+                'updated_at'       => $now,
             ]);
-        } else {
-            // Rejected — leave driver_id unset, just log
-            DB::table('bookings')->where('id', $bookingId)->update([
-                'driver_status' => 'rejected',
-            ]);
+        }); // end DB::transaction
+
+        if ($alreadyDone) {
+            $this->answerCallbackQuery($callbackQueryId ?? '');
+            return response()->json(['ok' => true]);
         }
 
-        // Audit log
-        DB::table('driver_booking_logs')->insert([
-            'booking_id'       => $bookingId,
-            'driver_id'        => $driver->id,
-            'telegram_chat_id' => $chatId,
-            'action'           => $status,
-            'booking_number'   => $booking->booking_number,
-            'guest_name'       => trim("{$booking->first_name} {$booking->last_name}"),
-            'tour_date'        => null,
-            'pax'              => $booking->number_of_people,
-            'actioned_at'      => $now,
-            'created_at'       => $now,
-            'updated_at'       => $now,
-        ]);
-
-        // Edit message — show result + timestamp
+        // Edit message — show result + timestamp (outside transaction)
         $this->editMessageText($chatId, $messageId,
             "{$emoji} <b>{$label}</b>\n\n"
             . "👤 {$booking->first_name} {$booking->last_name}\n"

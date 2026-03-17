@@ -86,6 +86,13 @@ class CashierBotController extends Controller
             $this->send($chatId, "Сессия истекла. Отправьте номер телефона.", $this->phoneKb());
             return response('OK');
         }
+        // Hard TTL: expire active financial sessions after 4 hours to prevent
+        // abandoned sessions from being inherited by the next person
+        if ($session->last_activity_at && Carbon::parse($session->last_activity_at)->addHours(4)->isPast()) {
+            $session->update(['user_id' => null, 'state' => 'idle', 'data' => null]);
+            $this->send($chatId, "Сессия истекла (4ч). Отправьте номер телефона.", $this->phoneKb());
+            return response('OK');
+        }
         $session->updateActivity();
         if ($photo && $session->state === 'shift_close_photo') return $this->handleShiftPhoto($session, $chatId, $photo);
         if ($text === '/start' || $text === '/menu') return $this->showMainMenu($chatId, $session);
@@ -476,8 +483,10 @@ class CashierBotController extends Controller
     {
         $d = $s->data ?? [];
         $d['desc'] = $text;
-        $thr = config('services.cashier_bot.expense_approval_threshold_uzs', 500000);
-        $d['needs_approval'] = ($d['currency'] === 'UZS' && $d['amount'] > $thr);
+        // Approval thresholds per currency (UZS equivalent ~$40)
+        $thresholds = ['UZS' => config('services.cashier_bot.expense_approval_threshold_uzs', 500000), 'USD' => 40, 'EUR' => 35];
+        $thr = $thresholds[$d['currency']] ?? $thresholds['UZS'];
+        $d['needs_approval'] = ($d['amount'] > $thr);
         $s->update(['state' => 'expense_confirm', 'data' => $d]);
         $t = "Подтвердите расход:\n\nКатегория: {$d['cat_name']}\nСумма: " . number_format($d['amount'], 0) . " {$d['currency']}\nОписание: {$d['desc']}";
         if ($d['needs_approval']) $t .= "\n\nТребуется одобрение владельца.";
