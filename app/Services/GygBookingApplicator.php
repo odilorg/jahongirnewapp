@@ -272,7 +272,7 @@ class GygBookingApplicator
             'last_name'        => $lastName,
             'email'            => $email->guest_email ?? 'not-provided@gyg-import.local',
             'phone'            => $email->guest_phone ?? 'not-provided',
-            'country'          => 'GYG Import',
+            'country'          => 'Unknown',
             'number_of_people' => $email->pax ?? 1,
             'created_at'       => now(),
             'updated_at'       => now(),
