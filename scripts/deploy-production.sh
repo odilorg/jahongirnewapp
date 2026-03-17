@@ -112,7 +112,7 @@ CHECKS_TOTAL=3
 # Check 1: DB connection
 if php artisan tinker --execute="DB::select('select 1');" >/dev/null 2>&1; then
     log "    ✅ DB connection OK"
-    ((CHECKS_PASSED++))
+    CHECKS_PASSED=$((CHECKS_PASSED + 1))
 else
     log "    ❌ DB connection FAILED"
 fi
@@ -120,18 +120,18 @@ fi
 # Check 2: Current commit matches intended
 LIVE_SHA=$(git rev-parse HEAD)
 if [ "$LIVE_SHA" = "$DEPLOYED_SHA" ]; then
-    log "    ✅ Commit matches: $LIVE_SHA"
-    ((CHECKS_PASSED++))
+    log "    ✅ Commit matches: ${LIVE_SHA:0:8}"
+    CHECKS_PASSED=$((CHECKS_PASSED + 1))
 else
     log "    ❌ Commit mismatch: expected $DEPLOYED_SHA, got $LIVE_SHA"
 fi
 
 # Check 3: PM2 processes online
 if command -v pm2 &>/dev/null; then
-    PM2_ONLINE=$(pm2 jlist 2>/dev/null | php -r "echo count(array_filter(json_decode(file_get_contents('php://stdin'),true), fn(\$p)=>\$p['pm2_env']['status']==='online'));" 2>/dev/null || echo "0")
-    if [ "$PM2_ONLINE" -gt 0 ]; then
+    PM2_ONLINE=$(pm2 jlist 2>/dev/null | grep -c '"status":"online"' || true)
+    if [ "$PM2_ONLINE" -gt 0 ] 2>/dev/null; then
         log "    ✅ PM2: $PM2_ONLINE process(es) online"
-        ((CHECKS_PASSED++))
+        CHECKS_PASSED=$((CHECKS_PASSED + 1))
     else
         log "    ❌ PM2: no online processes"
     fi
