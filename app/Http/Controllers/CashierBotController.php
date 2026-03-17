@@ -13,6 +13,8 @@ use App\Models\BeginningSaldo;
 use App\Models\Beds24Booking;
 use App\Models\TelegramPosSession;
 use App\Models\ExpenseCategory;
+use App\Services\CashierPaymentService;
+use App\Services\CashierShiftService;
 use App\Services\OwnerAlertService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -24,11 +26,18 @@ class CashierBotController extends Controller
 {
     protected string $botToken;
     protected OwnerAlertService $ownerAlert;
+    protected CashierPaymentService $paymentService;
+    protected CashierShiftService $shiftService;
 
-    public function __construct(OwnerAlertService $ownerAlert)
-    {
+    public function __construct(
+        OwnerAlertService $ownerAlert,
+        CashierPaymentService $paymentService,
+        CashierShiftService $shiftService,
+    ) {
         $this->botToken = config('services.cashier_bot.token', config('services.owner_alert_bot.token'));
         $this->ownerAlert = $ownerAlert;
+        $this->paymentService = $paymentService;
+        $this->shiftService = $shiftService;
     }
 
     public function handleWebhook(Request $request)
@@ -396,25 +405,7 @@ class CashierBotController extends Controller
         }
 
         try {
-            DB::transaction(function () use ($shift, $d, $s, $callbackId) {
-                // Lock shift row and revalidate — another request may have closed it
-                $lockedShift = CashierShift::where('id', $shift->id)->lockForUpdate()->first();
-                if (!$lockedShift || !$lockedShift->isOpen()) {
-                    throw new \RuntimeException('Shift closed during confirmation');
-                }
-
-                CashTransaction::create([
-                    'cashier_shift_id' => $lockedShift->id, 'type' => 'in', 'amount' => $d['amount'],
-                    'currency' => $d['currency'], 'category' => 'sale',
-                    'beds24_booking_id' => $d['booking_id'] ?? null, 'payment_method' => $d['method'],
-                    'guest_name' => $d['guest_name'], 'room_number' => $d['room'],
-                    'reference' => $d['booking_id'] ? "Beds24 #{$d['booking_id']}" : "Комната {$d['room']}",
-                    'notes' => "Оплата: {$d['guest_name']}", 'created_by' => $s->user_id, 'occurred_at' => now(),
-                ]);
-
-                // Inside transaction: if this rolls back, callback stays 'processing' (retryable)
-                if ($callbackId) $this->succeedCallback($callbackId);
-            });
+            $this->paymentService->recordPayment($shift->id, $d, $s->user_id, $callbackId);
 
             // Outside transaction: non-critical messaging
             $this->send($chatId, "Оплата записана!\nБаланс: " . $this->fmtBal($this->getBal($shift->fresh())));
@@ -627,117 +618,11 @@ class CashierBotController extends Controller
             return $this->showMainMenu($chatId, $s);
         }
 
-        $ho = null;
         try {
-            DB::transaction(function () use ($shift, $d, $callbackId, &$ho) {
-                // Lock shift to prevent concurrent close
-                $lockedShift = CashierShift::where('id', $shift->id)->lockForUpdate()->first();
-                if (!$lockedShift || $lockedShift->status !== 'open') {
-                    throw new \RuntimeException('Shift already closed or not found');
-                }
-
-                $ho = ShiftHandover::create([
-                    'outgoing_shift_id' => $shift->id,
-                    'counted_uzs' => $d['counted_uzs'] ?? 0, 'counted_usd' => $d['counted_usd'] ?? 0, 'counted_eur' => $d['counted_eur'] ?? 0,
-                    'expected_uzs' => $d['expected']['UZS'] ?? 0, 'expected_usd' => $d['expected']['USD'] ?? 0, 'expected_eur' => $d['expected']['EUR'] ?? 0,
-                    'cash_photo_path' => $d['photo_id'] ?? null,
-                ]);
-
-                $lockedShift->update(['status' => 'closed', 'closed_at' => now()]);
-
-                // EndSaldo records — atomic with shift close
-                foreach (['UZS', 'USD', 'EUR'] as $cur) {
-                    $exp = $d['expected'][$cur] ?? 0;
-                    $cnt = $d['counted_' . strtolower($cur)] ?? 0;
-                    if ($exp > 0 || $cnt > 0) {
-                        EndSaldo::updateOrCreate(
-                            ['cashier_shift_id' => $shift->id, 'currency' => Currency::from($cur)],
-                            [
-                                'expected_end_saldo' => $exp,
-                                'counted_end_saldo' => $cnt,
-                                'discrepancy' => round($cnt - $exp, 2),
-                                'discrepancy_reason' => abs($cnt - $exp) > 0.01 ? 'Via Telegram bot' : null,
-                            ]
-                        );
-                    }
-                }
-
-                if ($callbackId) $this->succeedCallback($callbackId);
-            });
+            $ho = $this->shiftService->closeShift($shift->id, $d, $callbackId);
 
             // === Outside transaction: non-critical notifications ===
-
-            $user = User::find($s->user_id);
-            $txn = CashTransaction::where('cashier_shift_id', $shift->id)->count();
-            $msg = "Смена закрыта\n\nСотрудник: " . ($user->name ?? '?')
-                . "\nВремя: " . $shift->opened_at->format('H:i') . '-' . now()->timezone('Asia/Tashkent')->format('H:i')
-                . "\nОпераций: {$txn}\n";
-            foreach (['UZS', 'USD', 'EUR'] as $c) {
-                $e = $d['expected'][$c] ?? 0;
-                $cnt = $d['counted_' . strtolower($c)] ?? 0;
-                if ($e > 0 || $cnt > 0) {
-                    $diff = round($cnt - $e, 2);
-                    $msg .= "\n{$c}: " . number_format($e, 0) . " -> " . number_format($cnt, 0);
-                    if ($diff != 0) $msg .= " (" . ($diff > 0 ? '+' : '') . number_format($diff, 0) . ")";
-                }
-            }
-            // Build owner notification
-            $discrepancies = [];
-            foreach (['UZS', 'USD', 'EUR'] as $cur) {
-                $exp = $d['expected'][$cur] ?? 0;
-                $cnt = $d['counted_' . strtolower($cur)] ?? 0;
-                $diff = round($cnt - $exp, 2);
-                if ($exp > 0 || $cnt > 0) {
-                    $discrepancies[$cur] = ['expected' => $exp, 'counted' => $cnt, 'diff' => $diff];
-                }
-            }
-
-            $hasDisc = $ho->hasDiscrepancy();
-            $maxDiffPct = 0;
-            foreach ($discrepancies as $cur => $vals) {
-                if ($vals['expected'] > 0) {
-                    $pct = abs($vals['diff'] / $vals['expected']) * 100;
-                    $maxDiffPct = max($maxDiffPct, $pct);
-                } elseif ($vals['counted'] != 0 && $vals['expected'] == 0) {
-                    $maxDiffPct = 100; // unexpected cash present
-                }
-            }
-
-            // Severity: 🟢 <1%, 🟡 1-5%, 🔴 >5%
-            $severity = $maxDiffPct < 1 ? '🟢' : ($maxDiffPct < 5 ? '🟡' : '🔴');
-            $severityLabel = $maxDiffPct < 1 ? 'Без расхождений' : ($maxDiffPct < 5 ? 'Небольшое расхождение' : 'КРУПНОЕ РАСХОЖДЕНИЕ');
-
-            $ownerMsg = "{$severity} <b>Смена закрыта</b>\n\n"
-                . "👤 Сотрудник: " . ($user->name ?? '?') . "\n"
-                . "⏰ " . $shift->opened_at->timezone('Asia/Tashkent')->format('H:i') . '–' . now('Asia/Tashkent')->format('H:i') . "\n"
-                . "📊 Операций: {$txn}\n\n";
-
-            foreach ($discrepancies as $cur => $vals) {
-                $diffSign = $vals['diff'] >= 0 ? '+' : '';
-                $diffStr = $vals['diff'] != 0 ? " (<b>{$diffSign}" . number_format($vals['diff'], 0) . "</b>)" : '';
-                $ownerMsg .= "<b>{$cur}:</b> " . number_format($vals['expected'], 0) . " → " . number_format($vals['counted'], 0) . $diffStr . "\n";
-            }
-
-            if ($hasDisc) {
-                $ownerMsg .= "\n⚠️ <b>{$severityLabel}</b> (" . round($maxDiffPct, 1) . "%)";
-            } else {
-                $ownerMsg .= "\n✅ {$severityLabel}";
-            }
-
-            // Non-critical: owner report + photo (failure here does NOT undo the close)
-            try {
-                $this->ownerAlert->sendShiftCloseReport($ownerMsg);
-
-                if (!empty($d['photo_id'])) {
-                    $oid = config('services.owner_alert_bot.owner_chat_id', env('OWNER_TELEGRAM_ID', '38738713'));
-                    $ownerBotToken = config('services.owner_alert_bot.token', env('OWNER_ALERT_BOT_TOKEN'));
-                    Http::post("https://api.telegram.org/bot{$ownerBotToken}/sendPhoto", [
-                        'chat_id' => $oid, 'photo' => $d['photo_id'], 'caption' => '📸 Фото кассы при закрытии смены',
-                    ]);
-                }
-            } catch (\Exception $e) {
-                Log::warning('Close shift: owner notification failed', ['e' => $e->getMessage()]);
-            }
+            $this->sendShiftCloseNotifications($shift->fresh(), $s, $d, $ho);
 
             $this->send($chatId, "Смена закрыта!");
         } catch (\Exception $e) {
@@ -748,6 +633,71 @@ class CashierBotController extends Controller
         }
 
         return $this->showMainMenu($chatId, $s);
+    }
+
+    /**
+     * Build and send owner notification after shift close. Non-critical — failures are logged only.
+     */
+    private function sendShiftCloseNotifications(CashierShift $shift, $session, array $d, ShiftHandover $ho): void
+    {
+        $user = User::find($session->user_id);
+        $txn = CashTransaction::where('cashier_shift_id', $shift->id)->count();
+
+        // Build discrepancy data
+        $discrepancies = [];
+        foreach (['UZS', 'USD', 'EUR'] as $cur) {
+            $exp = $d['expected'][$cur] ?? 0;
+            $cnt = $d['counted_' . strtolower($cur)] ?? 0;
+            $diff = round($cnt - $exp, 2);
+            if ($exp > 0 || $cnt > 0) {
+                $discrepancies[$cur] = ['expected' => $exp, 'counted' => $cnt, 'diff' => $diff];
+            }
+        }
+
+        $hasDisc = $ho->hasDiscrepancy();
+        $maxDiffPct = 0;
+        foreach ($discrepancies as $cur => $vals) {
+            if ($vals['expected'] > 0) {
+                $pct = abs($vals['diff'] / $vals['expected']) * 100;
+                $maxDiffPct = max($maxDiffPct, $pct);
+            } elseif ($vals['counted'] != 0 && $vals['expected'] == 0) {
+                $maxDiffPct = 100;
+            }
+        }
+
+        $severity = $maxDiffPct < 1 ? '🟢' : ($maxDiffPct < 5 ? '🟡' : '🔴');
+        $severityLabel = $maxDiffPct < 1 ? 'Без расхождений' : ($maxDiffPct < 5 ? 'Небольшое расхождение' : 'КРУПНОЕ РАСХОЖДЕНИЕ');
+
+        $ownerMsg = "{$severity} <b>Смена закрыта</b>\n\n"
+            . "👤 Сотрудник: " . ($user->name ?? '?') . "\n"
+            . "⏰ " . $shift->opened_at->timezone('Asia/Tashkent')->format('H:i') . '–' . now('Asia/Tashkent')->format('H:i') . "\n"
+            . "📊 Операций: {$txn}\n\n";
+
+        foreach ($discrepancies as $cur => $vals) {
+            $diffSign = $vals['diff'] >= 0 ? '+' : '';
+            $diffStr = $vals['diff'] != 0 ? " (<b>{$diffSign}" . number_format($vals['diff'], 0) . "</b>)" : '';
+            $ownerMsg .= "<b>{$cur}:</b> " . number_format($vals['expected'], 0) . " → " . number_format($vals['counted'], 0) . $diffStr . "\n";
+        }
+
+        if ($hasDisc) {
+            $ownerMsg .= "\n⚠️ <b>{$severityLabel}</b> (" . round($maxDiffPct, 1) . "%)";
+        } else {
+            $ownerMsg .= "\n✅ {$severityLabel}";
+        }
+
+        try {
+            $this->ownerAlert->sendShiftCloseReport($ownerMsg);
+
+            if (!empty($d['photo_id'])) {
+                $oid = config('services.owner_alert_bot.owner_chat_id', env('OWNER_TELEGRAM_ID', '38738713'));
+                $ownerBotToken = config('services.owner_alert_bot.token', env('OWNER_ALERT_BOT_TOKEN'));
+                Http::post("https://api.telegram.org/bot{$ownerBotToken}/sendPhoto", [
+                    'chat_id' => $oid, 'photo' => $d['photo_id'], 'caption' => '📸 Фото кассы при закрытии смены',
+                ]);
+            }
+        } catch (\Exception $e) {
+            Log::warning('Close shift: owner notification failed', ['e' => $e->getMessage()]);
+        }
     }
 
 
