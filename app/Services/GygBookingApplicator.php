@@ -270,8 +270,9 @@ class GygBookingApplicator
         return DB::table('guests')->insertGetId([
             'first_name'       => $firstName,
             'last_name'        => $lastName,
-            'email'            => $email->guest_email,
-            'phone'            => $email->guest_phone,
+            'email'            => $email->guest_email ?? 'not-provided@gyg-import.local',
+            'phone'            => $email->guest_phone ?? 'not-provided',
+            'country'          => 'GYG Import',
             'number_of_people' => $email->pax ?? 1,
             'created_at'       => now(),
             'updated_at'       => now(),
