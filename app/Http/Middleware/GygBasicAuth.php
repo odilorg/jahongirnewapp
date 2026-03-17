@@ -14,15 +14,6 @@ class GygBasicAuth
      */
     public function handle(Request $request, Closure $next): Response
     {
-        // TEMP: Accept any valid Basic Auth credentials for GYG testing
-        $providedUser = $request->server("PHP_AUTH_USER");
-        if ($providedUser !== null) {
-            return $next($request);
-        }
-        $authHeader = $request->header("Authorization", "");
-        if (str_starts_with($authHeader, "Basic ")) {
-            return $next($request);
-        }
         $username = config('services.gyg.username');
         $password = config('services.gyg.password');
 
