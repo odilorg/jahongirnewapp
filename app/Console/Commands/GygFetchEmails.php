@@ -55,11 +55,13 @@ class GygFetchEmails extends Command
         $stats = ['new' => 0, 'duplicate' => 0, 'error' => 0];
 
         foreach ($gygEnvelopes as $envelope) {
-            $messageId = $this->extractMessageId($envelope);
+            // Fetch Message-ID header + body in one call (mailbox-safe via --preview)
+            $fetched = $this->fetchMessageWithId($envelope['id']);
+            $messageId = $fetched['message_id'] ?? $this->syntheticMessageId($envelope);
 
             if (! $messageId) {
-                $this->warn("[gyg:fetch-emails] Skipping email without message ID: " . ($envelope['subject'] ?? 'no subject'));
-                Log::warning('gyg:fetch-emails: email without message ID', ['subject' => $envelope['subject'] ?? null]);
+                $this->warn("[gyg:fetch-emails] Skipping email without any usable ID: " . ($envelope['subject'] ?? 'no subject'));
+                Log::warning('gyg:fetch-emails: no usable message ID', ['subject' => $envelope['subject'] ?? null]);
                 $stats['error']++;
                 continue;
             }
@@ -77,8 +79,7 @@ class GygFetchEmails extends Command
                 continue;
             }
 
-            // Fetch full message body
-            $body = $this->fetchMessageBody($envelope['id']);
+            $body = $fetched['body'];
 
             try {
                 GygInboundEmail::create([
@@ -154,11 +155,19 @@ class GygFetchEmails extends Command
         return $parsed;
     }
 
-    private function fetchMessageBody(string $envelopeId): ?string
+    /**
+     * Fetch Message-ID header and body in a single himalaya call.
+     * Uses --header Message-ID to include the header at the top of the output.
+     * Uses --preview to avoid marking the email as read.
+     *
+     * @return array{message_id: ?string, body: ?string}
+     */
+    private function fetchMessageWithId(string $envelopeId): array
     {
         $result = Process::timeout(15)->run([
             self::HIMALAYA_BIN, 'message', 'read',
-            '--preview', // don't mark as seen
+            '--preview',
+            '--header', 'Message-ID',
             $envelopeId,
         ]);
 
@@ -167,10 +176,30 @@ class GygFetchEmails extends Command
                 'id'     => $envelopeId,
                 'stderr' => $result->errorOutput(),
             ]);
-            return null;
+            return ['message_id' => null, 'body' => null];
         }
 
-        return $result->output() ?: null;
+        $output = $result->output();
+        if (empty($output)) {
+            return ['message_id' => null, 'body' => null];
+        }
+
+        // Parse Message-ID from the first line(s) of output.
+        // himalaya outputs requested headers first, then the body.
+        // Format: "Message-ID: <...>\n\n<body>"
+        $messageId = null;
+        if (preg_match('/^Message-ID:\s*(.+)$/mi', $output, $matches)) {
+            $messageId = trim($matches[1]);
+        }
+
+        // Body starts after the header block (first blank line)
+        $body = $output;
+        $headerEnd = strpos($output, "\n\n");
+        if ($headerEnd !== false) {
+            $body = substr($output, $headerEnd + 2);
+        }
+
+        return ['message_id' => $messageId, 'body' => $body ?: null];
     }
 
     // ── Filtering ───────────────────────────────────────
@@ -190,12 +219,13 @@ class GygFetchEmails extends Command
 
     // ── Helpers ─────────────────────────────────────────
 
-    private function extractMessageId(array $envelope): ?string
+    /**
+     * Fallback dedupe key when RFC Message-ID header is unavailable.
+     * Prefixed with 'gmail-uid:' to distinguish from real Message-IDs.
+     * Should be extremely rare — GYG uses SendGrid which always sets Message-ID.
+     */
+    private function syntheticMessageId(array $envelope): ?string
     {
-        // Himalaya envelope JSON includes 'id' (IMAP UID) but not Message-ID header.
-        // We use the IMAP UID + subject + date as a composite dedupe key,
-        // since himalaya doesn't expose the Message-ID header directly.
-        // This is stable per mailbox and sufficient for idempotency.
         $uid     = $envelope['id'] ?? '';
         $subject = $envelope['subject'] ?? '';
         $date    = $envelope['date'] ?? '';
@@ -204,7 +234,6 @@ class GygFetchEmails extends Command
             return null;
         }
 
-        // Create a deterministic hash as the message identifier
         return 'gmail-uid:' . $uid . ':' . md5($subject . $date);
     }
 
