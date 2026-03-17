@@ -82,5 +82,14 @@ class Kernel extends ConsoleKernel
             ->dailyAt('09:00')
             ->timezone('Asia/Tashkent')
             ->withoutOverlapping();
+
+        // GYG email ingestion — fetch and persist booking emails every 5 minutes
+        $schedule->command('gyg:fetch-emails')
+            ->everyFiveMinutes()
+            ->withoutOverlapping()
+            ->runInBackground()
+            ->onFailure(function () {
+                \Illuminate\Support\Facades\Log::error('Scheduled gyg:fetch-emails FAILED');
+            });
     }
 }
