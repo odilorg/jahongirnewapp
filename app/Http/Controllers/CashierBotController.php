@@ -69,6 +69,10 @@ class CashierBotController extends Controller
         $photo = $message['photo'] ?? null;
         $contact = $message['contact'] ?? null;
         if (!$chatId) return response('OK');
+
+        // Phone auth only works in private chats — ignore group messages
+        if (($message['chat']['type'] ?? 'private') !== 'private') return response('OK');
+
         if ($contact) return $this->handleAuth($chatId, $contact);
 
         $session = TelegramPosSession::where('chat_id', $chatId)->first();

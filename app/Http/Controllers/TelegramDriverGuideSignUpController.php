@@ -52,6 +52,12 @@ class TelegramDriverGuideSignUpController extends Controller
             return response()->json(['ok' => true]);
         }
 
+        // Phone auth only works in private chats — ignore group messages
+        $chatType = data_get($update, 'message.chat.type', data_get($update, 'callback_query.message.chat.type', 'private'));
+        if ($chatType !== 'private') {
+            return response()->json(['ok' => true]);
+        }
+
         Log::info('DriverGuideBot: update', compact('chatId', 'text'));
 
         // ── Inline calendar button taps ────────────────────────────────────
