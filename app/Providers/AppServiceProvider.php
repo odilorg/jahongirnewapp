@@ -2,6 +2,8 @@
 
 namespace App\Providers;
 
+use App\Contracts\Telegram\BotAuditLoggerInterface;
+use App\Services\Telegram\BotAuditLogger;
 use Illuminate\Support\ServiceProvider;
 use App\Models\AiInstruction;
 use App\Models\Booking;
@@ -15,7 +17,7 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        $this->app->bind(BotAuditLoggerInterface::class, BotAuditLogger::class);
     }
 
     /**
