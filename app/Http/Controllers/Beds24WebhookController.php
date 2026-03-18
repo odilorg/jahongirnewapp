@@ -645,7 +645,7 @@ class Beds24WebhookController extends Controller
             ->get();
 
         foreach ($sessions as $session) {
-            SendTelegramNotificationJob::dispatch($botToken, 'sendMessage', [
+            SendTelegramNotificationJob::dispatch('housekeeping', 'sendMessage', [
                 'chat_id'    => $session->chat_id,
                 'text'       => $text,
                 'parse_mode' => 'HTML',
@@ -655,7 +655,7 @@ class Beds24WebhookController extends Controller
         // Also send to management group
         $mgmtGroupId = (int) config('services.housekeeping_bot.mgmt_group_id', 0);
         if ($mgmtGroupId) {
-            SendTelegramNotificationJob::dispatch($botToken, 'sendMessage', [
+            SendTelegramNotificationJob::dispatch('housekeeping', 'sendMessage', [
                 'chat_id'    => $mgmtGroupId,
                 'text'       => $text,
                 'parse_mode' => 'HTML',
