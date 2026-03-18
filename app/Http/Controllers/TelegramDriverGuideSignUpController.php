@@ -2,28 +2,27 @@
 
 namespace App\Http\Controllers;
 
+use App\Contracts\Telegram\BotResolverInterface;
+use App\Contracts\Telegram\TelegramTransportInterface;
 use App\Models\Driver;
 use App\Models\Guide;
 use App\Models\Partner;
 use Carbon\Carbon;
-use GuzzleHttp\Client;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class TelegramDriverGuideSignUpController extends Controller
 {
-    protected string  $botToken;
-    protected string  $webhookSecret;
     protected string  $ownerChatId;
-    protected Client  $telegramClient;
+    protected BotResolverInterface $botResolver;
+    protected TelegramTransportInterface $transport;
 
-    public function __construct()
+    public function __construct(BotResolverInterface $botResolver, TelegramTransportInterface $transport)
     {
-        $this->botToken      = config('services.driver_guide_bot.token', '');
-        $this->webhookSecret = config('services.driver_guide_bot.webhook_secret', '');
-        $this->ownerChatId   = config('services.driver_guide_bot.owner_chat_id', '38738713');
-        $this->telegramClient = new Client(['base_uri' => 'https://api.telegram.org']);
+        $this->ownerChatId  = config('services.driver_guide_bot.owner_chat_id', '38738713');
+        $this->botResolver  = $botResolver;
+        $this->transport    = $transport;
     }
 
     // =========================================================================
@@ -492,17 +491,15 @@ class TelegramDriverGuideSignUpController extends Controller
     {
         $text = $intro ?? "👋 Salom, <b>{$name}</b>!\n\nQuyidagi tugmadan foydalaning:";
         try {
-            $this->telegramClient->post("/bot{$this->botToken}/sendMessage", [
-                'json' => [
-                    'chat_id'      => $chatId,
-                    'text'         => $text,
-                    'parse_mode'   => 'HTML',
-                    'reply_markup' => [
-                        'keyboard'        => [[['text' => '📋 Bronlarim']]],
-                        'resize_keyboard' => true,
-                        'persistent'      => true,
-                    ],
-                ],
+            $this->callTelegram('sendMessage', [
+                'chat_id'      => $chatId,
+                'text'         => $text,
+                'parse_mode'   => 'HTML',
+                'reply_markup' => json_encode([
+                    'keyboard'        => [[['text' => '📋 Bronlarim']]],
+                    'resize_keyboard' => true,
+                    'persistent'      => true,
+                ]),
             ]);
         } catch (\Exception $e) {
             Log::error('DriverGuideBot: sendPartnerMenu error', ['error' => $e->getMessage()]);
@@ -722,22 +719,20 @@ class TelegramDriverGuideSignUpController extends Controller
     private function sendMessageWithMenu(string $chatId, string $text): void
     {
         try {
-            $this->telegramClient->post("/bot{$this->botToken}/sendMessage", [
-                'json' => [
-                    'chat_id'      => $chatId,
-                    'text'         => $text,
-                    'parse_mode'   => 'HTML',
-                    'reply_markup' => [
-                        'keyboard'        => [
-                            [
-                                ['text' => '📋 Mening bronlarim'],
-                                ['text' => '📅 Mening jadvalim'],
-                            ],
+            $this->callTelegram('sendMessage', [
+                'chat_id'      => $chatId,
+                'text'         => $text,
+                'parse_mode'   => 'HTML',
+                'reply_markup' => json_encode([
+                    'keyboard'        => [
+                        [
+                            ['text' => '📋 Mening bronlarim'],
+                            ['text' => '📅 Mening jadvalim'],
                         ],
-                        'resize_keyboard' => true,
-                        'persistent'      => true,
                     ],
-                ],
+                    'resize_keyboard' => true,
+                    'persistent'      => true,
+                ]),
             ]);
         } catch (\Exception $e) {
             Log::error('DriverGuideBot: sendMessageWithMenu error', ['error' => $e->getMessage()]);
@@ -751,9 +746,7 @@ class TelegramDriverGuideSignUpController extends Controller
     private function sendMessage(string $chatId, string $text): void
     {
         try {
-            $this->telegramClient->post("/bot{$this->botToken}/sendMessage", [
-                'json' => ['chat_id' => $chatId, 'text' => $text, 'parse_mode' => 'HTML'],
-            ]);
+            $this->callTelegram('sendMessage', ['chat_id' => $chatId, 'text' => $text, 'parse_mode' => 'HTML']);
         } catch (\Exception $e) {
             Log::error('DriverGuideBot: sendMessage error', ['error' => $e->getMessage()]);
         }
@@ -762,13 +755,11 @@ class TelegramDriverGuideSignUpController extends Controller
     private function sendInlineKeyboard(string $chatId, string $text, array $keyboard): void
     {
         try {
-            $this->telegramClient->post("/bot{$this->botToken}/sendMessage", [
-                'json' => [
-                    'chat_id'      => $chatId,
-                    'text'         => $text,
-                    'parse_mode'   => 'HTML',
-                    'reply_markup' => ['inline_keyboard' => $keyboard],
-                ],
+            $this->callTelegram('sendMessage', [
+                'chat_id'      => $chatId,
+                'text'         => $text,
+                'parse_mode'   => 'HTML',
+                'reply_markup' => json_encode(['inline_keyboard' => $keyboard]),
             ]);
         } catch (\Exception $e) {
             Log::error('DriverGuideBot: sendInlineKeyboard error', ['error' => $e->getMessage()]);
@@ -778,14 +769,12 @@ class TelegramDriverGuideSignUpController extends Controller
     private function editMessage(string $chatId, int $messageId, string $text, array $keyboard): void
     {
         try {
-            $this->telegramClient->post("/bot{$this->botToken}/editMessageText", [
-                'json' => [
-                    'chat_id'      => $chatId,
-                    'message_id'   => $messageId,
-                    'text'         => $text,
-                    'parse_mode'   => 'HTML',
-                    'reply_markup' => ['inline_keyboard' => $keyboard],
-                ],
+            $this->callTelegram('editMessageText', [
+                'chat_id'      => $chatId,
+                'message_id'   => $messageId,
+                'text'         => $text,
+                'parse_mode'   => 'HTML',
+                'reply_markup' => json_encode(['inline_keyboard' => $keyboard]),
             ]);
         } catch (\Exception $e) {
             Log::error('DriverGuideBot: editMessage error', ['error' => $e->getMessage()]);
@@ -795,9 +784,7 @@ class TelegramDriverGuideSignUpController extends Controller
     private function editMessageText(string $chatId, int $messageId, string $text): void
     {
         try {
-            $this->telegramClient->post("/bot{$this->botToken}/editMessageText", [
-                'json' => ['chat_id' => $chatId, 'message_id' => $messageId, 'text' => $text, 'parse_mode' => 'HTML'],
-            ]);
+            $this->callTelegram('editMessageText', ['chat_id' => $chatId, 'message_id' => $messageId, 'text' => $text, 'parse_mode' => 'HTML']);
         } catch (\Exception $e) {
             Log::error('DriverGuideBot: editMessageText error', ['error' => $e->getMessage()]);
         }
@@ -806,16 +793,14 @@ class TelegramDriverGuideSignUpController extends Controller
     private function sendContactRequest(string $chatId, string $prompt): void
     {
         try {
-            $this->telegramClient->post("/bot{$this->botToken}/sendMessage", [
-                'json' => [
-                    'chat_id'      => $chatId,
-                    'text'         => $prompt,
-                    'reply_markup' => [
-                        'keyboard'          => [[['text' => '📱 Telefon raqamni ulashish', 'request_contact' => true]]],
-                        'resize_keyboard'   => true,
-                        'one_time_keyboard' => true,
-                    ],
-                ],
+            $this->callTelegram('sendMessage', [
+                'chat_id'      => $chatId,
+                'text'         => $prompt,
+                'reply_markup' => json_encode([
+                    'keyboard'          => [[['text' => '📱 Telefon raqamni ulashish', 'request_contact' => true]]],
+                    'resize_keyboard'   => true,
+                    'one_time_keyboard' => true,
+                ]),
             ]);
         } catch (\Exception $e) {
             Log::error('DriverGuideBot: sendContactRequest error', ['error' => $e->getMessage()]);
@@ -1016,11 +1001,18 @@ class TelegramDriverGuideSignUpController extends Controller
     private function answerCallbackQuery(string $callbackQueryId): void
     {
         try {
-            $this->telegramClient->post("/bot{$this->botToken}/answerCallbackQuery", [
-                'json' => ['callback_query_id' => $callbackQueryId],
-            ]);
+            $this->callTelegram('answerCallbackQuery', ['callback_query_id' => $callbackQueryId]);
         } catch (\Exception $e) {
             // silent — not critical
         }
+    }
+
+    /**
+     * Call Telegram Bot API via resolver + transport.
+     */
+    private function callTelegram(string $method, array $params): void
+    {
+        $bot = $this->botResolver->resolve('driver-guide');
+        $this->transport->call($bot, $method, $params);
     }
 }

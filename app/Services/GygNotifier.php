@@ -2,6 +2,8 @@
 
 namespace App\Services;
 
+use App\Contracts\Telegram\BotResolverInterface;
+use App\Contracts\Telegram\TelegramTransportInterface;
 use App\Models\GygInboundEmail;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -116,26 +118,20 @@ class GygNotifier
 
     private function sendTelegram(string $message): bool
     {
-        // Primary: Telegram Bot API (reliable, always authorized)
-        $botToken = config('services.driver_guide_bot.token', '');
-        if (! empty($botToken)) {
-            try {
-                $response = Http::timeout(10)->post("https://api.telegram.org/bot{$botToken}/sendMessage", [
-                    'chat_id' => self::OWNER_CHAT_ID,
-                    'text'    => $message,
-                ]);
+        // Primary: Telegram Bot API via resolver + transport
+        try {
+            $resolver = app(BotResolverInterface::class);
+            $transport = app(TelegramTransportInterface::class);
+            $bot = $resolver->resolve('driver-guide');
+            $result = $transport->sendMessage($bot, self::OWNER_CHAT_ID, $message);
 
-                if ($response->successful() && ($response->json('ok') ?? false)) {
-                    return true;
-                }
-
-                Log::warning('GygNotifier: bot API returned non-ok', [
-                    'status' => $response->status(),
-                    'body'   => mb_substr($response->body(), 0, 200),
-                ]);
-            } catch (\Throwable $e) {
-                Log::warning('GygNotifier: bot API failed, trying tg-api', ['error' => $e->getMessage()]);
+            if ($result->succeeded()) {
+                return true;
             }
+
+            Log::warning('GygNotifier: bot API returned non-ok', ['status' => $result->httpStatus]);
+        } catch (\Throwable $e) {
+            Log::warning('GygNotifier: bot API failed, trying tg-api', ['error' => $e->getMessage()]);
         }
 
         // Fallback: tg-api (Telethon personal session — may be unauthorized)

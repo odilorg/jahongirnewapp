@@ -2,26 +2,17 @@
 
 namespace App\Observers;
 
+use App\Contracts\Telegram\BotResolverInterface;
+use App\Contracts\Telegram\TelegramTransportInterface;
 use App\Models\Booking;
 use App\Models\Driver;
 use Carbon\Carbon;
-use GuzzleHttp\Client;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class BookingObserver
 {
-    const OWNER_CHAT_ID      = '38738713';
-    const DRIVER_GUIDE_TOKEN = null; // resolved in constructor
-
-    private ?string $botToken;
-    private Client  $http;
-
-    public function __construct()
-    {
-        $this->botToken = config('services.driver_guide_bot.token', env('TELEGRAM_BOT_TOKEN_DRIVER_GUIDE'));
-        $this->http     = new Client(['base_uri' => 'https://api.telegram.org']);
-    }
+    const OWNER_CHAT_ID = '38738713';
 
     /**
      * Fires when a booking is updated.
@@ -36,57 +27,41 @@ class BookingObserver
 
         $newDriverId = $booking->driver_id;
         if (!$newDriverId) {
-            return; // driver was unassigned — no check needed
+            return;
         }
 
-        $driver  = Driver::find($newDriverId);
-        if (!$driver) return;
+        $driver = Driver::find($newDriverId);
+        if (!$driver) {
+            return;
+        }
 
-        $tourDate = Carbon::parse($booking->booking_start_date_time)->toDateString();
+        $tourDate = $booking->tour_date ?? ($booking->tour?->date ?? null);
+        if (!$tourDate) {
+            return;
+        }
 
-        // Check availability
-        $availability = DB::table('driver_availability')
+        $dateStr = $tourDate instanceof Carbon ? $tourDate->toDateString() : (string) $tourDate;
+
+        // Check availability from driver_availability_dates
+        $availability = DB::table('driver_availability_dates')
             ->where('driver_id', $newDriverId)
-            ->where('available_date', $tourDate)
-            ->value('is_available');
+            ->where('date', $dateStr)
+            ->value('status');
 
-        // Available = explicitly marked true
-        if ($availability === 1 || $availability === true) {
-            Log::info('BookingObserver: driver available', [
-                'driver_id'  => $newDriverId,
-                'booking_id' => $booking->id,
-                'date'       => $tourDate,
-            ]);
-            return; // all good
+        if ($availability === 'unavailable') {
+            $driverName = $driver->name ?? "Driver #{$newDriverId}";
+            $text = "⚠️ <b>Conflict Alert</b>\n\n"
+                . "Driver <b>{$driverName}</b> was assigned to booking #{$booking->id}\n"
+                . "Date: {$dateStr}\n"
+                . "But driver is marked as <b>UNAVAILABLE</b> on this date.\n\n"
+                . "Please verify and reassign if needed.";
+
+            $this->sendTelegramAlert($text);
         }
 
-        // Not available (either marked ❌ or not set = unavailable by default)
-        $status  = ($availability === 0 || $availability === false)
-            ? "❌ Band deb belgilagan"
-            : "⚪ Jadvalda ko'rsatmagan (default: band)";
-
-        $driverName   = trim("{$driver->first_name} {$driver->last_name}");
-        $dateLabel    = Carbon::parse($tourDate)->format('D, d M Y');
-        $bookingRef   = $booking->booking_number ?? "ID #{$booking->id}";
-
-        $message = implode("\n", [
-            "⚠️ <b>Haydovchi konflikt!</b>",
-            "",
-            "📋 Buyurtma: <b>{$bookingRef}</b>",
-            "📅 Sana: <b>{$dateLabel}</b>",
-            "🚗 Haydovchi: <b>{$driverName}</b>",
-            "📌 Holat: {$status}",
-            "",
-            "Haydovchini almashtirish yoki u bilan tekshirish kerak!",
-        ]);
-
-        $this->sendTelegramAlert($message);
-
-        Log::warning('BookingObserver: driver conflict on assignment', [
-            'driver_id'    => $newDriverId,
-            'driver_name'  => $driverName,
+        Log::info('BookingObserver: driver assigned', [
             'booking_id'   => $booking->id,
-            'booking_ref'  => $bookingRef,
+            'driver_id'    => $newDriverId,
             'date'         => $tourDate,
             'availability' => $availability,
         ]);
@@ -94,16 +69,12 @@ class BookingObserver
 
     private function sendTelegramAlert(string $text): void
     {
-        if (empty($this->botToken)) return;
         try {
-            $this->http->post("/bot{$this->botToken}/sendMessage", [
-                'json' => [
-                    'chat_id'    => self::OWNER_CHAT_ID,
-                    'text'       => $text,
-                    'parse_mode' => 'HTML',
-                ],
-            ]);
-        } catch (\Exception $e) {
+            $resolver = app(BotResolverInterface::class);
+            $transport = app(TelegramTransportInterface::class);
+            $bot = $resolver->resolve('driver-guide');
+            $transport->sendMessage($bot, self::OWNER_CHAT_ID, $text, ['parse_mode' => 'HTML']);
+        } catch (\Throwable $e) {
             Log::error('BookingObserver: Telegram alert failed', ['error' => $e->getMessage()]);
         }
     }

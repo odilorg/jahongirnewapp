@@ -216,10 +216,8 @@ class Beds24BookingService
         }
 
         try {
-            $botToken = config('services.owner_alert_bot.token');
             $chatId = config('services.owner_alert_bot.owner_chat_id');
-
-            if (!$botToken || !$chatId) {
+            if (!$chatId) {
                 return;
             }
 
@@ -230,11 +228,10 @@ class Beds24BookingService
                 . "🔧 *Fix:* Go to Beds24 dashboard → API → copy valid refresh token → update `.env` `BEDS24_API_V2_REFRESH_TOKEN`\n\n"
                 . "Then run: `php artisan beds24:refresh-token`";
 
-            Http::post("https://api.telegram.org/bot{$botToken}/sendMessage", [
-                'chat_id' => $chatId,
-                'text' => $message,
-                'parse_mode' => 'Markdown',
-            ]);
+            $resolver = app(\App\Contracts\Telegram\BotResolverInterface::class);
+            $transport = app(\App\Contracts\Telegram\TelegramTransportInterface::class);
+            $bot = $resolver->resolve('owner-alert');
+            $transport->sendMessage($bot, $chatId, $message, ['parse_mode' => 'Markdown']);
 
             Cache::put($throttleKey, true, now()->addHour());
         } catch (\Throwable $e) {

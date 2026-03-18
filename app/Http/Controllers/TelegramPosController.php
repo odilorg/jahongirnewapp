@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers;
 
+use App\Contracts\Telegram\BotResolverInterface;
+use App\Contracts\Telegram\TelegramTransportInterface;
 use App\Models\User;
 use App\Models\CashierShift;
 use App\Services\TelegramKeyboardBuilder;
@@ -11,15 +13,15 @@ use App\Actions\StartShiftAction;
 use App\Actions\CloseShiftAction;
 use App\Actions\RecordTransactionAction;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB;
 use Carbon\Carbon;
 
 class TelegramPosController extends Controller
 {
-    protected string $botToken;
     protected int $sessionTimeout = 15; // minutes
+    protected BotResolverInterface $botResolver;
+    protected TelegramTransportInterface $telegramTransport;
 
     public function __construct(
         protected TelegramKeyboardBuilder $keyboard,
@@ -27,10 +29,13 @@ class TelegramPosController extends Controller
         protected CloseShiftAction $closeShiftAction,
         protected RecordTransactionAction $recordTransactionAction,
         protected TelegramReportService $reportService,
-        protected TelegramReportFormatter $reportFormatter
+        protected TelegramReportFormatter $reportFormatter,
+        BotResolverInterface $botResolver,
+        TelegramTransportInterface $telegramTransport,
     ) {
-        $this->botToken = config('services.telegram_pos_bot.token');
         $this->sessionTimeout = config('services.telegram_pos_bot.session_timeout', 15);
+        $this->botResolver = $botResolver;
+        $this->telegramTransport = $telegramTransport;
     }
 
     /**
@@ -1314,16 +1319,19 @@ class TelegramPosController extends Controller
             }
         }
 
-        $response = Http::post("https://api.telegram.org/bot{$this->botToken}/sendMessage", $params);
+        try {
+            $bot = $this->botResolver->resolve('pos');
+            $result = $this->telegramTransport->call($bot, 'sendMessage', $params);
 
-        if (!$response->successful()) {
-            Log::error('Telegram API Error', [
-                'response' => $response->json(),
-                'params' => $params
-            ]);
+            if (!$result->succeeded()) {
+                Log::error('Telegram API Error', ['status' => $result->httpStatus, 'description' => $result->description]);
+            }
+
+            return ['ok' => $result->ok, 'result' => $result->result];
+        } catch (\Throwable $e) {
+            Log::error('POS Bot send error', ['error' => $e->getMessage()]);
+            return ['ok' => false];
         }
-
-        return $response->json();
     }
 
     /**
@@ -1337,7 +1345,12 @@ class TelegramPosController extends Controller
             $params['text'] = $text;
         }
 
-        Http::post("https://api.telegram.org/bot{$this->botToken}/answerCallbackQuery", $params);
+        try {
+            $bot = $this->botResolver->resolve('pos');
+            $this->telegramTransport->call($bot, 'answerCallbackQuery', $params);
+        } catch (\Throwable $e) {
+            Log::warning('POS Bot answerCallback failed', ['error' => $e->getMessage()]);
+        }
     }
 
     /**
