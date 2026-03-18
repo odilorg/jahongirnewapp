@@ -45,18 +45,19 @@ class TelegramBotResourceTest extends TestCase
     }
 
     /** @test */
-    public function view_page_source_does_not_expose_tokens(): void
+    public function view_page_source_does_not_reveal_tokens(): void
     {
         $source = file_get_contents(
             (new \ReflectionClass(ViewTelegramBot::class))->getFileName()
         );
 
-        // Must not display decrypted tokens
-        $this->assertStringNotContainsString('token_encrypted', $source);
-        $this->assertStringNotContainsString('webhook_secret_encrypted', $source);
+        // Must not decrypt or reveal existing token values
         $this->assertStringNotContainsString('getActiveToken', $source);
         $this->assertStringNotContainsString('Crypt::decrypt', $source);
         $this->assertStringNotContainsString('decryptString', $source);
+
+        // Crypt::encryptString is allowed (rotate writes new token)
+        // token_encrypted is allowed (rotate sets the encrypted column)
 
         // Actions should use resolver + transport, not raw HTTP
         $this->assertStringNotContainsString('Http::', $source);
@@ -130,11 +131,66 @@ class TelegramBotResourceTest extends TestCase
             (new \ReflectionClass(ViewTelegramBot::class))->getFileName()
         );
 
-        // Modal description discloses the side-effect
         $this->assertStringContainsString('username has changed', $source);
         $this->assertStringContainsString('updated in the database', $source);
-
-        // Update is conditional — only when value differs
         $this->assertStringContainsString('bot_username !== $username', $source);
+    }
+
+    // ──────────────────────────────────────────────
+    // Secret lifecycle actions
+    // ──────────────────────────────────────────────
+
+    /** @test */
+    public function view_page_has_rotate_token_action(): void
+    {
+        $source = file_get_contents(
+            (new \ReflectionClass(ViewTelegramBot::class))->getFileName()
+        );
+
+        $this->assertStringContainsString("'rotateToken'", $source);
+        $this->assertStringContainsString('Crypt::encryptString', $source);
+        $this->assertStringContainsString('markRevoked', $source);
+        // Token input uses password field — never shown in plaintext
+        $this->assertStringContainsString('->password()', $source);
+    }
+
+    /** @test */
+    public function view_page_has_status_lifecycle_actions(): void
+    {
+        $source = file_get_contents(
+            (new \ReflectionClass(ViewTelegramBot::class))->getFileName()
+        );
+
+        $this->assertStringContainsString("'disableBot'", $source);
+        $this->assertStringContainsString("'enableBot'", $source);
+        $this->assertStringContainsString("'revokeBot'", $source);
+        $this->assertStringContainsString('BotStatus::Disabled', $source);
+        $this->assertStringContainsString('BotStatus::Active', $source);
+        $this->assertStringContainsString('BotStatus::Revoked', $source);
+    }
+
+    /** @test */
+    public function rotate_token_does_not_reveal_existing_token(): void
+    {
+        $source = file_get_contents(
+            (new \ReflectionClass(ViewTelegramBot::class))->getFileName()
+        );
+
+        // Must not have any getActiveToken / decryptString for revealing
+        $this->assertStringNotContainsString('getActiveToken', $source);
+        $this->assertStringNotContainsString('decryptString', $source);
+        // Token input is password-type with optional reveal toggle
+        $this->assertStringContainsString('->revealable()', $source);
+    }
+
+    /** @test */
+    public function revoke_action_warns_about_irreversibility(): void
+    {
+        $source = file_get_contents(
+            (new \ReflectionClass(ViewTelegramBot::class))->getFileName()
+        );
+
+        $this->assertStringContainsString('CANNOT be undone', $source);
+        $this->assertStringContainsString('Permanently Revoke', $source);
     }
 }
