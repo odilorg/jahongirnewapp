@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers;
 
+use App\Contracts\Telegram\BotResolverInterface;
+use App\Contracts\Telegram\TelegramTransportInterface;
 use App\Models\KitchenMealCount;
 use App\Models\TelegramPosSession;
 use App\Models\User;
@@ -9,20 +11,25 @@ use App\Services\KitchenGuestService;
 use App\Services\OwnerAlertService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 class KitchenBotController extends Controller
 {
-    protected string $botToken;
     protected OwnerAlertService $ownerAlert;
     protected KitchenGuestService $kitchen;
+    protected BotResolverInterface $botResolver;
+    protected TelegramTransportInterface $transport;
 
-    public function __construct(OwnerAlertService $ownerAlert, KitchenGuestService $kitchen)
-    {
-        $this->botToken   = config('services.kitchen_bot.token', '');
-        $this->ownerAlert = $ownerAlert;
-        $this->kitchen    = $kitchen;
+    public function __construct(
+        OwnerAlertService $ownerAlert,
+        KitchenGuestService $kitchen,
+        BotResolverInterface $botResolver,
+        TelegramTransportInterface $transport,
+    ) {
+        $this->ownerAlert  = $ownerAlert;
+        $this->kitchen     = $kitchen;
+        $this->botResolver = $botResolver;
+        $this->transport   = $transport;
     }
 
     // ── WEBHOOK ENTRY ────────────────────────────────────────────
@@ -642,20 +649,14 @@ class KitchenBotController extends Controller
 
     protected function send(int $chatId, string $text, ?array $kb = null): void
     {
-        $p = ['chat_id' => $chatId, 'text' => $text, 'parse_mode' => 'HTML'];
-        if ($kb) $p['reply_markup'] = json_encode($kb);
+        $extra = ['parse_mode' => 'HTML'];
+        if ($kb) $extra['reply_markup'] = json_encode($kb);
 
         try {
-            $resp = Http::timeout(10)->post(
-                "https://api.telegram.org/bot{$this->botToken}/sendMessage",
-                $p
-            );
-            if (!$resp->successful()) {
-                Log::warning('KitchenBot send failed', [
-                    'chat'   => $chatId,
-                    'status' => $resp->status(),
-                    'body'   => $resp->body(),
-                ]);
+            $bot = $this->botResolver->resolve('kitchen');
+            $result = $this->transport->sendMessage($bot, $chatId, $text, $extra);
+            if (!$result->succeeded()) {
+                Log::warning('KitchenBot send failed', ['chat' => $chatId, 'status' => $result->httpStatus]);
             }
         } catch (\Throwable $e) {
             Log::error('KitchenBot send error', ['chat' => $chatId, 'error' => $e->getMessage()]);
@@ -664,18 +665,12 @@ class KitchenBotController extends Controller
 
     protected function sendWithInline(int $chatId, string $text, array $inlineKb): void
     {
-        $p = [
-            'chat_id'      => $chatId,
-            'text'         => $text,
-            'parse_mode'   => 'HTML',
-            'reply_markup' => json_encode($inlineKb),
-        ];
-
         try {
-            Http::timeout(10)->post(
-                "https://api.telegram.org/bot{$this->botToken}/sendMessage",
-                $p
-            );
+            $bot = $this->botResolver->resolve('kitchen');
+            $this->transport->sendMessage($bot, $chatId, $text, [
+                'parse_mode' => 'HTML',
+                'reply_markup' => json_encode($inlineKb),
+            ]);
         } catch (\Throwable $e) {
             Log::error('KitchenBot sendWithInline error', ['chat' => $chatId, 'error' => $e->getMessage()]);
         }
@@ -684,18 +679,16 @@ class KitchenBotController extends Controller
     protected function editMessage(int $chatId, int $messageId, string $text, ?array $inlineKb = null): void
     {
         $p = [
-            'chat_id'    => $chatId,
+            'chat_id' => $chatId,
             'message_id' => $messageId,
-            'text'       => $text,
+            'text' => $text,
             'parse_mode' => 'HTML',
         ];
         if ($inlineKb) $p['reply_markup'] = json_encode($inlineKb);
 
         try {
-            Http::timeout(10)->post(
-                "https://api.telegram.org/bot{$this->botToken}/editMessageText",
-                $p
-            );
+            $bot = $this->botResolver->resolve('kitchen');
+            $this->transport->call($bot, 'editMessageText', $p);
         } catch (\Throwable $e) {
             Log::error('KitchenBot editMessage error', ['chat' => $chatId, 'error' => $e->getMessage()]);
         }
@@ -704,10 +697,12 @@ class KitchenBotController extends Controller
     protected function aCb(string $id): void
     {
         if (!$id) return;
-        Http::post(
-            "https://api.telegram.org/bot{$this->botToken}/answerCallbackQuery",
-            ['callback_query_id' => $id]
-        );
+        try {
+            $bot = $this->botResolver->resolve('kitchen');
+            $this->transport->call($bot, 'answerCallbackQuery', ['callback_query_id' => $id]);
+        } catch (\Throwable $e) {
+            Log::warning('KitchenBot aCb failed', ['id' => $id, 'error' => $e->getMessage()]);
+        }
     }
 
     protected function alertOwnerOnError(string $context, \Throwable $e, ?int $userId = null): void

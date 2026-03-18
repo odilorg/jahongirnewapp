@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers;
 
+use App\Contracts\Telegram\BotResolverInterface;
+use App\Contracts\Telegram\TelegramTransportInterface;
 use App\Jobs\SendTelegramNotificationJob;
 use Carbon\Carbon;
 use App\Models\LostFoundItem;
@@ -17,20 +19,26 @@ use Illuminate\Support\Facades\Storage;
 
 class HousekeepingBotController extends Controller
 {
-    protected string $botToken;
     protected int    $mgmtGroupId;
     protected OwnerAlertService $ownerAlert;
     protected Beds24BookingService $beds24;
+    protected BotResolverInterface $botResolver;
+    protected TelegramTransportInterface $transport;
 
     // Jahongir Hotel property ID
     protected const PROPERTY_ID = 41097;
 
-    public function __construct(OwnerAlertService $ownerAlert, Beds24BookingService $beds24)
-    {
-        $this->botToken    = config('services.housekeeping_bot.token', '');
+    public function __construct(
+        OwnerAlertService $ownerAlert,
+        Beds24BookingService $beds24,
+        BotResolverInterface $botResolver,
+        TelegramTransportInterface $transport,
+    ) {
         $this->mgmtGroupId = (int) config('services.housekeeping_bot.mgmt_group_id', 0);
         $this->ownerAlert  = $ownerAlert;
         $this->beds24      = $beds24;
+        $this->botResolver = $botResolver;
+        $this->transport   = $transport;
     }
 
     // ── WEBHOOK ENTRY ────────────────────────────────────────────
@@ -1370,27 +1378,26 @@ class HousekeepingBotController extends Controller
     protected function downloadTelegramPhoto(string $fileId, string $folder = 'room-issues'): ?string
     {
         try {
-            // Get file path from Telegram
-            $resp = Http::timeout(10)->get(
-                "https://api.telegram.org/bot{$this->botToken}/getFile",
-                ['file_id' => $fileId]
-            );
+            $bot = $this->botResolver->resolve('housekeeping');
 
-            if (!$resp->successful() || !$resp->json('ok')) {
+            // Get file path from Telegram via transport
+            $result = $this->transport->call($bot, 'getFile', ['file_id' => $fileId]);
+
+            if (!$result->succeeded()) {
                 Log::warning('HousekeepingBot: getFile failed', ['file_id' => $fileId]);
                 return null;
             }
 
-            $filePath = $resp->json('result.file_path');
+            $filePath = $result->result['file_path'] ?? null;
             if (!$filePath) return null;
 
-            // Download the file content
+            // Download the file content (raw file download — not a Bot API method)
             $fileResp = Http::timeout(30)->get(
-                "https://api.telegram.org/file/bot{$this->botToken}/{$filePath}"
+                "https://api.telegram.org/file/bot{$bot->token}/{$filePath}"
             );
 
             if (!$fileResp->successful()) {
-                Log::warning('HousekeepingBot: file download failed', ['path' => $filePath]);
+                Log::warning('HousekeepingBot: file download failed');
                 return null;
             }
 
@@ -1410,25 +1417,25 @@ class HousekeepingBotController extends Controller
     protected function downloadTelegramVoice(string $fileId): ?string
     {
         try {
-            $resp = Http::timeout(10)->get(
-                "https://api.telegram.org/bot{$this->botToken}/getFile",
-                ['file_id' => $fileId]
-            );
+            $bot = $this->botResolver->resolve('housekeeping');
 
-            if (!$resp->successful() || !$resp->json('ok')) {
+            $result = $this->transport->call($bot, 'getFile', ['file_id' => $fileId]);
+
+            if (!$result->succeeded()) {
                 Log::warning('HousekeepingBot: getFile failed for voice', ['file_id' => $fileId]);
                 return null;
             }
 
-            $filePath = $resp->json('result.file_path');
+            $filePath = $result->result['file_path'] ?? null;
             if (!$filePath) return null;
 
+            // Raw file download — not a Bot API method
             $fileResp = Http::timeout(30)->get(
-                "https://api.telegram.org/file/bot{$this->botToken}/{$filePath}"
+                "https://api.telegram.org/file/bot{$bot->token}/{$filePath}"
             );
 
             if (!$fileResp->successful()) {
-                Log::warning('HousekeepingBot: voice download failed', ['path' => $filePath]);
+                Log::warning('HousekeepingBot: voice download failed');
                 return null;
             }
 
@@ -1477,20 +1484,14 @@ class HousekeepingBotController extends Controller
 
     protected function send(int $chatId, string $text, ?array $kb = null): void
     {
-        $p = ['chat_id' => $chatId, 'text' => $text, 'parse_mode' => 'HTML'];
-        if ($kb) $p['reply_markup'] = json_encode($kb);
+        $extra = ['parse_mode' => 'HTML'];
+        if ($kb) $extra['reply_markup'] = json_encode($kb);
 
         try {
-            $resp = Http::timeout(10)->post(
-                "https://api.telegram.org/bot{$this->botToken}/sendMessage",
-                $p
-            );
-            if (!$resp->successful()) {
-                Log::warning('HousekeepingBot send failed', [
-                    'chat'   => $chatId,
-                    'status' => $resp->status(),
-                    'body'   => $resp->body(),
-                ]);
+            $bot = $this->botResolver->resolve('housekeeping');
+            $result = $this->transport->sendMessage($bot, $chatId, $text, $extra);
+            if (!$result->succeeded()) {
+                Log::warning('HousekeepingBot send failed', ['chat' => $chatId, 'status' => $result->httpStatus]);
             }
         } catch (\Throwable $e) {
             Log::error('HousekeepingBot send error', ['chat' => $chatId, 'error' => $e->getMessage()]);
@@ -1500,10 +1501,12 @@ class HousekeepingBotController extends Controller
     protected function aCb(string $id): void
     {
         if (!$id) return;
-        Http::post(
-            "https://api.telegram.org/bot{$this->botToken}/answerCallbackQuery",
-            ['callback_query_id' => $id]
-        );
+        try {
+            $bot = $this->botResolver->resolve('housekeeping');
+            $this->transport->call($bot, 'answerCallbackQuery', ['callback_query_id' => $id]);
+        } catch (\Throwable $e) {
+            Log::warning('HousekeepingBot aCb failed', ['id' => $id, 'error' => $e->getMessage()]);
+        }
     }
 
     protected function alertOwnerOnError(string $context, \Throwable $e, ?int $userId = null): void
