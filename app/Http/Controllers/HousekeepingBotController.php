@@ -336,7 +336,7 @@ class HousekeepingBotController extends Controller
 
         // Notify management group
         if ($this->mgmtGroupId) {
-            SendTelegramNotificationJob::dispatch($this->botToken, 'sendMessage', [
+            SendTelegramNotificationJob::dispatch('housekeeping', 'sendMessage', [
                 'chat_id'    => $this->mgmtGroupId,
                 'text'       => $text,
                 'parse_mode' => 'HTML',
@@ -522,7 +522,7 @@ class HousekeepingBotController extends Controller
                     . "📍 {$roomNum}-xona\n"
                     . "👤 {$name}";
 
-                SendTelegramNotificationJob::dispatch($this->botToken, 'sendVoice', [
+                SendTelegramNotificationJob::dispatch('housekeeping', 'sendVoice', [
                     'chat_id'    => $this->mgmtGroupId,
                     'voice'      => $fileId,
                     'caption'    => $caption,
@@ -899,7 +899,7 @@ class HousekeepingBotController extends Controller
             . "👤 {$name}{$desc}";
 
         if ($photoFileId) {
-            SendTelegramNotificationJob::dispatch($this->botToken, 'sendPhoto', [
+            SendTelegramNotificationJob::dispatch('housekeeping', 'sendPhoto', [
                 'chat_id'    => $this->mgmtGroupId,
                 'photo'      => $photoFileId,
                 'caption'    => $caption,
@@ -914,7 +914,7 @@ class HousekeepingBotController extends Controller
                 ? "🎤 Ovozli xabar — {$issue->room_number}-xona"
                 : $caption;
 
-            SendTelegramNotificationJob::dispatch($this->botToken, 'sendVoice', [
+            SendTelegramNotificationJob::dispatch('housekeeping', 'sendVoice', [
                 'chat_id'    => $this->mgmtGroupId,
                 'voice'      => $voiceFileId,
                 'caption'    => $voiceCaption,
@@ -924,7 +924,7 @@ class HousekeepingBotController extends Controller
 
         // If neither photo nor voice, send text-only alert
         if (!$photoFileId && !$voiceFileId) {
-            SendTelegramNotificationJob::dispatch($this->botToken, 'sendMessage', [
+            SendTelegramNotificationJob::dispatch('housekeeping', 'sendMessage', [
                 'chat_id'    => $this->mgmtGroupId,
                 'text'       => $caption,
                 'parse_mode' => 'HTML',
@@ -1111,7 +1111,7 @@ class HousekeepingBotController extends Controller
                 . "👤 {$name}";
 
             if ($photoFileId) {
-                SendTelegramNotificationJob::dispatch($this->botToken, 'sendPhoto', [
+                SendTelegramNotificationJob::dispatch('housekeeping', 'sendPhoto', [
                     'chat_id'    => $this->mgmtGroupId,
                     'photo'      => $photoFileId,
                     'caption'    => $caption,
@@ -1123,7 +1123,7 @@ class HousekeepingBotController extends Controller
                 $voiceCaption = $photoFileId
                     ? "🎤 Ovozli xabar — {$roomNum}-xona topilma"
                     : $caption;
-                SendTelegramNotificationJob::dispatch($this->botToken, 'sendVoice', [
+                SendTelegramNotificationJob::dispatch('housekeeping', 'sendVoice', [
                     'chat_id'    => $this->mgmtGroupId,
                     'voice'      => $voiceFileId,
                     'caption'    => $voiceCaption,
@@ -1132,7 +1132,7 @@ class HousekeepingBotController extends Controller
             }
 
             if (!$photoFileId && !$voiceFileId) {
-                SendTelegramNotificationJob::dispatch($this->botToken, 'sendMessage', [
+                SendTelegramNotificationJob::dispatch('housekeeping', 'sendMessage', [
                     'chat_id'    => $this->mgmtGroupId,
                     'text'       => $caption,
                     'parse_mode' => 'HTML',
@@ -1218,7 +1218,7 @@ class HousekeepingBotController extends Controller
                     . "🧴 {$text}\n"
                     . "👤 {$name}";
 
-                SendTelegramNotificationJob::dispatch($this->botToken, 'sendMessage', [
+                SendTelegramNotificationJob::dispatch('housekeeping', 'sendMessage', [
                     'chat_id'    => $this->mgmtGroupId,
                     'text'       => $alert,
                     'parse_mode' => 'HTML',
@@ -1299,7 +1299,7 @@ class HousekeepingBotController extends Controller
             ->get();
 
         foreach ($sessions as $s) {
-            SendTelegramNotificationJob::dispatch($this->botToken, 'sendMessage', [
+            SendTelegramNotificationJob::dispatch('housekeeping', 'sendMessage', [
                 'chat_id'    => $s->chat_id,
                 'text'       => $msg,
                 'parse_mode' => 'HTML',

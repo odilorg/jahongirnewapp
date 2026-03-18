@@ -440,7 +440,7 @@ class OwnerAlertService
         }
 
         SendTelegramNotificationJob::dispatch(
-            $this->botToken,
+            'owner-alert',
             'sendMessage',
             [
                 'chat_id'    => $this->ownerChatId,
