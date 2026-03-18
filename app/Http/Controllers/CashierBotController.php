@@ -13,6 +13,8 @@ use App\Models\BeginningSaldo;
 use App\Models\Beds24Booking;
 use App\Models\TelegramPosSession;
 use App\Models\ExpenseCategory;
+use App\Contracts\Telegram\BotResolverInterface;
+use App\Contracts\Telegram\TelegramTransportInterface;
 use App\Services\CashierExchangeService;
 use App\Services\CashierExpenseService;
 use App\Services\CashierPaymentService;
@@ -20,18 +22,18 @@ use App\Services\CashierShiftService;
 use App\Services\OwnerAlertService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Carbon\Carbon;
 
 class CashierBotController extends Controller
 {
-    protected string $botToken;
     protected OwnerAlertService $ownerAlert;
     protected CashierPaymentService $paymentService;
     protected CashierShiftService $shiftService;
     protected CashierExpenseService $expenseService;
     protected CashierExchangeService $exchangeService;
+    protected BotResolverInterface $botResolver;
+    protected TelegramTransportInterface $transport;
 
     public function __construct(
         OwnerAlertService $ownerAlert,
@@ -39,13 +41,16 @@ class CashierBotController extends Controller
         CashierShiftService $shiftService,
         CashierExpenseService $expenseService,
         CashierExchangeService $exchangeService,
+        BotResolverInterface $botResolver,
+        TelegramTransportInterface $transport,
     ) {
-        $this->botToken = config('services.cashier_bot.token', config('services.owner_alert_bot.token'));
         $this->ownerAlert = $ownerAlert;
         $this->paymentService = $paymentService;
         $this->shiftService = $shiftService;
         $this->expenseService = $expenseService;
         $this->exchangeService = $exchangeService;
+        $this->botResolver = $botResolver;
+        $this->transport = $transport;
     }
 
     public function handleWebhook(Request $request)
@@ -689,11 +694,13 @@ class CashierBotController extends Controller
             $this->ownerAlert->sendShiftCloseReport($ownerMsg);
 
             if (!empty($d['photo_id'])) {
-                $oid = config('services.owner_alert_bot.owner_chat_id', env('OWNER_TELEGRAM_ID', '38738713'));
-                $ownerBotToken = config('services.owner_alert_bot.token', env('OWNER_ALERT_BOT_TOKEN'));
-                Http::post("https://api.telegram.org/bot{$ownerBotToken}/sendPhoto", [
-                    'chat_id' => $oid, 'photo' => $d['photo_id'], 'caption' => '📸 Фото кассы при закрытии смены',
-                ]);
+                $oid = (int) config('services.owner_alert_bot.owner_chat_id', env('OWNER_TELEGRAM_ID', '0'));
+                if ($oid !== 0) {
+                    $ownerBot = $this->botResolver->resolve('owner-alert');
+                    $this->transport->call($ownerBot, 'sendPhoto', [
+                        'chat_id' => $oid, 'photo' => $d['photo_id'], 'caption' => '📸 Фото кассы при закрытии смены',
+                    ]);
+                }
             }
         } catch (\Exception $e) {
             Log::warning('Close shift: owner notification failed', ['e' => $e->getMessage()]);
@@ -924,12 +931,13 @@ class CashierBotController extends Controller
 
     protected function send(int $chatId, string $text, ?array $kb = null, string $type = 'reply')
     {
-        $p = ['chat_id' => $chatId, 'text' => $text, 'parse_mode' => 'HTML'];
-        if ($kb) $p['reply_markup'] = json_encode($kb);
+        $extra = ['parse_mode' => 'HTML'];
+        if ($kb) $extra['reply_markup'] = json_encode($kb);
         try {
-            $resp = Http::timeout(10)->post("https://api.telegram.org/bot{$this->botToken}/sendMessage", $p);
-            if (!$resp->successful()) {
-                Log::warning('CashierBot send failed', ['chat' => $chatId, 'status' => $resp->status()]);
+            $bot = $this->botResolver->resolve('cashier');
+            $result = $this->transport->sendMessage($bot, $chatId, $text, $extra);
+            if (!$result->succeeded()) {
+                Log::warning('CashierBot send failed', ['chat' => $chatId, 'status' => $result->httpStatus]);
             }
         } catch (\Throwable $e) {
             Log::error('CashierBot send error', ['chat' => $chatId, 'error' => $e->getMessage()]);
@@ -940,7 +948,8 @@ class CashierBotController extends Controller
     {
         if (!$id) return;
         try {
-            Http::timeout(5)->post("https://api.telegram.org/bot{$this->botToken}/answerCallbackQuery", ['callback_query_id' => $id]);
+            $bot = $this->botResolver->resolve('cashier');
+            $this->transport->call($bot, 'answerCallbackQuery', ['callback_query_id' => $id]);
         } catch (\Throwable $e) {
             Log::warning('CashierBot aCb failed', ['id' => $id, 'error' => $e->getMessage()]);
         }
