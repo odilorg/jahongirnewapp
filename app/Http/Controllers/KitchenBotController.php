@@ -95,7 +95,20 @@ class KitchenBotController extends Controller
 
         $today = now()->timezone('Asia/Tashkent')->format('Y-m-d');
 
-        // State-based: waiting for date input
+        // ── GLOBAL COMMANDS: always escape subflow state ──────
+        if (in_array($text, ['/start', '/cancel', '🏠 Bosh sahifa'], true)
+            && $session->state === 'kitchen_date_input') {
+            $session->update(['state' => 'kitchen_main', 'data' => null]);
+        }
+
+        // State timeout: auto-reset date input after 30 min inactivity
+        if ($session->state === 'kitchen_date_input'
+            && $session->last_activity_at
+            && Carbon::parse($session->last_activity_at)->addMinutes(30)->isPast()) {
+            $session->update(['state' => 'kitchen_main', 'data' => null]);
+        }
+
+        // State-based: waiting for date input (only if not escaped above)
         if ($session->state === 'kitchen_date_input') {
             return $this->handleDateInput($chatId, $session, $text);
         }
