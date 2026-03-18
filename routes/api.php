@@ -38,24 +38,30 @@ Route::post('/availability', [Availability::class, 'checkAvailability'])->middle
 //     Route::post('/sys-instructions', [SysInstructionController::class, 'store']);
 // });
 
-Route::post('/telegram/webhook', [TelegramController::class, 'handleWebhook']);
-Route::post('/telegram/driver_guide_signup', [TelegramDriverGuideSignUpController::class, 'handleWebhook']);
+Route::post('/telegram/webhook', [TelegramController::class, 'handleWebhook'])
+    ->middleware('verify.telegram.webhook:main');
+Route::post('/telegram/driver_guide_signup', [TelegramDriverGuideSignUpController::class, 'handleWebhook'])
+    ->middleware('verify.telegram.webhook:driver-guide');
 
 
 Route::post('/webhook/tour-booking', [WebhookController::class, 'handleTourBooking']);
 
 
 // Telegram Bot Availability Routes
-Route::post('/telegram/bot/webhook', [\App\Http\Controllers\TelegramWebhookController::class, 'handle'])->name('telegram.webhook');
+Route::post('/telegram/bot/webhook', [\App\Http\Controllers\TelegramWebhookController::class, 'handle'])
+    ->middleware('verify.telegram.webhook:booking')
+    ->name('telegram.webhook');
 Route::post('/telegram/bot/set-webhook', [\App\Http\Controllers\TelegramWebhookController::class, 'setWebhook'])->middleware('auth:sanctum');
 Route::get('/telegram/bot/webhook-info', [\App\Http\Controllers\TelegramWebhookController::class, 'getWebhookInfo'])->middleware('auth:sanctum');
 
 // Booking Bot Webhook
-Route::post('/booking/bot/webhook', [\App\Http\Controllers\BookingWebhookController::class, 'handle'])->name('booking.bot.webhook');
+Route::post('/booking/bot/webhook', [\App\Http\Controllers\BookingWebhookController::class, 'handle'])
+    ->middleware('verify.telegram.webhook:booking')
+    ->name('booking.bot.webhook');
 
 // Telegram POS Bot Routes
 Route::post('/telegram/pos/webhook', [\App\Http\Controllers\TelegramPosController::class, 'handleWebhook'])
-    ->middleware(\App\Http\Middleware\ValidateTelegramRequest::class)
+    ->middleware('verify.telegram.webhook:pos')
     ->name('telegram.pos.webhook');
 
 Route::post('/telegram/pos/set-webhook', [\App\Http\Controllers\TelegramPosController::class, 'setWebhook'])
@@ -79,10 +85,11 @@ Route::post('/beds24/webhook', [\App\Http\Controllers\Beds24WebhookController::c
 
 // Phase 2: Cashier Bot (admin payment/expense logging)
 Route::post('/telegram/cashier/webhook', [\App\Http\Controllers\CashierBotController::class, 'handleWebhook'])
-    ->middleware('verify.telegram.webhook')
+    ->middleware('verify.telegram.webhook:cashier')
     ->name('telegram.cashier.webhook');
 
 Route::post("/telegram/owner/webhook", [\App\Http\Controllers\OwnerBotController::class, "handleWebhook"])
+    ->middleware('verify.telegram.webhook:owner-alert')
     ->name("telegram.owner.webhook");
 
 
@@ -121,10 +128,12 @@ Route::get('/beds24/health', function () {
 })->name('beds24.health');
 // Housekeeping Bot Webhook
 Route::post('/telegram/housekeeping/webhook', [\App\Http\Controllers\HousekeepingBotController::class, 'handleWebhook'])
+    ->middleware('verify.telegram.webhook:housekeeping')
     ->name('telegram.housekeeping.webhook');
 
 // Kitchen Bot Webhook
 Route::post('/telegram/kitchen/webhook', [\App\Http\Controllers\KitchenBotController::class, 'handleWebhook'])
+    ->middleware('verify.telegram.webhook:kitchen')
     ->name('telegram.kitchen.webhook');
 
 // ============================================================
