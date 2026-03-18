@@ -2,134 +2,83 @@
 
 namespace App\Services;
 
-use Illuminate\Support\Facades\Http;
+use App\Contracts\Telegram\BotResolverInterface;
+use App\Contracts\Telegram\TelegramTransportInterface;
 use Illuminate\Support\Facades\Log;
-use App\Models\BotConfiguration;
 
+/**
+ * Legacy convenience wrapper around TelegramTransport for the 'main' bot.
+ *
+ * Consumers that inject this service get the main bot resolved automatically.
+ * New code should inject BotResolverInterface + TelegramTransportInterface
+ * directly instead of using this wrapper.
+ */
 class TelegramBotService
 {
-    protected string $botToken;
-    protected string $apiUrl = 'https://api.telegram.org/bot';
+    private BotResolverInterface $resolver;
+    private TelegramTransportInterface $transport;
 
-    public function __construct()
+    public function __construct(BotResolverInterface $resolver, TelegramTransportInterface $transport)
     {
-        $this->botToken = config("services.telegram.bot_token", env("TELEGRAM_BOT_TOKEN"));
+        $this->resolver = $resolver;
+        $this->transport = $transport;
     }
 
     public function sendMessage(int $chatId, string $text, array $options = []): array
     {
-        $params = array_merge([
-            'chat_id' => $chatId,
-            'text' => $text,
-            // 'parse_mode' => 'Markdown', // Disabled to prevent markdown parsing errors
-        ], $options);
+        $bot = $this->resolver->resolve('main');
+        $result = $this->transport->sendMessage($bot, $chatId, $text, $options);
 
-        try {
-            $response = Http::timeout(30)->post($this->apiUrl . $this->botToken . '/sendMessage', $params);
-            
-            if (!$response->successful()) {
-                throw new \Exception('Telegram API error: ' . $response->body());
-            }
-
-            return $response->json();
-            
-        } catch (\Exception $e) {
-            Log::error('Telegram Send Message Error', [
-                'chat_id' => $chatId,
-                'error' => $e->getMessage()
-            ]);
-            throw $e;
+        if (!$result->succeeded()) {
+            Log::error('TelegramBotService sendMessage failed', ['chat_id' => $chatId, 'status' => $result->httpStatus]);
         }
+
+        return ['ok' => $result->ok, 'result' => $result->result];
     }
 
     public function setWebhook(string $url): array
     {
-        try {
-            $response = Http::post($this->apiUrl . $this->botToken . '/setWebhook', [
-                'url' => $url,
-            ]);
+        $bot = $this->resolver->resolve('main');
+        $result = $this->transport->setWebhook($bot, $url);
 
-            return $response->json();
-            
-        } catch (\Exception $e) {
-            Log::error('Telegram Set Webhook Error', [
-                'url' => $url,
-                'error' => $e->getMessage()
-            ]);
-            throw $e;
-        }
+        return ['ok' => $result->ok, 'result' => $result->result];
     }
 
     public function getWebhookInfo(): array
     {
-        try {
-            $response = Http::get($this->apiUrl . $this->botToken . '/getWebhookInfo');
-            return $response->json();
-        } catch (\Exception $e) {
-            Log::error('Telegram Get Webhook Info Error', ['error' => $e->getMessage()]);
-            throw $e;
-        }
+        $bot = $this->resolver->resolve('main');
+        $result = $this->transport->getWebhookInfo($bot);
+
+        return ['ok' => $result->ok, 'result' => $result->result];
     }
 
     public function deleteWebhook(): array
     {
-        try {
-            $response = Http::post($this->apiUrl . $this->botToken . '/deleteWebhook');
-            return $response->json();
-        } catch (\Exception $e) {
-            Log::error('Telegram Delete Webhook Error', ['error' => $e->getMessage()]);
-            throw $e;
-        }
+        $bot = $this->resolver->resolve('main');
+        $result = $this->transport->deleteWebhook($bot);
+
+        return ['ok' => $result->ok, 'result' => $result->result];
     }
 
     public function answerCallbackQuery(string $callbackQueryId, array $options = []): array
     {
-        $params = array_merge([
-            'callback_query_id' => $callbackQueryId,
-        ], $options);
+        $bot = $this->resolver->resolve('main');
+        $result = $this->transport->call($bot, 'answerCallbackQuery', array_merge(
+            ['callback_query_id' => $callbackQueryId],
+            $options,
+        ));
 
-        try {
-            $response = Http::timeout(30)->post($this->apiUrl . $this->botToken . '/answerCallbackQuery', $params);
-
-            if (!$response->successful()) {
-                throw new \Exception('Telegram API error: ' . $response->body());
-            }
-
-            return $response->json();
-
-        } catch (\Exception $e) {
-            Log::error('Telegram Answer Callback Query Error', [
-                'callback_query_id' => $callbackQueryId,
-                'error' => $e->getMessage()
-            ]);
-            throw $e;
-        }
+        return ['ok' => $result->ok, 'result' => $result->result];
     }
 
     public function editMessageText(int $chatId, int $messageId, string $text, array $options = []): array
     {
-        $params = array_merge([
-            'chat_id' => $chatId,
-            'message_id' => $messageId,
-            'text' => $text,
-        ], $options);
+        $bot = $this->resolver->resolve('main');
+        $result = $this->transport->call($bot, 'editMessageText', array_merge(
+            ['chat_id' => $chatId, 'message_id' => $messageId, 'text' => $text],
+            $options,
+        ));
 
-        try {
-            $response = Http::timeout(30)->post($this->apiUrl . $this->botToken . '/editMessageText', $params);
-
-            if (!$response->successful()) {
-                throw new \Exception('Telegram API error: ' . $response->body());
-            }
-
-            return $response->json();
-
-        } catch (\Exception $e) {
-            Log::error('Telegram Edit Message Text Error', [
-                'chat_id' => $chatId,
-                'message_id' => $messageId,
-                'error' => $e->getMessage()
-            ]);
-            throw $e;
-        }
+        return ['ok' => $result->ok, 'result' => $result->result];
     }
 }

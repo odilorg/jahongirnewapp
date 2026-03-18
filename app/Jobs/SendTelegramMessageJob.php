@@ -2,13 +2,14 @@
 
 namespace App\Jobs;
 
+use App\Contracts\Telegram\BotResolverInterface;
+use App\Contracts\Telegram\TelegramTransportInterface;
 use App\Models\ScheduledMessage;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 class SendTelegramMessageJob implements ShouldQueue
@@ -31,51 +32,38 @@ class SendTelegramMessageJob implements ShouldQueue
     /**
      * Execute the job.
      */
-    public function handle()
+    public function handle(BotResolverInterface $resolver, TelegramTransportInterface $transport)
     {
-        $botToken = config('services.telegram_bot.token');
+        $this->message->update(['status' => 'processing']);
 
-        if (!$botToken) {
-            Log::error('Telegram bot token is missing!');
+        try {
+            $bot = $resolver->resolve('main');
+        } catch (\Throwable $e) {
+            Log::error('SendTelegramMessageJob: bot resolution failed', ['error' => $e->getMessage()]);
             $this->message->update(['status' => 'failed']);
             return;
         }
 
-        // Mark the message as "processing" if you like
-        $this->message->update(['status' => 'processing']);
-
-        // Loop through each related Chat record in the pivot
         foreach ($this->message->chats as $chat) {
-            // The actual Telegram chat ID is stored in the chat_id column
             $telegramChatId = $chat->chat_id;
 
-            // Send message to Telegram
-            $response = Http::post("https://api.telegram.org/bot{$botToken}/sendMessage", [
-                'chat_id' => $telegramChatId,
-                'text'    => $this->message->message,
-            ]);
+            $result = $transport->sendMessage($bot, $telegramChatId, $this->message->message);
 
-            // Log the API response for debugging
             Log::info('Telegram API response', [
                 'message_id' => $this->message->id,
                 'chat_name'  => $chat->name,
                 'chat_id'    => $chat->chat_id,
-                'response'   => $response->json(),
+                'ok'         => $result->ok,
             ]);
 
-            if (!$response->successful()) {
-                // If any chat fails, we can mark it as "failed". 
-                // (Alternatively, keep track of partial failures).
+            if (!$result->succeeded()) {
                 $this->message->update(['status' => 'failed']);
                 return;
             }
         }
 
-        // If we got through the loop successfully, mark the message as sent
         $this->message->update(['status' => 'sent']);
-        Log::info('Message sent successfully.', [
-            'message_id' => $this->message->id,
-        ]);
+        Log::info('Message sent successfully.', ['message_id' => $this->message->id]);
     }
 
     /**

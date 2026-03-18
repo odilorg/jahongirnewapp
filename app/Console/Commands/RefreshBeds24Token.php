@@ -51,18 +51,16 @@ class RefreshBeds24Token extends Command
 
     private function alertOwner(string $error): void
     {
-        $botToken = config('services.owner_alert_bot.token');
         $chatId = config('services.owner_alert_bot.owner_chat_id');
-        if (!$botToken || !$chatId) return;
+        if (!$chatId) return;
 
         try {
-            Http::post("https://api.telegram.org/bot{$botToken}/sendMessage", [
-                'chat_id' => $chatId,
-                'text' => "🚨 beds24:refresh-token command FAILED\n\nError: {$error}\n\nCheck Beds24 dashboard for token status.",
-                'parse_mode' => 'Markdown',
-            ]);
+            $resolver = app(\App\Contracts\Telegram\BotResolverInterface::class);
+            $transport = app(\App\Contracts\Telegram\TelegramTransportInterface::class);
+            $bot = $resolver->resolve('owner-alert');
+            $transport->sendMessage($bot, $chatId, "🚨 beds24:refresh-token command FAILED\n\nError: {$error}\n\nCheck Beds24 dashboard for token status.", ['parse_mode' => 'Markdown']);
         } catch (\Throwable $e) {
-            // Ignore
+            // Ignore — alerting is best-effort
         }
     }
 }
