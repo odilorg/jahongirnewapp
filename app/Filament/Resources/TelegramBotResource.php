@@ -6,23 +6,30 @@ namespace App\Filament\Resources;
 
 use App\Enums\BotEnvironment;
 use App\Enums\BotStatus;
+use App\Enums\SecretStatus;
 use App\Filament\Resources\TelegramBotResource\Pages;
 use App\Filament\Resources\TelegramBotResource\RelationManagers;
 use App\Models\TelegramBot;
+use App\Models\TelegramBotSecret;
+use Filament\Forms;
+use Filament\Forms\Form;
 use Filament\Infolists;
 use Filament\Infolists\Infolist;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
+use Illuminate\Support\Facades\Crypt;
 
 /**
  * Ops console for Telegram bot fleet.
  *
- * Read-only list + view. No create/edit flows (bots are provisioned
- * via seeder/importer, not the UI). Actions: test connection, webhook info.
+ * Supports: list, view, create (import from BotFather), edit metadata,
+ * soft delete (decommission). Token rotation and status lifecycle are
+ * on the view page actions.
  *
- * Security: No secret values are exposed. The view page shows only
- * whether an active secret exists and its version number.
+ * Security: No secret values are displayed. Create form accepts token
+ * via password field, encrypts immediately. Edit form cannot change
+ * slug (code depends on it) or token (use Rotate Token action instead).
  */
 class TelegramBotResource extends Resource
 {
@@ -52,7 +59,85 @@ class TelegramBotResource extends Resource
 
     public static function canCreate(): bool
     {
-        return false;
+        /** @var \App\Models\User|null $user */
+        $user = auth()->user();
+
+        return $user !== null && $user->hasRole('super_admin');
+    }
+
+    // ──────────────────────────────────────────────
+    // Form (create + edit)
+    // ──────────────────────────────────────────────
+
+    public static function form(Form $form): Form
+    {
+        return $form
+            ->schema([
+                Forms\Components\Section::make('Bot Identity')
+                    ->columns(2)
+                    ->schema([
+                        Forms\Components\TextInput::make('slug')
+                            ->required()
+                            ->unique(ignoreRecord: true)
+                            ->regex('/^[a-z0-9\-]+$/')
+                            ->helperText('Lowercase, hyphens only. Used in code — cannot be changed after creation.')
+                            ->disabled(fn (?TelegramBot $record): bool => $record !== null)
+                            ->dehydrated()
+                            ->maxLength(50),
+
+                        Forms\Components\TextInput::make('name')
+                            ->required()
+                            ->maxLength(100),
+
+                        Forms\Components\TextInput::make('bot_username')
+                            ->label('@username')
+                            ->placeholder('Filled automatically by Test Connection')
+                            ->maxLength(100),
+
+                        Forms\Components\Textarea::make('description')
+                            ->rows(2)
+                            ->maxLength(500)
+                            ->columnSpanFull(),
+                    ]),
+
+                Forms\Components\Section::make('Environment')
+                    ->columns(2)
+                    ->schema([
+                        Forms\Components\Select::make('environment')
+                            ->options(BotEnvironment::class)
+                            ->default(BotEnvironment::fromAppEnvironment((string) app()->environment())->value)
+                            ->required(),
+
+                        Forms\Components\Select::make('status')
+                            ->options(BotStatus::class)
+                            ->default(BotStatus::Active->value)
+                            ->required()
+                            ->disabled(fn (?TelegramBot $record): bool => $record !== null)
+                            ->dehydrated()
+                            ->helperText($form->getRecord() ? 'Use Disable/Enable/Revoke actions to change status.' : null),
+                    ]),
+
+                Forms\Components\Section::make('Bot Token')
+                    ->description('Paste the token from BotFather. It will be encrypted immediately and never shown again.')
+                    ->visible(fn (?TelegramBot $record): bool => $record === null) // Create only
+                    ->schema([
+                        Forms\Components\TextInput::make('initial_token')
+                            ->label('Bot Token')
+                            ->required()
+                            ->password()
+                            ->revealable()
+                            ->placeholder('123456:ABC-DEF...')
+                            ->minLength(20)
+                            ->maxLength(200),
+
+                        Forms\Components\TextInput::make('initial_webhook_secret')
+                            ->label('Webhook Secret (optional)')
+                            ->password()
+                            ->revealable()
+                            ->placeholder('Leave empty if not using webhook verification')
+                            ->maxLength(256),
+                    ]),
+            ]);
     }
 
     // ──────────────────────────────────────────────
@@ -114,6 +199,11 @@ class TelegramBotResource extends Resource
             ])
             ->actions([
                 Tables\Actions\ViewAction::make(),
+                Tables\Actions\EditAction::make(),
+                Tables\Actions\DeleteAction::make()
+                    ->label('Decommission')
+                    ->modalHeading('Decommission Bot')
+                    ->modalDescription('This soft-deletes the bot. It will be hidden from the list but its audit trail and secret history are preserved. The bot can be restored later if needed.'),
             ])
             ->bulkActions([]);
     }
@@ -243,7 +333,9 @@ class TelegramBotResource extends Resource
     {
         return [
             'index' => Pages\ListTelegramBots::route('/'),
+            'create' => Pages\CreateTelegramBot::route('/create'),
             'view' => Pages\ViewTelegramBot::route('/{record}'),
+            'edit' => Pages\EditTelegramBot::route('/{record}/edit'),
         ];
     }
 }

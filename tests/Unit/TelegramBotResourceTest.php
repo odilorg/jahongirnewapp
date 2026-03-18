@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Tests\Unit;
 
 use App\Filament\Resources\TelegramBotResource;
+use App\Filament\Resources\TelegramBotResource\Pages\CreateTelegramBot;
+use App\Filament\Resources\TelegramBotResource\Pages\EditTelegramBot;
 use App\Filament\Resources\TelegramBotResource\Pages\ListTelegramBots;
 use App\Filament\Resources\TelegramBotResource\Pages\ViewTelegramBot;
 use App\Filament\Resources\TelegramBotResource\RelationManagers\AccessLogsRelationManager;
@@ -20,20 +22,14 @@ class TelegramBotResourceTest extends TestCase
     }
 
     /** @test */
-    public function resource_cannot_create(): void
-    {
-        $this->assertFalse(TelegramBotResource::canCreate());
-    }
-
-    /** @test */
-    public function resource_has_list_and_view_pages_only(): void
+    public function resource_has_all_crud_pages(): void
     {
         $pages = TelegramBotResource::getPages();
 
         $this->assertArrayHasKey('index', $pages);
+        $this->assertArrayHasKey('create', $pages);
         $this->assertArrayHasKey('view', $pages);
-        $this->assertArrayNotHasKey('create', $pages);
-        $this->assertArrayNotHasKey('edit', $pages);
+        $this->assertArrayHasKey('edit', $pages);
     }
 
     /** @test */
@@ -192,5 +188,68 @@ class TelegramBotResourceTest extends TestCase
 
         $this->assertStringContainsString('CANNOT be undone', $source);
         $this->assertStringContainsString('Permanently Revoke', $source);
+    }
+
+    // ──────────────────────────────────────────────
+    // Create / Edit
+    // ──────────────────────────────────────────────
+
+    /** @test */
+    public function create_page_encrypts_token_after_save(): void
+    {
+        $source = file_get_contents(
+            (new \ReflectionClass(CreateTelegramBot::class))->getFileName()
+        );
+
+        $this->assertStringContainsString('Crypt::encryptString', $source);
+        $this->assertStringContainsString('token_encrypted', $source);
+        $this->assertStringContainsString('afterCreate', $source);
+        // Token is removed from form data before model create
+        $this->assertStringContainsString("unset(\$data['initial_token']", $source);
+    }
+
+    /** @test */
+    public function create_form_uses_password_fields_for_secrets(): void
+    {
+        $source = file_get_contents(
+            (new \ReflectionClass(TelegramBotResource::class))->getFileName()
+        );
+
+        $this->assertStringContainsString("'initial_token'", $source);
+        $this->assertStringContainsString("'initial_webhook_secret'", $source);
+        $this->assertStringContainsString('->password()', $source);
+    }
+
+    /** @test */
+    public function slug_is_disabled_on_edit(): void
+    {
+        $source = file_get_contents(
+            (new \ReflectionClass(TelegramBotResource::class))->getFileName()
+        );
+
+        // Slug field is disabled when record exists (edit mode)
+        $this->assertStringContainsString('->disabled(fn (?TelegramBot $record): bool => $record !== null)', $source);
+    }
+
+    /** @test */
+    public function token_section_only_visible_on_create(): void
+    {
+        $source = file_get_contents(
+            (new \ReflectionClass(TelegramBotResource::class))->getFileName()
+        );
+
+        // Token section hidden on edit
+        $this->assertStringContainsString('->visible(fn (?TelegramBot $record): bool => $record === null)', $source);
+    }
+
+    /** @test */
+    public function edit_page_records_updated_by(): void
+    {
+        $source = file_get_contents(
+            (new \ReflectionClass(EditTelegramBot::class))->getFileName()
+        );
+
+        $this->assertStringContainsString('updated_by', $source);
+        $this->assertStringContainsString('auth()->id()', $source);
     }
 }
