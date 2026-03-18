@@ -6,17 +6,23 @@ namespace App\Filament\Resources\TelegramBotResource\Pages;
 
 use App\Filament\Resources\TelegramBotResource;
 use Filament\Actions;
-use Filament\Resources\Pages\ListRecords;
+use Filament\Resources\Pages\EditRecord;
 
-class ListTelegramBots extends ListRecords
+class EditTelegramBot extends EditRecord
 {
     protected static string $resource = TelegramBotResource::class;
+
+    protected function mutateFormDataBeforeSave(array $data): array
+    {
+        $data['updated_by'] = auth()->id();
+
+        return $data;
+    }
 
     protected function getHeaderActions(): array
     {
         return [
-            Actions\CreateAction::make()
-                ->label('Import Bot'),
+            Actions\ViewAction::make(),
         ];
     }
 }
