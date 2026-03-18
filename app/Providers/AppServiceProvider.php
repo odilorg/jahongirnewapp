@@ -5,9 +5,11 @@ namespace App\Providers;
 use App\Contracts\Telegram\BotAuditLoggerInterface;
 use App\Contracts\Telegram\BotResolverInterface;
 use App\Contracts\Telegram\BotSecretProviderInterface;
+use App\Contracts\Telegram\TelegramTransportInterface;
 use App\Services\Telegram\BotAuditLogger;
 use App\Services\Telegram\BotSecretProvider;
 use App\Services\Telegram\FallbackBotResolver;
+use App\Services\Telegram\TelegramTransport;
 use Illuminate\Support\ServiceProvider;
 use App\Models\AiInstruction;
 use App\Models\Booking;
@@ -24,6 +26,7 @@ class AppServiceProvider extends ServiceProvider
         $this->app->bind(BotAuditLoggerInterface::class, BotAuditLogger::class);
         $this->app->bind(BotSecretProviderInterface::class, BotSecretProvider::class);
         $this->app->bind(BotResolverInterface::class, FallbackBotResolver::class);
+        $this->app->bind(TelegramTransportInterface::class, TelegramTransport::class);
     }
 
     /**
