@@ -2,22 +2,25 @@
 
 namespace App\Http\Controllers;
 
+use App\Contracts\Telegram\BotResolverInterface;
+use App\Contracts\Telegram\TelegramTransportInterface;
 use App\Models\CashExpense;
 use App\Models\CashTransaction;
 use App\Models\User;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 class OwnerBotController extends Controller
 {
-    protected string $botToken;
-    protected string $apiBase;
+    protected BotResolverInterface $botResolver;
+    protected TelegramTransportInterface $transport;
 
-    public function __construct()
-    {
-        $this->botToken = config('services.owner_alert_bot.token', env('OWNER_ALERT_BOT_TOKEN'));
-        $this->apiBase = "https://api.telegram.org/bot{$this->botToken}";
+    public function __construct(
+        BotResolverInterface $botResolver,
+        TelegramTransportInterface $transport,
+    ) {
+        $this->botResolver = $botResolver;
+        $this->transport = $transport;
     }
 
     public function handleWebhook(Request $request)
@@ -189,12 +192,8 @@ class OwnerBotController extends Controller
             }
 
             // Send via cashier bot (since that's where cashier interacts)
-            $cashierBotToken = config('services.cashier_bot.token', env('TELEGRAM_CASHIER_BOT_TOKEN'));
-            Http::timeout(10)->post("https://api.telegram.org/bot{$cashierBotToken}/sendMessage", [
-                'chat_id' => $targetChatId,
-                'text' => $text,
-                'parse_mode' => 'HTML',
-            ]);
+            $cashierBot = $this->botResolver->resolve('cashier');
+            $this->transport->sendMessage($cashierBot, $targetChatId, $text, ['parse_mode' => 'HTML']);
         } catch (\Throwable $e) {
             Log::error('Failed to notify cashier', ['error' => $e->getMessage()]);
         }
@@ -233,9 +232,8 @@ class OwnerBotController extends Controller
         $ownerChatId = config('services.owner_alert_bot.owner_chat_id', env('OWNER_TELEGRAM_ID', '38738713'));
 
         try {
-            Http::timeout(10)->post("{$this->apiBase}/sendMessage", [
-                'chat_id' => $ownerChatId,
-                'text' => $text,
+            $ownerBot = $this->botResolver->resolve('owner-alert');
+            $this->transport->sendMessage($ownerBot, $ownerChatId, $text, [
                 'parse_mode' => 'HTML',
                 'reply_markup' => json_encode($keyboard),
             ]);
@@ -249,7 +247,8 @@ class OwnerBotController extends Controller
     protected function answerCallback(string $callbackId, string $text): void
     {
         try {
-            Http::timeout(5)->post("{$this->apiBase}/answerCallbackQuery", [
+            $ownerBot = $this->botResolver->resolve('owner-alert');
+            $this->transport->call($ownerBot, 'answerCallbackQuery', [
                 'callback_query_id' => $callbackId,
                 'text' => $text,
                 'show_alert' => true,
@@ -263,7 +262,8 @@ class OwnerBotController extends Controller
     {
         if (!$messageId) return;
         try {
-            Http::timeout(10)->post("{$this->apiBase}/editMessageText", [
+            $ownerBot = $this->botResolver->resolve('owner-alert');
+            $this->transport->call($ownerBot, 'editMessageText', [
                 'chat_id' => $chatId,
                 'message_id' => $messageId,
                 'text' => $text,
