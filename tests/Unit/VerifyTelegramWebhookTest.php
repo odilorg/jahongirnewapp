@@ -6,6 +6,7 @@ namespace Tests\Unit;
 
 use App\Http\Middleware\VerifyTelegramWebhook;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Tests\TestCase;
 
 class VerifyTelegramWebhookTest extends TestCase
@@ -15,6 +16,7 @@ class VerifyTelegramWebhookTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        VerifyTelegramWebhook::resetWarnings();
         $this->middleware = new VerifyTelegramWebhook();
     }
 
@@ -158,6 +160,24 @@ class VerifyTelegramWebhookTest extends TestCase
         $kitchenReq = Request::create('/webhook', 'POST');
         $kitchenResp = $this->middleware->handle($kitchenReq, fn () => response('OK'), 'kitchen');
         $this->assertSame(200, $kitchenResp->getStatusCode());
+    }
+
+    /** @test */
+    public function unenforced_warning_logs_once_per_process_per_slug(): void
+    {
+        config(['services.kitchen_bot.webhook_secret' => '']);
+
+        // Capture log output
+        Log::shouldReceive('warning')
+            ->once()
+            ->withArgs(fn (string $msg) => str_contains($msg, '[kitchen]') && str_contains($msg, 'UNENFORCED'));
+
+        // First request — should log
+        $this->middleware->handle(Request::create('/w', 'POST'), fn () => response('OK'), 'kitchen');
+        // Second request — should NOT log again (once per process)
+        $this->middleware->handle(Request::create('/w', 'POST'), fn () => response('OK'), 'kitchen');
+        // Third request — still no additional log
+        $this->middleware->handle(Request::create('/w', 'POST'), fn () => response('OK'), 'kitchen');
     }
 
     /** @test */

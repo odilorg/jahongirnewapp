@@ -52,6 +52,25 @@ use Symfony\Component\HttpFoundation\Response;
  */
 class VerifyTelegramWebhook
 {
+    /**
+     * Track which slugs have already logged the UNENFORCED warning this process.
+     * Prevents unbounded log noise: each slug warned at most once per PHP process
+     * (resets on PM2 restart, FPM pool recycle, or queue worker restart).
+     *
+     * @var array<string, true>
+     */
+    private static array $warnedSlugs = [];
+
+    /**
+     * Reset the warned-slugs tracker. Used by tests only.
+     *
+     * @internal
+     */
+    public static function resetWarnings(): void
+    {
+        self::$warnedSlugs = [];
+    }
+
     private const SECRET_CONFIG_MAP = [
         'cashier' => 'services.cashier_bot.webhook_secret',
         'pos' => 'services.telegram_pos_bot.secret_token',
@@ -85,11 +104,16 @@ class VerifyTelegramWebhook
         // Secret not configured yet → pass through with warning.
         // This allows bot-by-bot cutover: set the env var when ready,
         // and enforcement kicks in immediately for that bot only.
+        //
+        // Warning is logged once per bot slug per PHP process to prevent
+        // unbounded log noise. Resets on PM2/FPM/queue worker restart.
         if ($expectedSecret === '') {
-            Log::warning("VerifyTelegramWebhook: [{$botSlug}] has no webhook secret configured — passing request UNENFORCED", [
-                'config_key' => $configKey,
-                'ip' => $request->ip(),
-            ]);
+            if (! isset(self::$warnedSlugs[$botSlug])) {
+                self::$warnedSlugs[$botSlug] = true;
+                Log::warning("VerifyTelegramWebhook: [{$botSlug}] has no webhook secret configured — passing requests UNENFORCED until env var is set", [
+                    'config_key' => $configKey,
+                ]);
+            }
 
             return $next($request);
         }
