@@ -14,15 +14,11 @@ use Carbon\Carbon;
 
 class OwnerAlertService
 {
-    protected string $botToken;
     protected int $ownerChatId;
-    protected string $apiBase;
 
     public function __construct()
     {
-        $this->botToken    = config('services.owner_alert_bot.token', env('OWNER_ALERT_BOT_TOKEN', ''));
         $this->ownerChatId = (int) config('services.owner_alert_bot.owner_chat_id', env('OWNER_TELEGRAM_ID', '0'));
-        $this->apiBase     = "https://api.telegram.org/bot{$this->botToken}";
     }
 
     // -------------------------------------------------------------------------
@@ -434,8 +430,8 @@ class OwnerAlertService
 
     private function send(string $text): void
     {
-        if (empty($this->botToken) || $this->ownerChatId === 0) {
-            Log::warning('OwnerAlertService: Bot token or chat ID not configured');
+        if ($this->ownerChatId === 0) {
+            Log::warning('OwnerAlertService: owner chat ID not configured');
             return;
         }
 
