@@ -74,5 +74,6 @@ class Kernel extends HttpKernel
         'verified'         => \Illuminate\Auth\Middleware\EnsureEmailIsVerified::class,
         'telegram.auth'    => \App\Http\Middleware\AuthenticateTelegramUser::class,
         'gyg.auth'         => \App\Http\Middleware\GygBasicAuth::class,
+        'service.key'      => \App\Http\Middleware\AuthenticateServiceKey::class,
     ];
 }
