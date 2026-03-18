@@ -92,4 +92,49 @@ class TelegramBotResourceTest extends TestCase
         $this->assertStringContainsString('->getMe(', $source);
         $this->assertStringContainsString('->getWebhookInfo(', $source);
     }
+
+    // ──────────────────────────────────────────────
+    // Authorization
+    // ──────────────────────────────────────────────
+
+    /** @test */
+    public function resource_has_super_admin_authorization(): void
+    {
+        $source = file_get_contents(
+            (new \ReflectionClass(TelegramBotResource::class))->getFileName()
+        );
+
+        $this->assertStringContainsString('canViewAny', $source);
+        $this->assertStringContainsString("hasRole('super_admin')", $source);
+    }
+
+    /** @test */
+    public function view_page_actions_have_visibility_authorization(): void
+    {
+        $source = file_get_contents(
+            (new \ReflectionClass(ViewTelegramBot::class))->getFileName()
+        );
+
+        $this->assertStringContainsString('->visible(', $source);
+        $this->assertStringContainsString("hasRole('super_admin')", $source);
+    }
+
+    // ──────────────────────────────────────────────
+    // Test Connection mutation documentation
+    // ──────────────────────────────────────────────
+
+    /** @test */
+    public function test_connection_documents_username_update_side_effect(): void
+    {
+        $source = file_get_contents(
+            (new \ReflectionClass(ViewTelegramBot::class))->getFileName()
+        );
+
+        // Modal description discloses the side-effect
+        $this->assertStringContainsString('username has changed', $source);
+        $this->assertStringContainsString('updated in the database', $source);
+
+        // Update is conditional — only when value differs
+        $this->assertStringContainsString('bot_username !== $username', $source);
+    }
 }

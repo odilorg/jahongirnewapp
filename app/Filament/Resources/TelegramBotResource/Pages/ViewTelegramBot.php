@@ -24,9 +24,10 @@ class ViewTelegramBot extends ViewRecord
                 ->label('Test Connection')
                 ->icon('heroicon-o-signal')
                 ->color('info')
+                ->visible(fn (): bool => auth()->user()?->hasRole('super_admin') ?? false)
                 ->requiresConfirmation()
                 ->modalHeading('Test Bot Connection')
-                ->modalDescription('This will call getMe on the Telegram API to verify the bot token is valid and the bot is reachable.')
+                ->modalDescription('Calls getMe on the Telegram API to verify the bot token is valid. If the bot @username has changed, it will be updated in the database.')
                 ->action(function () {
                     $this->testConnection();
                 }),
@@ -35,9 +36,10 @@ class ViewTelegramBot extends ViewRecord
                 ->label('Webhook Info')
                 ->icon('heroicon-o-globe-alt')
                 ->color('gray')
+                ->visible(fn (): bool => auth()->user()?->hasRole('super_admin') ?? false)
                 ->requiresConfirmation()
                 ->modalHeading('Fetch Webhook Info')
-                ->modalDescription('This will query Telegram for the current webhook configuration of this bot.')
+                ->modalDescription('Queries Telegram for the current webhook configuration of this bot. Read-only, no changes made.')
                 ->action(function () {
                     $this->viewWebhookInfo();
                 }),

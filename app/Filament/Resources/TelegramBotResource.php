@@ -38,6 +38,18 @@ class TelegramBotResource extends Resource
 
     protected static ?string $recordTitleAttribute = 'name';
 
+    /**
+     * Restrict entire resource to super_admin only.
+     * Matches the authorization pattern used by UserResource.
+     */
+    public static function canViewAny(): bool
+    {
+        /** @var \App\Models\User|null $user */
+        $user = auth()->user();
+
+        return $user !== null && $user->hasRole('super_admin');
+    }
+
     public static function canCreate(): bool
     {
         return false;
