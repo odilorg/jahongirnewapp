@@ -114,12 +114,12 @@ final class LegacyConfigBotAdapter
         }
 
         return new ResolvedTelegramBot(
-            botId: 0, // No database row
+            botId: null, // No database row — use slug + source for identification
             slug: $slug,
             name: $mapping['name'],
             botUsername: null,
             status: BotStatus::Active,
-            environment: $this->inferEnvironment(),
+            environment: BotEnvironment::fromAppEnvironment((string) app()->environment()),
             token: $token,
             webhookSecret: $webhookSecret,
             secretVersion: 0,
@@ -149,12 +149,4 @@ final class LegacyConfigBotAdapter
         return array_keys(self::SLUG_MAP);
     }
 
-    private function inferEnvironment(): BotEnvironment
-    {
-        return match ((string) app()->environment()) {
-            'production' => BotEnvironment::Production,
-            'staging' => BotEnvironment::Staging,
-            default => BotEnvironment::Development,
-        };
-    }
 }

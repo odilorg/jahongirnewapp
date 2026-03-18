@@ -73,10 +73,11 @@ final class BotResolver implements BotResolverInterface
         $webhookSecret = $this->secretProvider->getActiveWebhookSecret($bot);
         $secretVersion = $this->secretProvider->getActiveSecretVersion($bot);
 
-        // Audit the successful resolution
-        $this->auditLogger->logTokenAccess($bot, self::class);
-
-        // Touch last_used_at
+        // Successful resolutions are NOT audit-logged individually.
+        // Routine token_read would produce unbounded write amplification
+        // (every request × every bot = O(n) audit rows per second).
+        // Failures, disabled/revoked attempts, and env mismatches ARE logged above.
+        // last_used_at provides a lightweight "was recently active" signal.
         $bot->markUsed();
 
         return new ResolvedTelegramBot(
@@ -115,7 +116,7 @@ final class BotResolver implements BotResolverInterface
     private function enforceEnvironment(TelegramBot $bot): void
     {
         $appEnv = (string) app()->environment();
-        $expected = $this->mapAppEnvironment($appEnv);
+        $expected = BotEnvironment::fromAppEnvironment($appEnv);
 
         if ($bot->environment !== $expected) {
             $this->auditLogger->log(
@@ -132,14 +133,5 @@ final class BotResolver implements BotResolverInterface
 
             throw new BotEnvironmentMismatchException($bot->slug, $bot->environment, $appEnv);
         }
-    }
-
-    private function mapAppEnvironment(string $appEnv): BotEnvironment
-    {
-        return match ($appEnv) {
-            'production' => BotEnvironment::Production,
-            'staging' => BotEnvironment::Staging,
-            default => BotEnvironment::Development,
-        };
     }
 }

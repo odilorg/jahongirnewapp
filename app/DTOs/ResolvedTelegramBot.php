@@ -24,8 +24,20 @@ use App\Enums\BotStatus;
  */
 final readonly class ResolvedTelegramBot
 {
+    /**
+     * @param int|null    $botId         Database PK, or null for legacy config bots
+     * @param string      $slug          Canonical bot identifier
+     * @param string      $name          Human-readable display name
+     * @param string|null $botUsername    Telegram @username (null for legacy)
+     * @param BotStatus   $status        Always Active for legacy bots
+     * @param BotEnvironment $environment Inferred from app env for legacy bots
+     * @param string      $token         Decrypted plaintext — NEVER log, serialize, or cache
+     * @param string|null $webhookSecret Decrypted webhook verification secret
+     * @param int         $secretVersion Secret row version (0 for legacy)
+     * @param string      $source        'database' or 'legacy_config'
+     */
     public function __construct(
-        public int $botId,
+        public ?int $botId,
         public string $slug,
         public string $name,
         public ?string $botUsername,
@@ -33,8 +45,8 @@ final readonly class ResolvedTelegramBot
         public BotEnvironment $environment,
         public string $token,
         public ?string $webhookSecret = null,
-        public int $secretVersion = 1,
-        public ?string $source = 'database',
+        public int $secretVersion = 0,
+        public string $source = 'database',
     ) {}
 
     /**
@@ -44,5 +56,51 @@ final readonly class ResolvedTelegramBot
     public function isLegacy(): bool
     {
         return $this->source === 'legacy_config';
+    }
+
+    /**
+     * Redact secrets from debug output (var_dump, dd, dump, print_r).
+     *
+     * @return array<string, mixed>
+     */
+    public function __debugInfo(): array
+    {
+        return [
+            'botId' => $this->botId,
+            'slug' => $this->slug,
+            'name' => $this->name,
+            'botUsername' => $this->botUsername,
+            'status' => $this->status,
+            'environment' => $this->environment,
+            'token' => '********',
+            'webhookSecret' => $this->webhookSecret !== null ? '********' : null,
+            'secretVersion' => $this->secretVersion,
+            'source' => $this->source,
+        ];
+    }
+
+    /**
+     * Prevent serialization — token must not survive beyond runtime memory.
+     *
+     * @return never
+     * @throws \LogicException
+     */
+    public function __serialize(): array
+    {
+        throw new \LogicException(
+            'ResolvedTelegramBot must not be serialized — it contains decrypted secrets. '
+            . 'Do not pass this DTO to queues, cache, or session storage.'
+        );
+    }
+
+    /**
+     * @return never
+     * @throws \LogicException
+     */
+    public function __unserialize(array $data): void
+    {
+        throw new \LogicException(
+            'ResolvedTelegramBot must not be unserialized — it contains decrypted secrets.'
+        );
     }
 }

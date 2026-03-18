@@ -27,4 +27,24 @@ enum BotEnvironment: string
             self::Development => 'gray',
         };
     }
+
+    /**
+     * Map a Laravel APP_ENV string to a BotEnvironment enum value.
+     *
+     * Canonical mapping (single source of truth):
+     *   'production'                    → Production
+     *   'staging'                       → Staging
+     *   'local', 'testing', any other   → Development
+     *
+     * Used by BotResolver (environment enforcement) and
+     * LegacyConfigBotAdapter (environment inference).
+     */
+    public static function fromAppEnvironment(string $appEnv): self
+    {
+        return match ($appEnv) {
+            'production' => self::Production,
+            'staging' => self::Staging,
+            default => self::Development,
+        };
+    }
 }

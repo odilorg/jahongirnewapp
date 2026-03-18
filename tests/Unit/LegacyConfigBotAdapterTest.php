@@ -33,7 +33,7 @@ class LegacyConfigBotAdapterTest extends TestCase
         $this->assertSame('Owner Alert Bot', $dto->name);
         $this->assertSame('fake-owner-token', $dto->token);
         $this->assertSame(BotStatus::Active, $dto->status);
-        $this->assertSame(0, $dto->botId);
+        $this->assertNull($dto->botId);
         $this->assertSame(0, $dto->secretVersion);
         $this->assertTrue($dto->isLegacy());
     }

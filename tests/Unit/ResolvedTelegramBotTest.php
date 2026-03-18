@@ -53,15 +53,33 @@ class ResolvedTelegramBotTest extends TestCase
         );
 
         $this->assertNull($dto->webhookSecret);
-        $this->assertSame(1, $dto->secretVersion);
+        $this->assertSame(0, $dto->secretVersion);
         $this->assertSame('database', $dto->source);
+    }
+
+    /** @test */
+    public function bot_id_is_nullable_for_legacy(): void
+    {
+        $dto = new ResolvedTelegramBot(
+            botId: null,
+            slug: 'owner-alert',
+            name: 'Owner Alert Bot',
+            botUsername: null,
+            status: BotStatus::Active,
+            environment: BotEnvironment::Production,
+            token: 'tok',
+            source: 'legacy_config',
+        );
+
+        $this->assertNull($dto->botId);
+        $this->assertTrue($dto->isLegacy());
     }
 
     /** @test */
     public function is_legacy_returns_true_for_legacy_config(): void
     {
         $dto = new ResolvedTelegramBot(
-            botId: 0,
+            botId: null,
             slug: 'owner-alert',
             name: 'Owner Alert Bot',
             botUsername: null,
@@ -94,17 +112,7 @@ class ResolvedTelegramBotTest extends TestCase
     /** @test */
     public function dto_is_readonly(): void
     {
-        $dto = new ResolvedTelegramBot(
-            botId: 1,
-            slug: 'test',
-            name: 'Test',
-            botUsername: null,
-            status: BotStatus::Active,
-            environment: BotEnvironment::Development,
-            token: 'tok',
-        );
-
-        $reflection = new \ReflectionClass($dto);
+        $reflection = new \ReflectionClass(ResolvedTelegramBot::class);
         $this->assertTrue($reflection->isReadOnly());
     }
 
@@ -115,5 +123,87 @@ class ResolvedTelegramBotTest extends TestCase
             (new \ReflectionClass(ResolvedTelegramBot::class))
                 ->implementsInterface(\JsonSerializable::class)
         );
+    }
+
+    /** @test */
+    public function debug_info_redacts_token_and_webhook_secret(): void
+    {
+        $dto = new ResolvedTelegramBot(
+            botId: 42,
+            slug: 'test',
+            name: 'Test Bot',
+            botUsername: null,
+            status: BotStatus::Active,
+            environment: BotEnvironment::Development,
+            token: 'REAL-SECRET-TOKEN-123',
+            webhookSecret: 'REAL-WEBHOOK-SECRET-456',
+        );
+
+        $debug = $dto->__debugInfo();
+
+        $this->assertSame('********', $debug['token']);
+        $this->assertSame('********', $debug['webhookSecret']);
+        $this->assertSame(42, $debug['botId']);
+        $this->assertSame('test', $debug['slug']);
+    }
+
+    /** @test */
+    public function debug_info_shows_null_webhook_secret_as_null(): void
+    {
+        $dto = new ResolvedTelegramBot(
+            botId: 1,
+            slug: 'test',
+            name: 'Test',
+            botUsername: null,
+            status: BotStatus::Active,
+            environment: BotEnvironment::Development,
+            token: 'tok',
+        );
+
+        $debug = $dto->__debugInfo();
+
+        $this->assertNull($debug['webhookSecret']);
+    }
+
+    /** @test */
+    public function serialize_throws_logic_exception(): void
+    {
+        $dto = new ResolvedTelegramBot(
+            botId: 1,
+            slug: 'test',
+            name: 'Test',
+            botUsername: null,
+            status: BotStatus::Active,
+            environment: BotEnvironment::Development,
+            token: 'tok',
+        );
+
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('must not be serialized');
+
+        serialize($dto);
+    }
+
+    /** @test */
+    public function var_dump_does_not_contain_real_token(): void
+    {
+        $dto = new ResolvedTelegramBot(
+            botId: 1,
+            slug: 'test',
+            name: 'Test',
+            botUsername: null,
+            status: BotStatus::Active,
+            environment: BotEnvironment::Development,
+            token: 'SUPER-SECRET-TOKEN-XYZ',
+            webhookSecret: 'SUPER-SECRET-WH-ABC',
+        );
+
+        ob_start();
+        var_dump($dto);
+        $output = ob_get_clean();
+
+        $this->assertStringNotContainsString('SUPER-SECRET-TOKEN-XYZ', $output);
+        $this->assertStringNotContainsString('SUPER-SECRET-WH-ABC', $output);
+        $this->assertStringContainsString('********', $output);
     }
 }
