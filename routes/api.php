@@ -149,3 +149,19 @@ Route::prefix('gyg/1')->middleware('gyg.auth')->group(function () {
     Route::post('/cancel-booking/',     [\App\Http\Controllers\GygController::class, 'cancelBooking']);
     Route::post('/notify/',             [\App\Http\Controllers\GygController::class, 'notify']);
 });
+
+// ============================================================
+// Internal Telegram Bot Proxy API
+// Cross-app bot operations. Token never leaves this server.
+// Auth: X-Service-Key header (per-app key with slug+action allowlists)
+// ============================================================
+Route::prefix('internal/bots/{slug}')
+    ->middleware(['service.key', 'throttle:60,1'])
+    ->group(function () {
+        Route::post('/send-message', [\App\Http\Controllers\Api\InternalBotController::class, 'sendMessage'])->name('internal.bots.send-message');
+        Route::post('/send-photo', [\App\Http\Controllers\Api\InternalBotController::class, 'sendPhoto'])->name('internal.bots.send-photo');
+        Route::get('/get-me', [\App\Http\Controllers\Api\InternalBotController::class, 'getMe'])->name('internal.bots.get-me');
+        Route::get('/webhook-info', [\App\Http\Controllers\Api\InternalBotController::class, 'webhookInfo'])->name('internal.bots.webhook-info');
+        Route::post('/set-webhook', [\App\Http\Controllers\Api\InternalBotController::class, 'setWebhook'])->name('internal.bots.set-webhook');
+        Route::post('/delete-webhook', [\App\Http\Controllers\Api\InternalBotController::class, 'deleteWebhook'])->name('internal.bots.delete-webhook');
+    });
