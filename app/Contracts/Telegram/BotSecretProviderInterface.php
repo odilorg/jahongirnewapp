@@ -22,4 +22,11 @@ interface BotSecretProviderInterface
      * @throws BotSecretUnavailableException if no active secret exists
      */
     public function getActiveWebhookSecret(TelegramBot $bot): ?string;
+
+    /**
+     * Get the version number of the currently active secret.
+     *
+     * @throws BotSecretUnavailableException if no active secret exists
+     */
+    public function getActiveSecretVersion(TelegramBot $bot): int;
 }
