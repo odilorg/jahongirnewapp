@@ -19,6 +19,15 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * Secrets (token, webhook_secret) live in TelegramBotSecret — never on this model.
  * Decryption is handled exclusively by BotSecretProviderInterface implementations.
  *
+ * ## Lifecycle
+ *
+ * Normal decommission uses the status field (active → disabled → revoked),
+ * NOT soft delete. A disabled bot can be re-enabled; a revoked bot cannot.
+ *
+ * Soft delete (deleted_at) is reserved for administrative record removal —
+ * hiding a bot from queries while preserving its audit trail and secret
+ * history. It should not be used as a substitute for status transitions.
+ *
  * @property int $id
  * @property string $slug
  * @property string $name
@@ -82,6 +91,12 @@ class TelegramBot extends Model
 
     /**
      * The single active secret for this bot.
+     *
+     * Uses latestOfMany('version') so if multiple secrets are accidentally
+     * left in 'active' status, the highest version wins. This is a safety
+     * net, not intended behavior — the BotRotationService (Phase 5) will
+     * enforce that at most one secret per bot is active at any time by
+     * revoking the previous secret before activating a new one.
      */
     public function activeSecret(): HasOne
     {

@@ -35,11 +35,15 @@ class TelegramBotSecret extends Model
 
     protected $table = 'telegram_bot_secrets';
 
+    /**
+     * Encrypted columns (token_encrypted, webhook_secret_encrypted) are
+     * intentionally excluded from $fillable. They must be set explicitly
+     * via $model->token_encrypted = ... to prevent accidental mass-assignment
+     * from untrusted input. Factories and the BotSecretProvider set them directly.
+     */
     protected $fillable = [
         'telegram_bot_id',
         'version',
-        'token_encrypted',
-        'webhook_secret_encrypted',
         'status',
         'activated_at',
         'revoked_at',
@@ -54,12 +58,24 @@ class TelegramBotSecret extends Model
     ];
 
     /**
-     * Encrypted columns must never appear in serialization (toArray, toJson, queue payloads).
+     * Encrypted columns must never appear in serialization (toArray, toJson,
+     * queue payloads, API responses, logs, or exception context).
+     *
+     * This is the last line of defense. Even if someone calls ->makeVisible(),
+     * the raw ciphertext is what leaks — not the plaintext. But the intent is
+     * that these columns never leave the model layer at all.
      */
     protected $hidden = [
         'token_encrypted',
         'webhook_secret_encrypted',
     ];
+
+    /**
+     * Guard against ->makeVisible() or ->append() re-exposing encrypted fields.
+     * There are no accessors for decrypted values on this model — by design.
+     * If you need the decrypted token, use BotSecretProviderInterface.
+     */
+    protected $appends = [];
 
     // ──────────────────────────────────────────────
     // Relationships
