@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# ── Production Deploy Script (v2) ─────────────────────────────
+# ── Production Deploy Script (v2.1) ───────────────────────────
 # Usage: ./scripts/deploy-production.sh <tag-or-commit>
 # Example: ./scripts/deploy-production.sh release-2026-03-18-bugfix
 #
@@ -92,9 +92,17 @@ DEPLOYED_AT=$DEPLOYED_AT
 EOF
 log "==> Wrote .version (sha=${DEPLOYED_SHA:0:8}, tag=$DEPLOYED_TAG)"
 
+# ── Preflight: .env exists ─────────────────────────────────────
+if [ ! -f .env ]; then
+    log "ERROR: .env file missing — cannot continue"
+    exit 1
+fi
+
 # ── Step 4: Dependencies ─────────────────────────────────────
 log "==> Installing dependencies"
-composer install --no-dev --prefer-dist --optimize-autoloader --no-interaction 2>&1 | tail -20
+composer install --no-dev --prefer-dist --optimize-autoloader --no-interaction \
+    >> "$LOG_FILE" 2>&1
+log "    Dependencies installed (full output in $LOG_FILE)"
 
 # ── Step 5: Laravel optimize ──────────────────────────────────
 log "==> Running Laravel cache/optimize"
@@ -110,7 +118,8 @@ log "    Artisan OK"
 
 # ── Step 7: Migrations ────────────────────────────────────────
 log "==> Running migrations (if any)"
-php artisan migrate --force --no-interaction 2>&1 | tail -20
+php artisan migrate --force --no-interaction >> "$LOG_FILE" 2>&1
+log "    Migrations done (full output in $LOG_FILE)"
 
 # ── Step 8: Restart services ─────────────────────────────────
 log "==> Restarting services"
@@ -165,21 +174,26 @@ else
 fi
 
 # Check 3: App PM2 process(es) online
-PM2_OK=true
-for proc in $APP_PM2_PROCESSES; do
-    if pm2 describe "$proc" 2>/dev/null | grep -q "status.*online"; then
-        log "    ✅ PM2: $proc online"
-    else
-        log "    ❌ PM2: $proc NOT online"
-        PM2_OK=false
+if command -v pm2 &>/dev/null; then
+    PM2_OK=true
+    for proc in $APP_PM2_PROCESSES; do
+        if pm2 describe "$proc" 2>/dev/null | grep -q "status.*online"; then
+            log "    ✅ PM2: $proc online"
+        else
+            log "    ❌ PM2: $proc NOT online"
+            PM2_OK=false
+        fi
+    done
+    if $PM2_OK; then
+        CHECKS_PASSED=$((CHECKS_PASSED + 1))
     fi
-done
-if $PM2_OK; then
+else
+    log "    ⏭ PM2 not installed, skipping"
     CHECKS_PASSED=$((CHECKS_PASSED + 1))
 fi
 
 # Check 4: Cache directory writable
-if sudo -u "$APP_USER" test -w storage/framework/cache/data; then
+if runuser -u "$APP_USER" -- test -w storage/framework/cache/data 2>/dev/null; then
     log "    ✅ Cache dir writable by $APP_USER"
     CHECKS_PASSED=$((CHECKS_PASSED + 1))
 else
