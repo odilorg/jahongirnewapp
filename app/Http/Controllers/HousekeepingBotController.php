@@ -107,9 +107,57 @@ class HousekeepingBotController extends Controller
 
         $session->updateActivity();
 
+        // ── GLOBAL COMMANDS: always win over subflow state ──────
+        // Main menu buttons and slash commands escape any active flow.
+        // This prevents users from getting trapped in abandoned wizards.
+        $user = User::find($session->user_id);
+        $isManager = $user && $user->hasAnyRole(['super_admin', 'admin', 'manager', 'owner']);
+
+        $globalCommands = [
+            '/start', '/today', '/status', '/issues', '/help', '/cancel', '/logout',
+            '🏠 Bosh sahifa', '📅 Bugungi rejim', '📊 Xonalar holati',
+            '🔴 Muammolar', '❓ Yordam',
+        ];
+
+        if (in_array($text, $globalCommands, true)) {
+            // Reset stuck subflow state when user taps a main menu button
+            $subflowStates = ['hk_issue_room', 'hk_issue_desc', 'hk_issue_photo',
+                'hk_lf_photo', 'hk_lf_room', 'hk_lf_desc',
+                'hk_stock_room', 'hk_stock_item', 'hk_rush_room'];
+
+            if (in_array($session->state, $subflowStates, true)) {
+                $session->update(['state' => 'hk_main', 'data' => null]);
+            }
+
+            // Route to command handler
+            if ($text === '/start' || $text === '🏠 Bosh sahifa') return $this->showWelcome($chatId, $session);
+            if ($text === '/today' || $text === '📅 Bugungi rejim') return $this->showDailyPlan($chatId, now()->timezone('Asia/Tashkent')->format('Y-m-d'));
+            if ($text === '/status' || $text === '📊 Xonalar holati') return $this->showStatus($chatId);
+            if ($text === '/issues' || $text === '🔴 Muammolar') return $this->showIssues($chatId);
+            if ($text === '/help' || $text === '❓ Yordam') return $this->showHelp($chatId, $isManager);
+            if ($text === '/cancel') {
+                $this->send($chatId, "Bekor qilindi.", $this->mainKb($isManager));
+                return response('OK');
+            }
+        }
+
+        // ── STATE TIMEOUT: auto-reset abandoned flows ──────────
+        // If a subflow state is older than 2 hours, reset to main menu.
+        $subflowStates = ['hk_issue_room', 'hk_issue_desc', 'hk_issue_photo',
+            'hk_lf_photo', 'hk_lf_room', 'hk_lf_desc',
+            'hk_stock_room', 'hk_stock_item', 'hk_rush_room'];
+
+        if (in_array($session->state, $subflowStates, true)
+            && $session->last_activity_at
+            && Carbon::parse($session->last_activity_at)->addHours(2)->isPast()) {
+            $session->update(['state' => 'hk_main', 'data' => null]);
+            $this->send($chatId, "Avvalgi jarayon vaqt tugadi. Bosh sahifaga qaytdingiz.", $this->mainKb($isManager));
+            return response('OK');
+        }
+
+        // ── MEDIA HANDLING ─────────────────────────────────────
         // Photo received
         if ($photo) {
-            // If in lost & found flow, handle as L&F photo
             if ($session->state === 'hk_lf_photo') {
                 return $this->handleLostFoundPhoto($chatId, $session, $photo);
             }
@@ -121,42 +169,29 @@ class HousekeepingBotController extends Controller
             return $this->handleVoice($chatId, $session, $voice);
         }
 
-        // Voice in caption (photo + voice not possible in TG, but handle video_note)
-        // Video notes (round video messages)
         if ($message['video_note'] ?? null) {
             return $this->handleVoice($chatId, $session, $message['video_note']);
         }
 
-        // State-based handling (issue reporting flow)
+        // ── SUBFLOW STATE ROUTING ──────────────────────────────
+        // Only reached if text is NOT a global command and state is NOT expired
         if (in_array($session->state, ['hk_issue_room', 'hk_issue_desc', 'hk_issue_photo'])) {
             return $this->handleIssueFlow($chatId, $session, $text);
         }
 
-        // State-based handling (lost & found flow)
         if (in_array($session->state, ['hk_lf_photo', 'hk_lf_room', 'hk_lf_desc'])) {
             return $this->handleLostFoundFlow($chatId, $session, $text);
         }
 
-        // State-based handling (stock alert flow)
         if (in_array($session->state, ['hk_stock_room', 'hk_stock_item'])) {
             return $this->handleStockAlertFlow($chatId, $session, $text);
         }
 
-        // State-based handling (rush room flow)
         if ($session->state === 'hk_rush_room') {
             return $this->handleRushFlow($chatId, $session, $text);
         }
 
-        // Reply keyboard button texts
-        $user = User::find($session->user_id);
-        $isManager = $user && $user->hasAnyRole(['super_admin', 'admin', 'manager', 'owner']);
-
-        // Commands & button handlers
-        if ($text === '/start' || $text === '🏠 Bosh sahifa') return $this->showWelcome($chatId, $session);
-        if ($text === '/today' || $text === '📅 Bugungi rejim') return $this->showDailyPlan($chatId, now()->timezone('Asia/Tashkent')->format('Y-m-d'));
-        if ($text === '/status' || $text === '📊 Xonalar holati') return $this->showStatus($chatId);
-        if ($text === '/issues' || $text === '🔴 Muammolar') return $this->showIssues($chatId);
-        if ($text === '/help' || $text === '❓ Yordam') return $this->showHelp($chatId, $isManager);
+        // ── REMAINING MENU COMMANDS ────────────────────────────
         if ($text === '📸 Muammo yuborish') {
             $session->update(['state' => 'hk_issue_photo', 'data' => null]);
             $this->send($chatId, "📸 Rasm yoki 🎤 ovozli xabar yuboring.", $this->mainKb($isManager));
