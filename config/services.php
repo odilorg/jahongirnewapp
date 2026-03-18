@@ -24,6 +24,7 @@ return [
 
     'telegram' => [
         'bot_token' => env('TELEGRAM_BOT_TOKEN'),
+        'webhook_secret' => env('TELEGRAM_MAIN_WEBHOOK_SECRET', ''),
     ],
 
     'telegram_bot' => [
@@ -70,8 +71,9 @@ return [
 
 
     'owner_alert_bot' => [
-        'token'         => env('OWNER_ALERT_BOT_TOKEN', ''),
-        'owner_chat_id' => env('OWNER_TELEGRAM_ID', ''),
+        'token'          => env('OWNER_ALERT_BOT_TOKEN', ''),
+        'owner_chat_id'  => env('OWNER_TELEGRAM_ID', ''),
+        'webhook_secret' => env('OWNER_ALERT_WEBHOOK_SECRET', ''),
     ],
 
     'driver_guide_bot' => [
@@ -89,12 +91,14 @@ return [
     ],
 
     'housekeeping_bot' => [
-        'token'         => env('HOUSEKEEPING_BOT_TOKEN', ''),
-        'mgmt_group_id' => env('HOUSEKEEPING_MGMT_GROUP_ID', ''),
+        'token'          => env('HOUSEKEEPING_BOT_TOKEN', ''),
+        'mgmt_group_id'  => env('HOUSEKEEPING_MGMT_GROUP_ID', ''),
+        'webhook_secret' => env('HOUSEKEEPING_WEBHOOK_SECRET', ''),
     ],
 
     'kitchen_bot' => [
-        'token' => env('KITCHEN_BOT_TOKEN', ''),
+        'token'          => env('KITCHEN_BOT_TOKEN', ''),
+        'webhook_secret' => env('KITCHEN_WEBHOOK_SECRET', ''),
     ],
 
 
