@@ -115,6 +115,14 @@ class TelegramBot extends Model
         return $this->belongsTo(User::class, 'updated_by');
     }
 
+    /**
+     * Audit log entries for this bot (newest first).
+     */
+    public function accessLogs(): HasMany
+    {
+        return $this->hasMany(TelegramBotAccessLog::class)->latest();
+    }
+
     // ──────────────────────────────────────────────
     // Scopes
     // ──────────────────────────────────────────────
