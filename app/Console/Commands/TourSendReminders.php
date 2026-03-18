@@ -13,16 +13,12 @@ class TourSendReminders extends Command
     protected $signature   = 'tour:send-reminders {--dry-run : Print output without actually sending messages}';
     protected $description = 'Send daily tour reminders — Telegram staff alert (Phase 1) + WhatsApp guest reminders (Phase 2)';
 
-    private string $botToken;
-    private int    $ownerChatId;
-    private string $driverGuideBotToken;
+    private int $ownerChatId;
 
     public function __construct()
     {
         parent::__construct();
-        $this->botToken            = config('services.owner_alert_bot.token', env('OWNER_ALERT_BOT_TOKEN', ''));
-        $this->ownerChatId         = (int) config('services.owner_alert_bot.owner_chat_id', env('OWNER_TELEGRAM_ID', '0'));
-        $this->driverGuideBotToken = config('services.driver_guide_bot.token', env('TELEGRAM_BOT_TOKEN_DRIVER_GUIDE', ''));
+        $this->ownerChatId = (int) config('services.owner_alert_bot.owner_chat_id', env('OWNER_TELEGRAM_ID', '0'));
     }
 
     public function handle(): int
@@ -463,39 +459,18 @@ class TourSendReminders extends Command
     private function sendTelegramDirect(string $chatId, string $text): bool
     {
         try {
-            $url  = "https://api.telegram.org/bot{$this->driverGuideBotToken}/sendMessage";
-            $data = http_build_query([
-                'chat_id'    => $chatId,
-                'text'       => $text,
-                'parse_mode' => 'HTML',
-            ]);
+            $resolver = app(\App\Contracts\Telegram\BotResolverInterface::class);
+            $transport = app(\App\Contracts\Telegram\TelegramTransportInterface::class);
+            $bot = $resolver->resolve('driver-guide');
+            $result = $transport->sendMessage($bot, $chatId, $text, ['parse_mode' => 'HTML']);
 
-            $ctx = stream_context_create(['http' => [
-                'method'  => 'POST',
-                'header'  => "Content-Type: application/x-www-form-urlencoded\r\n",
-                'content' => $data,
-                'timeout' => 10,
-                'ignore_errors' => true,
-            ]]);
-
-            $response = file_get_contents($url, false, $ctx);
-
-            if ($response === false) {
-                Log::error('TourSendReminders: driver/guide Telegram request failed', ['chat_id' => $chatId]);
-                return false;
-            }
-
-            $decoded = json_decode($response, true);
-            if (!($decoded['ok'] ?? false)) {
-                Log::error('TourSendReminders: driver/guide Telegram API error', [
-                    'chat_id'  => $chatId,
-                    'response' => $decoded,
-                ]);
+            if (!$result->succeeded()) {
+                Log::error('TourSendReminders: driver/guide Telegram request failed', ['chat_id' => $chatId, 'status' => $result->httpStatus]);
                 return false;
             }
 
             return true;
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             Log::error('TourSendReminders: driver/guide Telegram exception', [
                 'chat_id' => $chatId,
                 'error'   => $e->getMessage(),
@@ -772,8 +747,8 @@ class TourSendReminders extends Command
      */
     private function sendTelegram(string $text): bool
     {
-        if (empty($this->botToken) || $this->ownerChatId === 0) {
-            Log::warning('TourSendReminders: Telegram bot token or chat ID not configured');
+        if ($this->ownerChatId === 0) {
+            Log::warning('TourSendReminders: owner chat ID not configured');
             $this->warn('Telegram credentials not configured — skipping.');
             return false;
         }

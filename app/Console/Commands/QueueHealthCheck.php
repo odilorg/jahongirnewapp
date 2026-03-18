@@ -60,16 +60,14 @@ class QueueHealthCheck extends Command
             'webhook_issues' => count($issues),
         ]);
 
-        $botToken = config('services.owner_alert_bot.token');
         $chatId = config('services.owner_alert_bot.owner_chat_id', '38738713');
 
-        if ($botToken && $chatId && $msg) {
+        if ($chatId && $msg) {
             try {
-                Http::timeout(10)->post("https://api.telegram.org/bot{$botToken}/sendMessage", [
-                    'chat_id' => $chatId,
-                    'text' => $msg,
-                    'parse_mode' => 'HTML',
-                ]);
+                $resolver = app(\App\Contracts\Telegram\BotResolverInterface::class);
+                $transport = app(\App\Contracts\Telegram\TelegramTransportInterface::class);
+                $bot = $resolver->resolve('owner-alert');
+                $transport->sendMessage($bot, $chatId, $msg, ['parse_mode' => 'HTML']);
             } catch (\Throwable $e) {
                 Log::error('Health check: failed to send alert', ['error' => $e->getMessage()]);
             }
@@ -87,19 +85,23 @@ class QueueHealthCheck extends Command
      */
     private function checkBotWebhooks(array &$issues): void
     {
-        $bots = [
-            'cashier'      => config('services.cashier_bot.token', ''),
-            'housekeeping' => config('services.housekeeping_bot.token', ''),
-            'kitchen'      => config('services.kitchen_bot.token', ''),
-            'driver'       => config('services.driver_guide_bot.token', ''),
+        $slugs = [
+            'cashier'      => 'cashier',
+            'housekeeping' => 'housekeeping',
+            'kitchen'      => 'kitchen',
+            'driver'       => 'driver-guide',
         ];
 
-        foreach ($bots as $name => $token) {
-            if (empty($token)) continue;
+        $resolver = app(\App\Contracts\Telegram\BotResolverInterface::class);
+        $transport = app(\App\Contracts\Telegram\TelegramTransportInterface::class);
 
+        foreach ($slugs as $name => $slug) {
             try {
-                $resp = Http::timeout(5)->get("https://api.telegram.org/bot{$token}/getWebhookInfo");
-                $info = $resp->json('result');
+                $bot = $resolver->tryResolve($slug);
+                if (!$bot) continue;
+
+                $result = $transport->getWebhookInfo($bot);
+                $info = $result->succeeded() ? $result->result : null;
                 if (!$info) continue;
 
                 $pending = $info['pending_update_count'] ?? 0;
@@ -148,19 +150,13 @@ class QueueHealthCheck extends Command
 
                 // Step 1: Try re-register without dropping (if queue is draining)
                 if (!$queueGrowing && $url) {
-                    Http::timeout(5)->post("https://api.telegram.org/bot{$token}/setWebhook", [
-                        'url' => $url,
-                    ]);
+                    $transport->setWebhook($bot, $url);
                     $issues[] = "🔄 <b>{$name}</b>: re-registered webhook (queue draining, kept pending)";
                 } else {
                     // Step 2: Queue growing or stuck — drop pending + re-register
-                    Http::timeout(5)->get("https://api.telegram.org/bot{$token}/deleteWebhook", [
-                        'drop_pending_updates' => true,
-                    ]);
+                    $transport->deleteWebhook($bot, dropPendingUpdates: true);
                     if ($url) {
-                        Http::timeout(5)->post("https://api.telegram.org/bot{$token}/setWebhook", [
-                            'url' => $url,
-                        ]);
+                        $transport->setWebhook($bot, $url);
                     }
                     $issues[] = "🔴 <b>{$name}</b>: reset webhook + dropped {$pending} pending updates";
                 }

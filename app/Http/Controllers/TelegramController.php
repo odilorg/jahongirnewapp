@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers;
 
+use App\Contracts\Telegram\BotResolverInterface;
+use App\Contracts\Telegram\TelegramTransportInterface;
 use Carbon\Carbon;
 use App\Models\Booking;
 use App\Models\Guest;
@@ -11,18 +13,19 @@ use App\Models\Driver;
 use App\Models\TelegramConversation;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 
 class TelegramController extends Controller
 {
     protected $authorizedChatId = '38738713'; // or remove if open to all
-    protected $botToken;
     protected $conversationTimeout = 15; // in minutes
+    protected BotResolverInterface $botResolver;
+    protected TelegramTransportInterface $transport;
 
-    public function __construct()
+    public function __construct(BotResolverInterface $botResolver, TelegramTransportInterface $transport)
     {
-        $this->botToken = config('services.telegram_bot.token');
+        $this->botResolver = $botResolver;
+        $this->transport = $transport;
     }
 
     /**
@@ -543,26 +546,18 @@ class TelegramController extends Controller
      */
     protected function sendTelegramMessage($chatId, $text)
     {
-        if (!$this->botToken) {
-            Log::error("TELEGRAM_BOT_TOKEN not set.");
-            return false;
-        }
-
-        $url = "https://api.telegram.org/bot{$this->botToken}/sendMessage";
         try {
-            $response = Http::post($url, [
-                'chat_id' => $chatId,
-                'text'    => $text,
-            ]);
-            if ($response->failed()) {
-                Log::error("sendTelegramMessage failed: {$response->body()}");
+            $bot = $this->botResolver->resolve('main');
+            $result = $this->transport->sendMessage($bot, $chatId, $text);
+            if (!$result->succeeded()) {
+                Log::error("sendTelegramMessage failed", ['status' => $result->httpStatus]);
                 return false;
             }
-        } catch (\Exception $e) {
+            return true;
+        } catch (\Throwable $e) {
             Log::error("sendTelegramMessage exception: " . $e->getMessage());
             return false;
         }
-        return true;
     }
 
     /**
@@ -570,25 +565,12 @@ class TelegramController extends Controller
      */
     protected function sendRawTelegramRequest($method, array $payload)
     {
-        if (!$this->botToken) {
-            Log::error("TELEGRAM_BOT_TOKEN missing.");
-            return false;
-        }
-        $url = "https://api.telegram.org/bot{$this->botToken}/{$method}";
-
         try {
-            $options = [
-                'http' => [
-                    'method'  => 'POST',
-                    'header'  => "Content-Type: application/json\r\n",
-                    'content' => json_encode($payload),
-                ]
-            ];
-            $context = stream_context_create($options);
-            $res     = file_get_contents($url, false, $context);
+            $bot = $this->botResolver->resolve('main');
+            $result = $this->transport->call($bot, $method, $payload);
 
-            if ($res === false) {
-                Log::error("sendRawTelegramRequest failed: $method");
+            if (!$result->succeeded()) {
+                Log::error("sendRawTelegramRequest failed: $method", ['status' => $result->httpStatus]);
                 return false;
             }
         } catch (\Exception $e) {
