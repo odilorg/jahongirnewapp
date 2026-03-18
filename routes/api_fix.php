@@ -56,7 +56,7 @@ Route::post('/booking/bot/webhook', [\App\Http\Controllers\BookingWebhookControl
 
 // Telegram POS Bot Routes
 Route::post('/telegram/pos/webhook', [\App\Http\Controllers\TelegramPosController::class, 'handleWebhook'])
-    ->middleware(\App\Http\Middleware\ValidateTelegramRequest::class)
+    ->middleware('verify.telegram.webhook:pos')
     ->name('telegram.pos.webhook');
 
 Route::post('/telegram/pos/set-webhook', [\App\Http\Controllers\TelegramPosController::class, 'setWebhook'])

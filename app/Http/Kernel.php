@@ -72,7 +72,6 @@ class Kernel extends HttpKernel
         'signed'           => \App\Http\Middleware\ValidateSignature::class,
         'throttle'         => \Illuminate\Routing\Middleware\ThrottleRequests::class,
         'verified'         => \Illuminate\Auth\Middleware\EnsureEmailIsVerified::class,
-        'telegram.validate' => \App\Http\Middleware\ValidateTelegramRequest::class,
         'telegram.auth'    => \App\Http\Middleware\AuthenticateTelegramUser::class,
         'gyg.auth'         => \App\Http\Middleware\GygBasicAuth::class,
     ];
