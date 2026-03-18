@@ -52,6 +52,17 @@ git checkout --force "$RELEASE_REF"
 git reset --hard "$RELEASE_REF"
 git clean -fd
 
+# ── Rebuild runtime directories ───────────────────────────
+# git clean -fd nukes untracked files including Laravel's runtime dirs.
+# These are runtime state, not code — must be recreated every deploy.
+log "==> Rebuilding runtime directories"
+mkdir -p storage/framework/cache/data
+mkdir -p storage/framework/sessions
+mkdir -p storage/framework/views
+mkdir -p storage/logs
+mkdir -p bootstrap/cache
+chmod -R 775 storage bootstrap/cache
+
 DEPLOYED_SHA=$(git rev-parse HEAD)
 DEPLOYED_TAG=$(git describe --tags --exact-match 2>/dev/null || echo "no-tag")
 DEPLOYED_AT=$(date '+%Y-%m-%d %H:%M:%S')
