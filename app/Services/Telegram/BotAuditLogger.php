@@ -61,6 +61,12 @@ final class BotAuditLogger implements BotAuditLoggerInterface
         } catch (\Throwable $e) {
             // Audit logging must never break the caller.
             // If the DB write fails, log to Laravel's logger as fallback.
+            //
+            // SANITIZATION GUARANTEE:
+            // - Only bot_id (int), action (enum string), result (enum string)
+            //   and the exception message are logged.
+            // - No token values, webhook secrets, request headers/body,
+            //   or caller-supplied metadata are written to the fallback log.
             Log::error('BotAuditLogger: failed to write access log', [
                 'bot_id' => $bot?->id,
                 'action' => $action->value,
@@ -68,7 +74,9 @@ final class BotAuditLogger implements BotAuditLoggerInterface
                 'error' => $e->getMessage(),
             ]);
 
-            // Return an unsaved model so callers don't NPE
+            // Return an unsaved model so callers don't NPE.
+            // Intentionally omits metadata — caller-supplied data must not
+            // leak through the fallback model if it gets serialized downstream.
             return new TelegramBotAccessLog([
                 'telegram_bot_id' => $bot?->id,
                 'action' => $action,

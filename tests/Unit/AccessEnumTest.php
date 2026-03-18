@@ -40,16 +40,19 @@ class AccessEnumTest extends TestCase
     }
 
     /** @test */
-    public function access_action_is_secret_access(): void
+    public function access_action_is_privileged_secret_access(): void
     {
-        $this->assertTrue(AccessAction::TokenRead->isSecretAccess());
-        $this->assertTrue(AccessAction::WebhookSecretRead->isSecretAccess());
-        $this->assertTrue(AccessAction::TokenRevealed->isSecretAccess());
+        // Privileged: admin reveal, webhook secret read, rotation
+        $this->assertTrue(AccessAction::TokenRevealed->isPrivilegedSecretAccess());
+        $this->assertTrue(AccessAction::WebhookSecretRead->isPrivilegedSecretAccess());
+        $this->assertTrue(AccessAction::TokenRotated->isPrivilegedSecretAccess());
 
-        $this->assertFalse(AccessAction::MessageSent->isSecretAccess());
-        $this->assertFalse(AccessAction::WebhookSet->isSecretAccess());
-        $this->assertFalse(AccessAction::Error->isSecretAccess());
-        $this->assertFalse(AccessAction::BotCreated->isSecretAccess());
+        // Routine operations — NOT privileged
+        $this->assertFalse(AccessAction::TokenRead->isPrivilegedSecretAccess());
+        $this->assertFalse(AccessAction::MessageSent->isPrivilegedSecretAccess());
+        $this->assertFalse(AccessAction::WebhookSet->isPrivilegedSecretAccess());
+        $this->assertFalse(AccessAction::Error->isPrivilegedSecretAccess());
+        $this->assertFalse(AccessAction::BotCreated->isPrivilegedSecretAccess());
     }
 
     /** @test */

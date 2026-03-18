@@ -222,16 +222,21 @@ class BotAuditLoggerTest extends TestCase
     }
 
     /** @test */
-    public function secret_accesses_scope(): void
+    public function privileged_secret_accesses_scope(): void
     {
         $bot = TelegramBot::factory()->create();
 
-        $this->logger->log($bot, AccessAction::TokenRead, AccessResult::Success);
+        // Privileged — should be included
         $this->logger->log($bot, AccessAction::TokenRevealed, AccessResult::Success);
+        $this->logger->log($bot, AccessAction::WebhookSecretRead, AccessResult::Success);
+        $this->logger->log($bot, AccessAction::TokenRotated, AccessResult::Success);
+
+        // Routine/non-secret — should be excluded
+        $this->logger->log($bot, AccessAction::TokenRead, AccessResult::Success);
         $this->logger->log($bot, AccessAction::MessageSent, AccessResult::Success);
         $this->logger->log($bot, AccessAction::BotCreated, AccessResult::Success);
 
-        $this->assertCount(2, TelegramBotAccessLog::secretAccesses()->get());
+        $this->assertCount(3, TelegramBotAccessLog::privilegedSecretAccesses()->get());
     }
 
     /** @test */

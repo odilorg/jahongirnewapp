@@ -13,7 +13,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * Append-only audit log for Telegram bot access and operations.
  *
  * This model intentionally:
- * - Has no $fillable (uses $guarded = [] with explicit column control in the logger)
+ * - Uses explicit $fillable (security-sensitive table, no open mass-assignment)
  * - Has no updated_at (append-only: CONST_UPDATED_AT = null)
  * - Has no factory (logs are written by BotAuditLogger, not created in isolation)
  * - Has no mutators or delete methods
@@ -41,11 +41,19 @@ class TelegramBotAccessLog extends Model
 
     protected $table = 'telegram_bot_access_logs';
 
-    /**
-     * All columns are writable internally. Access control is enforced
-     * by the BotAuditLoggerInterface — not by the model's $fillable.
-     */
-    protected $guarded = [];
+    protected $fillable = [
+        'telegram_bot_id',
+        'actor_user_id',
+        'actor_type',
+        'actor_identifier',
+        'service_name',
+        'action',
+        'result',
+        'ip_address',
+        'user_agent',
+        'request_id',
+        'metadata',
+    ];
 
     protected $casts = [
         'action' => AccessAction::class,
@@ -97,14 +105,19 @@ class TelegramBotAccessLog extends Model
     }
 
     /**
+     * Privileged secret operations: admin reveal, rotation, webhook secret read.
+     * Excludes routine token_read (high-volume operational event, not privileged).
+     *
+     * Use this scope for security dashboards and anomaly alerting.
+     *
      * @param \Illuminate\Database\Eloquent\Builder $query
      */
-    public function scopeSecretAccesses($query): void
+    public function scopePrivilegedSecretAccesses($query): void
     {
         $query->whereIn('action', [
-            AccessAction::TokenRead,
-            AccessAction::WebhookSecretRead,
             AccessAction::TokenRevealed,
+            AccessAction::WebhookSecretRead,
+            AccessAction::TokenRotated,
         ]);
     }
 }

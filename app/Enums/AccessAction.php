@@ -38,14 +38,16 @@ enum AccessAction: string
     }
 
     /**
-     * Actions that involve reading secret material (for rate-limiting / alerting).
+     * Privileged secret operations warranting security dashboard visibility
+     * and anomaly alerting. Excludes routine token_read (high-volume operational
+     * event logged by the resolution layer, not a privileged access).
      */
-    public function isSecretAccess(): bool
+    public function isPrivilegedSecretAccess(): bool
     {
         return in_array($this, [
-            self::TokenRead,
-            self::WebhookSecretRead,
             self::TokenRevealed,
+            self::WebhookSecretRead,
+            self::TokenRotated,
         ], true);
     }
 }
