@@ -32,41 +32,45 @@ class TelegramDriverGuideSignUpController extends Controller
 
     public function handleWebhook(Request $request): \Illuminate\Http\JsonResponse
     {
-        // ── Security: validate Telegram webhook secret ─────────────────────
-        if ($this->webhookSecret) {
-            $header = $request->header('X-Telegram-Bot-Api-Secret-Token', '');
-            if (!hash_equals($this->webhookSecret, $header)) {
-                Log::warning('DriverGuideBot: invalid webhook secret', ['ip' => $request->ip()]);
-                return response()->json(['ok' => false], 403);
-            }
-        } elseif (!cache()->has('driver_bot_secret_warned')) {
-            Log::warning('DriverGuideBot: webhook_secret not configured — requests are unverified');
-            cache()->put('driver_bot_secret_warned', true, now()->addHours(24));
-        }
+        // Webhook secret validation is now handled by verify.telegram.webhook middleware
 
-        $update        = $request->all();
+        $data = $request->all();
+        $updateId = $data['update_id'] ?? null;
+
+        $webhook = \App\Models\IncomingWebhook::create([
+            'source'      => 'telegram:driver',
+            'event_id'    => $updateId ? "driver:{$updateId}" : null,
+            'payload'     => $data,
+            'status'      => \App\Models\IncomingWebhook::STATUS_PENDING,
+            'received_at' => now(),
+        ]);
+
+        \App\Jobs\ProcessTelegramUpdateJob::dispatch('driver', $webhook->id);
+
+        return response()->json(['ok' => true]);
+    }
+
+    public function processUpdate(array $update): void
+    {
         $chatId        = (string) (data_get($update, 'message.chat.id')
                       ?? data_get($update, 'callback_query.message.chat.id') ?? '');
         $text          = data_get($update, 'message.text');
         $contact       = data_get($update, 'message.contact');
         $callbackQuery = data_get($update, 'callback_query');
 
-        if (!$chatId) {
-            return response()->json(['ok' => true]);
-        }
+        if (!$chatId) return;
 
         // Phone auth only works in private chats — ignore group messages
         $chatType = data_get($update, 'message.chat.type', data_get($update, 'callback_query.message.chat.type', 'private'));
-        if ($chatType !== 'private') {
-            return response()->json(['ok' => true]);
-        }
+        if ($chatType !== 'private') return;
 
         Log::info('DriverGuideBot: update', compact('chatId', 'text'));
 
         // ── Inline calendar button taps ────────────────────────────────────
         if ($callbackQuery) {
             $this->answerCallbackQuery(data_get($callbackQuery, 'id'));
-            return $this->handleCalendarCallback($chatId, $callbackQuery);
+            $this->handleCalendarCallback($chatId, $callbackQuery);
+            return;
         }
 
         // ── /start ─────────────────────────────────────────────────────────
@@ -83,12 +87,13 @@ class TelegramDriverGuideSignUpController extends Controller
                     "👋 Salom! Telefon raqamingizni ulashing, biz sizni aniqlaylik."
                 );
             }
-            return response()->json(['ok' => true]);
+            return;
         }
 
         // ── Contact shared → registration ──────────────────────────────────
         if ($contact) {
-            return $this->handleContactRegistration($chatId, $contact);
+            $this->handleContactRegistration($chatId, $contact);
+            return;
         }
 
         // ── Resolve role: driver or partner ───────────────────────────────
@@ -102,7 +107,7 @@ class TelegramDriverGuideSignUpController extends Controller
             } else {
                 $this->sendPartnerMenu($chatId, $partner->name);
             }
-            return response()->json(['ok' => true]);
+            return;
         }
 
         // ── Driver menu buttons ────────────────────────────────────────────
@@ -110,22 +115,20 @@ class TelegramDriverGuideSignUpController extends Controller
             $driver
                 ? $this->sendMyBookings($chatId, $driver->id)
                 : $this->sendMessage($chatId, "Boshlash uchun /start ni bosing.");
-            return response()->json(['ok' => true]);
+            return;
         }
 
         if ($text === '📅 Mening jadvalim' || $text === '/calendar') {
             $driver
                 ? $this->sendCalendar($chatId, $driver->id, Carbon::now('Asia/Tashkent'))
                 : $this->sendMessage($chatId, "Boshlash uchun /start ni bosing.");
-            return response()->json(['ok' => true]);
+            return;
         }
 
         // ── Fallback ───────────────────────────────────────────────────────
         $driver
             ? $this->sendMainMenu($chatId, $driver->first_name)
             : $this->sendMessage($chatId, "Boshlash uchun /start ni bosing.");
-
-        return response()->json(['ok' => true]);
     }
 
     // =========================================================================

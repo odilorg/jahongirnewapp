@@ -55,15 +55,35 @@ class CashierBotController extends Controller
 
     public function handleWebhook(Request $request)
     {
+        $data = $request->all();
+        $updateId = $data['update_id'] ?? null;
+
+        // Durable ingest: persist raw update, return 200 fast, process async
+        $webhook = \App\Models\IncomingWebhook::create([
+            'source'      => 'telegram:cashier',
+            'event_id'    => $updateId ? "cashier:{$updateId}" : null,
+            'payload'     => $data,
+            'status'      => \App\Models\IncomingWebhook::STATUS_PENDING,
+            'received_at' => now(),
+        ]);
+
+        \App\Jobs\ProcessTelegramUpdateJob::dispatch('cashier', $webhook->id);
+
+        return response('OK');
+    }
+
+    /**
+     * Process a Telegram update (called from queue job, not from HTTP).
+     */
+    public function processUpdate(array $data): void
+    {
         try {
-            Log::debug('CashierBot webhook', ['data' => $request->all()]);
-            if ($callback = $request->input('callback_query')) return $this->handleCallback($callback);
-            if ($message = $request->input('message')) return $this->handleMessage($message);
-            return response('OK');
+            if ($callback = $data['callback_query'] ?? null) { $this->handleCallback($callback); return; }
+            if ($message = $data['message'] ?? null) { $this->handleMessage($message); return; }
         } catch (\Throwable $e) {
             Log::error('CashierBot unhandled error', ['e' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
             $this->alertOwnerOnError('Webhook', $e);
-            return response('OK');
+            throw $e;
         }
     }
 
