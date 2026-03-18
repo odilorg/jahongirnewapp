@@ -37,25 +37,34 @@ class HousekeepingBotController extends Controller
 
     public function handleWebhook(Request $request)
     {
+        $data = $request->all();
+        $updateId = $data['update_id'] ?? null;
+
+        $webhook = \App\Models\IncomingWebhook::create([
+            'source'      => 'telegram:housekeeping',
+            'event_id'    => $updateId ? "housekeeping:{$updateId}" : null,
+            'payload'     => $data,
+            'status'      => \App\Models\IncomingWebhook::STATUS_PENDING,
+            'received_at' => now(),
+        ]);
+
+        \App\Jobs\ProcessTelegramUpdateJob::dispatch('housekeeping', $webhook->id);
+
+        return response('OK');
+    }
+
+    public function processUpdate(array $data): void
+    {
         try {
-            Log::debug('HousekeepingBot webhook', ['data' => $request->all()]);
-
-            if ($cb = $request->input('callback_query')) {
-                return $this->handleCallback($cb);
-            }
-
-            if ($message = $request->input('message')) {
-                return $this->handleMessage($message);
-            }
-
-            return response('OK');
+            if ($cb = $data['callback_query'] ?? null) { $this->handleCallback($cb); return; }
+            if ($message = $data['message'] ?? null) { $this->handleMessage($message); return; }
         } catch (\Throwable $e) {
             Log::error('HousekeepingBot unhandled error', [
                 'e'     => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
             ]);
             $this->alertOwnerOnError('Webhook', $e);
-            return response('OK');
+            throw $e;
         }
     }
 

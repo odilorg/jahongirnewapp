@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -16,10 +17,8 @@ class QueueHealthCheck extends Command
     {
         $issues = [];
 
-        // 1. Check Telegram bot webhooks for errors / stuck pending updates
         $this->checkBotWebhooks($issues);
 
-        // 2. Check queue jobs stuck >10 min
         $stuckThreshold = now()->subMinutes(10);
         $stuckCount = DB::table('jobs')
             ->where('created_at', '<', $stuckThreshold->timestamp)
@@ -61,8 +60,8 @@ class QueueHealthCheck extends Command
             'webhook_issues' => count($issues),
         ]);
 
-        $botToken = config('services.owner_alert_bot.token', env('OWNER_ALERT_BOT_TOKEN'));
-        $chatId = config('services.owner_alert_bot.owner_chat_id', env('OWNER_TELEGRAM_ID', '38738713'));
+        $botToken = config('services.owner_alert_bot.token');
+        $chatId = config('services.owner_alert_bot.owner_chat_id', '38738713');
 
         if ($botToken && $chatId && $msg) {
             try {
@@ -80,6 +79,12 @@ class QueueHealthCheck extends Command
         return 1;
     }
 
+    /**
+     * Check all bot webhooks. Uses a 2-strike policy:
+     * - First bad check: alert only, mark unhealthy in cache
+     * - Second consecutive bad check: auto-recover (re-register, drop pending only if queue growing)
+     * - Cooldown: max 1 auto-recovery per bot per 30 minutes
+     */
     private function checkBotWebhooks(array &$issues): void
     {
         $bots = [
@@ -103,23 +108,75 @@ class QueueHealthCheck extends Command
                 $url = $info['url'] ?? '';
 
                 $errorIsRecent = $lastErrorDate > 0 && (time() - $lastErrorDate) < 600;
+                $isUnhealthy = $pending > 3 && $errorIsRecent;
 
-                if ($pending > 3 && $errorIsRecent) {
-                    $issues[] = "⚠️ <b>{$name}</b>: {$pending} stuck, error: {$lastError}";
+                $cacheKey = "bot_health:{$name}";
+                $cooldownKey = "bot_recovery_cooldown:{$name}";
+                $prevState = Cache::get($cacheKey);
 
+                if (!$isUnhealthy) {
+                    // Healthy — clear state
+                    Cache::forget($cacheKey);
+                    continue;
+                }
+
+                // Unhealthy — check if this is first or second consecutive detection
+                if (!$prevState) {
+                    // First strike: alert only, record state
+                    Cache::put($cacheKey, [
+                        'pending' => $pending,
+                        'error' => $lastError,
+                        'detected_at' => now()->timestamp,
+                    ], now()->addMinutes(15));
+
+                    $issues[] = "⚠️ <b>{$name}</b>: {$pending} pending, error: {$lastError} (monitoring)";
+                    Log::warning("Health check: {$name} bot unhealthy (strike 1)", [
+                        'pending' => $pending, 'error' => $lastError,
+                    ]);
+                    continue;
+                }
+
+                // Second strike — check cooldown
+                if (Cache::has($cooldownKey)) {
+                    $issues[] = "⏳ <b>{$name}</b>: still unhealthy, recovery on cooldown";
+                    continue;
+                }
+
+                // Second strike, no cooldown — auto-recover
+                $prevPending = $prevState['pending'] ?? 0;
+                $queueGrowing = $pending >= $prevPending;
+
+                // Step 1: Try re-register without dropping (if queue is draining)
+                if (!$queueGrowing && $url) {
+                    Http::timeout(5)->post("https://api.telegram.org/bot{$token}/setWebhook", [
+                        'url' => $url,
+                    ]);
+                    $issues[] = "🔄 <b>{$name}</b>: re-registered webhook (queue draining, kept pending)";
+                } else {
+                    // Step 2: Queue growing or stuck — drop pending + re-register
                     Http::timeout(5)->get("https://api.telegram.org/bot{$token}/deleteWebhook", [
                         'drop_pending_updates' => true,
                     ]);
                     if ($url) {
-                        Http::timeout(5)->get("https://api.telegram.org/bot{$token}/setWebhook", [
+                        Http::timeout(5)->post("https://api.telegram.org/bot{$token}/setWebhook", [
                             'url' => $url,
                         ]);
                     }
-                    $issues[] = "🔄 <b>{$name}</b>: auto-recovered";
-                    Log::warning("Health check: auto-recovered {$name} bot webhook", [
-                        'pending' => $pending, 'error' => $lastError, 'url' => $url,
-                    ]);
+                    $issues[] = "🔴 <b>{$name}</b>: reset webhook + dropped {$pending} pending updates";
                 }
+
+                // Set cooldown (30 min) and clear health state
+                Cache::put($cooldownKey, true, now()->addMinutes(30));
+                Cache::forget($cacheKey);
+
+                Log::warning("Health check: auto-recovered {$name} bot", [
+                    'pending' => $pending,
+                    'prev_pending' => $prevPending,
+                    'queue_growing' => $queueGrowing,
+                    'error' => $lastError,
+                    'url' => $url,
+                    'action' => $queueGrowing ? 'drop+reset' : 'refresh',
+                ]);
             } catch (\Throwable $e) {
                 Log::warning("Health check: failed to check {$name} bot", ['error' => $e->getMessage()]);
             }
