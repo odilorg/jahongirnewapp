@@ -51,10 +51,12 @@ class TelegramKeyboardService
     }
 
     /**
-     * Format keyboard as JSON string for Telegram API
+     * Return keyboard array for Telegram API.
+     * TelegramTransport sends application/json, so reply_markup must be
+     * a PHP array (not a pre-encoded string) to avoid double-encoding.
      */
-    public function formatForApi(array $keyboard): string
+    public function formatForApi(array $keyboard): array
     {
-        return json_encode($keyboard);
+        return $keyboard;
     }
 }
