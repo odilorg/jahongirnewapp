@@ -1493,6 +1493,12 @@ class HousekeepingBotController extends Controller
         $state = $session->state;
         $data = $session->data ?? [];
 
+        // Step 2 (waiting for inline button): remind user to tap the button
+        if ($state === 'hk_priority_level') {
+            $this->send($chatId, "⬆️ Yuqoridagi tugmalardan birini bosing:\n🔴 Shoshilinch yoki 🟡 Muhim\n\n/cancel — bekor qilish");
+            return response('OK');
+        }
+
         // Step 1: Collect room numbers
         if ($state === 'hk_priority_room') {
             $rooms = $this->extractRoomNumbers($text);
