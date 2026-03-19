@@ -61,13 +61,13 @@ class ProcessBookingMessage implements ShouldQueue
 
             if (!$staff) {
                 $telegram->sendMessage($chatId, $authService->getAuthorizationRequestMessage(), [
-                    'reply_markup' => json_encode([
+                    'reply_markup' => [
                         'keyboard' => [[
-                            ['text' => 'Share Phone Number', 'request_contact' => true]
+                            ['text' => '📱 Share Phone Number', 'request_contact' => true]
                         ]],
                         'one_time_keyboard' => true,
                         'resize_keyboard' => true
-                    ])
+                    ]
                 ]);
                 return;
             }
@@ -946,13 +946,13 @@ class ProcessBookingMessage implements ShouldQueue
 
             // Send authorization request with phone button
             $telegram->sendMessage($chatId, $authService->getAuthorizationRequestMessage(), [
-                'reply_markup' => json_encode([
+                'reply_markup' => [
                     'keyboard' => [[
                         ['text' => '📱 Share Phone Number', 'request_contact' => true]
                     ]],
                     'one_time_keyboard' => true,
                     'resize_keyboard' => true
-                ])
+                ]
             ]);
             return;
         }
