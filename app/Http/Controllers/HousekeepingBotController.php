@@ -228,11 +228,7 @@ class HousekeepingBotController extends Controller
             $this->send($chatId, "Qaysi xonada kam narsa bor? (1-15)", $this->mainKb($isManager));
             return response('OK');
         }
-        if ($text === '🔴 TEZKOR' && $isManager) {
-            $session->update(['state' => 'hk_rush_room', 'data' => null]);
-            $this->send($chatId, "Qaysi xona TEZKOR tozalanishi kerak? (1-15)\nMehmon kelish vaqtini ham yozing. Masalan: <code>7 14:00</code>", $this->mainKb($isManager));
-            return response('OK');
-        }
+        // TEZKOR removed — replaced by ⭐ Ustuvorlik priority system
         // Priority management — manager only
         if ($text === '⭐ Ustuvorlik' && $isManager) {
             $session->update(['state' => 'hk_priority_room', 'data' => null]);
@@ -1763,9 +1759,9 @@ class HousekeepingBotController extends Controller
         ];
 
         if ($isManager) {
-            $rows[] = [['text' => '🔴 TEZKOR'], ['text' => '📦 Topilmalar']];
             $rows[] = [['text' => '⭐ Ustuvorlik'], ['text' => '❌ Ustuvorlik o\'chirish']];
-            $rows[] = [['text' => '🟡 Xonani iflos'], ['text' => '🟡 Hammasini iflos']];
+            $rows[] = [['text' => '📦 Topilmalar'], ['text' => '🟡 Xonani iflos']];
+            $rows[] = [['text' => '🟡 Hammasini iflos']];
         }
 
         $rows[] = [['text' => '🚪 Chiqish']];
