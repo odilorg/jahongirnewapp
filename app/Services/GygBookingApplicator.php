@@ -64,7 +64,7 @@ class GygBookingApplicator
             $guestId = $this->findOrCreateGuest($email);
 
             // Step 2: Match tour (best effort)
-            $tourId = $this->matchTour($email->tour_name);
+            $tourId = $this->matchTour($email->tour_name, $email->option_title);
 
             // Step 3: Build booking_start_date_time
             $timeDefaulted = false;
@@ -281,36 +281,42 @@ class GygBookingApplicator
 
     // ── Tour matching ───────────────────────────────────
 
-    private function matchTour(?string $tourName): ?int
+    private function matchTour(?string $tourName, ?string $optionTitle = null): ?int
     {
-        if (! $tourName) return null;
+        // Try matching against tourName first, then fall back to optionTitle.
+        // The fallback handles cases where the parser mis-captured a subheader as
+        // tourName (e.g. "Your offer has been booked:") while the real tour title
+        // ended up in optionTitle.
+        $candidates = array_filter([$tourName, $optionTitle]);
 
-        // Try exact title match
-        $tour = DB::table('tours')->where('title', $tourName)->first();
-        if ($tour) return $tour->id;
+        foreach ($candidates as $candidate) {
+            // Try exact title match
+            $tour = DB::table('tours')->where('title', $candidate)->first();
+            if ($tour) return $tour->id;
 
-        // Try partial match (GYG titles are often longer than internal titles)
-        $tour = DB::table('tours')
-            ->whereRaw('LOWER(title) LIKE ?', ['%' . strtolower(mb_substr($tourName, 0, 30)) . '%'])
-            ->first();
-        if ($tour) return $tour->id;
+            // Try partial match (GYG titles are often longer than internal titles)
+            $tour = DB::table('tours')
+                ->whereRaw('LOWER(title) LIKE ?', ['%' . strtolower(mb_substr($candidate, 0, 30)) . '%'])
+                ->first();
+            if ($tour) return $tour->id;
 
-        // Try keyword matching for known tours
-        $lower = strtolower($tourName);
-        $keywordMap = [
-            'yurt camp'    => '%yurt camp%',
-            'shahrisabz'   => '%shahrisabz%',
-            'bukhara'      => '%bukhara%',
-        ];
+            // Try keyword matching for known tours
+            $lower = strtolower($candidate);
+            $keywordMap = [
+                'yurt camp'  => '%yurt camp%',
+                'shahrisabz' => '%shahrisabz%',
+                'bukhara'    => '%bukhara%',
+            ];
 
-        foreach ($keywordMap as $keyword => $pattern) {
-            if (str_contains($lower, $keyword)) {
-                $tour = DB::table('tours')->whereRaw('LOWER(title) LIKE ?', [$pattern])->first();
-                if ($tour) return $tour->id;
+            foreach ($keywordMap as $keyword => $pattern) {
+                if (str_contains($lower, $keyword)) {
+                    $tour = DB::table('tours')->whereRaw('LOWER(title) LIKE ?', [$pattern])->first();
+                    if ($tour) return $tour->id;
+                }
             }
         }
 
-        Log::warning('GygBookingApplicator: tour not matched', ['tour_name' => $tourName]);
+        Log::warning('GygBookingApplicator: tour not matched', ['tour_name' => $tourName, 'option_title' => $optionTitle]);
         return null;
     }
 
