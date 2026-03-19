@@ -107,6 +107,7 @@ return [
         'password'          => env('GYG_API_PASSWORD'),
         'api_url'           => env('GYG_API_URL', 'https://supplier-api.getyourguide.com'),
         'email_override_to' => env('GYG_EMAIL_OVERRIDE_TO'),
+        'wa_api_url'        => env('GYG_WA_API_URL', 'http://127.0.0.1:8080/api/send'),
     ],
 
 ];
