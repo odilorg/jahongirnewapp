@@ -111,13 +111,26 @@ Route::get('/healthz', function () {
         $deployedAt = 'unknown';
     }
 
+    // Redis health — cache depends on it
+    $redisOk = false;
+    try {
+        \Illuminate\Support\Facades\Redis::ping();
+        $redisOk = true;
+    } catch (\Throwable $e) {
+        // Redis down
+    }
+
+    $status = $redisOk ? 'ok' : 'degraded';
+
     return response()->json([
-        'status'      => 'ok',
+        'status'      => $status,
         'sha'         => $sha,
         'tag'         => $tag,
         'deployed_at' => $deployedAt,
         'php'         => PHP_VERSION,
         'laravel'     => app()->version(),
+        'redis'       => $redisOk ? 'ok' : 'down',
+        'cache'       => config('cache.default'),
     ]);
 })->name('healthz');
 
