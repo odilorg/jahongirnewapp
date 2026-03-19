@@ -2,16 +2,26 @@
 
 namespace App\Services;
 
+use App\Services\Messaging\GuestContactSender;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
+/**
+ * Orchestrates post-booking guest communication for GYG bookings.
+ *
+ * Decides WHAT to send and to WHOM. Does not handle transport.
+ * Transport is delegated to GuestContactSender (WA-first, email fallback).
+ */
 class GygPostBookingMailer
 {
     private const PLACEHOLDER_EMAIL = 'not-provided@gyg-import.local';
-    private const FROM_EMAIL = 'odilorg@gmail.com';
+
+    public function __construct(
+        private GuestContactSender $sender,
+    ) {}
 
     /**
-     * Send post-booking emails for a GYG booking.
+     * Send post-booking emails/messages for a GYG booking.
      * Called after booking is fully saved. Never throws.
      */
     public function handleAppliedBooking(int $bookingId, int $gygEmailId): void
@@ -42,6 +52,7 @@ class GygPostBookingMailer
                 'guests.first_name',
                 'guests.last_name',
                 'guests.email',
+                'guests.phone',
             ])
             ->first();
 
@@ -59,18 +70,6 @@ class GygPostBookingMailer
             return;
         }
 
-        // Override recipient for safe rollout (stage 1-2: send to internal inbox)
-        $override = config('services.gyg.email_override_to');
-        $email = $override ?: $guestEmail;
-
-        if ($override) {
-            Log::info('GygPostBookingMailer: recipient overridden', [
-                'booking_id' => $bookingId,
-                'real_email' => $guestEmail,
-                'sending_to' => $override,
-            ]);
-        }
-
         $gygEmail = DB::table('gyg_inbound_emails')
             ->where('id', $gygEmailId)
             ->select(['tour_name', 'option_title', 'pax', 'travel_date'])
@@ -86,40 +85,85 @@ class GygPostBookingMailer
             : 'your scheduled date';
         $firstName = $booking->first_name ?: 'Guest';
         $pax       = $gygEmail->pax ?? 1;
+        $ref       = $booking->booking_number;
+        $phone     = $booking->phone;
 
-        // 1. Confirmation email (always, once)
-        if (! $booking->confirmation_sent_at) {
-            $this->sendConfirmation($booking->id, $email, $firstName, $tourTitle, $dateLabel, $booking->booking_number, $pax);
-            usleep(1_500_000); // 1.5s gap between emails
-        }
-
-        // 2. Detect tour type
+        // Classify
         $isPrivateYurt = $this->isPrivateYurtCampBooking($gygEmail->option_title, $gygEmail->tour_name);
-
         $pickupMissing = $this->needsPickupRequest($booking->pickup_location);
         $selectedVariant = $isPrivateYurt ? 'route_request' : ($pickupMissing ? 'pickup_request' : 'confirmation_only');
 
         Log::info('GygPostBookingMailer: classified', [
             'booking_id'       => $bookingId,
-            'booking_number'   => $booking->booking_number,
-            'email'            => $email,
+            'booking_number'   => $ref,
+            'email'            => $guestEmail,
+            'phone'            => $phone,
             'private_yurt'     => $isPrivateYurt,
             'pickup_missing'   => $pickupMissing,
             'selected_variant' => $selectedVariant,
             'option_title'     => $gygEmail->option_title,
         ]);
 
-        if ($isPrivateYurt) {
-            // Private yurt: route choice + pickup + dropoff
-            if (! $booking->route_request_sent_at) {
-                $this->sendPrivateYurtRouteRequest($booking->id, $email, $firstName, $tourTitle, $dateLabel);
+        // 1. Confirmation (always, once)
+        if (! $booking->confirmation_sent_at) {
+            $result = $this->sender->send([
+                'phone'             => $phone,
+                'email'             => $guestEmail,
+                'wa_message'        => $this->waConfirmation($firstName, $tourTitle, $dateLabel, $ref, $pax),
+                'email_subject'     => "Your booking is confirmed — {$tourTitle}",
+                'email_body'        => $this->emailConfirmation($firstName, $tourTitle, $dateLabel, $ref, $pax),
+                'booking_id'        => $bookingId,
+                'booking_ref'       => $ref,
+                'notification_type' => 'confirmation',
+            ]);
+
+            if ($result->success) {
+                DB::table('bookings')->where('id', $bookingId)->update(['confirmation_sent_at' => now()]);
             }
-            return; // do NOT fall into pickup logic
+
+            usleep(1_500_000);
         }
 
-        // 3. Standard: hotel pickup only (if needed)
-        if ($this->needsPickupRequest($booking->pickup_location) && ! $booking->hotel_request_sent_at) {
-            $this->sendHotelPickupRequest($booking->id, $email, $firstName, $tourTitle, $dateLabel);
+        // 2. Private yurt: route + pickup + dropoff
+        if ($isPrivateYurt) {
+            if (! $booking->route_request_sent_at) {
+                $result = $this->sender->send([
+                    'phone'             => $phone,
+                    'email'             => $guestEmail,
+                    'wa_message'        => $this->waPrivateYurtRoute($firstName, $tourTitle, $dateLabel),
+                    'email_subject'     => "{$tourTitle} — {$dateLabel} | Route & Pickup Details Needed",
+                    'email_body'        => $this->emailPrivateYurtRoute($firstName, $tourTitle, $dateLabel),
+                    'booking_id'        => $bookingId,
+                    'booking_ref'       => $ref,
+                    'notification_type' => 'private_yurt_route_request',
+                ]);
+
+                if ($result->success) {
+                    DB::table('bookings')->where('id', $bookingId)->update([
+                        'route_request_sent_at' => now(),
+                        'hotel_request_sent_at' => now(),
+                    ]);
+                }
+            }
+            return;
+        }
+
+        // 3. Standard: hotel pickup only
+        if ($pickupMissing && ! $booking->hotel_request_sent_at) {
+            $result = $this->sender->send([
+                'phone'             => $phone,
+                'email'             => $guestEmail,
+                'wa_message'        => $this->waPickupRequest($firstName, $tourTitle, $dateLabel),
+                'email_subject'     => "{$tourTitle} — {$dateLabel} | Pickup Location Needed",
+                'email_body'        => $this->emailPickupRequest($firstName, $tourTitle, $dateLabel),
+                'booking_id'        => $bookingId,
+                'booking_ref'       => $ref,
+                'notification_type' => 'hotel_pickup_request',
+            ]);
+
+            if ($result->success) {
+                DB::table('bookings')->where('id', $bookingId)->update(['hotel_request_sent_at' => now()]);
+            }
         }
     }
 
@@ -128,7 +172,6 @@ class GygPostBookingMailer
     private function isPrivateYurtCampBooking(?string $optionTitle, ?string $tourName): bool
     {
         $text = strtolower(($optionTitle ?? '') . ' ' . ($tourName ?? ''));
-
         return str_contains($text, 'yurt') && str_contains($text, 'private');
     }
 
@@ -137,13 +180,28 @@ class GygPostBookingMailer
         return empty(trim($pickupLocation ?? ''));
     }
 
-    // ── Email senders ──────────────────────────────────────
+    // ── WhatsApp message builders ──────────────────────────
 
-    private function sendConfirmation(int $bookingId, string $to, string $firstName, string $tourTitle, string $dateLabel, ?string $ref, int $pax): void
+    private function waConfirmation(string $firstName, string $tourTitle, string $dateLabel, ?string $ref, int $pax): string
     {
-        $subject = "Your booking is confirmed — {$tourTitle}";
+        return "Hi {$firstName}! 👋\n\nYour booking is confirmed:\n📍 {$tourTitle}\n📅 {$dateLabel}\n👥 {$pax} guest(s)\n🔖 Ref: {$ref}\n\nWe look forward to welcoming you!\n— Jahongir Travel";
+    }
 
-        $body = implode("\n", [
+    private function waPickupRequest(string $firstName, string $tourTitle, string $dateLabel): string
+    {
+        return "Hi {$firstName},\n\nCould you please share the name of your hotel in Samarkand?\nWe'll pick you up from the lobby on the morning of the tour ({$dateLabel}).\n\nThanks! 🙏\n— Jahongir Travel";
+    }
+
+    private function waPrivateYurtRoute(string $firstName, string $tourTitle, string $dateLabel): string
+    {
+        return "Hi {$firstName},\n\nA few details for your private yurt camp tour on {$dateLabel}:\n\n1️⃣ ROUTE: Your booking is Samarkand → Bukhara. Want to change to Samarkand → Samarkand (return)? Just let us know!\n\n2️⃣ PICKUP: What's your hotel in Samarkand?\n\n3️⃣ DROP-OFF: If going to Bukhara, what's your hotel there?\n\nJust reply here! 🙏\n— Jahongir Travel";
+    }
+
+    // ── Email message builders ─────────────────────────────
+
+    private function emailConfirmation(string $firstName, string $tourTitle, string $dateLabel, ?string $ref, int $pax): string
+    {
+        return implode("\n", [
             "Dear {$firstName},",
             "",
             "Thank you for booking \"{$tourTitle}\" on {$dateLabel} through GetYourGuide!",
@@ -158,20 +216,27 @@ class GygPostBookingMailer
             "Odiljon",
             "Jahongir Travel",
         ]);
-
-        if ($this->sendViaHimalaya($to, $subject, $body)) {
-            DB::table('bookings')->where('id', $bookingId)->update(['confirmation_sent_at' => now()]);
-            Log::info('GygPostBookingMailer: confirmation sent', ['booking_id' => $bookingId, 'ref' => $ref, 'email' => $to]);
-        } else {
-            Log::error('GygPostBookingMailer: confirmation send failed', ['booking_id' => $bookingId, 'ref' => $ref, 'email' => $to]);
-        }
     }
 
-    private function sendPrivateYurtRouteRequest(int $bookingId, string $to, string $firstName, string $tourTitle, string $dateLabel): void
+    private function emailPickupRequest(string $firstName, string $tourTitle, string $dateLabel): string
     {
-        $subject = "{$tourTitle} — {$dateLabel} | Route & Pickup Details Needed";
+        return implode("\n", [
+            "Dear {$firstName},",
+            "",
+            "To arrange your pickup for \"{$tourTitle}\" on {$dateLabel},",
+            "could you please reply with the name of your hotel in Samarkand?",
+            "",
+            "We will pick you up directly from the hotel lobby.",
+            "",
+            "Thank you!",
+            "Odiljon",
+            "Jahongir Travel",
+        ]);
+    }
 
-        $body = implode("\n", [
+    private function emailPrivateYurtRoute(string $firstName, string $tourTitle, string $dateLabel): string
+    {
+        return implode("\n", [
             "Dear {$firstName},",
             "",
             "A few details for your private yurt camp tour on {$dateLabel}:",
@@ -195,68 +260,5 @@ class GygPostBookingMailer
             "Odiljon",
             "Jahongir Travel",
         ]);
-
-        if ($this->sendViaHimalaya($to, $subject, $body)) {
-            // Set both: route_request_sent_at for our tracking, hotel_request_sent_at
-            // to prevent the tour:send-hotel-requests cron from sending a duplicate
-            // generic pickup email to this guest.
-            DB::table('bookings')->where('id', $bookingId)->update([
-                'route_request_sent_at'  => now(),
-                'hotel_request_sent_at'  => now(),
-            ]);
-            Log::info('GygPostBookingMailer: route request sent', ['booking_id' => $bookingId, 'email' => $to]);
-        } else {
-            Log::error('GygPostBookingMailer: route request send failed', ['booking_id' => $bookingId, 'email' => $to]);
-        }
-    }
-
-    private function sendHotelPickupRequest(int $bookingId, string $to, string $firstName, string $tourTitle, string $dateLabel): void
-    {
-        $subject = "{$tourTitle} — {$dateLabel} | Pickup Location Needed";
-
-        $body = implode("\n", [
-            "Dear {$firstName},",
-            "",
-            "To arrange your pickup for \"{$tourTitle}\" on {$dateLabel},",
-            "could you please reply with the name of your hotel in Samarkand?",
-            "",
-            "We will pick you up directly from the hotel lobby.",
-            "",
-            "Thank you!",
-            "Odiljon",
-            "Jahongir Travel",
-        ]);
-
-        if ($this->sendViaHimalaya($to, $subject, $body)) {
-            DB::table('bookings')->where('id', $bookingId)->update(['hotel_request_sent_at' => now()]);
-            Log::info('GygPostBookingMailer: hotel pickup request sent', ['booking_id' => $bookingId, 'email' => $to]);
-        } else {
-            Log::error('GygPostBookingMailer: hotel pickup request send failed', ['booking_id' => $bookingId, 'email' => $to]);
-        }
-    }
-
-    // ── Himalaya transport (reuses existing pattern) ───────
-
-    private function sendViaHimalaya(string $to, string $subject, string $body): bool
-    {
-        $mml = "From: " . self::FROM_EMAIL . "\nTo: {$to}\nSubject: {$subject}\n\n{$body}";
-
-        $tmpFile = tempnam(sys_get_temp_dir(), 'gyg_mail_') . '.eml';
-        file_put_contents($tmpFile, $mml);
-
-        $output = [];
-        $code   = 1;
-        exec("himalaya template send < " . escapeshellarg($tmpFile) . " 2>&1", $output, $code);
-        unlink($tmpFile);
-
-        if ($code !== 0) {
-            Log::error('GygPostBookingMailer: himalaya send failed', [
-                'to'     => $to,
-                'code'   => $code,
-                'output' => implode(' ', $output),
-            ]);
-        }
-
-        return $code === 0;
     }
 }
