@@ -68,7 +68,11 @@ class GygEmailParser
         //
         // We extract both lines and then validate the second line is truly
         // an option title, not a metadata label that ran together.
-        if (preg_match('/(?:has been booked|great news!)[:\s]*\n+(.+?)\n+(.+?)\n+(?:Reference|Booking reference)/si', $body, $m)) {
+        // Use [^\r\n]+ (single-line capture) and explicit \r?\n\r?\n (blank line) to handle
+        // both CRLF (real GYG emails) and LF (test fixtures). Avoids the (.+?) + s-flag
+        // backtracking bug where "Your offer has been booked:" was swallowed as tour_name
+        // instead of the actual tour title when the email had two header lines before it.
+        if (preg_match('/has been booked[:\s]*\r?\n\r?\n([^\r\n]+)\r?\n\r?\n([^\r\n]+)\r?\n\r?\n(?:Reference|Booking reference)/i', $body, $m)) {
             $line1 = $this->cleanLine($m[1]);
             $line2 = $this->cleanLine($m[2]);
 
@@ -80,7 +84,7 @@ class GygEmailParser
             } else {
                 $errors[] = "option_title candidate rejected (looks like metadata): " . mb_substr($line2, 0, 60);
             }
-        } elseif (preg_match('/(?:has been booked|great news!)[:\s]*\n+(.+?)\n+(?:Reference|Booking reference)/si', $body, $m)) {
+        } elseif (preg_match('/has been booked[:\s]*\r?\n\r?\n([^\r\n]+)\r?\n\r?\n(?:Reference|Booking reference)/i', $body, $m)) {
             // Only tour_name found, no option_title line
             $result['tour_name'] = $this->cleanLine($m[1]);
             $errors[] = "option_title not found in expected position";
