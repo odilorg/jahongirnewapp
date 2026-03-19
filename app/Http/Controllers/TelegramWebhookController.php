@@ -4,7 +4,7 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
-use App\Jobs\ProcessTelegramMessage;
+use App\Jobs\ProcessBookingMessage;
 use Illuminate\Support\Facades\Log;
 
 class TelegramWebhookController extends Controller
@@ -23,7 +23,7 @@ class TelegramWebhookController extends Controller
             }
 
             // Dispatch job for async processing
-            ProcessTelegramMessage::dispatch($update);
+            ProcessBookingMessage::dispatch($update);
 
             return response()->json(['ok' => true]);
 
