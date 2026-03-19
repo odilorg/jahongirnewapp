@@ -108,6 +108,9 @@ class HousekeepingBotController extends Controller
 
         $session->updateActivity();
 
+        // TEMP DEBUG: trace message routing
+        Log::debug('HK message routing', ['text' => $text, 'state' => $session->state, 'chat' => $chatId]);
+
         // ── GLOBAL COMMANDS: always win over subflow state ──────
         // Main menu buttons and slash commands escape any active flow.
         // This prevents users from getting trapped in abandoned wizards.
