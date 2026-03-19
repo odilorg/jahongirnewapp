@@ -84,6 +84,13 @@ class GygPostBookingMailer
         // 2. Detect tour type
         $isPrivateYurt = $this->isPrivateYurtCampBooking($gygEmail->option_title, $gygEmail->tour_name);
 
+        Log::info('GygPostBookingMailer: tour classified', [
+            'booking_id'     => $bookingId,
+            'booking_number' => $booking->booking_number,
+            'private_yurt'   => $isPrivateYurt,
+            'option_title'   => $gygEmail->option_title,
+        ]);
+
         if ($isPrivateYurt) {
             // Private yurt: route choice + pickup + dropoff
             if (! $booking->route_request_sent_at) {
@@ -136,9 +143,9 @@ class GygPostBookingMailer
 
         if ($this->sendViaHimalaya($to, $subject, $body)) {
             DB::table('bookings')->where('id', $bookingId)->update(['confirmation_sent_at' => now()]);
-            Log::info('GygPostBookingMailer: confirmation sent', ['booking_id' => $bookingId, 'email' => $to]);
+            Log::info('GygPostBookingMailer: confirmation sent', ['booking_id' => $bookingId, 'ref' => $ref, 'email' => $to]);
         } else {
-            Log::error('GygPostBookingMailer: confirmation send failed', ['booking_id' => $bookingId, 'email' => $to]);
+            Log::error('GygPostBookingMailer: confirmation send failed', ['booking_id' => $bookingId, 'ref' => $ref, 'email' => $to]);
         }
     }
 
@@ -172,7 +179,13 @@ class GygPostBookingMailer
         ]);
 
         if ($this->sendViaHimalaya($to, $subject, $body)) {
-            DB::table('bookings')->where('id', $bookingId)->update(['route_request_sent_at' => now()]);
+            // Set both: route_request_sent_at for our tracking, hotel_request_sent_at
+            // to prevent the tour:send-hotel-requests cron from sending a duplicate
+            // generic pickup email to this guest.
+            DB::table('bookings')->where('id', $bookingId)->update([
+                'route_request_sent_at'  => now(),
+                'hotel_request_sent_at'  => now(),
+            ]);
             Log::info('GygPostBookingMailer: route request sent', ['booking_id' => $bookingId, 'email' => $to]);
         } else {
             Log::error('GygPostBookingMailer: route request send failed', ['booking_id' => $bookingId, 'email' => $to]);
