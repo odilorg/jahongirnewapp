@@ -7,11 +7,11 @@ use App\Contracts\Telegram\TelegramTransportInterface;
 use Illuminate\Support\Facades\Log;
 
 /**
- * Legacy convenience wrapper around TelegramTransport for the 'main' bot.
+ * Legacy convenience wrapper around TelegramTransport for the 'booking' bot.
  *
- * Consumers that inject this service get the main bot resolved automatically.
- * New code should inject BotResolverInterface + TelegramTransportInterface
- * directly instead of using this wrapper.
+ * Used exclusively by the hotel booking bot flow (ProcessBookingMessage,
+ * TelegramWebhookController). New code should inject BotResolverInterface +
+ * TelegramTransportInterface directly instead of using this wrapper.
  */
 class TelegramBotService
 {
@@ -26,7 +26,7 @@ class TelegramBotService
 
     public function sendMessage(int $chatId, string $text, array $options = []): array
     {
-        $bot = $this->resolver->resolve('main');
+        $bot = $this->resolver->resolve('booking');
         $result = $this->transport->sendMessage($bot, $chatId, $text, $options);
 
         if (!$result->succeeded()) {
@@ -38,7 +38,7 @@ class TelegramBotService
 
     public function setWebhook(string $url): array
     {
-        $bot = $this->resolver->resolve('main');
+        $bot = $this->resolver->resolve('booking');
         $result = $this->transport->setWebhook($bot, $url);
 
         return ['ok' => $result->ok, 'result' => $result->result];
@@ -46,7 +46,7 @@ class TelegramBotService
 
     public function getWebhookInfo(): array
     {
-        $bot = $this->resolver->resolve('main');
+        $bot = $this->resolver->resolve('booking');
         $result = $this->transport->getWebhookInfo($bot);
 
         return ['ok' => $result->ok, 'result' => $result->result];
@@ -54,7 +54,7 @@ class TelegramBotService
 
     public function deleteWebhook(): array
     {
-        $bot = $this->resolver->resolve('main');
+        $bot = $this->resolver->resolve('booking');
         $result = $this->transport->deleteWebhook($bot);
 
         return ['ok' => $result->ok, 'result' => $result->result];
@@ -62,7 +62,7 @@ class TelegramBotService
 
     public function answerCallbackQuery(string $callbackQueryId, array $options = []): array
     {
-        $bot = $this->resolver->resolve('main');
+        $bot = $this->resolver->resolve('booking');
         $result = $this->transport->call($bot, 'answerCallbackQuery', array_merge(
             ['callback_query_id' => $callbackQueryId],
             $options,
@@ -73,7 +73,7 @@ class TelegramBotService
 
     public function editMessageText(int $chatId, int $messageId, string $text, array $options = []): array
     {
-        $bot = $this->resolver->resolve('main');
+        $bot = $this->resolver->resolve('booking');
         $result = $this->transport->call($bot, 'editMessageText', array_merge(
             ['chat_id' => $chatId, 'message_id' => $messageId, 'text' => $text],
             $options,
