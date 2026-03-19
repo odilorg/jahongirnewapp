@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Models\GygInboundEmail;
 use App\Services\GygBookingApplicator;
 use App\Services\GygNotifier;
+use App\Services\GygPostBookingMailer;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
 
@@ -19,6 +20,7 @@ class GygApplyBookings extends Command
     public function __construct(
         private GygBookingApplicator $applicator,
         private GygNotifier $notifier,
+        private GygPostBookingMailer $mailer,
     ) {
         parent::__construct();
     }
@@ -127,6 +129,9 @@ class GygApplyBookings extends Command
                 $this->notifier->notifyIfNeeded($email, 'new_booking', [
                     'booking_id' => $result['booking_id'],
                 ]);
+
+                // Send guest emails (confirmation + pickup/route request)
+                $this->mailer->handleAppliedBooking($result['booking_id'], $email->id);
             }
         } else {
             $this->error("  ❌ Failed: {$ref} — " . ($result['error'] ?? 'Unknown'));
