@@ -39,12 +39,6 @@ class ProcessTelegramMessage implements ShouldQueue
     {
         $startTime = microtime(true);
 
-        // TRACE: identify dispatch source — remove after investigation
-        Log::critical('ProcessTelegramMessage::handle() INVOKED', [
-            'update' => $this->update,
-            'trace' => debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 10),
-        ]);
-
         try {
             // Extract message data
             $message = $this->update['message'] ?? null;
