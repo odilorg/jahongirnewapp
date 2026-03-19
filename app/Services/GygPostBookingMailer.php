@@ -246,7 +246,7 @@ class GygPostBookingMailer
 
         $output = [];
         $code   = 1;
-        exec("himalaya send < " . escapeshellarg($tmpFile) . " 2>&1", $output, $code);
+        exec("himalaya template send < " . escapeshellarg($tmpFile) . " 2>&1", $output, $code);
         unlink($tmpFile);
 
         if ($code !== 0) {
