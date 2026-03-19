@@ -50,13 +50,25 @@ class GygPostBookingMailer
             return;
         }
 
-        $email = trim($booking->email ?? '');
-        if (empty($email) || $email === self::PLACEHOLDER_EMAIL) {
+        $guestEmail = trim($booking->email ?? '');
+        if (empty($guestEmail) || $guestEmail === self::PLACEHOLDER_EMAIL) {
             Log::info('GygPostBookingMailer: skipping — no real guest email', [
                 'booking_id' => $bookingId,
-                'email'      => $email,
+                'email'      => $guestEmail,
             ]);
             return;
+        }
+
+        // Override recipient for safe rollout (stage 1-2: send to internal inbox)
+        $override = config('services.gyg.email_override_to');
+        $email = $override ?: $guestEmail;
+
+        if ($override) {
+            Log::info('GygPostBookingMailer: recipient overridden', [
+                'booking_id' => $bookingId,
+                'real_email' => $guestEmail,
+                'sending_to' => $override,
+            ]);
         }
 
         $gygEmail = DB::table('gyg_inbound_emails')
@@ -84,11 +96,17 @@ class GygPostBookingMailer
         // 2. Detect tour type
         $isPrivateYurt = $this->isPrivateYurtCampBooking($gygEmail->option_title, $gygEmail->tour_name);
 
-        Log::info('GygPostBookingMailer: tour classified', [
-            'booking_id'     => $bookingId,
-            'booking_number' => $booking->booking_number,
-            'private_yurt'   => $isPrivateYurt,
-            'option_title'   => $gygEmail->option_title,
+        $pickupMissing = $this->needsPickupRequest($booking->pickup_location);
+        $selectedVariant = $isPrivateYurt ? 'route_request' : ($pickupMissing ? 'pickup_request' : 'confirmation_only');
+
+        Log::info('GygPostBookingMailer: classified', [
+            'booking_id'       => $bookingId,
+            'booking_number'   => $booking->booking_number,
+            'email'            => $email,
+            'private_yurt'     => $isPrivateYurt,
+            'pickup_missing'   => $pickupMissing,
+            'selected_variant' => $selectedVariant,
+            'option_title'     => $gygEmail->option_title,
         ]);
 
         if ($isPrivateYurt) {
