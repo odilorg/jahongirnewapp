@@ -72,12 +72,13 @@ class ProcessBookingMessage implements ShouldQueue
                 return;
             }
 
-            // Handle help command - show main menu with buttons
-            if (in_array(strtolower($text), ['help', '/help', '/start', 'menu'])) {
-                $welcomeMessage = "🏨 Booking Bot Menu\n\n" .
-                                "Choose an option below or type your command:";
+            // Handle greetings and help — show main menu without hitting the AI parser
+            $greetings = ['hi', 'hello', 'hey', 'hola', 'help', '/help', '/start', 'menu', 'привет', 'салам'];
+            if (in_array(strtolower(trim($text)), $greetings)) {
+                $welcomeMessage = "🏨 *Booking Bot*\n\nChoose an option or type your command:";
 
                 $telegram->sendMessage($chatId, $welcomeMessage, [
+                    'parse_mode' => 'Markdown',
                     'reply_markup' => $keyboard->formatForApi($keyboard->getMainMenu())
                 ]);
                 return;
