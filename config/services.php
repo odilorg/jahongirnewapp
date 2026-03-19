@@ -40,7 +40,7 @@ return [
     ],
 
     'telegram_booking_bot' => [
-        'token' => env('TELEGRAM_BOT_TOKEN'),
+        'token' => env('TELEGRAM_HOTEL_BOOKING_BOT_TOKEN'),
         'webhook_url' => env('TELEGRAM_BOOKING_WEBHOOK_URL'),
         'session_timeout' => env('TELEGRAM_BOOKING_SESSION_TIMEOUT', 15), // minutes
         'secret_token' => env('TELEGRAM_BOOKING_SECRET_TOKEN'), // optional secret for webhook validation
