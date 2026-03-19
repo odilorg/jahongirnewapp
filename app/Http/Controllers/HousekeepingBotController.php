@@ -106,6 +106,8 @@ class HousekeepingBotController extends Controller
             return response('OK');
         }
 
+        // Reload session fresh — prevents stale state from queue race conditions
+        $session->refresh();
         $session->updateActivity();
 
         // TEMP DEBUG: trace message routing
@@ -1461,7 +1463,14 @@ class HousekeepingBotController extends Controller
      */
     protected function handlePriorityLevelCallback(int $chatId, $session, string $level)
     {
-        if ($session->state !== 'hk_priority_level') return response('OK');
+        // Reload session fresh — prevents race conditions from double-clicks
+        $session->refresh();
+
+        // Only proceed if still waiting for level selection
+        if ($session->state !== 'hk_priority_level') {
+            Log::debug('HK priority callback: state already advanced, ignoring duplicate', ['state' => $session->state]);
+            return response('OK');
+        }
 
         $user = User::find($session->user_id);
         if (!$user || !$user->hasAnyRole(['super_admin', 'admin', 'manager', 'owner'])) {
