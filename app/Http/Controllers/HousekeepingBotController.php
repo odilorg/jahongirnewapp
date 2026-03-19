@@ -8,6 +8,7 @@ use App\Jobs\SendTelegramNotificationJob;
 use Carbon\Carbon;
 use App\Models\LostFoundItem;
 use App\Models\RoomIssue;
+use App\Models\RoomPriority;
 use App\Models\TelegramPosSession;
 use App\Models\User;
 use App\Services\Beds24BookingService;
@@ -123,7 +124,8 @@ class HousekeepingBotController extends Controller
             // Reset stuck subflow state when user taps a main menu button
             $subflowStates = ['hk_issue_room', 'hk_issue_desc', 'hk_issue_photo',
                 'hk_lf_photo', 'hk_lf_room', 'hk_lf_desc',
-                'hk_stock_room', 'hk_stock_item', 'hk_rush_room'];
+                'hk_stock_room', 'hk_stock_item', 'hk_rush_room',
+                'hk_priority_room', 'hk_priority_level', 'hk_priority_reason', 'hk_priority_clear'];
 
             if (in_array($session->state, $subflowStates, true)) {
                 $session->update(['state' => 'hk_main', 'data' => null]);
@@ -145,7 +147,8 @@ class HousekeepingBotController extends Controller
         // If a subflow state is older than 2 hours, reset to main menu.
         $subflowStates = ['hk_issue_room', 'hk_issue_desc', 'hk_issue_photo',
             'hk_lf_photo', 'hk_lf_room', 'hk_lf_desc',
-            'hk_stock_room', 'hk_stock_item', 'hk_rush_room'];
+            'hk_stock_room', 'hk_stock_item', 'hk_rush_room',
+            'hk_priority_room', 'hk_priority_level', 'hk_priority_reason'];
 
         if (in_array($session->state, $subflowStates, true)
             && $session->last_activity_at
@@ -191,6 +194,23 @@ class HousekeepingBotController extends Controller
             return $this->handleRushFlow($chatId, $session, $text);
         }
 
+        // Priority flow — manager only, re-checked on every step
+        if (in_array($session->state, ['hk_priority_room', 'hk_priority_level', 'hk_priority_reason'])) {
+            if (!$isManager) {
+                $session->update(['state' => 'hk_main', 'data' => null]);
+                $this->send($chatId, "Ruxsat yo'q.", $this->mainKb($isManager));
+                return response('OK');
+            }
+            return $this->handlePriorityFlow($chatId, $session, $text, $user);
+        }
+        if ($session->state === 'hk_priority_clear') {
+            if (!$isManager) {
+                $session->update(['state' => 'hk_main', 'data' => null]);
+                return response('OK');
+            }
+            return $this->handlePriorityClear($chatId, $session, $text);
+        }
+
         // ── REMAINING MENU COMMANDS ────────────────────────────
         if ($text === '📸 Muammo yuborish') {
             $session->update(['state' => 'hk_issue_photo', 'data' => null]);
@@ -211,6 +231,17 @@ class HousekeepingBotController extends Controller
         if ($text === '🔴 TEZKOR' && $isManager) {
             $session->update(['state' => 'hk_rush_room', 'data' => null]);
             $this->send($chatId, "Qaysi xona TEZKOR tozalanishi kerak? (1-15)\nMehmon kelish vaqtini ham yozing. Masalan: <code>7 14:00</code>", $this->mainKb($isManager));
+            return response('OK');
+        }
+        // Priority management — manager only
+        if ($text === '⭐ Ustuvorlik' && $isManager) {
+            $session->update(['state' => 'hk_priority_room', 'data' => null]);
+            $this->send($chatId, "⭐ Qaysi xona(lar)ga ustuvorlik berilsin?\n\nXona raqamlarini kiriting (masalan: <code>7</code> yoki <code>7, 12</code>)\n\n/cancel — bekor qilish", $this->mainKb($isManager));
+            return response('OK');
+        }
+        if ($text === '❌ Ustuvorlik o\'chirish' && $isManager) {
+            $session->update(['state' => 'hk_priority_clear', 'data' => null]);
+            $this->send($chatId, "Qaysi xona(lar)dan ustuvorlikni olib tashlash kerak?\n\nXona raqamlarini kiriting:", $this->mainKb($isManager));
             return response('OK');
         }
         if ($text === '📦 Topilmalar') return $this->showLostFound($chatId);
@@ -293,6 +324,8 @@ class HousekeepingBotController extends Controller
             str_starts_with($data, 'resolve_') => $this->resolveIssue($chatId, $session, (int) substr($data, 8)),
             str_starts_with($data, 'clean_') => $this->markRoomsClean($chatId, $session, [(int) substr($data, 6)]),
             str_starts_with($data, 'dirty_') => $this->markDirty($chatId, $session, (int) substr($data, 6)),
+            // Priority level selection (inline buttons from priority flow)
+            str_starts_with($data, 'priority_') => $this->handlePriorityLevelCallback($chatId, $session, substr($data, 9)),
             default => response('OK'),
         };
     }
@@ -707,6 +740,9 @@ class HousekeepingBotController extends Controller
         $dirtyCount = count(array_filter($rooms, fn($r) => $r['status'] === 'dirty'));
         $repairCount = count(array_filter($rooms, fn($r) => $r['status'] === 'repair'));
 
+        // Load today's priorities for badge display
+        $priorities = RoomPriority::todayByRoom();
+
         $lines = ["🏨 <b>Jahongir Hotel — Xonalar</b>\n"];
 
         foreach ($rooms as $room) {
@@ -722,7 +758,19 @@ class HousekeepingBotController extends Controller
                 'repair' => 'Ta\'mirda',
                 default  => $room['status'],
             };
-            $lines[] = "{$emoji} <b>{$room['room_number']}</b>-xona — {$statusUz}";
+            $line = "{$emoji} <b>{$room['room_number']}</b>-xona — {$statusUz}";
+
+            // Append priority badge if set for today
+            $rn = (int) $room['room_number'];
+            if (isset($priorities[$rn])) {
+                $line .= " · {$priorities[$rn]->badge()} {$priorities[$rn]->label()}";
+                if ($priorities[$rn]->reason) {
+                    $short = mb_substr($priorities[$rn]->reason, 0, 40);
+                    $line .= ": {$short}";
+                }
+            }
+
+            $lines[] = $line;
         }
 
         $lines[] = "\n✅ Toza: {$cleanCount} | 🟡 Iflos: {$dirtyCount}" . ($repairCount ? " | 🔧 Ta'mirda: {$repairCount}" : '');
@@ -821,28 +869,56 @@ class HousekeepingBotController extends Controller
             return true;
         });
 
+        // Load active priorities for this date, keyed by room number
+        $priorities = RoomPriority::where('priority_date', $dateStr)->get()->keyBy('room_number')->all();
+
+        // Helper: format a booking line with priority badge
+        $formatRoom = function (array $b, string $icon) use ($roomMap, $priorities) {
+            $roomKey = $b['roomId'] . '_' . $b['unitId'];
+            $roomNum = $roomMap[$roomKey] ?? '?';
+            $guests = ($b['numAdult'] ?? 0) + ($b['numChild'] ?? 0);
+            $line = "  {$icon} <b>{$roomNum}</b>-xona · {$guests} kishi";
+
+            // Append priority badge + reason if set for this room
+            $numRoom = is_numeric($roomNum) ? (int) $roomNum : null;
+            if ($numRoom && isset($priorities[$numRoom])) {
+                $line .= ' · ' . $priorities[$numRoom]->formatForCleaner();
+            }
+
+            return ['line' => $line, 'roomNum' => $numRoom];
+        };
+
+        // Helper: sort by priority (urgent first, then important, then normal)
+        $sortByPriority = function (array $items) use ($priorities) {
+            usort($items, function ($a, $b) use ($priorities) {
+                $wA = isset($priorities[$a['roomNum']]) ? $priorities[$a['roomNum']]->sortWeight() : 2;
+                $wB = isset($priorities[$b['roomNum']]) ? $priorities[$b['roomNum']]->sortWeight() : 2;
+                return $wA <=> $wB ?: ($a['roomNum'] ?? 0) <=> ($b['roomNum'] ?? 0);
+            });
+            return $items;
+        };
+
         // Build the message
         $lines = ["📅 <b>{$dayLabel} — Tozalash rejimi</b>"];
         $lines[] = "📆 {$dateObj->format('d.m.Y')}";
         $lines[] = '';
 
-        // Departures = rooms to deep-clean for turnover
+        // Departures = rooms to deep-clean for turnover (sorted by priority)
         if (!empty($departures)) {
             $lines[] = "🔴 <b>Ketayotgan (" . count($departures) . "):</b>";
             $lines[] = "<i>Chuqur tozalash kerak</i>";
-            foreach ($departures as $b) {
-                $roomKey = $b['roomId'] . '_' . $b['unitId'];
-                $roomNum = $roomMap[$roomKey] ?? '?';
-                $guests = ($b['numAdult'] ?? 0) + ($b['numChild'] ?? 0);
-                $lines[] = "  🚪 <b>{$roomNum}</b>-xona · {$guests} kishi";
+            $items = array_map(fn ($b) => $formatRoom($b, '🚪'), $departures);
+            foreach ($sortByPriority($items) as $item) {
+                $lines[] = $item['line'];
             }
             $lines[] = '';
         }
 
-        // Arrivals = rooms to prepare for new guests
+        // Arrivals = rooms to prepare for new guests (sorted by priority)
         if (!empty($arrivals)) {
             $lines[] = "🟢 <b>Kelayotgan (" . count($arrivals) . "):</b>";
             $lines[] = "<i>Yangi mehmon uchun tayyorlash</i>";
+            $items = [];
             foreach ($arrivals as $b) {
                 $roomKey = $b['roomId'] . '_' . $b['unitId'];
                 $roomNum = $roomMap[$roomKey] ?? '?';
@@ -853,7 +929,16 @@ class HousekeepingBotController extends Controller
                     $nights = " · {$nights} kecha";
                 } catch (\Throwable $e) {}
                 $arrival = $b['arrivalTime'] ? " · ⏰ {$b['arrivalTime']}" : '';
-                $lines[] = "  🛬 <b>{$roomNum}</b>-xona · {$guests} kishi{$nights}{$arrival}";
+                $line = "  🛬 <b>{$roomNum}</b>-xona · {$guests} kishi{$nights}{$arrival}";
+
+                $numRoom = is_numeric($roomNum) ? (int) $roomNum : null;
+                if ($numRoom && isset($priorities[$numRoom])) {
+                    $line .= ' · ' . $priorities[$numRoom]->formatForCleaner();
+                }
+                $items[] = ['line' => $line, 'roomNum' => $numRoom];
+            }
+            foreach ($sortByPriority($items) as $item) {
+                $lines[] = $item['line'];
             }
             $lines[] = '';
         }
@@ -862,12 +947,22 @@ class HousekeepingBotController extends Controller
         if (!empty($stayovers)) {
             $lines[] = "🔵 <b>Qolayotgan (" . count($stayovers) . "):</b>";
             $lines[] = "<i>Yengil tozalash (sochiq, axlat)</i>";
+            $items = [];
             foreach ($stayovers as $b) {
                 $roomKey = $b['roomId'] . '_' . $b['unitId'];
                 $roomNum = $roomMap[$roomKey] ?? '?';
                 $guests = ($b['numAdult'] ?? 0) + ($b['numChild'] ?? 0);
                 $depDate = Carbon::parse($b['departure'])->format('d.m');
-                $lines[] = "  🛏 <b>{$roomNum}</b>-xona · {$guests} kishi (→{$depDate})";
+                $line = "  🛏 <b>{$roomNum}</b>-xona · {$guests} kishi (→{$depDate})";
+
+                $numRoom = is_numeric($roomNum) ? (int) $roomNum : null;
+                if ($numRoom && isset($priorities[$numRoom])) {
+                    $line .= ' · ' . $priorities[$numRoom]->formatForCleaner();
+                }
+                $items[] = ['line' => $line, 'roomNum' => $numRoom];
+            }
+            foreach ($sortByPriority($items) as $item) {
+                $lines[] = $item['line'];
             }
             $lines[] = '';
         }
@@ -1359,6 +1454,172 @@ class HousekeepingBotController extends Controller
         }
     }
 
+    // ── ROOM PRIORITY FLOW ─────────────────────────────────────
+
+    /**
+     * Inline button callback: admin selected priority level (urgent/important).
+     * Advances flow to reason step.
+     */
+    protected function handlePriorityLevelCallback(int $chatId, $session, string $level)
+    {
+        if ($session->state !== 'hk_priority_level') return response('OK');
+
+        $user = User::find($session->user_id);
+        if (!$user || !$user->hasAnyRole(['super_admin', 'admin', 'manager', 'owner'])) {
+            return response('OK');
+        }
+
+        if (!in_array($level, ['urgent', 'important'], true)) return response('OK');
+
+        $data = $session->data ?? [];
+        $data['priority'] = $level;
+
+        $session->update([
+            'state' => 'hk_priority_reason',
+            'data' => $data,
+        ]);
+
+        $badge = $level === 'urgent' ? '🔴 Shoshilinch' : '🟡 Muhim';
+        $this->send($chatId, "{$badge} tanlandi.\n\nSababni yozing (masalan: <i>VIP mehmon 14:00 da</i>)\n\n/skip — sababsiz saqlash\n/cancel — bekor qilish");
+        return response('OK');
+    }
+
+    /**
+     * Multi-step priority assignment: room(s) → level → optional reason.
+     * Manager auth re-checked on every step (see routing above).
+     */
+    protected function handlePriorityFlow(int $chatId, $session, string $text, ?User $user)
+    {
+        $state = $session->state;
+        $data = $session->data ?? [];
+
+        // Step 1: Collect room numbers
+        if ($state === 'hk_priority_room') {
+            $rooms = $this->extractRoomNumbers($text);
+            if (empty($rooms)) {
+                $this->send($chatId, "Xona raqamini to'g'ri kiriting (1-15).\n/cancel — bekor qilish");
+                return response('OK');
+            }
+
+            $session->update([
+                'state' => 'hk_priority_level',
+                'data' => ['rooms' => $rooms],
+            ]);
+
+            $roomList = implode(', ', array_map(fn ($r) => "{$r}-xona", $rooms));
+            $this->send($chatId, "Xonalar: <b>{$roomList}</b>\n\nUstuvorlik darajasini tanlang:", [
+                'inline_keyboard' => [
+                    [
+                        ['text' => '🔴 Shoshilinch', 'callback_data' => 'priority_urgent'],
+                        ['text' => '🟡 Muhim', 'callback_data' => 'priority_important'],
+                    ],
+                ],
+            ]);
+            return response('OK');
+        }
+
+        // Step 3: Collect reason (after level is chosen via callback)
+        if ($state === 'hk_priority_reason') {
+            $reason = trim($text);
+            if ($reason === '' || $reason === '/skip') {
+                $reason = null;
+            }
+
+            $rooms = $data['rooms'] ?? [];
+            $priority = $data['priority'] ?? 'important';
+
+            // Save priorities — idempotent via updateOrCreate
+            foreach ($rooms as $roomNum) {
+                RoomPriority::setPriority(
+                    roomNumber: $roomNum,
+                    priority: $priority,
+                    reason: $reason,
+                    setBy: $user?->id,
+                );
+            }
+
+            $session->update(['state' => 'hk_main', 'data' => null]);
+
+            $badge = $priority === 'urgent' ? '🔴' : '🟡';
+            $label = $priority === 'urgent' ? 'SHOSHILINCH' : 'MUHIM';
+            $roomList = implode(', ', array_map(fn ($r) => "{$r}-xona", $rooms));
+            $reasonText = $reason ? "\n📝 Sabab: {$reason}" : '';
+
+            $this->send($chatId, "✅ Ustuvorlik belgilandi!\n\n{$badge} {$label}: {$roomList}{$reasonText}", $this->mainKb(true));
+
+            // Notify management group
+            $this->notifyPrioritySet($rooms, $priority, $reason, $user?->name ?? '?');
+
+            return response('OK');
+        }
+
+        // Unexpected state — reset
+        $session->update(['state' => 'hk_main', 'data' => null]);
+        return response('OK');
+    }
+
+    /**
+     * Handle priority clear flow (entered via '❌ Ustuvorlik o'chirish' button).
+     */
+    protected function handlePriorityClear(int $chatId, $session, string $text)
+    {
+        $rooms = $this->extractRoomNumbers($text);
+        if (empty($rooms)) {
+            $this->send($chatId, "Xona raqamini to'g'ri kiriting (1-15).\n/cancel — bekor qilish");
+            return response('OK');
+        }
+
+        foreach ($rooms as $roomNum) {
+            RoomPriority::clearPriority($roomNum);
+        }
+
+        $session->update(['state' => 'hk_main', 'data' => null]);
+
+        $roomList = implode(', ', array_map(fn ($r) => "{$r}-xona", $rooms));
+        $user = User::find($session->user_id);
+        $this->send($chatId, "✅ Ustuvorlik olib tashlandi: {$roomList}", $this->mainKb(true));
+
+        // Notify management group
+        if ($this->mgmtGroupId) {
+            SendTelegramNotificationJob::dispatch('housekeeping', 'sendMessage', [
+                'chat_id' => $this->mgmtGroupId,
+                'text' => "⚪ Ustuvorlik olib tashlandi: {$roomList}\n👔 {$user?->name}",
+                'parse_mode' => 'HTML',
+            ]);
+        }
+
+        return response('OK');
+    }
+
+    /**
+     * Send priority notification to management group.
+     * Non-fatal: notification failure does not roll back saved priority.
+     */
+    protected function notifyPrioritySet(array $rooms, string $priority, ?string $reason, string $managerName): void
+    {
+        if (!$this->mgmtGroupId) return;
+
+        $badge = $priority === 'urgent' ? '🔴' : '🟡';
+        $label = $priority === 'urgent' ? 'SHOSHILINCH' : 'MUHIM';
+        $roomList = implode(', ', array_map(fn ($r) => "{$r}-xona", $rooms));
+        $reasonLine = $reason ? "\n📝 {$reason}" : '';
+
+        $msg = "⭐ <b>Ustuvorlik belgilandi</b>\n\n"
+            . "{$badge} <b>{$label}</b>: {$roomList}{$reasonLine}\n"
+            . "👔 {$managerName}\n"
+            . "⏰ " . now('Asia/Tashkent')->format('H:i');
+
+        try {
+            SendTelegramNotificationJob::dispatch('housekeeping', 'sendMessage', [
+                'chat_id' => $this->mgmtGroupId,
+                'text' => $msg,
+                'parse_mode' => 'HTML',
+            ]);
+        } catch (\Throwable $e) {
+            Log::warning('HousekeepingBot: priority notification failed', ['error' => $e->getMessage()]);
+        }
+    }
+
     // ── GROUP MESSAGES ────────────────────────────────────────────
 
     /**
@@ -1497,6 +1758,7 @@ class HousekeepingBotController extends Controller
 
         if ($isManager) {
             $rows[] = [['text' => '🔴 TEZKOR'], ['text' => '📦 Topilmalar']];
+            $rows[] = [['text' => '⭐ Ustuvorlik'], ['text' => '❌ Ustuvorlik o\'chirish']];
             $rows[] = [['text' => '🟡 Xonani iflos'], ['text' => '🟡 Hammasini iflos']];
         }
 
