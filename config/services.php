@@ -103,9 +103,10 @@ return [
 
 
     'gyg' => [
-        'username' => env('GYG_API_USERNAME', 'Jahongirtravel'),
-        'password' => env('GYG_API_PASSWORD'),
-        'api_url'  => env('GYG_API_URL', 'https://supplier-api.getyourguide.com'),
+        'username'          => env('GYG_API_USERNAME', 'Jahongirtravel'),
+        'password'          => env('GYG_API_PASSWORD'),
+        'api_url'           => env('GYG_API_URL', 'https://supplier-api.getyourguide.com'),
+        'email_override_to' => env('GYG_EMAIL_OVERRIDE_TO'),
     ],
 
 ];
