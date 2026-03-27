@@ -16,10 +16,11 @@ return [
 
 
     'octo' => [
-        'shop_id' => env('OCTO_SHOP_ID'),
-        'secret'  => env('OCTO_SECRET'),
-        'url'     => env('OCTO_API_URL'),
-        'tsp_id'  => env('OCTO_TSP_ID'),  // if needed
+        'shop_id'              => env('OCTO_SHOP_ID'),
+        'secret'               => env('OCTO_SECRET'),
+        'url'                  => env('OCTO_API_URL'),
+        'tsp_id'               => env('OCTO_TSP_ID'),
+        'fallback_usd_uzs_rate' => env('OCTO_FALLBACK_USD_UZS_RATE', 12100),
     ],
 
     'telegram' => [

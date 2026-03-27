@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -23,27 +24,107 @@ class OctoPaymentService
     }
 
     /**
-     * Fetch the current exchange rate for USD to UZS.
-     *
-     * @return float The exchange rate
-     * @throws \Exception If unable to fetch the exchange rate
+     * Fetch USD→UZS rate with 5-layer fallback:
+     *   1. CBU Uzbekistan (official, primary)
+     *   2. open.er-api.com (no key, 1500 req/month free)
+     *   3. fawazahmed0 via jsDelivr CDN (no key, unlimited, open source)
+     *   4. Last cached rate from any previously successful source
+     *   5. OCTO_FALLBACK_USD_UZS_RATE from .env (manual safety net)
      */
     private function getExchangeRate(): float
     {
-        $date = now()->format('Y-m-d');
-        $response = Http::get("https://cbu.uz/ru/arkhiv-kursov-valyut/json/USD/{$date}/");
+        $cacheKey = 'usd_uzs_rate';
 
-        if (!$response->successful()) {
-            throw new \Exception('Failed to fetch exchange rate from CBU: ' . $response->body());
+        // Try each live source in order, return immediately on success
+        $rate = $this->fetchFromCbu()
+            ?? $this->fetchFromOpenErApi()
+            ?? $this->fetchFromFawazahmed();
+
+        if ($rate !== null) {
+            Cache::put($cacheKey, $rate, now()->addHours(6));
+            return $rate;
         }
 
-        $data = $response->json();
-
-        if (!isset($data[0]['Rate'])) {
-            throw new \Exception('Exchange rate data is missing in CBU response');
+        // Layer 4: last cached rate (from any prior successful fetch)
+        if (Cache::has($cacheKey)) {
+            $cached = (float) Cache::get($cacheKey);
+            Log::warning('All live exchange rate sources failed, using cached rate', ['rate' => $cached]);
+            return $cached;
         }
 
-        return (float) $data[0]['Rate'];
+        // Layer 5: manual fallback from .env
+        $fallback = (float) config('services.octo.fallback_usd_uzs_rate');
+        Log::warning('All exchange rate sources failed, using .env fallback — update OCTO_FALLBACK_USD_UZS_RATE if stale', [
+            'rate' => $fallback,
+        ]);
+        return $fallback;
+    }
+
+    // Layer 1: Central Bank of Uzbekistan
+    private function fetchFromCbu(): ?float
+    {
+        try {
+            $response = Http::timeout(8)->get(
+                'https://cbu.uz/ru/arkhiv-kursov-valyut/json/USD/' . now()->format('Y-m-d') . '/'
+            );
+            if ($response->successful()) {
+                $data = $response->json();
+                if (isset($data[0]['Rate'])) {
+                    $rate = (float) $data[0]['Rate'];
+                    Log::info('Exchange rate fetched from CBU', ['rate' => $rate]);
+                    return $rate;
+                }
+            }
+        } catch (\Exception $e) {
+            Log::warning('CBU exchange rate source failed', ['error' => $e->getMessage()]);
+        }
+        return null;
+    }
+
+    // Layer 2: open.er-api.com — no API key, 1500 req/month free
+    private function fetchFromOpenErApi(): ?float
+    {
+        try {
+            $response = Http::timeout(8)->get('https://open.er-api.com/v6/latest/USD');
+            if ($response->successful()) {
+                $data = $response->json();
+                if (isset($data['rates']['UZS'])) {
+                    $rate = (float) $data['rates']['UZS'];
+                    Log::info('Exchange rate fetched from open.er-api.com', ['rate' => $rate]);
+                    return $rate;
+                }
+            }
+        } catch (\Exception $e) {
+            Log::warning('open.er-api.com exchange rate source failed', ['error' => $e->getMessage()]);
+        }
+        return null;
+    }
+
+    // Layer 3: fawazahmed0 via jsDelivr CDN — no key, unlimited, open source
+    private function fetchFromFawazahmed(): ?float
+    {
+        // Two URLs: primary CDN + official fallback
+        $urls = [
+            'https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/usd.json',
+            'https://latest.currency-api.pages.dev/v1/currencies/usd.json',
+        ];
+
+        foreach ($urls as $url) {
+            try {
+                $response = Http::timeout(8)->get($url);
+                if ($response->successful()) {
+                    $data = $response->json();
+                    if (isset($data['usd']['uzs'])) {
+                        $rate = (float) $data['usd']['uzs'];
+                        Log::info('Exchange rate fetched from fawazahmed0 currency API', ['rate' => $rate, 'url' => $url]);
+                        return $rate;
+                    }
+                }
+            } catch (\Exception $e) {
+                Log::warning('fawazahmed0 exchange rate source failed', ['url' => $url, 'error' => $e->getMessage()]);
+            }
+        }
+        return null;
     }
 
     /**
