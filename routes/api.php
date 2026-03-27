@@ -4,8 +4,6 @@ use Illuminate\Http\Request;
 use App\Filament\Pages\Availability;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\TelegramController;
-use App\Http\Controllers\Api\AiInstructionController;
-use App\Http\Controllers\Api\SysInstructionController;
 use App\Http\Controllers\TelegramDriverGuideSignUpController;
 use App\Http\Controllers\WebhookController;
 
