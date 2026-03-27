@@ -72,7 +72,7 @@ class GygPostBookingMailer
 
         $gygEmail = DB::table('gyg_inbound_emails')
             ->where('id', $gygEmailId)
-            ->select(['tour_name', 'option_title', 'pax', 'travel_date'])
+            ->select(['tour_name', 'option_title', 'pax', 'travel_date', 'tour_type'])
             ->first();
 
         if (! $gygEmail) {
@@ -88,18 +88,21 @@ class GygPostBookingMailer
         $ref       = $booking->booking_number;
         $phone     = $booking->phone;
 
-        // Classify
-        $isPrivateYurt = $this->isPrivateYurtCampBooking($gygEmail->option_title, $gygEmail->tour_name);
-        $pickupMissing = $this->needsPickupRequest($booking->pickup_location);
-        $selectedVariant = $isPrivateYurt ? 'route_request' : ($pickupMissing ? 'pickup_request' : 'confirmation_only');
+        // Classify using tour_type from DB (set by GygEmailParser: 'group' or 'private').
+        // Group tours have a fixed meeting point (Gur Emir Mausoleum) — never ask for hotel.
+        // Only private tours need a hotel pickup request.
+        $isPrivate     = ($gygEmail->tour_type === 'private');
+        $isPrivateYurt = $isPrivate && $this->isYurtCampBooking($gygEmail->option_title, $gygEmail->tour_name);
+        $selectedVariant = $isPrivateYurt ? 'route_request' : ($isPrivate ? 'pickup_request' : 'confirmation_only');
 
         Log::info('GygPostBookingMailer: classified', [
             'booking_id'       => $bookingId,
             'booking_number'   => $ref,
             'email'            => $guestEmail,
             'phone'            => $phone,
-            'private_yurt'     => $isPrivateYurt,
-            'pickup_missing'   => $pickupMissing,
+            'tour_type'        => $gygEmail->tour_type,
+            'is_private'       => $isPrivate,
+            'is_private_yurt'  => $isPrivateYurt,
             'selected_variant' => $selectedVariant,
             'option_title'     => $gygEmail->option_title,
         ]);
@@ -148,8 +151,8 @@ class GygPostBookingMailer
             return;
         }
 
-        // 3. Standard: hotel pickup only
-        if ($pickupMissing && ! $booking->hotel_request_sent_at) {
+        // 3. Private non-yurt: hotel pickup only (group tours never reach here)
+        if ($isPrivate && ! $booking->hotel_request_sent_at) {
             $result = $this->sender->send([
                 'phone'             => $phone,
                 'email'             => $guestEmail,
@@ -169,15 +172,12 @@ class GygPostBookingMailer
 
     // ── Detection ──────────────────────────────────────────
 
-    private function isPrivateYurtCampBooking(?string $optionTitle, ?string $tourName): bool
+    // True if this is a yurt camp tour (private yurt needs route+pickup+dropoff questions).
+    // tour_type='private' is checked separately before calling this.
+    private function isYurtCampBooking(?string $optionTitle, ?string $tourName): bool
     {
         $text = strtolower(($optionTitle ?? '') . ' ' . ($tourName ?? ''));
-        return str_contains($text, 'yurt') && str_contains($text, 'private');
-    }
-
-    private function needsPickupRequest(?string $pickupLocation): bool
-    {
-        return empty(trim($pickupLocation ?? ''));
+        return str_contains($text, 'yurt');
     }
 
     // ── WhatsApp message builders ──────────────────────────
