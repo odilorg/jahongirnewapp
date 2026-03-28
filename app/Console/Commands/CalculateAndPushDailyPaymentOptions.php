@@ -158,12 +158,13 @@ class CalculateAndPushDailyPaymentOptions extends Command
         $apiBookings = $this->fetchFromBeds24Api($startDate, Carbon::parse($startDate)->addDays($days - 1)->toDateString());
         $this->line("  Beds24 API: " . count($apiBookings) . " bookings");
 
-        // Merge — API wins for missing ones, local DB used for already-known
-        $merged = $localBookings->toArray();
+        // Merge — keep Eloquent models as-is, add raw API arrays for missing ones
+        // Do NOT call ->toArray() — that would strip the Eloquent model type info
+        $merged = $localBookings->all(); // ['id' => Beds24Booking, ...]
         foreach ($apiBookings as $apiBooking) {
             $id = (string) ($apiBooking['id'] ?? '');
             if ($id && !isset($merged[$id])) {
-                $merged[$id] = $apiBooking; // raw API shape
+                $merged[$id] = $apiBooking; // raw API array
                 $this->line("  + From API only: #{$id} ({$apiBooking['firstName']} {$apiBooking['lastName']})");
             }
         }
