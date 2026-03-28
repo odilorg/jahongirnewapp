@@ -25,16 +25,17 @@ return new class extends Migration
     {
         Schema::table('cash_transactions', function (Blueprint $table) {
             // Booking-side reference (from Beds24, populated on cross-currency payments)
-            $table->string('booking_currency', 3)->nullable()->after('room_number');
-            $table->decimal('booking_amount', 12, 2)->nullable()->after('booking_currency');
+            // No ->after() — room_number may not exist yet if intermediate migrations are pending
+            $table->string('booking_currency', 3)->nullable();
+            $table->decimal('booking_amount', 12, 2)->nullable();
 
             // Rate the cashier actually applied (entered or accepted from suggestion)
-            $table->decimal('applied_exchange_rate', 15, 4)->nullable()->after('booking_amount');
+            $table->decimal('applied_exchange_rate', 15, 4)->nullable();
 
             // Official benchmark rate, auto-fetched (CBU → er-api → floatrates)
-            $table->decimal('reference_exchange_rate', 15, 4)->nullable()->after('applied_exchange_rate');
-            $table->string('reference_rate_source', 20)->nullable()->after('reference_exchange_rate');
-            $table->date('reference_rate_date')->nullable()->after('reference_rate_source');
+            $table->decimal('reference_exchange_rate', 15, 4)->nullable();
+            $table->string('reference_rate_source', 20)->nullable();
+            $table->date('reference_rate_date')->nullable();
         });
     }
 
