@@ -65,6 +65,16 @@ class Kernel extends ConsoleKernel
             ->timezone('Asia/Tashkent')
             ->withoutOverlapping();
 
+        // Daily payment options: fetch CBU rates, calculate UZS/EUR/RUB, push to Beds24 infoItems
+        // Runs at 07:00 so admin can print registration forms with today's exact amounts
+        $schedule->command('fx:push-payment-options')
+            ->dailyAt('07:00')
+            ->timezone('Asia/Tashkent')
+            ->withoutOverlapping()
+            ->onFailure(function () {
+                \Illuminate\Support\Facades\Log::error('fx:push-payment-options failed to run');
+            });
+
         // Daily tour reminders at 20:00 Tashkent — staff Telegram + guest WhatsApp + driver/guide DM
         $schedule->command('tour:send-reminders')
             ->dailyAt('20:00')
