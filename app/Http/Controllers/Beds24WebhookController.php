@@ -566,6 +566,9 @@ class Beds24WebhookController extends Controller
                 'room_number' => $booking->room_name ?? '',
                 'reference' => $ref,
                 'occurred_at' => now(),
+                // Attribute to the active shift owner so audit trail is complete.
+                // Beds24 webhook is unauthenticated so auth() is unavailable here.
+                'created_by' => $activeShift?->user_id,
             ]);
 
             Log::info('Beds24 Payment: CashTransaction created', [
