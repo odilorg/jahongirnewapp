@@ -9,6 +9,7 @@ enum TransactionCategory: string
     case EXPENSE = 'expense';
     case DEPOSIT = 'deposit';
     case EXCHANGE = 'exchange';
+    case EXCHANGE_DIFF = 'exchange_diff'; // FX variance vs reference rate
     case CHANGE = 'change';
     case OTHER = 'other';
 
@@ -20,6 +21,7 @@ enum TransactionCategory: string
             self::EXPENSE => 'Expense',
             self::DEPOSIT => 'Deposit',
             self::EXCHANGE => 'Exchange',
+            self::EXCHANGE_DIFF => 'FX Variance',
             self::CHANGE => 'Change',
             self::OTHER => 'Other',
         };
@@ -33,6 +35,7 @@ enum TransactionCategory: string
             self::EXPENSE => 'danger',
             self::DEPOSIT => 'info',
             self::EXCHANGE => 'primary',
+            self::EXCHANGE_DIFF => 'purple',
             self::CHANGE => 'gray',
             self::OTHER => 'secondary',
         };
@@ -46,6 +49,7 @@ enum TransactionCategory: string
             self::EXPENSE => 'heroicon-o-minus-circle',
             self::DEPOSIT => 'heroicon-o-plus-circle',
             self::EXCHANGE => 'heroicon-o-arrows-right-left',
+            self::EXCHANGE_DIFF => 'heroicon-o-scale',
             self::CHANGE => 'heroicon-o-currency-dollar',
             self::OTHER => 'heroicon-o-question-mark-circle',
         };
