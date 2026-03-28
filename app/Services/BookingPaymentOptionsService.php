@@ -90,6 +90,7 @@ class BookingPaymentOptionsService
     public function formatForBeds24(array $options, string $rateDate): array
     {
         return [
+            'USD_ROUNDED'  => (string) (int) ceil($options['usd_amount']),
             'UZS_AMOUNT'   => $this->fmtInt($options['uzs_final']),
             'EUR_AMOUNT'   => $this->fmtInt($options['eur_final']),
             'RUB_AMOUNT'   => $this->fmtInt($options['rub_final']),
