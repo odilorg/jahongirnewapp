@@ -50,14 +50,25 @@ class CashTransaction extends Model
         'guest_name',
         'room_number',
         'occurred_at',
+        // FX tracking — only populated on cross-currency guest payments
+        'booking_currency',
+        'booking_amount',
+        'applied_exchange_rate',
+        'reference_exchange_rate',
+        'reference_rate_source',
+        'reference_rate_date',
     ];
 
     protected $casts = [
         'type' => TransactionType::class,
         'category' => TransactionCategory::class,
-        'amount' => 'decimal:2',
-        'related_amount' => 'decimal:2',
-        'occurred_at' => 'datetime',
+        'amount'                  => 'decimal:2',
+        'related_amount'          => 'decimal:2',
+        'booking_amount'          => 'decimal:2',
+        'applied_exchange_rate'   => 'decimal:4',
+        'reference_exchange_rate' => 'decimal:4',
+        'reference_rate_date'     => 'date',
+        'occurred_at'             => 'datetime',
     ];
 
     /**
@@ -180,6 +191,36 @@ class CashTransaction extends Model
     public function isExchange(): bool
     {
         return $this->type === TransactionType::IN_OUT && !empty($this->related_currency);
+    }
+
+    /**
+     * Whether this transaction has FX tracking data attached.
+     */
+    public function hasFxTracking(): bool
+    {
+        return $this->booking_amount !== null && $this->applied_exchange_rate !== null;
+    }
+
+    /**
+     * collection_variance = UZS_received − (booking_USD × applied_rate)
+     * Should be near zero; non-zero indicates rounding, negotiation, or typo.
+     */
+    public function collectionVariance(): ?float
+    {
+        if (!$this->hasFxTracking()) return null;
+        return round((float)$this->amount - ((float)$this->booking_amount * (float)$this->applied_exchange_rate), 2);
+    }
+
+    /**
+     * fx_variance = UZS_received − (booking_USD × reference_rate)
+     * Management signal: how much above/below the official CBU rate was collected.
+     * Positive = hotel collected above benchmark (gain).
+     * Negative = hotel collected below benchmark (loss).
+     */
+    public function fxVariance(): ?float
+    {
+        if (!$this->hasFxTracking() || !$this->reference_exchange_rate) return null;
+        return round((float)$this->amount - ((float)$this->booking_amount * (float)$this->reference_exchange_rate), 2);
     }
 
     /**

@@ -204,6 +204,22 @@ class TelegramReportFormatter
             $message .= "\n";
         }
 
+        // FX variance summary (only shown when cross-currency payments exist)
+        if (!empty($data['fx_summary'])) {
+            $fx = $data['fx_summary'];
+            $message .= "💱 " . strtoupper("Курсовая разница (vs ЦБ)") . "\n";
+            $message .= "• Оплат с курсом: {$fx['fx_payment_count']}\n";
+            $fxVariance = $fx['total_fx_variance_uzs'];
+            $sign = $fxVariance >= 0 ? '+' : '';
+            $message .= "• Итого vs ЦБ: {$sign}" . number_format($fxVariance, 0) . " UZS\n";
+            if ($fx['total_collection_variance_uzs'] != 0) {
+                $cv   = $fx['total_collection_variance_uzs'];
+                $cvSign = $cv >= 0 ? '+' : '';
+                $message .= "• Расхождения: {$cvSign}" . number_format($cv, 0) . " UZS\n";
+            }
+            $message .= "• Источник курса: {$fx['rate_source_summary']}\n\n";
+        }
+
         // Recent transactions
         if (!empty($data['transactions']['recent']) && count($data['transactions']['recent']) > 0) {
             $message .= "📝 " . __('telegram_pos.recent_transactions', [], $lang) . " (" . count($data['transactions']['recent']) . ")\n";
@@ -285,6 +301,54 @@ class TelegramReportFormatter
         }
 
         return $message;
+    }
+
+    /**
+     * Build FX variance summary for a collection of CashTransaction models.
+     * Call this from TelegramReportService when building shift detail data.
+     *
+     * Returns null when no cross-currency payments exist in the collection.
+     */
+    public function buildFxSummary(\Illuminate\Support\Collection $transactions): ?array
+    {
+        $fxTxns = $transactions->filter(fn($t) => !is_null($t->applied_exchange_rate));
+        if ($fxTxns->isEmpty()) return null;
+
+        $totalFxVariance         = 0.0;
+        $totalCollectionVariance = 0.0;
+        $sourceCounts            = [];
+
+        foreach ($fxTxns as $t) {
+            if ($t->reference_exchange_rate) {
+                $totalFxVariance += (float)$t->amount - ((float)$t->booking_amount * (float)$t->reference_exchange_rate);
+            }
+            $totalCollectionVariance += (float)$t->amount - ((float)$t->booking_amount * (float)$t->applied_exchange_rate);
+
+            $src = $t->reference_rate_source ?? 'manual_only';
+            $sourceCounts[$src] = ($sourceCounts[$src] ?? 0) + 1;
+        }
+
+        // e.g. "ЦБ УЗ (8), manual_only (1)"
+        $sourceLabels = collect($sourceCounts)
+            ->map(fn($count, $src) => $this->rateSourceLabel($src) . " ({$count})")
+            ->values()->implode(', ');
+
+        return [
+            'fx_payment_count'             => $fxTxns->count(),
+            'total_fx_variance_uzs'        => round($totalFxVariance, 2),
+            'total_collection_variance_uzs' => round($totalCollectionVariance, 2),
+            'rate_source_summary'          => $sourceLabels,
+        ];
+    }
+
+    private function rateSourceLabel(string $source): string
+    {
+        return match ($source) {
+            'cbu'        => 'ЦБ УЗ',
+            'er_api'     => 'ExchangeRate-API',
+            'floatrates' => 'FloatRates',
+            default      => 'Вручную',
+        };
     }
 
     /**

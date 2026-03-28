@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Jobs\FxSyncJob;
 use App\Jobs\ProcessBeds24WebhookJob;
 use App\Jobs\SendTelegramNotificationJob;
 use App\Models\Beds24Booking;
@@ -25,9 +26,8 @@ class Beds24WebhookController extends Controller
 {
     public function __construct(
         protected OwnerAlertService $alertService,
-        protected Beds24BookingService $beds24Service
-    )
-    {
+        protected Beds24BookingService $beds24Service,
+    ) {
     }
 
     /**
@@ -165,6 +165,9 @@ class Beds24WebhookController extends Controller
 
         // Fetch guest name from API if webhook didn't include it
         $this->enrichGuestInfo($booking);
+
+        // Fix 3 — push infoItems immediately so the print template is ready
+        $this->pushFxInfoItems($booking);
 
         // Detect if this is a genuinely NEW booking or a first-time-seen old booking.
         // Beds24 sends webhooks for old bookings when they're modified (payment added,
@@ -340,8 +343,30 @@ class Beds24WebhookController extends Controller
             'change_type' => $changeType,
         ]);
 
+        // Fix 3 — re-push infoItems if amount or arrival date changed
+        if ($changeType !== 'cancelled') {
+            $this->pushFxInfoItems($booking);
+        }
+
         // Send appropriate alert
         $this->dispatchAlert($booking, $change, $changeType, $oldData, $newAmount, $changedFields, $raw, $newCharges);
+    }
+
+    // -------------------------------------------------------------------------
+    // FX infoItems push — queued, never blocks webhook response
+    // -------------------------------------------------------------------------
+
+    /**
+     * Dispatch an FxSyncJob for this booking.
+     * The job calculates amounts and pushes infoItems to Beds24 asynchronously,
+     * with exponential backoff on HTTP 429 (rate limit) responses.
+     */
+    private function pushFxInfoItems(Beds24Booking $booking): void
+    {
+        FxSyncJob::dispatch(
+            (string) $booking->beds24_booking_id,
+            'webhook'
+        )->onQueue('beds24-writes');
     }
 
     // -------------------------------------------------------------------------
