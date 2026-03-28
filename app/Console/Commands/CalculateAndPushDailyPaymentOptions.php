@@ -158,8 +158,8 @@ class CalculateAndPushDailyPaymentOptions extends Command
             Carbon::parse($targetDate)->addDay()->toDateString(),
         ];
 
-        $bookings = Beds24Booking::whereIn('check_in', $bookingDates)
-            ->whereIn('status', ['confirmed', 'new'])
+        $bookings = Beds24Booking::whereIn('arrival_date', $bookingDates)
+            ->whereIn('booking_status', ['confirmed', 'new'])
             ->get();
 
         $this->info("Found {$bookings->count()} bookings for " . implode(' & ', $bookingDates));
