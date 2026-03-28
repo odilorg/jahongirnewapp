@@ -247,24 +247,28 @@ class CalculateAndPushDailyPaymentOptions extends Command
     {
         $all = [];
 
+        // Beds24 API does NOT accept comma-separated status values —
+        // must make one request per status.
         foreach (self::PROPERTY_IDS as $propertyId) {
-            try {
-                $response = $this->beds24Service->apiCall('GET', '/bookings', [
-                    'propertyId'   => (int) $propertyId,
-                    'arrivalFrom'  => $from,
-                    'arrivalTo'    => $to,
-                    'status'       => 'confirmed,new',
-                    'includeInvoice' => 'true',
-                ]);
+            foreach (['confirmed', 'new'] as $status) {
+                try {
+                    $response = $this->beds24Service->apiCall('GET', '/bookings', [
+                        'propertyId'     => (int) $propertyId,
+                        'arrivalFrom'    => $from,
+                        'arrivalTo'      => $to,
+                        'status'         => $status,
+                        'includeInvoice' => 'true',
+                    ]);
 
-                $data = $response->json();
-                if (isset($data['data']) && is_array($data['data'])) {
-                    $all = array_merge($all, $data['data']);
+                    $data = $response->json();
+                    if (isset($data['data']) && is_array($data['data'])) {
+                        $all = array_merge($all, $data['data']);
+                    }
+                } catch (\Throwable $e) {
+                    Log::warning("fx:push-payment-options — Beds24 API fetch failed for property {$propertyId} status={$status}", [
+                        'error' => $e->getMessage(),
+                    ]);
                 }
-            } catch (\Throwable $e) {
-                Log::warning("fx:push-payment-options — Beds24 API fetch failed for property {$propertyId}", [
-                    'error' => $e->getMessage(),
-                ]);
             }
         }
 
