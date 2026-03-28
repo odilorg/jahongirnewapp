@@ -213,6 +213,7 @@ class CalculateAndPushDailyPaymentOptions extends Command
 
                 if (!$isDryRun) {
                     $this->beds24Service->writePaymentOptionsToInfoItems((int) $bookingId, $infoItems);
+                    usleep(300_000); // 300 ms — stay within Beds24 rate limits
                 }
 
                 $successCount++;
