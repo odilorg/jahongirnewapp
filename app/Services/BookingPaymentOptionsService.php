@@ -90,21 +90,25 @@ class BookingPaymentOptionsService
     public function formatForBeds24(array $options, string $rateDate): array
     {
         return [
-            'UZS_AMOUNT' => $this->fmtInt($options['uzs_final']),
-            'EUR_AMOUNT' => $this->fmtInt($options['eur_final']),
-            'RUB_AMOUNT' => $this->fmtInt($options['rub_final']),
-            'UZS_RATE'   => $this->fmtInt((int) round($options['uzs_rate'])),
-            'EUR_RATE'   => $this->fmtEffectiveRate(
+            'UZS_AMOUNT'   => $this->fmtInt($options['uzs_final']),
+            'EUR_AMOUNT'   => $this->fmtInt($options['eur_final']),
+            'RUB_AMOUNT'   => $this->fmtInt($options['rub_final']),
+            // Clean rates — just the effective number, for display on the printed form
+            'UZS_RATE'     => $this->fmtInt((int) round($options['uzs_rate'])),
+            'EUR_EFF_RATE' => $this->fmtInt((int) round($options['eur_effective_rate'])),
+            'RUB_EFF_RATE' => $this->fmtInt((int) round($options['rub_effective_rate'])),
+            // Full rates — include CBU + margin breakdown, for internal audit
+            'EUR_RATE'     => $this->fmtEffectiveRate(
                 $options['eur_effective_rate'],
                 $options['eur_rate_cbu'],
                 $options['eur_margin']
             ),
-            'RUB_RATE'   => $this->fmtEffectiveRate(
+            'RUB_RATE'     => $this->fmtEffectiveRate(
                 $options['rub_effective_rate'],
                 $options['rub_rate_cbu'],
                 $options['rub_margin']
             ),
-            'FX_DATE'    => \Carbon\Carbon::parse($rateDate)->format('d.m.Y'),
+            'FX_DATE'      => \Carbon\Carbon::parse($rateDate)->format('d.m.Y'),
         ];
     }
 
