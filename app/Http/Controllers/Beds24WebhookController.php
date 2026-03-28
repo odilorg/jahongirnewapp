@@ -25,9 +25,9 @@ class Beds24WebhookController extends Controller
 {
     public function __construct(
         protected OwnerAlertService $alertService,
-        protected Beds24BookingService $beds24Service
-    )
-    {
+        protected Beds24BookingService $beds24Service,
+        protected \App\Services\BookingPaymentOptionsService $paymentOptionsService,
+    ) {
     }
 
     /**
@@ -165,6 +165,9 @@ class Beds24WebhookController extends Controller
 
         // Fetch guest name from API if webhook didn't include it
         $this->enrichGuestInfo($booking);
+
+        // Fix 3 — push infoItems immediately so the print template is ready
+        $this->pushFxInfoItems($booking);
 
         // Detect if this is a genuinely NEW booking or a first-time-seen old booking.
         // Beds24 sends webhooks for old bookings when they're modified (payment added,
@@ -340,8 +343,72 @@ class Beds24WebhookController extends Controller
             'change_type' => $changeType,
         ]);
 
+        // Fix 3 — re-push infoItems if amount or arrival date changed
+        if ($changeType !== 'cancelled') {
+            $this->pushFxInfoItems($booking);
+        }
+
         // Send appropriate alert
         $this->dispatchAlert($booking, $change, $changeType, $oldData, $newAmount, $changedFields, $raw, $newCharges);
+    }
+
+    // -------------------------------------------------------------------------
+    // FX infoItems push (Fix 3)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Calculate and push UZS/EUR/RUB payment options to Beds24 infoItems
+     * immediately when a booking is created or updated via webhook.
+     *
+     * Uses today's daily_exchange_rates row if available, falls back to the
+     * most recent row. Silently skips if no rate exists yet (morning job
+     * will cover it at 07:00).
+     */
+    private function pushFxInfoItems(\App\Models\Beds24Booking $booking): void
+    {
+        try {
+            $arrivalDate = $booking->arrival_date?->toDateString();
+            if (!$arrivalDate) return;
+
+            $usdAmount = (float) ($booking->invoice_balance > 0
+                ? $booking->invoice_balance
+                : $booking->total_amount);
+
+            if ($usdAmount <= 0) return;
+
+            // Use the rate for the arrival date, fall back to latest available
+            $rate = \App\Models\DailyExchangeRate::where('rate_date', $arrivalDate)->first()
+                ?? \App\Models\DailyExchangeRate::latest();
+
+            if (!$rate) {
+                Log::info('Beds24 Webhook: No daily rate available yet, skipping FX infoItems push', [
+                    'booking_id' => $booking->beds24_booking_id,
+                ]);
+                return;
+            }
+
+            $options   = $this->paymentOptionsService->calculate($usdAmount, $rate);
+            $infoItems = $this->paymentOptionsService->formatForBeds24($options, $arrivalDate);
+
+            $this->beds24Service->writePaymentOptionsToInfoItems(
+                (int) $booking->beds24_booking_id,
+                $infoItems
+            );
+
+            Log::info('Beds24 Webhook: FX infoItems pushed', [
+                'booking_id'  => $booking->beds24_booking_id,
+                'usd_amount'  => $usdAmount,
+                'uzs_amount'  => $infoItems['UZS_AMOUNT'],
+                'rate_date'   => $rate->rate_date->toDateString(),
+            ]);
+
+        } catch (\Throwable $e) {
+            // Never let FX push failure break the webhook response
+            Log::error('Beds24 Webhook: FX infoItems push failed', [
+                'booking_id' => $booking->beds24_booking_id,
+                'error'      => $e->getMessage(),
+            ]);
+        }
     }
 
     // -------------------------------------------------------------------------

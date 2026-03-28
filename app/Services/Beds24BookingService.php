@@ -242,7 +242,7 @@ class Beds24BookingService
     /**
      * Make an API call with automatic token retry on 401.
      */
-    protected function apiCall(string $method, string $endpoint, array $data = [], array $query = []): \Illuminate\Http\Client\Response
+    public function apiCall(string $method, string $endpoint, array $data = [], array $query = []): \Illuminate\Http\Client\Response
     {
         $request = Http::withHeaders([
             'token' => $this->getToken(),

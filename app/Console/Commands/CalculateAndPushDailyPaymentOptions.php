@@ -14,27 +14,34 @@ use Illuminate\Support\Facades\Log;
 /**
  * Runs every morning at 07:00 Tashkent time.
  *
- * Flow:
- *   1. Fetch CBU rates for USD, EUR, RUB (with fallback chain)
- *   2. Upsert daily_exchange_rates for today
- *   3. Find confirmed Beds24 bookings arriving today and tomorrow
- *   4. For each booking with a USD invoice amount, calculate UZS/EUR/RUB options
- *   5. Write results to Beds24 infoItems (template vars appear on printed form)
+ * Fix 1 — covers next 7 days (not just today+tomorrow) so admin can print
+ *          registration forms well in advance.
  *
- * Admin can re-run manually with an optional --date argument to backfill or
- * regenerate a specific day after adjusting margins:
- *   php artisan fx:push-payment-options --date=2026-03-28
+ * Fix 2 — for each target date, fetches bookings directly from Beds24 API
+ *          so bookings not yet in the local DB (e.g. arrived via a different
+ *          channel, or webhook not yet processed) are also covered.
+ *
+ * Flow:
+ *   1. Fetch CBU rates for USD, EUR, RUB
+ *   2. Upsert daily_exchange_rates for target date
+ *   3. Collect bookings from local DB (fast) + Beds24 API (authoritative)
+ *   4. Deduplicate by beds24_booking_id
+ *   5. For each booking with a USD amount, calculate and push infoItems
  */
 class CalculateAndPushDailyPaymentOptions extends Command
 {
     protected $signature = 'fx:push-payment-options
-                            {--date= : Target date (Y-m-d). Defaults to today.}
-                            {--usd-rate= : Override the USD/UZS rate (skips API fetch for USD).}
+                            {--date= : Target start date (Y-m-d). Defaults to today.}
+                            {--days=7 : Number of days ahead to cover (default: 7).}
+                            {--usd-rate= : Override the USD/UZS rate (skips API fetch).}
                             {--eur-margin= : Override EUR safety margin (default: 200).}
                             {--rub-margin= : Override RUB safety margin (default: 20).}
                             {--dry-run : Calculate and log without writing to Beds24.}';
 
-    protected $description = 'Fetch exchange rates, calculate UZS/EUR/RUB amounts, push to Beds24 infoItems';
+    protected $description = 'Fetch exchange rates, calculate UZS/EUR/RUB amounts, push to Beds24 infoItems (covers next 7 days)';
+
+    // Beds24 property IDs to query when syncing from API
+    private const PROPERTY_IDS = ['41097', '172793'];
 
     public function __construct(
         private readonly ExchangeRateService          $fxService,
@@ -46,13 +53,20 @@ class CalculateAndPushDailyPaymentOptions extends Command
 
     public function handle(): int
     {
-        $targetDate = $this->option('date')
+        $startDate = $this->option('date')
             ? Carbon::parse($this->option('date'))->toDateString()
             : today()->toDateString();
 
+        $days     = max(1, (int) $this->option('days'));
         $isDryRun = (bool) $this->option('dry-run');
 
-        $this->info("fx:push-payment-options — target date: {$targetDate}" . ($isDryRun ? ' [DRY RUN]' : ''));
+        // Build date window
+        $dates = [];
+        for ($i = 0; $i < $days; $i++) {
+            $dates[] = Carbon::parse($startDate)->addDays($i)->toDateString();
+        }
+
+        $this->info("fx:push-payment-options — {$startDate} + {$days} days" . ($isDryRun ? ' [DRY RUN]' : ''));
 
         // ------------------------------------------------------------------
         // Step 1: Fetch rates
@@ -60,162 +74,152 @@ class CalculateAndPushDailyPaymentOptions extends Command
 
         $this->info('Fetching exchange rates...');
 
-        // USD: may be overridden by --usd-rate flag
         if ($this->option('usd-rate')) {
             $usdRate      = (float) $this->option('usd-rate');
             $usdSource    = 'manual';
             $usdFetchedAt = now();
-            $effectiveDate = $targetDate;
-            $this->line("  USD/UZS (manual override): {$usdRate}");
         } else {
             $usdData = $this->fxService->getUsdToUzs();
             if (!$usdData) {
                 $this->error('Failed to fetch USD/UZS rate from all sources. Aborting.');
-                Log::error('fx:push-payment-options — USD rate fetch failed, aborting');
                 return Command::FAILURE;
             }
-            $usdRate       = $usdData['rate'];
-            $usdSource     = $usdData['source'];
-            $usdFetchedAt  = Carbon::parse($usdData['fetched_at']);
-            $effectiveDate = $usdData['effective_date'];
+            $usdRate      = $usdData['rate'];
+            $usdSource    = $usdData['source'];
+            $usdFetchedAt = Carbon::parse($usdData['fetched_at']);
             $this->line("  USD/UZS: {$usdRate} (source: {$usdSource})");
         }
 
-        // EUR
         $eurData = $this->fxService->getEurToUzs();
         if (!$eurData) {
             $this->error('Failed to fetch EUR/UZS rate. Aborting.');
-            Log::error('fx:push-payment-options — EUR rate fetch failed, aborting');
             return Command::FAILURE;
         }
-        $eurCbu = $eurData['rate'];
-        $this->line("  EUR/UZS (CBU): {$eurCbu}");
+        $this->line("  EUR/UZS (CBU): {$eurData['rate']}");
 
-        // RUB
         $rubData = $this->fxService->getRubToUzs();
         if (!$rubData) {
             $this->error('Failed to fetch RUB/UZS rate. Aborting.');
-            Log::error('fx:push-payment-options — RUB rate fetch failed, aborting');
             return Command::FAILURE;
         }
-        $rubCbu = $rubData['rate'];
-        $this->line("  RUB/UZS (CBU): {$rubCbu}");
+        $this->line("  RUB/UZS (CBU): {$rubData['rate']}");
 
         // ------------------------------------------------------------------
-        // Step 2: Apply margins, upsert DailyExchangeRate row
+        // Step 2: Apply margins, upsert DailyExchangeRate row for start date
         // ------------------------------------------------------------------
 
-        // Existing row may have custom margins set by admin — preserve them
-        // unless explicitly overridden via CLI flag.
-        $existingRow = DailyExchangeRate::where('rate_date', $targetDate)->first();
-
-        $eurMargin = $this->option('eur-margin') !== null
-            ? (int) $this->option('eur-margin')
-            : ($existingRow?->eur_margin ?? 200);
-
-        $rubMargin = $this->option('rub-margin') !== null
-            ? (int) $this->option('rub-margin')
-            : ($existingRow?->rub_margin ?? 20);
-
-        $eurEffective = $eurCbu - $eurMargin;
-        $rubEffective = $rubCbu - $rubMargin;
+        $existingRow  = DailyExchangeRate::where('rate_date', $startDate)->first();
+        $eurMargin    = $this->option('eur-margin') !== null ? (int) $this->option('eur-margin') : ($existingRow?->eur_margin ?? 200);
+        $rubMargin    = $this->option('rub-margin') !== null ? (int) $this->option('rub-margin') : ($existingRow?->rub_margin ?? 20);
+        $eurEffective = $eurData['rate'] - $eurMargin;
+        $rubEffective = $rubData['rate'] - $rubMargin;
 
         if ($eurEffective <= 0 || $rubEffective <= 0) {
-            $this->error("Effective rate would be <= 0 (EUR: {$eurEffective}, RUB: {$rubEffective}). Check margins.");
+            $this->error("Effective rate would be <= 0. Check margins.");
             return Command::FAILURE;
         }
 
         $rateRow = DailyExchangeRate::updateOrCreate(
-            ['rate_date' => $targetDate],
+            ['rate_date' => $startDate],
             [
-                'usd_uzs_rate'          => round($usdRate, 4),
-                'eur_uzs_cbu_rate'      => round($eurCbu, 4),
-                'eur_margin'            => $eurMargin,
-                'eur_effective_rate'    => round($eurEffective, 4),
-                'rub_uzs_cbu_rate'      => round($rubCbu, 4),
-                'rub_margin'            => $rubMargin,
-                'rub_effective_rate'    => round($rubEffective, 4),
-                'uzs_rounding_increment'=> $existingRow?->uzs_rounding_increment ?? 10000,
-                'eur_rounding_increment'=> $existingRow?->eur_rounding_increment ?? 1,
-                'rub_rounding_increment'=> $existingRow?->rub_rounding_increment ?? 100,
-                'source'                => $usdSource,
-                'fetched_at'            => $usdFetchedAt,
-                'set_by_user_id'        => null, // scheduled run
+                'usd_uzs_rate'           => round($usdRate, 4),
+                'eur_uzs_cbu_rate'       => round($eurData['rate'], 4),
+                'eur_margin'             => $eurMargin,
+                'eur_effective_rate'     => round($eurEffective, 4),
+                'rub_uzs_cbu_rate'       => round($rubData['rate'], 4),
+                'rub_margin'             => $rubMargin,
+                'rub_effective_rate'     => round($rubEffective, 4),
+                'uzs_rounding_increment' => $existingRow?->uzs_rounding_increment ?? 10000,
+                'eur_rounding_increment' => $existingRow?->eur_rounding_increment ?? 1,
+                'rub_rounding_increment' => $existingRow?->rub_rounding_increment ?? 100,
+                'source'                 => $usdSource,
+                'fetched_at'             => $usdFetchedAt,
+                'set_by_user_id'         => null,
             ]
         );
 
-        $this->info("Rate row upserted for {$targetDate}:");
-        $this->line("  USD/UZS: {$rateRow->usd_uzs_rate}");
-        $this->line("  EUR effective: {$rateRow->eur_effective_rate} (CBU {$rateRow->eur_uzs_cbu_rate} - {$rateRow->eur_margin})");
-        $this->line("  RUB effective: {$rateRow->rub_effective_rate} (CBU {$rateRow->rub_uzs_cbu_rate} - {$rateRow->rub_margin})");
+        $this->info("Rate row saved: USD {$rateRow->usd_uzs_rate} | EUR eff {$rateRow->eur_effective_rate} | RUB eff {$rateRow->rub_effective_rate}");
 
         // ------------------------------------------------------------------
-        // Step 3: Load relevant bookings (today + tomorrow)
+        // Step 3: Collect bookings — local DB + Beds24 API (Fix 1 + Fix 2)
         // ------------------------------------------------------------------
 
-        $bookingDates = [
-            $targetDate,
-            Carbon::parse($targetDate)->addDay()->toDateString(),
-        ];
+        $this->info("Collecting bookings for {$days} days from {$startDate}...");
 
-        $bookings = Beds24Booking::whereIn('arrival_date', $bookingDates)
+        // Local DB — fast, covers synced bookings
+        $localBookings = Beds24Booking::whereIn('arrival_date', $dates)
             ->whereIn('booking_status', ['confirmed', 'new'])
-            ->get();
+            ->get()
+            ->keyBy('beds24_booking_id');
 
-        $this->info("Found {$bookings->count()} bookings for " . implode(' & ', $bookingDates));
+        $this->line("  Local DB: {$localBookings->count()} bookings");
 
-        if ($bookings->isEmpty()) {
-            $this->info('No bookings to update. Done.');
-            return Command::SUCCESS;
+        // Beds24 API — authoritative, catches bookings not yet synced (Fix 2)
+        $apiBookings = $this->fetchFromBeds24Api($startDate, Carbon::parse($startDate)->addDays($days - 1)->toDateString());
+        $this->line("  Beds24 API: " . count($apiBookings) . " bookings");
+
+        // Merge — API wins for missing ones, local DB used for already-known
+        $merged = $localBookings->toArray();
+        foreach ($apiBookings as $apiBooking) {
+            $id = (string) ($apiBooking['id'] ?? '');
+            if ($id && !isset($merged[$id])) {
+                $merged[$id] = $apiBooking; // raw API shape
+                $this->line("  + From API only: #{$id} ({$apiBooking['firstName']} {$apiBooking['lastName']})");
+            }
         }
 
+        $this->info("Total unique bookings to process: " . count($merged));
+
         // ------------------------------------------------------------------
-        // Step 4 & 5: Calculate options and push to Beds24
+        // Step 4: Calculate and push
         // ------------------------------------------------------------------
 
         $successCount = 0;
         $skipCount    = 0;
         $errorCount   = 0;
 
-        foreach ($bookings as $booking) {
-            // Use invoice_balance if outstanding, otherwise total_amount
-            $usdAmount = (float) ($booking->invoice_balance > 0
-                ? $booking->invoice_balance
-                : $booking->total_amount);
+        foreach ($merged as $bookingId => $booking) {
+            // Normalise — handle both Eloquent model and raw API array
+            if ($booking instanceof Beds24Booking) {
+                $usdAmount  = (float) ($booking->invoice_balance > 0 ? $booking->invoice_balance : $booking->total_amount);
+                $guestName  = $booking->guest_name ?? 'Guest';
+                $arrivalStr = $booking->arrival_date?->toDateString() ?? $startDate;
+            } else {
+                // Raw Beds24 API shape
+                $usdAmount  = $this->resolveAmountFromApi($booking);
+                $guestName  = trim(($booking['firstName'] ?? '') . ' ' . ($booking['lastName'] ?? '')) ?: 'Guest';
+                $arrivalStr = $booking['arrival'] ?? $startDate;
+            }
 
             if ($usdAmount <= 0) {
-                $this->line("  Skip #{$booking->beds24_booking_id} — no USD amount");
+                $this->line("  Skip #{$bookingId} ({$guestName}) — no USD amount");
                 $skipCount++;
                 continue;
             }
 
+            // Use the rate row for the arrival date if available, else fall back to startDate row
+            $rateForBooking = DailyExchangeRate::where('rate_date', $arrivalStr)->first() ?? $rateRow;
+
             try {
-                $options   = $this->calcService->calculate($usdAmount, $rateRow);
-                $infoItems = $this->calcService->formatForBeds24($options, $targetDate);
+                $options   = $this->calcService->calculate($usdAmount, $rateForBooking);
+                $infoItems = $this->calcService->formatForBeds24($options, $arrivalStr);
 
                 $this->line(sprintf(
                     '  #%s (%s) $%.2f → UZS %s | EUR %s | RUB %s',
-                    $booking->beds24_booking_id,
-                    $booking->guest_name ?? 'Guest',
-                    $usdAmount,
-                    $infoItems['UZS_AMOUNT'],
-                    $infoItems['EUR_AMOUNT'],
-                    $infoItems['RUB_AMOUNT'],
+                    $bookingId, $guestName, $usdAmount,
+                    $infoItems['UZS_AMOUNT'], $infoItems['EUR_AMOUNT'], $infoItems['RUB_AMOUNT'],
                 ));
 
                 if (!$isDryRun) {
-                    $this->beds24Service->writePaymentOptionsToInfoItems(
-                        (int) $booking->beds24_booking_id,
-                        $infoItems
-                    );
+                    $this->beds24Service->writePaymentOptionsToInfoItems((int) $bookingId, $infoItems);
                 }
 
                 $successCount++;
 
             } catch (\Throwable $e) {
-                $this->error("  ERROR #{$booking->beds24_booking_id}: {$e->getMessage()}");
+                $this->error("  ERROR #{$bookingId}: {$e->getMessage()}");
                 Log::error('fx:push-payment-options — booking write failed', [
-                    'booking_id' => $booking->beds24_booking_id,
+                    'booking_id' => $bookingId,
                     'error'      => $e->getMessage(),
                 ]);
                 $errorCount++;
@@ -223,17 +227,61 @@ class CalculateAndPushDailyPaymentOptions extends Command
         }
 
         $action = $isDryRun ? 'would push' : 'pushed';
-        $this->info("Done. {$action} {$successCount} bookings | skipped {$skipCount} | errors {$errorCount}");
+        $this->info("Done. {$action} {$successCount} | skipped {$skipCount} | errors {$errorCount}");
 
-        Log::info('fx:push-payment-options completed', [
-            'date'          => $targetDate,
-            'success'       => $successCount,
-            'skipped'       => $skipCount,
-            'errors'        => $errorCount,
-            'dry_run'       => $isDryRun,
-            'usd_uzs_rate'  => $rateRow->usd_uzs_rate,
-        ]);
+        Log::info('fx:push-payment-options completed', compact('startDate', 'days', 'successCount', 'skipCount', 'errorCount', 'isDryRun'));
 
         return $errorCount > 0 ? Command::FAILURE : Command::SUCCESS;
+    }
+
+    // -------------------------------------------------------------------------
+    // Beds24 API fetch (Fix 2)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Fetch confirmed bookings arriving between $from and $to directly from
+     * the Beds24 API — catches bookings not yet in the local DB.
+     */
+    private function fetchFromBeds24Api(string $from, string $to): array
+    {
+        $all = [];
+
+        foreach (self::PROPERTY_IDS as $propertyId) {
+            try {
+                $response = $this->beds24Service->apiCall('GET', '/bookings', [
+                    'propertyId'   => (int) $propertyId,
+                    'arrivalFrom'  => $from,
+                    'arrivalTo'    => $to,
+                    'status'       => 'confirmed,new',
+                    'includeInvoice' => 'true',
+                ]);
+
+                $data = $response->json();
+                if (isset($data['data']) && is_array($data['data'])) {
+                    $all = array_merge($all, $data['data']);
+                }
+            } catch (\Throwable $e) {
+                Log::warning("fx:push-payment-options — Beds24 API fetch failed for property {$propertyId}", [
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        return $all;
+    }
+
+    /**
+     * Resolve the USD amount from a raw Beds24 API booking array.
+     * Prefer invoice balance (outstanding) over total if available.
+     */
+    private function resolveAmountFromApi(array $booking): float
+    {
+        // invoiceItems balance (sum of outstanding charges)
+        if (!empty($booking['invoice'])) {
+            $balance = collect($booking['invoice'])->sum('lineTotal');
+            if ($balance > 0) return (float) $balance;
+        }
+
+        return (float) ($booking['price'] ?? $booking['totalAmount'] ?? 0);
     }
 }
