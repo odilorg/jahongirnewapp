@@ -66,8 +66,8 @@ class Kernel extends ConsoleKernel
             ->withoutOverlapping();
 
         // Daily payment options: fetch CBU rates, calculate UZS/EUR/RUB, push to Beds24 infoItems
-        // Runs at 07:00 so admin can print registration forms with today's exact amounts
-        $schedule->command('fx:push-payment-options')
+        // --days=365 covers all future bookings so admin can print any arrival date with correct amounts
+        $schedule->command('fx:push-payment-options --days=365')
             ->dailyAt('07:00')
             ->timezone('Asia/Tashkent')
             ->withoutOverlapping()
