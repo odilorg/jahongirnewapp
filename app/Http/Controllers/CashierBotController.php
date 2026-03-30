@@ -151,6 +151,7 @@ class CashierBotController extends Controller
         if (!$user) { $this->send($chatId, "Номер не найден. Обратитесь к руководству."); return response('OK'); }
         $timeoutMinutes = config('services.telegram_pos_bot.session_timeout', 15);
         TelegramPosSession::updateOrCreate(['chat_id' => $chatId], [
+            'telegram_user_id' => $contact['user_id'] ?? $chatId,
             'user_id'          => $user->id,
             'state'            => 'main_menu',
             'data'             => null,
