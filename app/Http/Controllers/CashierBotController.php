@@ -515,18 +515,26 @@ class CashierBotController extends Controller
             // Outstanding = total price minus deposit already paid; fall back to price if zero
             $liveAmount = (float)($liveGuest['price'] ?? 0) - (float)($liveGuest['deposit'] ?? 0);
             if ($liveAmount <= 0) $liveAmount = (float)($liveGuest['price'] ?? 0);
+            // Currency is embedded in rateDescription e.g. "2026-06-07 (ID Rate) USD 43.20"
+            // No dedicated currency field in the Beds24 REST GET /bookings response
+            $liveCurrency = null;
+            if (!empty($liveGuest['rateDescription']) &&
+                preg_match('/\b(USD|EUR|GBP|RUB|UZS|JPY|CNY|AUD|CAD|CHF)\b/', $liveGuest['rateDescription'], $m)) {
+                $liveCurrency = $m[1];
+            }
         } else {
-            $guestName  = null;
-            $liveAmount = null;
+            $guestName    = null;
+            $liveAmount   = null;
+            $liveCurrency = null;
         }
 
-        // 2. Local DB — defensive fallback only; used for currency (not in standard API response)
+        // 2. Local DB — defensive fallback; still needed for FX presentation path
         $b = Beds24Booking::where('beds24_booking_id', $bid)->first();
 
-        $d['guest_name']       = $guestName ?? ($b?->guest_name ?? '?');
+        $d['guest_name']       = $guestName    ?? ($b?->guest_name ?? '?');
         $d['booking_id']       = $bid;
-        $d['booking_currency'] = $b ? strtoupper($b->currency ?? 'USD') : 'USD';
-        $d['booking_amount']   = $liveAmount ?? ($b ? (float)($b->invoice_balance > 0 ? $b->invoice_balance : $b->total_amount) : null);
+        $d['booking_currency'] = $liveCurrency ?? ($b ? strtoupper($b->currency ?? 'USD') : 'USD');
+        $d['booking_amount']   = $liveAmount   ?? ($b ? (float)($b->invoice_balance > 0 ? $b->invoice_balance : $b->total_amount) : null);
 
         // Try to get a frozen FX presentation from the sync system (requires local booking record)
         if ($b && $d['booking_amount'] > 0) {
