@@ -149,7 +149,14 @@ class CashierBotController extends Controller
         $phone = preg_replace('/[^0-9]/', '', $contact['phone_number'] ?? '');
         $user = User::where('phone_number', 'LIKE', '%' . substr($phone, -9))->first();
         if (!$user) { $this->send($chatId, "Номер не найден. Обратитесь к руководству."); return response('OK'); }
-        TelegramPosSession::updateOrCreate(['chat_id' => $chatId], ['user_id' => $user->id, 'state' => 'main_menu', 'data' => null]);
+        $timeoutMinutes = config('services.telegram_pos_bot.session_timeout', 15);
+        TelegramPosSession::updateOrCreate(['chat_id' => $chatId], [
+            'user_id'          => $user->id,
+            'state'            => 'main_menu',
+            'data'             => null,
+            'last_activity_at' => now(),
+            'expires_at'       => now()->addMinutes($timeoutMinutes),
+        ]);
         // Don't overwrite user telegram_user_id (shared with POS bot)
         $this->send($chatId, "Добро пожаловать, {$user->name}!");
         return $this->showMainMenu($chatId, TelegramPosSession::where('chat_id', $chatId)->first());
