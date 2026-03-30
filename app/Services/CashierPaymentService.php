@@ -11,15 +11,32 @@ class CashierPaymentService
     /**
      * Record a guest payment against an open shift.
      *
-     * Runs inside DB::transaction with lockForUpdate + revalidation.
-     * Marks the callback as succeeded inside the transaction so both
-     * commit or roll back together.
+     * Always records in the payment currency (UZS for cash). The UZS amount
+     * is the authoritative figure for the physical vault balance.
      *
-     * @param  int    $shiftId      Shift to record payment against
-     * @param  array  $paymentData  Keys: amount, currency, method, guest_name, room, booking_id
+     * When the Beds24 booking is in a different currency (e.g. USD) and the
+     * guest pays in UZS, the FX columns are populated so we can compute:
+     *
+     *   collection_variance = amount_uzs - (booking_usd × applied_rate)   [≈ 0]
+     *   fx_variance         = amount_uzs - (booking_usd × reference_rate)  [management KPI]
+     *
+     * @param  int    $shiftId      Shift to record against
+     * @param  array  $paymentData  Keys:
+     *                                amount            – UZS received (float)
+     *                                currency          – payment currency ('UZS')
+     *                                method            – cash | card | transfer
+     *                                guest_name        – string
+     *                                room              – room number string
+     *                                booking_id        – Beds24 booking id (nullable)
+     *                                booking_currency  – Beds24 invoice currency, e.g. 'USD' (nullable)
+     *                                booking_amount    – Beds24 invoice amount (nullable float)
+     *                                applied_rate      – rate cashier used (nullable float)
+     *                                reference_rate    – auto-fetched CBU/fallback rate (nullable float)
+     *                                reference_source  – 'cbu' | 'er_api' | 'floatrates' | 'manual_only'
+     *                                reference_date    – effective date string 'Y-m-d' (nullable)
      * @param  int    $createdBy    User ID of the cashier
      * @param  string $callbackId   Telegram callback ID for idempotency (empty = skip)
-     * @return CashTransaction      The created transaction record
+     * @return CashTransaction      The created sale transaction
      *
      * @throws \RuntimeException If shift is closed or not found under lock
      * @throws \Exception        On any DB failure (transaction auto-rolls back)
@@ -35,22 +52,42 @@ class CashierPaymentService
                 throw new \RuntimeException('Shift closed during confirmation');
             }
 
+            $isCrossCurrency = !empty($paymentData['booking_currency'])
+                && $paymentData['booking_currency'] !== $paymentData['currency']
+                && !empty($paymentData['booking_amount'])
+                && !empty($paymentData['applied_rate']);
+
+            // Build notes — include FX line when cross-currency
+            $notes = "Оплата: {$paymentData['guest_name']}";
+            if ($isCrossCurrency) {
+                $notes .= "\nКурс: " . number_format((float)$paymentData['applied_rate'], 2)
+                    . " UZS/{$paymentData['booking_currency']}"
+                    . " (брон.: {$paymentData['booking_amount']} {$paymentData['booking_currency']})";
+            }
+
             $transaction = CashTransaction::create([
-                'cashier_shift_id' => $lockedShift->id,
-                'type'             => 'in',
-                'amount'           => $paymentData['amount'],
-                'currency'         => $paymentData['currency'],
-                'category'         => 'sale',
-                'beds24_booking_id' => $paymentData['booking_id'] ?? null,
-                'payment_method'   => $paymentData['method'],
-                'guest_name'       => $paymentData['guest_name'],
-                'room_number'      => $paymentData['room'],
-                'reference'        => !empty($paymentData['booking_id'])
+                'cashier_shift_id'        => $lockedShift->id,
+                'type'                    => 'in',
+                'amount'                  => $paymentData['amount'],
+                'currency'                => $paymentData['currency'],
+                'category'                => 'sale',
+                'beds24_booking_id'       => $paymentData['booking_id'] ?? null,
+                'payment_method'          => $paymentData['method'],
+                'guest_name'              => $paymentData['guest_name'],
+                'room_number'             => $paymentData['room'],
+                'reference'               => !empty($paymentData['booking_id'])
                     ? "Beds24 #{$paymentData['booking_id']}"
                     : "Комната {$paymentData['room']}",
-                'notes'            => "Оплата: {$paymentData['guest_name']}",
-                'created_by'       => $createdBy,
-                'occurred_at'      => now(),
+                'notes'                   => $notes,
+                'created_by'              => $createdBy,
+                'occurred_at'             => now(),
+                // FX tracking (null for same-currency payments)
+                'booking_currency'        => $isCrossCurrency ? $paymentData['booking_currency'] : null,
+                'booking_amount'          => $isCrossCurrency ? $paymentData['booking_amount']   : null,
+                'applied_exchange_rate'   => $isCrossCurrency ? $paymentData['applied_rate']     : null,
+                'reference_exchange_rate' => $isCrossCurrency ? ($paymentData['reference_rate']   ?? null) : null,
+                'reference_rate_source'   => $isCrossCurrency ? ($paymentData['reference_source'] ?? null) : null,
+                'reference_rate_date'     => $isCrossCurrency ? ($paymentData['reference_date']   ?? null) : null,
             ]);
 
             // Inside transaction: if this rolls back, callback stays 'processing' (retryable)

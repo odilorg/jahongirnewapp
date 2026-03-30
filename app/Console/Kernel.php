@@ -65,6 +65,24 @@ class Kernel extends ConsoleKernel
             ->timezone('Asia/Tashkent')
             ->withoutOverlapping();
 
+        // FX rate push: fetch CBU rates, then repair any near-term bookings whose sync is missing/failed.
+        // Webhooks handle new/modified bookings in real-time; this catches any that slipped through.
+        $schedule->command('fx:push-payment-options')   // fetches today's CBU rate, no bulk push
+            ->dailyAt('07:00')
+            ->timezone('Asia/Tashkent')
+            ->withoutOverlapping()
+            ->onFailure(function () {
+                \Illuminate\Support\Facades\Log::error('fx:push-payment-options failed to run');
+            });
+
+        $schedule->command('fx:repair-missing --days=30')
+            ->dailyAt('07:15')
+            ->timezone('Asia/Tashkent')
+            ->withoutOverlapping()
+            ->onFailure(function () {
+                \Illuminate\Support\Facades\Log::error('fx:repair-missing failed to run');
+            });
+
         // Daily tour reminders at 20:00 Tashkent — staff Telegram + guest WhatsApp + driver/guide DM
         $schedule->command('tour:send-reminders')
             ->dailyAt('20:00')

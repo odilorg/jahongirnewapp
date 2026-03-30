@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Beds24Booking extends Model
 {
@@ -74,6 +75,15 @@ class Beds24Booking extends Model
         return $this->hasMany(Beds24BookingChange::class, 'beds24_booking_id', 'beds24_booking_id');
     }
 
+    /**
+     * The FX sync snapshot for this booking (one row, upserted).
+     * Used by both the print flow and the cashier bot.
+     */
+    public function fxSync(): HasOne
+    {
+        return $this->hasOne(BookingFxSync::class, 'beds24_booking_id', 'beds24_booking_id');
+    }
+
     // -------------------------------------------------------------------------
     // Scopes
     // -------------------------------------------------------------------------
@@ -129,6 +139,29 @@ class Beds24Booking extends Model
             '172793' => 'Jahongir Premium',
             default  => 'Property ' . $this->property_id,
         };
+    }
+
+    /**
+     * The USD amount this booking should be paid for.
+     *
+     * Uses invoice_balance (outstanding) when positive — this is what the guest
+     * still owes. Falls back to total_amount for fully-unpaid bookings.
+     * Matches the same logic used in CalculateAndPushDailyPaymentOptions.
+     */
+    public function effectiveUsdAmount(): float
+    {
+        $balance = (float) $this->invoice_balance;
+        $total   = (float) $this->total_amount;
+
+        return $balance > 0 ? $balance : $total;
+    }
+
+    /**
+     * Returns true if this booking can accept payments.
+     */
+    public function isPayable(): bool
+    {
+        return in_array($this->booking_status, ['confirmed', 'new']);
     }
 
     /**

@@ -242,7 +242,7 @@ class Beds24BookingService
     /**
      * Make an API call with automatic token retry on 401.
      */
-    protected function apiCall(string $method, string $endpoint, array $data = [], array $query = []): \Illuminate\Http\Client\Response
+    public function apiCall(string $method, string $endpoint, array $data = [], array $query = []): \Illuminate\Http\Client\Response
     {
         $request = Http::withHeaders([
             'token' => $this->getToken(),
@@ -384,6 +384,66 @@ class Beds24BookingService
         $response = $this->apiCall('POST', '/bookings', [$payload]);
 
         return $response->json();
+    }
+
+    /**
+     * Write payment option amounts to a booking's infoItems so they appear
+     * on the printed registration form via template variables like
+     * [BOOKINGINFOCODETEXT:UZS_AMOUNT].
+     *
+     * Beds24 API v2: POST /bookings with infoItems merges by code — existing
+     * values for the same code are overwritten.
+     *
+     * @param  int   $bookingId Beds24 booking ID
+     * @param  array $items     Associative array: code → value string
+     *                          e.g. ['UZS_AMOUNT' => '490 000', 'EUR_RATE' => '13 400 (CBU 13 600 - 200)']
+     * @throws \RuntimeException on API failure
+     */
+    public function writePaymentOptionsToInfoItems(int $bookingId, array $items): void
+    {
+        $infoItems = [];
+        foreach ($items as $code => $value) {
+            $infoItems[] = [
+                'code'  => $code,
+                'text'  => (string) $value,
+            ];
+        }
+
+        $payload = [[
+            'id'        => $bookingId,
+            'infoItems' => $infoItems,
+        ]];
+
+        Log::info("Beds24: writing {$bookingId} infoItems", [
+            'booking_id' => $bookingId,
+            'codes'      => array_keys($items),
+        ]);
+
+        $response = $this->apiCall('POST', '/bookings', $payload);
+
+        if ($response->status() === 429) {
+            throw new \App\Exceptions\Beds24RateLimitException(
+                "Beds24 rate limit (HTTP 429) for booking {$bookingId} — FxSyncJob will retry with backoff"
+            );
+        }
+
+        if (!$response->successful()) {
+            throw new \RuntimeException(
+                "Beds24 writePaymentOptionsToInfoItems failed for booking {$bookingId}: HTTP {$response->status()}"
+            );
+        }
+
+        $result = $response->json();
+
+        // Beds24 returns [{success: true|false, ...}] — surface any errors
+        $first = $result[0] ?? [];
+        if (isset($first['errors']) && count($first['errors']) > 0) {
+            throw new \RuntimeException(
+                "Beds24 infoItems write returned errors for booking {$bookingId}: " . json_encode($first['errors'])
+            );
+        }
+
+        Log::info("Beds24: infoItems written successfully for booking {$bookingId}");
     }
 
     /**

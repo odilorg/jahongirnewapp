@@ -15,10 +15,16 @@ use App\Models\TelegramPosSession;
 use App\Models\ExpenseCategory;
 use App\Contracts\Telegram\BotResolverInterface;
 use App\Contracts\Telegram\TelegramTransportInterface;
+use App\DTO\PaymentPresentation;
+use App\DTO\RecordPaymentData;
+use App\Enums\OverrideTier;
+use App\Services\BotPaymentService;
 use App\Services\CashierExchangeService;
 use App\Services\CashierExpenseService;
 use App\Services\CashierPaymentService;
 use App\Services\CashierShiftService;
+use App\Services\ExchangeRateService;
+use App\Services\OverridePolicyEvaluator;
 use App\Services\OwnerAlertService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -29,26 +35,35 @@ class CashierBotController extends Controller
 {
     protected OwnerAlertService $ownerAlert;
     protected CashierPaymentService $paymentService;
+    protected BotPaymentService $botPaymentService;
+    protected OverridePolicyEvaluator $overridePolicy;
     protected CashierShiftService $shiftService;
     protected CashierExpenseService $expenseService;
     protected CashierExchangeService $exchangeService;
+    protected ExchangeRateService $fxRateService;
     protected BotResolverInterface $botResolver;
     protected TelegramTransportInterface $transport;
 
     public function __construct(
         OwnerAlertService $ownerAlert,
         CashierPaymentService $paymentService,
+        BotPaymentService $botPaymentService,
+        OverridePolicyEvaluator $overridePolicy,
         CashierShiftService $shiftService,
         CashierExpenseService $expenseService,
         CashierExchangeService $exchangeService,
+        ExchangeRateService $fxRateService,
         BotResolverInterface $botResolver,
         TelegramTransportInterface $transport,
     ) {
         $this->ownerAlert = $ownerAlert;
         $this->paymentService = $paymentService;
+        $this->botPaymentService = $botPaymentService;
+        $this->overridePolicy = $overridePolicy;
         $this->shiftService = $shiftService;
         $this->expenseService = $expenseService;
         $this->exchangeService = $exchangeService;
+        $this->fxRateService = $fxRateService;
         $this->botResolver = $botResolver;
         $this->transport = $transport;
     }
@@ -203,6 +218,8 @@ class CashierBotController extends Controller
             $data === 'menu' => $this->showMainMenu($chatId, $s),
             str_starts_with($data, 'guest_') => $this->selectGuest($s, $chatId, $data),
             str_starts_with($data, 'cur_') => $this->selectCur($s, $chatId, $data),
+            $data === 'fx_confirm_amount' => $this->fxConfirmAmount($s, $chatId),
+            $data === 'rate_use_reference' => $this->acceptReferenceRate($s, $chatId),
             str_starts_with($data, 'excur_') => $this->selectExCur($s, $chatId, $data),
             str_starts_with($data, 'exout_') => $this->selectExOutCur($s, $chatId, $data),
             str_starts_with($data, 'method_') => $this->selectMethod($s, $chatId, $data),
@@ -294,6 +311,9 @@ class CashierBotController extends Controller
         return match($s->state) {
             'payment_room' => $this->hPayRoom($s, $chatId, $text),
             'payment_amount' => $this->hPayAmt($s, $chatId, $text),
+            'payment_exchange_rate' => $this->hPayRate($s, $chatId, $text),
+            'payment_fx_amount' => $this->hPayFxAmount($s, $chatId, $text),
+            'payment_fx_override_reason' => $this->hPayFxOverrideReason($s, $chatId, $text),
             'expense_amount' => $this->hExpAmt($s, $chatId, $text),
             'expense_desc' => $this->hExpDesc($s, $chatId, $text),
             'exchange_in_amount' => $this->hExInAmt($s, $chatId, $text),
@@ -384,14 +404,64 @@ class CashierBotController extends Controller
     {
         $d = $s->data ?? [];
         $bid = str_replace('guest_', '', $data);
-        if ($bid === 'manual') { $d['guest_name'] = 'Ручной ввод'; $d['booking_id'] = null; }
-        else {
-            $b = Beds24Booking::where('beds24_booking_id', $bid)->first();
-            $d['guest_name'] = $b ? $b->guest_name : '?';
-            $d['booking_id'] = $bid;
+
+        if ($bid === 'manual') {
+            $d['guest_name']       = 'Ручной ввод';
+            $d['booking_id']       = null;
+            $d['booking_currency'] = null;
+            $d['booking_amount']   = null;
+            $d['fx_presentation']  = null;
+            $s->update(['state' => 'payment_amount', 'data' => $d]);
+            $this->send($chatId, "Гость: Ручной ввод\nВведите сумму:");
+            return response('OK');
         }
+
+        $b = Beds24Booking::where('beds24_booking_id', $bid)->first();
+        $d['guest_name']       = $b ? $b->guest_name : '?';
+        $d['booking_id']       = $bid;
+        $d['booking_currency'] = $b ? strtoupper($b->currency ?? 'USD') : null;
+        $d['booking_amount']   = $b ? (float) ($b->invoice_balance > 0 ? $b->invoice_balance : $b->total_amount) : null;
+
+        // Try to get a frozen FX presentation from the sync system
+        if ($b && $d['booking_amount'] > 0) {
+            try {
+                $botSessionId = (string) $chatId . ':' . ($d['shift_id'] ?? '0');
+                $presentation = $this->botPaymentService->preparePayment($bid, $botSessionId);
+                $d['fx_presentation'] = $presentation->toArray();
+
+                $arrival = \Carbon\Carbon::parse($presentation->arrivalDate)->format('d.m');
+                $s->update(['state' => 'payment_fx_currency', 'data' => $d]);
+                $this->send($chatId,
+                    "💳 Бронь #{$bid} | {$presentation->guestName} | Заезд: {$arrival}\n"
+                    . "Курс на {$presentation->fxRateDate}\n\n"
+                    . "Выберите валюту оплаты:",
+                    ['inline_keyboard' => [[
+                        ['text' => '🇺🇿 UZS: ' . number_format($presentation->uzsPresented, 0, '.', ' '), 'callback_data' => 'cur_UZS'],
+                        ['text' => '🇪🇺 EUR: ' . number_format($presentation->eurPresented, 0), 'callback_data' => 'cur_EUR'],
+                        ['text' => '🇷🇺 RUB: ' . number_format($presentation->rubPresented, 0, '.', ' '), 'callback_data' => 'cur_RUB'],
+                    ]]],
+                    'inline'
+                );
+                return response('OK');
+
+            } catch (\Throwable $e) {
+                // FX sync not available — fall through to manual amount entry
+                Log::warning('CashierBot: FX presentation unavailable, falling back to manual', [
+                    'beds24_booking_id' => $bid,
+                    'error'             => $e->getMessage(),
+                ]);
+                $d['fx_presentation'] = null;
+            }
+        } else {
+            $d['fx_presentation'] = null;
+        }
+
+        // Fallback: manual amount entry (FX sync failed or amount is zero)
         $s->update(['state' => 'payment_amount', 'data' => $d]);
-        $this->send($chatId, "Гость: {$d['guest_name']}\nВведите сумму:");
+        $hint = ($d['booking_amount'] && $d['booking_currency'])
+            ? "\nБронь: {$d['booking_amount']} {$d['booking_currency']}"
+            : '';
+        $this->send($chatId, "Гость: {$d['guest_name']}{$hint}\nВведите сумму:");
         return response('OK');
     }
 
@@ -414,6 +484,43 @@ class CashierBotController extends Controller
     {
         $d = $s->data ?? [];
         $d['currency'] = str_replace('cur_', '', $data);
+
+        // FX presentation path: booking has a frozen sync — show pre-computed amount and ask for actual
+        if (! empty($d['fx_presentation'])) {
+            try {
+                $p = PaymentPresentation::fromArray($d['fx_presentation']);
+                $presented = $p->presentedAmountFor($d['currency']);
+                $d['fx_presented_amount'] = $presented;
+                $s->update(['state' => 'payment_fx_amount', 'data' => $d]);
+                $this->send($chatId,
+                    "💰 По форме: " . number_format((int) $presented, 0, '.', ' ') . " {$d['currency']}\n\n"
+                    . "Введите фактически полученную сумму или нажмите ✅:",
+                    ['inline_keyboard' => [[
+                        ['text' => '✅ Принять (' . number_format((int) $presented, 0, '.', ' ') . " {$d['currency']})", 'callback_data' => 'fx_confirm_amount'],
+                    ]]],
+                    'inline'
+                );
+                return response('OK');
+            } catch (\Throwable $e) {
+                // Invalid currency or bad session data — fall through to legacy path
+                Log::warning('CashierBot: failed to get presentedAmountFor, falling back', [
+                    'currency' => $d['currency'],
+                    'error'    => $e->getMessage(),
+                ]);
+                $d['fx_presentation'] = null;
+            }
+        }
+
+        // Legacy path: no FX presentation (manual entry or old-style booking)
+        $needsFxStep = !empty($d['booking_currency'])
+            && $d['booking_currency'] !== $d['currency']
+            && $d['currency'] === 'UZS'
+            && !empty($d['booking_amount']);
+
+        if ($needsFxStep) {
+            return $this->askExchangeRate($s, $chatId, $d);
+        }
+
         $s->update(['state' => 'payment_method', 'data' => $d]);
         $this->send($chatId, "Способ оплаты:", ['inline_keyboard' => [[
             ['text' => 'Наличные', 'callback_data' => 'method_cash'],
@@ -423,6 +530,193 @@ class CashierBotController extends Controller
         return response('OK');
     }
 
+    /**
+     * Fetch reference rate and ask cashier to confirm or enter their applied rate.
+     */
+    protected function askExchangeRate($s, int $chatId, array $d)
+    {
+        $refData = $this->fxRateService->getUsdToUzs();
+
+        if ($refData) {
+            $d['reference_rate']   = $refData['rate'];
+            $d['reference_source'] = $refData['source'];
+            $d['reference_date']   = $refData['effective_date'];
+            $sourceLabel           = $this->fxRateService->sourceLabel($refData['source']);
+            $suggested             = number_format($refData['rate'], 2);
+            $expectedUzs           = number_format($d['booking_amount'] * $refData['rate'], 0);
+
+            $msg = "💱 Курс обмена USD→UZS\n\n"
+                 . "Брон.: {$d['booking_amount']} {$d['booking_currency']}\n"
+                 . "Курс ЦБ ({$sourceLabel}, {$refData['effective_date']}): {$suggested}\n"
+                 . "Расч. сумма: ~{$expectedUzs} UZS\n\n"
+                 . "Введите курс обмена или нажмите ✅ чтобы принять курс ЦБ:";
+
+            $s->update(['state' => 'payment_exchange_rate', 'data' => $d]);
+            $this->send($chatId, $msg, ['inline_keyboard' => [[
+                ['text' => "✅ Принять курс ЦБ ({$suggested})", 'callback_data' => 'rate_use_reference'],
+            ]]], 'inline');
+        } else {
+            // All sources failed — manual entry only
+            $d['reference_rate']   = null;
+            $d['reference_source'] = 'manual_only';
+            $d['reference_date']   = null;
+
+            $s->update(['state' => 'payment_exchange_rate', 'data' => $d]);
+            $this->send($chatId, "⚠️ Не удалось получить курс ЦБ автоматически.\n\nВведите курс обмена USD→UZS вручную:");
+        }
+        return response('OK');
+    }
+
+    /**
+     * Cashier typed a custom exchange rate.
+     */
+    protected function hPayRate($s, int $chatId, string $text)
+    {
+        $rate = (float) str_replace([' ', ','], ['', '.'], $text);
+        if ($rate <= 0) {
+            $this->send($chatId, "Неверный курс. Введите число, например: 12800");
+            return response('OK');
+        }
+        $d = $s->data ?? [];
+        $d['applied_rate'] = $rate;
+        return $this->proceedToPaymentMethod($s, $chatId, $d);
+    }
+
+    /**
+     * Cashier accepted the reference (CBU) rate as their applied rate.
+     */
+    protected function acceptReferenceRate($s, int $chatId)
+    {
+        $d = $s->data ?? [];
+        $d['applied_rate'] = $d['reference_rate'] ?? null;
+        if (!$d['applied_rate']) {
+            $this->send($chatId, "Курс недоступен. Введите вручную:");
+            return response('OK');
+        }
+        return $this->proceedToPaymentMethod($s, $chatId, $d);
+    }
+
+    protected function proceedToPaymentMethod($s, int $chatId, array $d)
+    {
+        $s->update(['state' => 'payment_method', 'data' => $d]);
+        $this->send($chatId, "Способ оплаты:", ['inline_keyboard' => [[
+            ['text' => 'Наличные', 'callback_data' => 'method_cash'],
+            ['text' => 'Карта', 'callback_data' => 'method_card'],
+            ['text' => 'Перевод', 'callback_data' => 'method_transfer'],
+        ]]], 'inline');
+        return response('OK');
+    }
+
+    // ── FX PRESENTATION PAYMENT PATH ────────────────────────────
+
+    /**
+     * Cashier clicked "✅ Принять" — accept the pre-computed presented amount as paid.
+     */
+    protected function fxConfirmAmount($s, int $chatId)
+    {
+        $d = $s->data ?? [];
+        $presented = (float) ($d['fx_presented_amount'] ?? 0);
+        if ($presented <= 0) {
+            $this->send($chatId, "Ошибка сессии. Начните заново.");
+            return $this->showMainMenu($chatId, $s);
+        }
+        $d['amount'] = $presented;
+        $d['override_tier'] = OverrideTier::None->value;
+        $d['override_reason'] = null;
+        return $this->proceedToPaymentMethod($s, $chatId, $d);
+    }
+
+    /**
+     * Cashier typed an actual amount (may differ from presented).
+     * Evaluates override tier and routes accordingly.
+     */
+    protected function hPayFxAmount($s, int $chatId, string $text)
+    {
+        $amount = (float) str_replace([' ', ','], ['', '.'], $text);
+        if ($amount <= 0) {
+            $this->send($chatId, "Неверная сумма. Введите число, например: 850000");
+            return response('OK');
+        }
+
+        $d = $s->data ?? [];
+        $presented = (float) ($d['fx_presented_amount'] ?? 0);
+        $d['amount'] = $amount;
+
+        if ($presented <= 0) {
+            // No presented amount to compare — treat as no-override
+            $d['override_tier'] = OverrideTier::None->value;
+            $d['override_reason'] = null;
+            return $this->proceedToPaymentMethod($s, $chatId, $d);
+        }
+
+        $tier = $this->overridePolicy->evaluate($presented, $amount);
+        $d['override_tier'] = $tier->value;
+
+        return match ($tier) {
+            OverrideTier::None => $this->proceedToPaymentMethod($s, $chatId, $d),
+
+            OverrideTier::Cashier => $this->askFxOverrideReason($s, $chatId, $d, $presented),
+
+            OverrideTier::Manager, OverrideTier::Blocked => $this->blockFxOverride($s, $chatId, $d, $tier, $presented),
+        };
+    }
+
+    /**
+     * Cashier tier override: ask for a reason before proceeding.
+     */
+    private function askFxOverrideReason($s, int $chatId, array $d, float $presented): mixed
+    {
+        $variance = round(abs($d['amount'] - $presented));
+        $pct = $presented > 0 ? round(abs($d['amount'] - $presented) / $presented * 100, 1) : 0;
+
+        $s->update(['state' => 'payment_fx_override_reason', 'data' => $d]);
+        $this->send($chatId,
+            "⚠️ Сумма отличается от формы на " . number_format($variance, 0, '.', ' ')
+            . " {$d['currency']} ({$pct}%)\n\n"
+            . "По форме: " . number_format((int) $presented, 0, '.', ' ') . " {$d['currency']}\n"
+            . "Фактически: " . number_format((int) $d['amount'], 0, '.', ' ') . " {$d['currency']}\n\n"
+            . "Укажите причину расхождения:"
+        );
+        return response('OK');
+    }
+
+    /**
+     * Manager/Blocked tier: tell cashier to escalate offline.
+     */
+    private function blockFxOverride($s, int $chatId, array $d, OverrideTier $tier, float $presented): mixed
+    {
+        $variance = round(abs($d['amount'] - $presented));
+        $pct = $presented > 0 ? round(abs($d['amount'] - $presented) / $presented * 100, 1) : 0;
+
+        $label = $tier === OverrideTier::Manager
+            ? "⛔ Расхождение ({$pct}%) требует одобрения менеджера."
+            : "🚫 Расхождение ({$pct}%) превышает максимально допустимое.";
+
+        $this->send($chatId,
+            "{$label}\n\n"
+            . "По форме: " . number_format((int) $presented, 0, '.', ' ') . " {$d['currency']}\n"
+            . "Фактически: " . number_format((int) $d['amount'], 0, '.', ' ') . " {$d['currency']}\n\n"
+            . "Эскалируйте вопрос руководству офлайн. Начните ввод заново с правильной суммой."
+        );
+        return $this->showMainMenu($chatId, $s);
+    }
+
+    /**
+     * Cashier entered the override reason — proceed to payment method.
+     */
+    protected function hPayFxOverrideReason($s, int $chatId, string $text)
+    {
+        if (strlen(trim($text)) < 3) {
+            $this->send($chatId, "Причина слишком короткая. Опишите подробнее:");
+            return response('OK');
+        }
+        $d = $s->data ?? [];
+        $d['override_reason'] = trim($text);
+        return $this->proceedToPaymentMethod($s, $chatId, $d);
+    }
+
+    // ────────────────────────────────────────────────────────────
+
     protected function selectMethod($s, int $chatId, string $data)
     {
         $d = $s->data ?? [];
@@ -431,6 +725,35 @@ class CashierBotController extends Controller
         $ml = match($d['method']) { 'cash' => 'Наличные', 'card' => 'Карта', 'transfer' => 'Перевод', default => $d['method'] };
         $t = "Подтвердите:\n\nКомната: {$d['room']}\nГость: {$d['guest_name']}\nСумма: " . number_format($d['amount'], 0) . " {$d['currency']}\nСпособ: {$ml}";
         if (!empty($d['booking_id'])) $t .= "\nBeds24: #{$d['booking_id']}";
+
+        // FX presentation path: show comparison against the printed form
+        if (! empty($d['fx_presentation']) && ! empty($d['fx_presented_amount'])) {
+            $presented = (float) $d['fx_presented_amount'];
+            $diff = round((float) $d['amount'] - $presented);
+            $t .= "\n\n📋 По форме: " . number_format((int) $presented, 0, '.', ' ') . " {$d['currency']}";
+            if ($diff !== 0.0) {
+                $t .= "\nРасхождение: " . ($diff >= 0 ? '+' : '') . number_format((int) $diff, 0, '.', ' ') . " {$d['currency']}";
+                if (! empty($d['override_reason'])) {
+                    $t .= "\nПричина: {$d['override_reason']}";
+                }
+            }
+
+        // Legacy path: show applied exchange rate comparison
+        } elseif (!empty($d['applied_rate']) && !empty($d['booking_amount']) && !empty($d['booking_currency'])) {
+            $expectedAtApplied  = $d['booking_amount'] * $d['applied_rate'];
+            $collectionVariance = round((float)$d['amount'] - $expectedAtApplied, 0);
+            $t .= "\n\n💱 Курс (применён): " . number_format($d['applied_rate'], 2);
+            if (!empty($d['reference_rate']) && $d['reference_source'] !== 'manual_only') {
+                $sourceLabel = $this->fxRateService->sourceLabel($d['reference_source']);
+                $fxVariance  = round((float)$d['amount'] - ($d['booking_amount'] * $d['reference_rate']), 0);
+                $t .= "\nКурс ЦБ ({$sourceLabel}): " . number_format($d['reference_rate'], 2);
+                $t .= "\nРазница vs ЦБ: " . ($fxVariance >= 0 ? '+' : '') . number_format($fxVariance, 0) . " UZS";
+            }
+            if ($collectionVariance != 0) {
+                $t .= "\nРасхождение: " . ($collectionVariance >= 0 ? '+' : '') . number_format($collectionVariance, 0) . " UZS";
+            }
+        }
+
         $this->send($chatId, $t, ['inline_keyboard' => [[
             ['text' => 'Подтвердить', 'callback_data' => 'confirm_payment'],
             ['text' => 'Отмена', 'callback_data' => 'cancel'],
@@ -449,16 +772,47 @@ class CashierBotController extends Controller
         }
 
         try {
-            $this->paymentService->recordPayment($shift->id, $d, $s->user_id, $callbackId);
+            // FX presentation path: use BotPaymentService which validates the frozen DTO
+            if (! empty($d['fx_presentation'])) {
+                $recordData = new RecordPaymentData(
+                    presentation:    PaymentPresentation::fromArray($d['fx_presentation']),
+                    shiftId:         $shift->id,
+                    cashierId:       $s->user_id,
+                    currencyPaid:    $d['currency'],
+                    amountPaid:      (float) $d['amount'],
+                    paymentMethod:   $d['method'],
+                    overrideReason:  $d['override_reason'] ?? null,
+                    managerApproval: null,
+                );
+                $this->botPaymentService->recordPayment($recordData);
+            } else {
+                // Legacy path: manual payments and bookings without FX sync
+                $this->paymentService->recordPayment($shift->id, array_merge($d, [
+                    'booking_currency' => $d['booking_currency'] ?? null,
+                    'booking_amount'   => $d['booking_amount']   ?? null,
+                    'applied_rate'     => $d['applied_rate']     ?? null,
+                    'reference_rate'   => $d['reference_rate']   ?? null,
+                    'reference_source' => $d['reference_source'] ?? null,
+                    'reference_date'   => $d['reference_date']   ?? null,
+                ]), $s->user_id, $callbackId);
+            }
 
-            // Outside transaction: non-critical messaging
-            $this->send($chatId, "Оплата записана!\nБаланс: " . $this->fmtBal($this->getBal($shift->fresh())));
+            if ($callbackId) $this->succeedCallback($callbackId);
+            $this->send($chatId, "✅ Оплата записана!\nБаланс: " . $this->fmtBal($this->getBal($shift->fresh())));
+        } catch (\App\Exceptions\StalePaymentSessionException $e) {
+            if ($callbackId) $this->failCallback($callbackId, $e->getMessage());
+            $this->send($chatId, "⏱ Сессия устарела (прошло > 20 мин). Начните заново.");
+        } catch (\App\Exceptions\BookingNotPayableException $e) {
+            if ($callbackId) $this->failCallback($callbackId, $e->getMessage());
+            $this->send($chatId, "⚠️ Бронирование недоступно для оплаты (отменено?). Начните заново.");
+        } catch (\App\Exceptions\PaymentBlockedException $e) {
+            if ($callbackId) $this->failCallback($callbackId, $e->getMessage());
+            $this->send($chatId, "🚫 Оплата заблокирована. Эскалируйте вопрос руководству.");
         } catch (\Exception $e) {
-            // Outside transaction: mark callback as failed (retryable)
             if ($callbackId) $this->failCallback($callbackId, $e->getMessage());
             Log::error('Payment failed', ['e' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
             $this->alertOwnerOnError('Payment', $e, $s->user_id);
-            $this->send($chatId, "Ошибка при записи оплаты. Попробуйте снова.");
+            $this->send($chatId, "❌ Ошибка при записи оплаты. Попробуйте снова.");
         }
 
         return $this->showMainMenu($chatId, $s);
