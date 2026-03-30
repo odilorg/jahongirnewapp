@@ -382,33 +382,58 @@ class CashierBotController extends Controller
     {
         $shift = $this->getShift($s->user_id);
         if (!$shift) { $this->send($chatId, "Сначала откройте смену."); return response('OK'); }
-        $s->update(['state' => 'payment_room', 'data' => ['shift_id' => $shift->id]]);
-        $this->send($chatId, "Введите номер комнаты:");
+
+        $d = ['shift_id' => $shift->id];
+
+        // Show today's in-house guests as inline buttons (room_name is NULL in sync,
+        // so we list by arrival/departure dates and let the cashier pick).
+        $today = Carbon::today()->format('Y-m-d');
+        $guests = Beds24Booking::where('arrival_date', '<=', $today)
+            ->where('departure_date', '>', $today)
+            ->where('booking_status', 'confirmed')
+            ->orderBy('arrival_date')
+            ->get();
+
+        if ($guests->isNotEmpty()) {
+            $s->update(['state' => 'payment_guest_select', 'data' => $d]);
+            $btns = $guests->map(fn($g) => [[
+                'text'          => "#{$g->beds24_booking_id} {$g->guest_name}",
+                'callback_data' => "guest_{$g->beds24_booking_id}",
+            ]])->toArray();
+            $btns[] = [['text' => '✏️ Ручной ввод', 'callback_data' => 'guest_manual']];
+            $this->send($chatId, "Выберите гостя из сегодняшних заездов:", ['inline_keyboard' => $btns], 'inline');
+            return response('OK');
+        }
+
+        // No in-house guests found — ask for booking ID manually
+        $s->update(['state' => 'payment_room', 'data' => $d]);
+        $this->send($chatId, "Гостей на сегодня не найдено.\nВведите номер брони Beds24:");
         return response('OK');
     }
 
+    /**
+     * Fallback: cashier typed a Beds24 booking ID manually.
+     * State 'payment_room' is kept for backward compatibility with handleState().
+     */
     protected function hPayRoom($s, int $chatId, string $text)
     {
         $d = $s->data ?? [];
-        $d['room'] = $text;
-        $today = Carbon::today()->format('Y-m-d');
-        $safeText = str_replace(['%', '_'], ['\%', '\_'], $text);
-        $guests = Beds24Booking::where('room_name', 'LIKE', "%{$safeText}%")
-            ->where('arrival_date', '<=', $today)->where('departure_date', '>=', $today)
-            ->where('booking_status', 'confirmed')->get();
+        $bid = trim($text);
 
-        if ($guests->isEmpty()) {
-            $d['guest_name'] = 'Ручной ввод';
-            $d['booking_id'] = null;
-            $s->update(['state' => 'payment_amount', 'data' => $d]);
-            $this->send($chatId, "Комната {$text} — гость не найден в Beds24.\nВведите сумму:");
+        // Accept only numeric booking IDs
+        if (! ctype_digit($bid)) {
+            $this->send($chatId, "Введите числовой номер брони Beds24 (например: 79454530):");
             return response('OK');
         }
-        $s->update(['state' => 'payment_guest_select', 'data' => $d]);
-        $btns = $guests->map(fn($g) => [['text' => "{$g->guest_name} ({$g->channel})", 'callback_data' => "guest_{$g->beds24_booking_id}"]])->toArray();
-        $btns[] = [['text' => 'Другой гость', 'callback_data' => 'guest_manual']];
-        $this->send($chatId, "Комната {$text}. Выберите гостя:", ['inline_keyboard' => $btns], 'inline');
-        return response('OK');
+
+        $b = Beds24Booking::where('beds24_booking_id', $bid)->first();
+        if (! $b) {
+            $this->send($chatId, "Бронь #{$bid} не найдена в Beds24.\nПроверьте номер и повторите:");
+            return response('OK');
+        }
+
+        // Booking found — hand off to selectGuest logic via a synthetic callback
+        return $this->selectGuest($s, $chatId, "guest_{$bid}");
     }
 
     protected function selectGuest($s, int $chatId, string $data)
