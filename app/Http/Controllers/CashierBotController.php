@@ -158,7 +158,8 @@ class CashierBotController extends Controller
             'expires_at'       => now()->addMinutes($timeoutMinutes),
         ]);
         // Don't overwrite user telegram_user_id (shared with POS bot)
-        $this->send($chatId, "Добро пожаловать, {$user->name}!");
+        // Remove the phone reply-keyboard so the user can't accidentally re-auth
+        $this->send($chatId, "Добро пожаловать, {$user->name}!", ['remove_keyboard' => true], 'reply');
         return $this->showMainMenu($chatId, TelegramPosSession::where('chat_id', $chatId)->first());
     }
 
@@ -928,7 +929,7 @@ class CashierBotController extends Controller
             $this->send($chatId, "⛔ Недостаточно прав."); return response('OK');
         }
         $s->update(['state' => 'cash_in_amount', 'data' => ['shift_id' => $shift->id]]);
-        $this->send($chatId, "Введите сумму и валюту для внесения:\n(напр: 500 USD, 200 EUR, 2000000 UZS)");
+        $this->send($chatId, "Введите сумму и валюту для внесения (одна за раз):\n\nПримеры:\n• 500 USD\n• 200 EUR\n• 2000000 UZS");
         return response('OK');
     }
 
