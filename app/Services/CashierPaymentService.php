@@ -2,10 +2,18 @@
 
 namespace App\Services;
 
+use App\Jobs\Beds24PaymentSyncJob;
 use App\Models\CashierShift;
 use App\Models\CashTransaction;
+use App\Services\Fx\Beds24PaymentSyncService;
 use Illuminate\Support\Facades\DB;
 
+/**
+ * @deprecated Active only for bot payments that have no FX presentation (manual path).
+ *             Superseded by App\Services\Fx\BotPaymentService for FX-path payments.
+ *             TODO(payment-orchestrator): eliminate by routing all payments through a single
+ *             canonical PaymentOrchestrator.
+ */
 class CashierPaymentService
 {
     /**
@@ -41,6 +49,10 @@ class CashierPaymentService
      * @throws \RuntimeException If shift is closed or not found under lock
      * @throws \Exception        On any DB failure (transaction auto-rolls back)
      */
+    public function __construct(
+        private readonly Beds24PaymentSyncService $syncService,
+    ) {}
+
     public function recordPayment(int $shiftId, array $paymentData, int $createdBy, string $callbackId = ''): CashTransaction
     {
         $transaction = null;
@@ -91,11 +103,36 @@ class CashierPaymentService
                 'reference_rate_date'     => $isCrossCurrency ? ($paymentData['reference_date']   ?? null) : null,
             ]);
 
+            // Create Beds24PaymentSync when a Beds24 booking is involved.
+            // BUG-05 fix: legacy path never created sync rows, so payments never pushed to Beds24.
+            // USD equivalent: use the booking's USD amount if it was a USD booking, else 0.
+            // TODO(payment-orchestrator): compute proper USD equivalent via applied_rate when available.
+            if (! empty($paymentData['booking_id'])) {
+                $usdEquivalent = (strtoupper($paymentData['booking_currency'] ?? '') === 'USD')
+                    ? (float) ($paymentData['booking_amount'] ?? 0)
+                    : 0.0;
+
+                $syncRow = $this->syncService->createPending($transaction, $usdEquivalent);
+
+                $transaction->update([
+                    'beds24_payment_sync_id' => $syncRow->id,
+                    'beds24_payment_ref'     => $syncRow->local_reference,
+                ]);
+            }
+
             // Inside transaction: if this rolls back, callback stays 'processing' (retryable)
             if ($callbackId) {
                 $this->succeedCallback($callbackId);
             }
         });
+
+        // Dispatch push job only after the DB transaction commits (row visible to worker).
+        if (! empty($paymentData['booking_id']) && config('features.beds24_auto_push_payment', false)) {
+            $syncRow = $transaction->fresh()?->paymentSync;
+            if ($syncRow) {
+                Beds24PaymentSyncJob::dispatch($syncRow->id);
+            }
+        }
 
         return $transaction;
     }

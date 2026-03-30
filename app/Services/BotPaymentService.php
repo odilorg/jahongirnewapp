@@ -9,32 +9,32 @@ use App\Exceptions\BookingNotPayableException;
 use App\Exceptions\ManagerApprovalRequiredException;
 use App\Exceptions\PaymentBlockedException;
 use App\Exceptions\StalePaymentSessionException;
+use App\Jobs\Beds24PaymentSyncJob;
 use App\Models\Beds24Booking;
 use App\Models\BookingFxSync;
 use App\Models\CashTransaction;
+use App\Services\Fx\Beds24PaymentSyncService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 /**
- * Cashier bot payment flow — the only service the bot should call for FX payments.
+ * Cashier bot payment flow — active FX payment path used by CashierBotController.
+ *
+ * @deprecated Superseded by App\Services\Fx\BotPaymentService. This class remains
+ *             active until the controller is migrated to the Fx namespace. Do not
+ *             add new business logic here — fix the canonical service instead.
+ *             Tracked: TODO(payment-orchestrator) — collapse to single payment path.
  *
  * Core rule: this service never calculates exchange rates. It reads from
  * booking_fx_syncs (via FxSyncService) and records against a frozen snapshot.
- *
- * Two public methods:
- *
- *   preparePayment()  — resolves booking, ensures fresh FX sync, returns frozen DTO.
- *                       Bot stores DTO in session; never re-fetches mid-conversation.
- *
- *   recordPayment()   — validates frozen DTO, checks override tier, writes cash_transaction.
- *                       Never re-reads live booking_fx_syncs row.
  */
 class BotPaymentService
 {
     public function __construct(
-        private readonly FxSyncService           $fxSync,
-        private readonly OverridePolicyEvaluator  $overridePolicy,
-        private readonly FxManagerApprovalService $approvalService,
+        private readonly FxSyncService            $fxSync,
+        private readonly OverridePolicyEvaluator   $overridePolicy,
+        private readonly FxManagerApprovalService  $approvalService,
+        private readonly Beds24PaymentSyncService  $syncService,
     ) {}
 
     // -------------------------------------------------------------------------
@@ -125,6 +125,10 @@ class BotPaymentService
                 // placeholder — we link after creating transaction below
             }
 
+            // Retrieve sync row to compute USD equivalent for Beds24 push
+            $fxSync = BookingFxSync::find($p->syncId);
+            $usdEquivalent = $this->resolveUsdEquivalent($data->amountPaid, $data->currencyPaid, $fxSync);
+
             // 5. Create cash transaction
             $transaction = CashTransaction::create([
                 // Core transaction fields (existing columns)
@@ -149,19 +153,36 @@ class BotPaymentService
                 'amount_presented_rub'        => $p->rubPresented,
                 'presented_currency'          => $data->currencyPaid,
                 'amount_presented_selected'   => $presented,  // snapshot for selected currency
+                'usd_equivalent_paid'         => $usdEquivalent,
                 'is_override'                 => $tier !== OverrideTier::None,
                 'override_tier'               => $tier->value,
                 'override_reason'             => $data->overrideReason,
                 'override_approved_by'        => $data->managerApproval?->resolved_by,
                 'override_approved_at'        => $data->managerApproval?->resolved_at,
                 'presented_at'                => $p->presentedAt,
+                'recorded_at'                 => now(),
                 'bot_session_id'              => $p->botSessionId,
                 'source_trigger'              => 'cashier_bot',
+            ]);
+
+            // Create Beds24PaymentSync row — queued job pushes payment to Beds24 after commit.
+            // This is the fix for BUG-05: legacy BotPaymentService never created sync rows.
+            $syncRow = $this->syncService->createPending($transaction, $usdEquivalent);
+            $transaction->update([
+                'beds24_payment_sync_id' => $syncRow->id,
+                'beds24_payment_ref'     => $syncRow->local_reference,
             ]);
 
             // Consume approval now that we have the transaction ID
             if ($data->managerApproval) {
                 $this->approvalService->consume($data->managerApproval, $transaction->id);
+            }
+
+            // Dispatch push job only after DB commit so the row is visible to the worker
+            if (config('features.beds24_auto_push_payment', false)) {
+                DB::afterCommit(function () use ($syncRow) {
+                    Beds24PaymentSyncJob::dispatch($syncRow->id);
+                });
             }
 
             return $transaction;
@@ -186,6 +207,36 @@ class BotPaymentService
                 'bot_session_id'    => $p->botSessionId,
             ]);
         }
+    }
+
+    /**
+     * Compute the USD equivalent of the amount actually paid, using the FX snapshot.
+     * Returns 0 when no snapshot is available — sync job will still run, amount will be 0.
+     * TODO(payment-orchestrator): migrate to Fx\BotPaymentService which handles this properly.
+     */
+    private function resolveUsdEquivalent(float $amountPaid, string $currency, ?BookingFxSync $sync): float
+    {
+        if (strtoupper($currency) === 'USD') {
+            return $amountPaid;
+        }
+
+        if (! $sync) {
+            return 0.0;
+        }
+
+        $snapshotUsd  = (float) $sync->usd_final;
+        $snapshotInCurrency = match (strtoupper($currency)) {
+            'UZS'  => (float) $sync->uzs_final,
+            'EUR'  => (float) $sync->eur_final,
+            'RUB'  => (float) $sync->rub_final,
+            default => 0.0,
+        };
+
+        if ($snapshotInCurrency <= 0 || $snapshotUsd <= 0) {
+            return 0.0;
+        }
+
+        return round($amountPaid * ($snapshotUsd / $snapshotInCurrency), 2);
     }
 
     /**

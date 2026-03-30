@@ -169,22 +169,26 @@ class CashierShift extends Model
     }
 
     /**
-     * Get total cash in transactions
+     * Get total cash in transactions.
+     * Only drawer-truth sources (cashier_bot, manual_admin) — excludes beds24_external mirrors.
      */
     public function getTotalCashInAttribute(): float
     {
         return $this->transactions()
             ->whereIn('type', [TransactionType::IN, TransactionType::IN_OUT])
+            ->drawerTruth()
             ->sum('amount');
     }
 
     /**
-     * Get total cash out transactions
+     * Get total cash out transactions.
+     * Only drawer-truth sources (cashier_bot, manual_admin) — excludes beds24_external mirrors.
      */
     public function getTotalCashOutAttribute(): float
     {
         return $this->transactions()
             ->where('type', TransactionType::OUT)
+            ->drawerTruth()
             ->sum('amount');
     }
 
@@ -237,24 +241,28 @@ class CashierShift extends Model
     }
 
     /**
-     * Calculate total cash in for a specific currency
+     * Calculate total cash in for a specific currency.
+     * Only drawer-truth sources (cashier_bot, manual_admin) — excludes beds24_external mirrors.
      */
     public function getTotalCashInForCurrency(Currency $currency): float
     {
         return $this->transactions()
             ->whereIn('type', [TransactionType::IN, TransactionType::IN_OUT])
             ->where('currency', $currency)
+            ->drawerTruth()
             ->sum('amount');
     }
 
     /**
-     * Calculate total cash out for a specific currency
+     * Calculate total cash out for a specific currency.
+     * Only drawer-truth sources (cashier_bot, manual_admin) — excludes beds24_external mirrors.
      */
     public function getTotalCashOutForCurrency(Currency $currency): float
     {
         return $this->transactions()
             ->where('type', TransactionType::OUT)
             ->where('currency', $currency)
+            ->drawerTruth()
             ->sum('amount');
     }
 
