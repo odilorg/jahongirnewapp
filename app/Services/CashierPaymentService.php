@@ -71,6 +71,7 @@ class CashierPaymentService
                 'amount'                  => $paymentData['amount'],
                 'currency'                => $paymentData['currency'],
                 'category'                => 'sale',
+                'source_trigger'          => 'cashier_bot',
                 'beds24_booking_id'       => $paymentData['booking_id'] ?? null,
                 'payment_method'          => $paymentData['method'],
                 'guest_name'              => $paymentData['guest_name'],
