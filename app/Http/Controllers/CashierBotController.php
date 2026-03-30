@@ -247,6 +247,7 @@ class CashierBotController extends Controller
             $data === 'confirm_exchange' => $this->confirmExchange($s, $chatId, $callbackId),
             $data === 'confirm_close' => $this->confirmClose($s, $chatId, $callbackId),
             $data === 'cancel' => $this->showMainMenu($chatId, $s),
+            $data === 'my_txns' => $this->showMyTransactions($s, $chatId),
             $data === 'guide' => $this->showGuide($chatId),
             str_starts_with($data, 'guide_') => $this->showGuideTopic($chatId, substr($data, 6)),
             default => response('OK'),
@@ -1098,6 +1099,57 @@ class CashierBotController extends Controller
         return response('OK');
     }
 
+    protected function showMyTransactions($s, int $chatId)
+    {
+        $shift = $this->getShift($s->user_id);
+        if (!$shift) { $this->send($chatId, "Нет открытой смены."); return response('OK'); }
+
+        $txns = CashTransaction::where('cashier_shift_id', $shift->id)
+            ->drawerTruth()
+            ->orderByDesc('occurred_at')
+            ->limit(20)
+            ->get();
+
+        if ($txns->isEmpty()) {
+            $this->send($chatId, "За эту смену операций ещё нет.", ['inline_keyboard' => [[['text' => '« Меню', 'callback_data' => 'menu']]]], 'inline');
+            return response('OK');
+        }
+
+        $tz   = 'Asia/Tashkent';
+        $lines = ["📋 *Операции смены* (последние {$txns->count()}):\n"];
+        foreach ($txns as $tx) {
+            $typeVal = is_string($tx->type) ? $tx->type : ($tx->type->value ?? 'out');
+            $catVal  = is_string($tx->category) ? $tx->category : ($tx->category?->value ?? '');
+            $cur     = is_string($tx->currency) ? $tx->currency : ($tx->currency?->value ?? '');
+            $amt     = number_format((float) $tx->amount, 0, '.', ' ');
+            $time    = $tx->occurred_at?->timezone($tz)->format('H:i') ?? '?';
+
+            $icon = match(true) {
+                $catVal === 'payment'  => '💵',
+                $catVal === 'expense'  => '📤',
+                $catVal === 'exchange' => '🔄',
+                $catVal === 'cash_in'  => '➕',
+                $typeVal === 'in'      => '⬆️',
+                default                => '⬇️',
+            };
+
+            $sign = $typeVal === 'in' ? '+' : '−';
+
+            // For exchanges show paired leg if available
+            if ($catVal === 'exchange' && $tx->related_amount && $tx->related_currency) {
+                $relCur = is_string($tx->related_currency) ? $tx->related_currency : ($tx->related_currency?->value ?? '');
+                $relAmt = number_format((float) $tx->related_amount, 0, '.', ' ');
+                $lines[] = "{$time}  {$icon} {$sign}{$amt} {$cur} / {$relAmt} {$relCur}";
+            } else {
+                $lines[] = "{$time}  {$icon} {$sign}{$amt} {$cur}" . ($tx->notes ? "  _{$tx->notes}_" : '');
+            }
+        }
+
+        $this->send($chatId, implode("\n", $lines),
+            ['inline_keyboard' => [[['text' => '« Меню', 'callback_data' => 'menu']]]], 'inline');
+        return response('OK');
+    }
+
     // ── CLOSE SHIFT ─────────────────────────────────────────────
 
     protected function startClose($s, int $chatId)
@@ -1460,6 +1512,7 @@ class CashierBotController extends Controller
         $kb = [
             [['text' => '💵 Оплата', 'callback_data' => 'payment'], ['text' => '📤 Расход', 'callback_data' => 'expense']],
             [['text' => '🔄 Обмен', 'callback_data' => 'exchange'], ['text' => '💰 Баланс', 'callback_data' => 'balance']],
+            [['text' => '📋 Мои операции', 'callback_data' => 'my_txns']],
         ];
         if ($isAdmin) {
             $kb[] = [['text' => '➕ Внести', 'callback_data' => 'cash_in']];
