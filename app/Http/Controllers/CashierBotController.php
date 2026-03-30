@@ -400,7 +400,7 @@ class CashierBotController extends Controller
         if (!empty($guests)) {
             $s->update(['state' => 'payment_guest_select', 'data' => $d]);
             $btns = array_map(fn($g) => [[
-                'text'          => "#{$g['id']} {$g['guestFirstName']} {$g['guestName']}",
+                'text'          => "#{$g['id']} {$g['firstName']} {$g['lastName']}",
                 'callback_data' => "guest_{$g['id']}",
             ]], $guests);
             $btns[] = [['text' => '✏️ Ручной ввод', 'callback_data' => 'guest_manual']];
@@ -446,7 +446,7 @@ class CashierBotController extends Controller
             $all = collect(array_merge($arrivals, array_values($current)))
                 ->filter(fn($b) => !in_array($b['status'] ?? '', ['cancelled', 'declined']))
                 ->unique('id')
-                ->sortBy(fn($b) => ($b['guestFirstName'] ?? '') . ' ' . ($b['guestName'] ?? ''))
+                ->sortBy(fn($b) => ($b['firstName'] ?? '') . ' ' . ($b['lastName'] ?? ''))
                 ->values()
                 ->all();
 
