@@ -411,7 +411,11 @@ class Beds24WebhookController extends Controller
                 break;
 
             case 'payment_updated':
-                $this->handlePaymentSync($booking, $change, $oldData, $raw);
+                // When FX_BOT_PAYMENT_V2 is active the bot is the single source of truth
+                // for cash transactions — Beds24 webhooks must not create drawer records.
+                if (!config('features.fx_bot_payment_v2', false)) {
+                    $this->handlePaymentSync($booking, $change, $oldData, $raw);
+                }
                 break;
 
             case 'charge_added':
