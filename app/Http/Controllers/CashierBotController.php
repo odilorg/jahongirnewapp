@@ -758,9 +758,8 @@ class CashierBotController extends Controller
         $d['method'] = str_replace('method_', '', $data);
         $s->update(['state' => 'payment_confirm', 'data' => $d]);
         $ml = match($d['method']) { 'cash' => 'Наличные', 'card' => 'Карта', 'transfer' => 'Перевод', default => $d['method'] };
-        $room = $d['room'] ?? ($d['booking_id'] ? "#{$d['booking_id']}" : '—');
-        $t = "Подтвердите:\n\nБронь/Комната: {$room}\nГость: {$d['guest_name']}\nСумма: " . number_format($d['amount'], 0) . " {$d['currency']}\nСпособ: {$ml}";
-        if (!empty($d['booking_id'])) $t .= "\nBeds24: #{$d['booking_id']}";
+        $room = $d['room'] ?? ($d['booking_id'] ? "Beds24 #{$d['booking_id']}" : '—');
+        $t = "Подтвердите:\n\nБронь: {$room}\nГость: {$d['guest_name']}\nСумма: " . number_format($d['amount'], 0) . " {$d['currency']}\nСпособ: {$ml}";
 
         // FX presentation path: show comparison against the printed form
         if (! empty($d['fx_presentation']) && ! empty($d['fx_presented_amount'])) {
@@ -1468,8 +1467,8 @@ class CashierBotController extends Controller
             'payment' =>
                 "💵 <b>Оплата гостя</b>\n\n"
                 . "1. Нажмите «💵 Оплата»\n"
-                . "2. Введите номер комнаты\n"
-                . "3. Выберите гостя из списка\n"
+                . "2. Выберите гостя из списка заездов\n"
+                . "3. Или нажмите ✏️ Ручной ввод и введите номер брони\n"
                 . "4. Введите сумму (например: <code>500000</code>)\n"
                 . "5. Выберите валюту (UZS/USD/EUR)\n"
                 . "6. Выберите способ оплаты (нал/карта/перевод)\n"
