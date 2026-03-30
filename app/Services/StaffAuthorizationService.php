@@ -51,8 +51,13 @@ class StaffAuthorizationService
      */
     public function linkPhoneNumber(string $phoneNumber, int $telegramUserId, string $telegramUsername): ?User
     {
-        // Check if phone is authorized (user exists with this phone)
-        $user = User::where('phone_number', $phoneNumber)->first();
+        // Normalize: strip non-digits then try with/without + prefix
+        $digits = preg_replace('/[^0-9]/', '', $phoneNumber);
+        $user = User::where('phone_number', $phoneNumber)
+            ->orWhere('phone_number', '+' . $digits)
+            ->orWhere('phone_number', $digits)
+            ->orWhere('phone_number', 'LIKE', '%' . substr($digits, -9))
+            ->first();
 
         if (!$user) {
             Log::warning('Unauthorized phone number attempted to link', [
