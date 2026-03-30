@@ -404,7 +404,7 @@ class CashierBotController extends Controller
                 'callback_data' => "guest_{$g['id']}",
             ]], $guests);
             $btns[] = [['text' => '✏️ Ручной ввод', 'callback_data' => 'guest_manual']];
-            $this->send($chatId, "Выберите гостя из текущих заездов:", ['inline_keyboard' => $btns], 'inline');
+            $this->send($chatId, "Сегодняшние заезды:", ['inline_keyboard' => $btns], 'inline');
             return response('OK');
         }
 
@@ -425,25 +425,13 @@ class CashierBotController extends Controller
             $today = Carbon::today()->format('Y-m-d');
             $propertyId = [(string) self::PROPERTY_ID];
 
-            // Arrivals today
+            // Arrivals today only — cashier needs to collect payment at check-in
             $arrivalsResp = $this->beds24->getBookings([
                 'arrival'    => $today,
                 'propertyId' => $propertyId,
             ]);
-            $arrivals = $arrivalsResp['data'] ?? [];
 
-            // Currently in-house (arrived before today, still here)
-            $currentResp = $this->beds24->getBookings([
-                'filter'     => 'current',
-                'propertyId' => $propertyId,
-            ]);
-            $current = array_filter($currentResp['data'] ?? [], function ($b) use ($today) {
-                return $b['arrival'] < $today
-                    && !in_array($b['status'], ['cancelled', 'declined']);
-            });
-
-            // Merge, deduplicate by booking ID, remove cancelled
-            $all = collect(array_merge($arrivals, array_values($current)))
+            $all = collect($arrivalsResp['data'] ?? [])
                 ->filter(fn($b) => !in_array($b['status'] ?? '', ['cancelled', 'declined']))
                 ->unique('id')
                 ->sortBy(fn($b) => ($b['firstName'] ?? '') . ' ' . ($b['lastName'] ?? ''))
