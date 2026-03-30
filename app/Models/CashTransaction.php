@@ -54,6 +54,7 @@ class CashTransaction extends Model
         'source_trigger',
         'booking_fx_sync_id',
         'exchange_rate_id',
+        'daily_exchange_rate_id',
 
         // Presentation snapshot (frozen at time of bot confirmation)
         'amount_presented_uzs',

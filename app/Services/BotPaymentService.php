@@ -156,7 +156,7 @@ class BotPaymentService
                 'override_approved_at'        => $data->managerApproval?->resolved_at,
                 'presented_at'                => $p->presentedAt,
                 'bot_session_id'              => $p->botSessionId,
-                'source_trigger'              => 'bot',
+                'source_trigger'              => 'cashier_bot',
             ]);
 
             // Consume approval now that we have the transaction ID
