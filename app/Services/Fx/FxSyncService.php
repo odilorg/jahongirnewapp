@@ -9,17 +9,16 @@ use App\Enums\FxSyncPushStatus;
 use App\Models\BookingFxSync;
 use App\Models\ExchangeRate;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 /**
  * Owns the booking_fx_syncs upsert and PaymentPresentation construction.
  *
- * Advisory lock: we use pg_advisory_xact_lock(crc32(beds24_booking_id)) inside a
- * transaction to prevent two concurrent processes from double-inserting / double-
- * calculating for the same booking.
- *
- * The lock is transaction-scoped (xact_lock), so it releases automatically on
- * COMMIT or ROLLBACK — no manual cleanup needed.
+ * Concurrent refresh protection: we acquire a named Redis Cache lock before
+ * entering the DB transaction. This prevents two processes from doing a
+ * double-calculation for the same booking simultaneously.
+ * The lock is released in the finally block regardless of outcome.
  */
 class FxSyncService
 {
@@ -45,15 +44,15 @@ class FxSyncService
         string          $roomNumber,
         FxSourceTrigger $trigger,
     ): PaymentPresentation {
-        return DB::transaction(function () use (
-            $beds24BookingId, $usdAmount, $arrivalDate,
-            $guestName, $roomNumber, $trigger,
-        ) {
-            // Advisory lock: serialise concurrent refreshes for this booking
-            $lockKey = abs(crc32($beds24BookingId));
-            DB::statement("SELECT pg_advisory_xact_lock({$lockKey})");
+        $lock = Cache::lock("fx_sync:{$beds24BookingId}", 10);
+        $lock->block(10);
 
-            $existing = BookingFxSync::where('beds24_booking_id', $beds24BookingId)
+        try {
+            return DB::transaction(function () use (
+                $beds24BookingId, $usdAmount, $arrivalDate,
+                $guestName, $roomNumber, $trigger,
+            ) {
+                $existing = BookingFxSync::where('beds24_booking_id', $beds24BookingId)
                 ->lockForUpdate()
                 ->first();
 
@@ -88,8 +87,11 @@ class FxSyncService
                 $syncData,
             );
 
-            return $this->buildPresentation($sync, $guestName, $roomNumber);
-        });
+                return $this->buildPresentation($sync, $guestName, $roomNumber);
+            });
+        } finally {
+            $lock->release();
+        }
     }
 
     /**
