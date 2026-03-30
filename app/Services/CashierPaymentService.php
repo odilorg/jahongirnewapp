@@ -74,10 +74,10 @@ class CashierPaymentService
                 'beds24_booking_id'       => $paymentData['booking_id'] ?? null,
                 'payment_method'          => $paymentData['method'],
                 'guest_name'              => $paymentData['guest_name'],
-                'room_number'             => $paymentData['room'],
+                'room_number'             => $paymentData['room'] ?? null,
                 'reference'               => !empty($paymentData['booking_id'])
                     ? "Beds24 #{$paymentData['booking_id']}"
-                    : "Комната {$paymentData['room']}",
+                    : (!empty($paymentData['room']) ? "Комната {$paymentData['room']}" : null),
                 'notes'                   => $notes,
                 'created_by'              => $createdBy,
                 'occurred_at'             => now(),
