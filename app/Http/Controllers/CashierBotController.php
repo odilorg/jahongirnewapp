@@ -759,7 +759,8 @@ class CashierBotController extends Controller
         $d['method'] = str_replace('method_', '', $data);
         $s->update(['state' => 'payment_confirm', 'data' => $d]);
         $ml = match($d['method']) { 'cash' => 'Наличные', 'card' => 'Карта', 'transfer' => 'Перевод', default => $d['method'] };
-        $t = "Подтвердите:\n\nКомната: {$d['room']}\nГость: {$d['guest_name']}\nСумма: " . number_format($d['amount'], 0) . " {$d['currency']}\nСпособ: {$ml}";
+        $room = $d['room'] ?? ($d['booking_id'] ? "#{$d['booking_id']}" : '—');
+        $t = "Подтвердите:\n\nБронь/Комната: {$room}\nГость: {$d['guest_name']}\nСумма: " . number_format($d['amount'], 0) . " {$d['currency']}\nСпособ: {$ml}";
         if (!empty($d['booking_id'])) $t .= "\nBeds24: #{$d['booking_id']}";
 
         // FX presentation path: show comparison against the printed form
