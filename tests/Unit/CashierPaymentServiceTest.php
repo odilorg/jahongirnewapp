@@ -53,7 +53,7 @@ class CashierPaymentServiceTest extends TestCase
         $this->assertInstanceOf(CashTransaction::class, $tx);
         $this->assertEquals(500000, $tx->amount);
         $this->assertEquals('UZS', $tx->currency instanceof \BackedEnum ? $tx->currency->value : $tx->currency);
-        $this->assertEquals('sale', $tx->category);
+        $this->assertEquals('sale', $tx->category instanceof \BackedEnum ? $tx->category->value : $tx->category);
         $this->assertEquals('Комната 101', $tx->reference);
     }
 
