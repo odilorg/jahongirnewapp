@@ -398,6 +398,8 @@ class CashierBotController extends Controller
         $guests = $this->fetchInHouseGuests();
 
         if (!empty($guests)) {
+            // Index by booking ID so selectGuest can read live fields without re-fetching
+            $d['_live_guests'] = collect($guests)->keyBy('id')->toArray();
             $s->update(['state' => 'payment_guest_select', 'data' => $d]);
             $btns = array_map(fn($g) => [[
                 'text'          => "#{$g['id']} {$g['firstName']} {$g['lastName']}",
@@ -460,13 +462,31 @@ class CashierBotController extends Controller
             return response('OK');
         }
 
+        // Try local DB first; if missing, fetch live from Beds24 API
         $b = Beds24Booking::where('beds24_booking_id', $bid)->first();
         if (! $b) {
-            $this->send($chatId, "Бронь #{$bid} не найдена в Beds24.\nПроверьте номер и повторите:");
-            return response('OK');
+            try {
+                $resp       = $this->beds24->getBooking($bid);
+                $liveGuest  = $resp['data'][0] ?? null;
+                if (! $liveGuest) {
+                    $this->send($chatId, "Бронь #{$bid} не найдена в Beds24.\nПроверьте номер и повторите:");
+                    return response('OK');
+                }
+                // Stash in session so selectGuest can use live fields directly
+                $d                     = $s->data ?? [];
+                $d['_live_guests'][$bid] = $liveGuest;
+                $s->update(['data' => $d]);
+            } catch (\Throwable $e) {
+                Log::warning('CashierBot: live booking lookup failed for manual ID', [
+                    'bid'   => $bid,
+                    'error' => $e->getMessage(),
+                ]);
+                $this->send($chatId, "Бронь #{$bid} не найдена.\nПроверьте номер и повторите:");
+                return response('OK');
+            }
         }
 
-        // Booking found — hand off to selectGuest logic via a synthetic callback
+        // Booking confirmed (local or live) — hand off to selectGuest
         return $this->selectGuest($s, $chatId, "guest_{$bid}");
     }
 
@@ -486,13 +506,29 @@ class CashierBotController extends Controller
             return response('OK');
         }
 
-        $b = Beds24Booking::where('beds24_booking_id', $bid)->first();
-        $d['guest_name']       = $b ? $b->guest_name : '?';
-        $d['booking_id']       = $bid;
-        $d['booking_currency'] = $b ? strtoupper($b->currency ?? 'USD') : null;
-        $d['booking_amount']   = $b ? (float) ($b->invoice_balance > 0 ? $b->invoice_balance : $b->total_amount) : null;
+        // 1. Use live guest payload stored in session during arrivals list fetch (no extra API call)
+        $liveGuest = $d['_live_guests'][$bid] ?? null;
+        if ($liveGuest) {
+            $firstName  = trim($liveGuest['firstName'] ?? '');
+            $lastName   = trim($liveGuest['lastName'] ?? '');
+            $guestName  = trim("{$firstName} {$lastName}") ?: null;
+            // Outstanding = total price minus deposit already paid; fall back to price if zero
+            $liveAmount = (float)($liveGuest['price'] ?? 0) - (float)($liveGuest['deposit'] ?? 0);
+            if ($liveAmount <= 0) $liveAmount = (float)($liveGuest['price'] ?? 0);
+        } else {
+            $guestName  = null;
+            $liveAmount = null;
+        }
 
-        // Try to get a frozen FX presentation from the sync system
+        // 2. Local DB — defensive fallback only; used for currency (not in standard API response)
+        $b = Beds24Booking::where('beds24_booking_id', $bid)->first();
+
+        $d['guest_name']       = $guestName ?? ($b?->guest_name ?? '?');
+        $d['booking_id']       = $bid;
+        $d['booking_currency'] = $b ? strtoupper($b->currency ?? 'USD') : 'USD';
+        $d['booking_amount']   = $liveAmount ?? ($b ? (float)($b->invoice_balance > 0 ? $b->invoice_balance : $b->total_amount) : null);
+
+        // Try to get a frozen FX presentation from the sync system (requires local booking record)
         if ($b && $d['booking_amount'] > 0) {
             try {
                 $botSessionId = (string) $chatId . ':' . ($d['shift_id'] ?? '0');
