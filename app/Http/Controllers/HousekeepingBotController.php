@@ -345,7 +345,7 @@ class HousekeepingBotController extends Controller
 
         TelegramPosSession::updateOrCreate(
             ['chat_id' => $chatId],
-            ['user_id' => $user->id, 'state' => 'hk_main', 'data' => null]
+            ['telegram_user_id' => $contact['user_id'] ?? $chatId, 'user_id' => $user->id, 'state' => 'hk_main', 'data' => null]
         );
 
         $this->send($chatId, "✅ Xush kelibsiz, {$user->name}!");
