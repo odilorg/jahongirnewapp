@@ -24,7 +24,7 @@ use App\Services\CashierExpenseService;
 use App\Services\CashierPaymentService;
 use App\Services\CashierShiftService;
 use App\Services\ExchangeRateService;
-use App\Services\OverridePolicyEvaluator;
+use App\Services\Fx\OverridePolicyEvaluator as FxOverridePolicyEvaluator;
 use App\Services\OwnerAlertService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -36,7 +36,7 @@ class CashierBotController extends Controller
     protected OwnerAlertService $ownerAlert;
     protected CashierPaymentService $paymentService;
     protected BotPaymentService $botPaymentService;
-    protected OverridePolicyEvaluator $overridePolicy;
+    protected FxOverridePolicyEvaluator $overridePolicy;
     protected CashierShiftService $shiftService;
     protected CashierExpenseService $expenseService;
     protected CashierExchangeService $exchangeService;
@@ -48,7 +48,7 @@ class CashierBotController extends Controller
         OwnerAlertService $ownerAlert,
         CashierPaymentService $paymentService,
         BotPaymentService $botPaymentService,
-        OverridePolicyEvaluator $overridePolicy,
+        FxOverridePolicyEvaluator $overridePolicy,
         CashierShiftService $shiftService,
         CashierExpenseService $expenseService,
         CashierExchangeService $exchangeService,
@@ -684,8 +684,12 @@ class CashierBotController extends Controller
             return $this->proceedToPaymentMethod($s, $chatId, $d);
         }
 
-        $tier = $this->overridePolicy->evaluate($presented, $amount);
+        $currency = Currency::tryFrom(strtoupper($d['currency'] ?? 'UZS')) ?? Currency::UZS;
+        $evaluation = $this->overridePolicy->evaluate($currency, $presented, $amount);
+        $tier = $evaluation->tier;
         $d['override_tier'] = $tier->value;
+        $d['within_tolerance'] = $evaluation->withinTolerance;
+        $d['variance_pct'] = $evaluation->variancePct;
 
         return match ($tier) {
             OverrideTier::None => $this->proceedToPaymentMethod($s, $chatId, $d),

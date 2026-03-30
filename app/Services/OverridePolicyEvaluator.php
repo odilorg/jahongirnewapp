@@ -5,12 +5,12 @@ namespace App\Services;
 use App\Enums\OverrideTier;
 
 /**
- * Determines the override tier based on variance between presented and paid amounts.
- *
- * Thresholds are configured in config/fx.php under override_policy:
- *   cashier_threshold (%)  — cashier can self-approve below this
- *   manager_threshold (%)  — requires manager Telegram approval above cashier_threshold
- *   anything above manager_threshold → blocked, must escalate offline
+ * @deprecated Use App\Services\Fx\OverridePolicyEvaluator instead.
+ *             This class: (1) never returns OverrideTier::Blocked, (2) uses stale config
+ *             keys (fx.override_policy.*) that differ from the canonical fx.* keys.
+ *             CashierBotController was updated on 2026-03-30 to inject the Fx version.
+ *             This class is retained only to avoid breaking any remaining bindings.
+ *             TODO(payment-orchestrator): delete once confirmed unused.
  */
 class OverridePolicyEvaluator
 {
