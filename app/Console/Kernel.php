@@ -115,5 +115,20 @@ class Kernel extends ConsoleKernel
             ->everyFiveMinutes()
             ->withoutOverlapping()
             ->runInBackground();
+
+        // FX: expire manager approvals whose TTL has passed — every 5 minutes
+        $schedule->command('fx:expire-approvals')
+            ->everyFiveMinutes()
+            ->withoutOverlapping()
+            ->runInBackground();
+
+        // FX: nightly exception report — violations, unconfirmed syncs, failed syncs
+        $schedule->command('fx:nightly-report')
+            ->dailyAt('08:30')
+            ->timezone('Asia/Tashkent')
+            ->withoutOverlapping()
+            ->onFailure(function () {
+                \Illuminate\Support\Facades\Log::error('Scheduled fx:nightly-report FAILED');
+            });
     }
 }

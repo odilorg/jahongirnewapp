@@ -13,6 +13,8 @@ use App\Models\TelegramPosSession;
 use App\Enums\TransactionType;
 use App\Enums\TransactionCategory;
 use App\Models\CashierShift;
+use App\Enums\CashTransactionSource;
+use App\Services\Fx\WebhookReconciliationService;
 use App\Services\OwnerAlertService;
 use App\Services\Beds24BookingService;
 use Illuminate\Http\Request;
@@ -25,10 +27,10 @@ class Beds24WebhookController extends Controller
 {
     public function __construct(
         protected OwnerAlertService $alertService,
-        protected Beds24BookingService $beds24Service
-    )
-    {
-    }
+        protected Beds24BookingService $beds24Service,
+        protected ?WebhookReconciliationService $reconciliation = null,
+    ) {}
+
 
     /**
      * Handle incoming Beds24 webhook.
@@ -195,9 +197,9 @@ class Beds24WebhookController extends Controller
                 if (!empty($paymentLines)) {
                     foreach ($paymentLines as $line) {
                         $method = $line['status'] ?? '';
-                        $desc = $line['description'] ?? '';
+                        $desc   = $line['description'] ?? '';
                         $amount = (float) ($line['amount'] ?? 0);
-                        $this->createPaymentTransaction($booking, $amount, $desc . ($method ? " ({$method})" : ''), $method, $desc, $line['_ref'] ?? null);
+                        $this->handleWebhookPayment($booking, $amount, $method, $desc, $line['_ref'] ?? null, $line['id'] ?? null);
                     }
                     $this->alertService->alertPaymentWithDetails($booking, $change, $paymentLines, $total, $balance);
                 } else {
@@ -225,9 +227,9 @@ class Beds24WebhookController extends Controller
             if (!empty($paymentLines)) {
                 foreach ($paymentLines as $line) {
                     $method = $line['status'] ?? '';
-                    $desc = $line['description'] ?? '';
+                    $desc   = $line['description'] ?? '';
                     $amount = (float) ($line['amount'] ?? 0);
-                    $this->createPaymentTransaction($booking, $amount, $desc . ($method ? " ({$method})" : ''), $method, $desc, $line['_ref'] ?? null);
+                    $this->handleWebhookPayment($booking, $amount, $method, $desc, $line['_ref'] ?? null, $line['id'] ?? null);
                 }
             }
             $this->alertService->alertNewBookingWithPayment($booking, $change, $paymentLines);
@@ -420,19 +422,17 @@ class Beds24WebhookController extends Controller
         $paymentLines = $this->extractNewPaymentLines($booking->beds24_booking_id, $raw);
 
         if (!empty($paymentLines)) {
-            // Create a CashTransaction for each new payment line
             foreach ($paymentLines as $line) {
                 $method = $line['status'] ?? '';
-                $desc = $line['description'] ?? '';
+                $desc   = $line['description'] ?? '';
                 $amount = (float) ($line['amount'] ?? 0);
-                $note = $desc . ($method ? " ({$method})" : '');
-                $this->createPaymentTransaction($booking, $amount, $note, $method, $desc, $line['_ref'] ?? null);
+                $this->handleWebhookPayment($booking, $amount, $method, $desc, $line['_ref'] ?? null, $line['id'] ?? null);
             }
             $this->alertService->alertPaymentWithDetails($booking, $change, $paymentLines, $oldBalance, $newBalance);
         } else {
-            // Fallback: no line details available
+            // Fallback: no line details in payload — balance delta only
             $paymentAmount = $oldBalance - $newBalance;
-            $this->createPaymentTransaction($booking, $paymentAmount, "Balance: {$oldBalance} -> {$newBalance}");
+            $this->handleWebhookPayment($booking, $paymentAmount, '', "Balance: {$oldBalance} -> {$newBalance}", null, null);
             $this->alertService->alertPaymentReceived($booking, $change, $paymentAmount, $oldBalance, $newBalance);
         }
     }
@@ -481,77 +481,181 @@ class Beds24WebhookController extends Controller
 
 
     /**
-     * Create a CashTransaction from a Beds24 payment
+     * Final production webhook payment path.
+     *
+     * Path A — bot-originated: [ref:UUID] found and matched → confirm sync, no new drawer row.
+     * Path B — external/manual: create explicit beds24_external bookkeeping row.
+     *
+     * @param  string|null  $beds24ItemId  Stable Beds24 payment item ID (e.g. $line['id'])
      */
-    private function createPaymentTransaction(Beds24Booking $booking, float $amount, string $notes, string $method = '', string $description = '', ?string $reference = null): void
-    {
+    private function handleWebhookPayment(
+        Beds24Booking $booking,
+        float         $amount,
+        string        $method,
+        string        $description,
+        ?string       $reference,
+        ?string       $beds24ItemId,
+    ): void {
         try {
-            // Only create CashTransaction for cash payments (naqd)
-            // Card, transfer, OTA payments don't hit the physical cash register
-            $cashMethods = ['naqd', 'cash', 'наличные'];
-            if (!in_array(mb_strtolower(trim($method)), $cashMethods)) {
-                Log::info('Beds24 Payment: Skipped non-cash payment (no CashTransaction)', [
+            // Path A: bot-originated confirmation — never creates a new CashTransaction
+            if (config('features.fx_webhook_reconciliation', false)
+                && $this->reconciliation !== null
+                && $this->reconciliation->reconcile($description, [
+                    'booking_id'  => $booking->beds24_booking_id,
+                    'amount'      => $amount,
+                    'method'      => $method,
+                    'description' => $description,
+                ])
+            ) {
+                Log::info('Beds24 Webhook: bot-originated payment confirmed, no drawer row created', [
                     'booking_id' => $booking->beds24_booking_id,
-                    'amount' => $amount,
-                    'method' => $method,
+                    'amount'     => $amount,
                 ]);
                 return;
             }
 
-            $ref = $reference;
-            // Deduplication check
-            if ($ref) {
-                // Use reference-based dedup (most reliable)
-                if (CashTransaction::where('reference', $ref)->exists()) {
-                    Log::info('Beds24 Payment: Duplicate transaction skipped (by ref)', [
-                        'booking_id' => $booking->beds24_booking_id,
-                        'reference' => $ref,
-                    ]);
-                    return;
-                }
-            } elseif ($booking->beds24_booking_id) {
-                // Fallback dedup by booking + notes + amount
-                if (CashTransaction::where('beds24_booking_id', $booking->beds24_booking_id)
-                    ->where('notes', $notes)
-                    ->where('amount', $amount)
-                    ->exists()) {
-                    Log::info('Beds24 Payment: Duplicate transaction skipped (by content)', [
-                        'booking_id' => $booking->beds24_booking_id,
-                        'amount' => $amount,
-                    ]);
-                    return;
-                }
-            }
+            // Path B: external/manual payment — create explicit bookkeeping row
+            $this->createExternalBookkeepingRow($booking, $amount, $method, $description, $reference, $beds24ItemId);
 
-            // Link to active cashier shift (latest open shift)
-            $activeShift = CashierShift::where('status', 'open')
-                ->latest('opened_at')
-                ->first();
-
-            CashTransaction::create([
-                'cashier_shift_id' => $activeShift?->id,
-                'type' => TransactionType::IN,
-                'amount' => $amount,
-                'currency' => 'USD',
-                'category' => TransactionCategory::SALE,
-                'notes' => $notes,
-                'beds24_booking_id' => $booking->beds24_booking_id,
-                'payment_method' => $method,
-                'guest_name' => $booking->guest_name ?? '',
-                'room_number' => $booking->room_name ?? '',
-                'reference' => $ref,
-                'occurred_at' => now(),
-            ]);
-
-            Log::info('Beds24 Payment: CashTransaction created', [
-                'booking_id' => $booking->beds24_booking_id,
-                'amount' => $amount,
-                'method' => $method,
-            ]);
         } catch (\Throwable $e) {
-            Log::error('Beds24 Payment: Failed to create CashTransaction', [
+            Log::error('Beds24 Webhook: handleWebhookPayment failed', [
                 'booking_id' => $booking->beds24_booking_id,
-                'error' => $e->getMessage(),
+                'error'      => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * Create an explicit beds24_external CashTransaction for audit purposes.
+     *
+     * All Beds24 webhook payments that are not bot-originated land here.
+     * These rows are excluded from drawer truth via scopeDrawerTruth().
+     * If the payment method looks like a physical cash payment, an ops alert is triggered.
+     *
+     * Dedup order:
+     *   1. Stable Beds24 item ID via beds24_payment_ref (primary — DB unique constraint is final guard)
+     *   2. Reference string (composite "Beds24 #id item#id") via reference column
+     *   3. Content match (booking + amount + description) as last fallback
+     */
+    private function createExternalBookkeepingRow(
+        Beds24Booking $booking,
+        float         $amount,
+        string        $method,
+        string        $description,
+        ?string       $reference,
+        ?string       $beds24ItemId,
+    ): void {
+        $bookingId  = $booking->beds24_booking_id;
+        $notes      = $description . ($method ? " ({$method})" : '');
+
+        // Dedup 1: stable Beds24 item ID stored in beds24_payment_ref
+        if ($beds24ItemId !== null) {
+            $stableRef = "b24_item_{$beds24ItemId}";
+            if (CashTransaction::where('beds24_booking_id', $bookingId)
+                ->where('source_trigger', CashTransactionSource::Beds24External->value)
+                ->where('beds24_payment_ref', $stableRef)
+                ->exists()
+            ) {
+                Log::info('Beds24 Webhook: duplicate external row skipped (by item ID)', [
+                    'booking_id'    => $bookingId,
+                    'beds24_item_id' => $beds24ItemId,
+                ]);
+                return;
+            }
+        }
+
+        // Dedup 2: composite reference string in reference column
+        if ($reference !== null) {
+            if (CashTransaction::where('beds24_booking_id', $bookingId)
+                ->where('reference', $reference)
+                ->exists()
+            ) {
+                Log::info('Beds24 Webhook: duplicate external row skipped (by reference)', [
+                    'booking_id' => $bookingId,
+                    'reference'  => $reference,
+                ]);
+                return;
+            }
+        }
+
+        // Dedup 3: content fallback — only when no stable identifiers available
+        if ($beds24ItemId === null && $reference === null) {
+            if (CashTransaction::where('beds24_booking_id', $bookingId)
+                ->where('source_trigger', CashTransactionSource::Beds24External->value)
+                ->where('amount', $amount)
+                ->where('notes', $notes)
+                ->exists()
+            ) {
+                Log::info('Beds24 Webhook: duplicate external row skipped (by content fallback)', [
+                    'booking_id' => $bookingId,
+                    'amount'     => $amount,
+                ]);
+                return;
+            }
+        }
+
+        $activeShift = CashierShift::where('status', 'open')->latest('opened_at')->first();
+
+        CashTransaction::create([
+            'cashier_shift_id'   => $activeShift?->id,
+            'type'               => TransactionType::IN,
+            'amount'             => $amount,
+            'currency'           => 'USD',
+            'category'           => TransactionCategory::SALE,
+            'source_trigger'     => CashTransactionSource::Beds24External->value,
+            'notes'              => $notes,
+            'beds24_booking_id'  => $bookingId,
+            'payment_method'     => $method,
+            'guest_name'         => $booking->guest_name ?? '',
+            'room_number'        => $booking->room_name ?? '',
+            'reference'          => $reference,
+            'beds24_payment_ref' => $beds24ItemId !== null ? "b24_item_{$beds24ItemId}" : null,
+            'occurred_at'        => now(),
+        ]);
+
+        Log::info('Beds24 Webhook: external bookkeeping row created', [
+            'booking_id' => $bookingId,
+            'amount'     => $amount,
+            'method'     => $method,
+            'source'     => 'beds24_external',
+        ]);
+
+        // Alert ops for cash-method entries — these are likely policy violations
+        $cashMethods = ['naqd', 'cash', 'наличные'];
+        if (in_array(mb_strtolower(trim($method)), $cashMethods)) {
+            $this->alertViolation($booking, $amount, $method);
+        }
+    }
+
+    /**
+     * Send an immediate Telegram alert to the owner/ops when a cash payment
+     * arrives via Beds24 webhook instead of being recorded in the bot first.
+     */
+    private function alertViolation(Beds24Booking $booking, float $amount, string $method): void
+    {
+        $time = now()->timezone('Asia/Tashkent')->format('d.m.Y H:i');
+
+        $text = implode("\n", [
+            '⚠️ <b>НАРУШЕНИЕ ПРАВИЛА ОПЛАТЫ</b>',
+            '',
+            'Наличный платёж зафиксирован напрямую в Beds24.',
+            'Оплата должна быть введена через Telegram-бот кассира.',
+            '',
+            "📋 Бронь: <code>{$booking->beds24_booking_id}</code>",
+            "👤 Гость: " . ($booking->guest_name ?? 'не указан'),
+            "💵 Сумма: \${$amount} USD",
+            "💳 Метод: {$method}",
+            "🕐 Время: {$time}",
+            '',
+            'Требуется действие: убедитесь, что платёж отражён в кассовом ящике.',
+        ]);
+
+        try {
+            $this->alertService->sendOpsAlert($text);
+        } catch (\Throwable $e) {
+            Log::error('Beds24 Webhook: failed to send violation alert', [
+                'booking_id' => $booking->beds24_booking_id,
+                'error'      => $e->getMessage(),
             ]);
         }
     }
