@@ -507,34 +507,27 @@ class CashierBotController extends Controller
         }
 
         // 1. Use live guest payload stored in session during arrivals list fetch (no extra API call)
-        $liveGuest = $d['_live_guests'][$bid] ?? null;
-        if ($liveGuest) {
-            $firstName  = trim($liveGuest['firstName'] ?? '');
-            $lastName   = trim($liveGuest['lastName'] ?? '');
-            $guestName  = trim("{$firstName} {$lastName}") ?: null;
-            // Outstanding = total price minus deposit already paid; fall back to price if zero
-            $liveAmount = (float)($liveGuest['price'] ?? 0) - (float)($liveGuest['deposit'] ?? 0);
-            if ($liveAmount <= 0) $liveAmount = (float)($liveGuest['price'] ?? 0);
-            // Currency is embedded in rateDescription e.g. "2026-06-07 (ID Rate) USD 43.20"
-            // No dedicated currency field in the Beds24 REST GET /bookings response
-            $liveCurrency = null;
-            if (!empty($liveGuest['rateDescription']) &&
-                preg_match('/\b(USD|EUR|GBP|RUB|UZS|JPY|CNY|AUD|CAD|CHF)\b/', $liveGuest['rateDescription'], $m)) {
-                $liveCurrency = $m[1];
-            }
-        } else {
-            $guestName    = null;
-            $liveAmount   = null;
-            $liveCurrency = null;
-        }
+        $liveGuest  = $d['_live_guests'][$bid] ?? null;
+        $snap       = $this->extractLiveBookingSnapshot($liveGuest, $bid);
 
         // 2. Local DB — defensive fallback; still needed for FX presentation path
         $b = Beds24Booking::where('beds24_booking_id', $bid)->first();
 
-        $d['guest_name']       = $guestName    ?? ($b?->guest_name ?? '?');
+        // Merge: live snapshot wins, local DB fills gaps, hard defaults last
+        $d['guest_name']       = $snap['guest_name']       ?? ($b?->guest_name ?? '?');
         $d['booking_id']       = $bid;
-        $d['booking_currency'] = $liveCurrency ?? ($b ? strtoupper($b->currency ?? 'USD') : 'USD');
-        $d['booking_amount']   = $liveAmount   ?? ($b ? (float)($b->invoice_balance > 0 ? $b->invoice_balance : $b->total_amount) : null);
+        $d['booking_currency'] = $snap['booking_currency'] ?? ($b ? strtoupper($b->currency ?? 'USD') : 'USD');
+        $d['booking_amount']   = $snap['booking_amount']   ?? ($b ? (float)($b->invoice_balance > 0 ? $b->invoice_balance : $b->total_amount) : null);
+
+        // Log whenever a fallback was used — helps catch stale sync or parse issues
+        if ($snap['currency_source'] !== 'live_rate_description') {
+            Log::warning('CashierBot: booking currency not from live payload', [
+                'beds24_booking_id'  => $bid,
+                'raw_rateDescription'=> $liveGuest['rateDescription'] ?? null,
+                'currency_source'    => $snap['currency_source'],
+                'resolved_currency'  => $d['booking_currency'],
+            ]);
+        }
 
         // Try to get a frozen FX presentation from the sync system (requires local booking record)
         if ($b && $d['booking_amount'] > 0) {
@@ -1374,6 +1367,56 @@ class CashierBotController extends Controller
     }
 
     // ── HELPERS ──────────────────────────────────────────────────
+
+    /**
+     * Extract guest name, outstanding amount, and currency from a live Beds24 booking payload.
+     *
+     * Returns a structured snapshot with a `currency_source` field so callers can log
+     * when a fallback was used (regex failed or live payload missing).
+     *
+     * @param  array|null  $liveGuest  Raw Beds24 API booking object (may be null if not in session)
+     * @param  string      $bid        Beds24 booking ID (for log context only)
+     * @return array{guest_name:string|null, booking_amount:float|null, booking_currency:string|null, currency_source:string}
+     */
+    protected function extractLiveBookingSnapshot(?array $liveGuest, string $bid): array
+    {
+        if (! $liveGuest) {
+            return [
+                'guest_name'       => null,
+                'booking_amount'   => null,
+                'booking_currency' => null,
+                'currency_source'  => 'no_live_payload',
+            ];
+        }
+
+        $firstName = trim($liveGuest['firstName'] ?? '');
+        $lastName  = trim($liveGuest['lastName']  ?? '');
+        $guestName = trim("{$firstName} {$lastName}") ?: null;
+
+        // Outstanding = total price minus deposit already collected; floor to price if result ≤ 0
+        $amount = (float)($liveGuest['price'] ?? 0) - (float)($liveGuest['deposit'] ?? 0);
+        if ($amount <= 0) $amount = (float)($liveGuest['price'] ?? 0);
+
+        // Beds24 REST GET /bookings has no dedicated currency field.
+        // Currency is reliably embedded in rateDescription e.g. "2026-06-07 (ID Rate) USD 43.20"
+        $currency       = null;
+        $currencySource = 'no_live_payload';
+
+        if (! empty($liveGuest['rateDescription']) &&
+            preg_match('/\b(USD|EUR|GBP|RUB|UZS|JPY|CNY|AUD|CAD|CHF)\b/', $liveGuest['rateDescription'], $m)) {
+            $currency       = $m[1];
+            $currencySource = 'live_rate_description';
+        } else {
+            $currencySource = 'live_payload_present_but_currency_regex_failed';
+        }
+
+        return [
+            'guest_name'       => $guestName,
+            'booking_amount'   => $amount > 0 ? $amount : null,
+            'booking_currency' => $currency,
+            'currency_source'  => $currencySource,
+        ];
+    }
 
     protected function getShift(?int $uid): ?CashierShift
     {
