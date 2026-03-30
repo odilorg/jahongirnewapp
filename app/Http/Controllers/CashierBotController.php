@@ -388,10 +388,9 @@ class CashierBotController extends Controller
         // Show today's in-house guests as inline buttons (room_name is NULL in sync,
         // so we list by arrival/departure dates and let the cashier pick).
         $today = Carbon::today()->format('Y-m-d');
-        $guests = Beds24Booking::where('arrival_date', '<=', $today)
-            ->where('departure_date', '>', $today)
+        $guests = Beds24Booking::where('arrival_date', $today)
             ->where('booking_status', 'confirmed')
-            ->orderBy('arrival_date')
+            ->orderBy('guest_name')
             ->get();
 
         if ($guests->isNotEmpty()) {
