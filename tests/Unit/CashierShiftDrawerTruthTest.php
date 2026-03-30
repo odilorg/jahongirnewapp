@@ -154,7 +154,7 @@ class CashierShiftDrawerTruthTest extends TestCase
         $this->createTx('cashier_bot',     'in', 80_000);
         $this->createTx('beds24_external', 'in', 20_000);
 
-        $this->assertEquals(80_000, $this->shift->getTotalCashInAttribute);
+        $this->assertEquals(80_000, $this->shift->total_cash_in);
     }
 
     /** @test */
@@ -163,6 +163,6 @@ class CashierShiftDrawerTruthTest extends TestCase
         $this->createTx('cashier_bot',     'out', 10_000);
         $this->createTx('beds24_external', 'out',  5_000);
 
-        $this->assertEquals(10_000, $this->shift->getTotalCashOutAttribute);
+        $this->assertEquals(10_000, $this->shift->total_cash_out);
     }
 }
