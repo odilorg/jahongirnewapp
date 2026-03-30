@@ -425,6 +425,19 @@ class OwnerAlertService
     }
 
     // -------------------------------------------------------------------------
+    // Ops / system alerts
+    // -------------------------------------------------------------------------
+
+    /**
+     * Send a plain-text operational alert to the owner chat.
+     * Used for policy violations, system warnings, and monitoring alerts.
+     */
+    public function sendOpsAlert(string $text): void
+    {
+        $this->send($text);
+    }
+
+    // -------------------------------------------------------------------------
     // Telegram HTTP helper
     // -------------------------------------------------------------------------
 
