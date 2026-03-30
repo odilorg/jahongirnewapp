@@ -969,7 +969,7 @@ class CashierBotController extends Controller
         CashTransaction::create([
             'cashier_shift_id' => $shift->id,
             'type'             => 'in',
-            'category'         => 'cash_in',
+            'category'         => 'deposit',
             'source_trigger'   => 'manual_admin',
             'currency'         => $cur,
             'amount'           => $amt,
