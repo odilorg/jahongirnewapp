@@ -162,7 +162,7 @@ class CashierBotController extends Controller
         $st = $shift ? "Смена открыта" : "Смена закрыта";
         $bal = $shift ? "\nБаланс: " . $this->fmtBal($this->getBal($shift)) : '';
         $this->send($chatId, "Кассир-бот | {$st}{$bal}");
-        $this->send($chatId, "Выберите действие:", $this->menuKb($shift), 'inline');
+        $this->send($chatId, "Выберите действие:", $this->menuKb($shift, $session->user_id), 'inline');
         return response('OK');
     }
 
@@ -214,6 +214,8 @@ class CashierBotController extends Controller
             $data === 'expense' => $this->startExpense($s, $chatId),
             $data === 'exchange' => $this->startExchange($s, $chatId),
             $data === 'balance' => $this->showBalance($s, $chatId),
+            $data === 'cash_in' => $this->startCashIn($s, $chatId),
+            $data === 'confirm_cash_in' => $this->confirmCashIn($s, $chatId),
             $data === 'close_shift' => $this->startClose($s, $chatId),
             $data === 'menu' => $this->showMainMenu($chatId, $s),
             str_starts_with($data, 'guest_') => $this->selectGuest($s, $chatId, $data),
@@ -316,6 +318,7 @@ class CashierBotController extends Controller
             'payment_fx_override_reason' => $this->hPayFxOverrideReason($s, $chatId, $text),
             'expense_amount' => $this->hExpAmt($s, $chatId, $text),
             'expense_desc' => $this->hExpDesc($s, $chatId, $text),
+            'cash_in_amount' => $this->hCashInAmt($s, $chatId, $text),
             'exchange_in_amount' => $this->hExInAmt($s, $chatId, $text),
             'exchange_out_amount' => $this->hExOutAmt($s, $chatId, $text),
             'shift_count_uzs' => $this->hCount($s, $chatId, $text, 'UZS'),
@@ -908,6 +911,69 @@ class CashierBotController extends Controller
         return $this->showMainMenu($chatId, $s);
     }
 
+    // ── CASH IN (admin only) ────────────────────────────────────
+
+    protected function startCashIn($s, int $chatId)
+    {
+        $shift = $this->getShift($s->user_id);
+        if (!$shift) { $this->send($chatId, "Сначала откройте смену."); return response('OK'); }
+        if (!User::find($s->user_id)?->hasAnyRole(['super_admin', 'admin', 'manager'])) {
+            $this->send($chatId, "⛔ Недостаточно прав."); return response('OK');
+        }
+        $s->update(['state' => 'cash_in_amount', 'data' => ['shift_id' => $shift->id]]);
+        $this->send($chatId, "Введите сумму и валюту для внесения:\n(напр: 500 USD, 200 EUR, 2000000 UZS)");
+        return response('OK');
+    }
+
+    protected function hCashInAmt($s, int $chatId, string $text)
+    {
+        [$amt, $cur] = $this->parseAmountCurrency($text);
+        if ($amt <= 0) { $this->send($chatId, "Неверная сумма. Попробуйте ещё раз:"); return response('OK'); }
+        $d = $s->data ?? [];
+        $d['amount'] = $amt;
+        $d['currency'] = $cur;
+        $s->update(['state' => 'cash_in_amount', 'data' => $d]); // keep state until confirm
+        $this->send($chatId,
+            "Внести в кассу:\n\n" . number_format($amt, 0) . " {$cur}\n\nПодтвердите:",
+            ['inline_keyboard' => [[
+                ['text' => '✅ Внести', 'callback_data' => 'confirm_cash_in'],
+                ['text' => '❌ Отмена', 'callback_data' => 'cancel'],
+            ]]], 'inline'
+        );
+        return response('OK');
+    }
+
+    protected function confirmCashIn($s, int $chatId)
+    {
+        $d = $s->data ?? [];
+        $shift = CashierShift::find($d['shift_id'] ?? 0);
+        if (!$shift || !$shift->isOpen()) {
+            $this->send($chatId, "Смена не найдена или закрыта.");
+            return $this->showMainMenu($chatId, $s);
+        }
+        if (!User::find($s->user_id)?->hasAnyRole(['super_admin', 'admin', 'manager'])) {
+            $this->send($chatId, "⛔ Недостаточно прав."); return response('OK');
+        }
+        $amt = (float) ($d['amount'] ?? 0);
+        $cur = $d['currency'] ?? 'USD';
+        if ($amt <= 0) { $this->send($chatId, "Сумма не найдена."); return $this->showMainMenu($chatId, $s); }
+
+        CashTransaction::create([
+            'cashier_shift_id' => $shift->id,
+            'type'             => 'in',
+            'category'         => 'cash_in',
+            'source_trigger'   => 'manual_admin',
+            'currency'         => $cur,
+            'amount'           => $amt,
+            'notes'            => 'Внесение наличных (начальный баланс)',
+            'created_by'       => $s->user_id,
+            'occurred_at'      => now(),
+        ]);
+
+        $this->send($chatId, "✅ Внесено: " . number_format($amt, 0) . " {$cur}\nБаланс: " . $this->fmtBal($this->getBal($shift->fresh())));
+        return $this->showMainMenu($chatId, $s);
+    }
+
     // ── BALANCE ─────────────────────────────────────────────────
 
     protected function showBalance($s, int $chatId)
@@ -1229,14 +1295,19 @@ class CashierBotController extends Controller
         return $p ? implode(' | ', $p) : '0';
     }
 
-    protected function menuKb(?CashierShift $shift): array
+    protected function menuKb(?CashierShift $shift, ?int $userId = null): array
     {
         if (!$shift) return ['inline_keyboard' => [[['text' => 'Открыть смену', 'callback_data' => 'open_shift']], [['text' => '📖 Инструкция', 'callback_data' => 'guide']]]];
-        return ['inline_keyboard' => [
+        $isAdmin = $userId && User::find($userId)?->hasAnyRole(['super_admin', 'admin', 'manager']);
+        $kb = [
             [['text' => '💵 Оплата', 'callback_data' => 'payment'], ['text' => '📤 Расход', 'callback_data' => 'expense']],
             [['text' => '🔄 Обмен', 'callback_data' => 'exchange'], ['text' => '💰 Баланс', 'callback_data' => 'balance']],
-            [['text' => '🔒 Закрыть смену', 'callback_data' => 'close_shift'], ['text' => '📖 Инструкция', 'callback_data' => 'guide']],
-        ]];
+        ];
+        if ($isAdmin) {
+            $kb[] = [['text' => '➕ Внести', 'callback_data' => 'cash_in']];
+        }
+        $kb[] = [['text' => '🔒 Закрыть смену', 'callback_data' => 'close_shift'], ['text' => '📖 Инструкция', 'callback_data' => 'guide']];
+        return ['inline_keyboard' => $kb];
     }
 
 
