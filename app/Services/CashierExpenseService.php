@@ -54,6 +54,7 @@ class CashierExpenseService
                 'category'         => 'expense',
                 'reference'        => "expense:{$expense->id}",
                 'notes'            => "Расход: {$expenseData['cat_name']} — {$expenseData['desc']}",
+                'source_trigger'   => 'cashier_bot',
                 'created_by'       => $createdBy,
                 'occurred_at'      => now(),
             ]);
