@@ -406,7 +406,7 @@ class TelegramPosController extends Controller
         }
 
         // Create or update session
-        $this->createSession($chatId, $user->id);
+        $this->createSession($chatId, $user->id, 'en', $telegramUserId);
 
         $this->sendMessage(
             $chatId,
@@ -444,11 +444,12 @@ class TelegramPosController extends Controller
     /**
      * Create new session
      */
-    protected function createSession(int $chatId, int $userId, string $language = 'en')
+    protected function createSession(int $chatId, int $userId, string $language = 'en', ?int $telegramUserId = null)
     {
         DB::table('telegram_pos_sessions')->updateOrInsert(
             ['chat_id' => $chatId],
             [
+                'telegram_user_id' => $telegramUserId ?? $chatId,
                 'user_id' => $userId,
                 'language' => $language,
                 'state' => 'main_menu',
