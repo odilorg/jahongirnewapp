@@ -25,6 +25,7 @@ use App\Services\CashierPaymentService;
 use App\Services\CashierShiftService;
 use App\Services\ExchangeRateService;
 use App\Services\Fx\OverridePolicyEvaluator as FxOverridePolicyEvaluator;
+use App\Services\Beds24BookingService;
 use App\Services\OwnerAlertService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -43,6 +44,10 @@ class CashierBotController extends Controller
     protected ExchangeRateService $fxRateService;
     protected BotResolverInterface $botResolver;
     protected TelegramTransportInterface $transport;
+    protected Beds24BookingService $beds24;
+
+    // Property ID for Beds24 — must match HousekeepingBotController
+    protected const PROPERTY_ID = 41097;
 
     public function __construct(
         OwnerAlertService $ownerAlert,
@@ -55,6 +60,7 @@ class CashierBotController extends Controller
         ExchangeRateService $fxRateService,
         BotResolverInterface $botResolver,
         TelegramTransportInterface $transport,
+        Beds24BookingService $beds24,
     ) {
         $this->ownerAlert = $ownerAlert;
         $this->paymentService = $paymentService;
@@ -66,6 +72,7 @@ class CashierBotController extends Controller
         $this->fxRateService = $fxRateService;
         $this->botResolver = $botResolver;
         $this->transport = $transport;
+        $this->beds24 = $beds24;
     }
 
     public function handleWebhook(Request $request)
@@ -386,29 +393,68 @@ class CashierBotController extends Controller
 
         $d = ['shift_id' => $shift->id];
 
-        // Show today's in-house guests as inline buttons (room_name is NULL in sync,
-        // so we list by arrival/departure dates and let the cashier pick).
-        $today = Carbon::today()->format('Y-m-d');
-        $guests = Beds24Booking::where('arrival_date', $today)
-            ->where('booking_status', 'confirmed')
-            ->orderBy('guest_name')
-            ->get();
+        // Pull in-house guests live from Beds24 API (arrivals today + stayovers).
+        // Falls back to manual entry if API call fails.
+        $guests = $this->fetchInHouseGuests();
 
-        if ($guests->isNotEmpty()) {
+        if (!empty($guests)) {
             $s->update(['state' => 'payment_guest_select', 'data' => $d]);
-            $btns = $guests->map(fn($g) => [[
-                'text'          => "#{$g->beds24_booking_id} {$g->guest_name}",
-                'callback_data' => "guest_{$g->beds24_booking_id}",
-            ]])->toArray();
+            $btns = array_map(fn($g) => [[
+                'text'          => "#{$g['id']} {$g['guestFirstName']} {$g['guestName']}",
+                'callback_data' => "guest_{$g['id']}",
+            ]], $guests);
             $btns[] = [['text' => '✏️ Ручной ввод', 'callback_data' => 'guest_manual']];
-            $this->send($chatId, "Выберите гостя из сегодняшних заездов:", ['inline_keyboard' => $btns], 'inline');
+            $this->send($chatId, "Выберите гостя из текущих заездов:", ['inline_keyboard' => $btns], 'inline');
             return response('OK');
         }
 
-        // No in-house guests found — ask for booking ID manually
+        // No in-house guests — ask for booking ID manually
         $s->update(['state' => 'payment_room', 'data' => $d]);
         $this->send($chatId, "Гостей на сегодня не найдено.\nВведите номер брони Beds24:");
         return response('OK');
+    }
+
+    /**
+     * Fetch today's in-house guests from Beds24 API live.
+     * Returns arrivals today + stayovers (arrived before today, departing today or later).
+     * Returns empty array on API failure so caller falls back to manual entry.
+     */
+    protected function fetchInHouseGuests(): array
+    {
+        try {
+            $today = Carbon::today()->format('Y-m-d');
+            $propertyId = [(string) self::PROPERTY_ID];
+
+            // Arrivals today
+            $arrivalsResp = $this->beds24->getBookings([
+                'arrival'    => $today,
+                'propertyId' => $propertyId,
+            ]);
+            $arrivals = $arrivalsResp['data'] ?? [];
+
+            // Currently in-house (arrived before today, still here)
+            $currentResp = $this->beds24->getBookings([
+                'filter'     => 'current',
+                'propertyId' => $propertyId,
+            ]);
+            $current = array_filter($currentResp['data'] ?? [], function ($b) use ($today) {
+                return $b['arrival'] < $today
+                    && !in_array($b['status'], ['cancelled', 'declined']);
+            });
+
+            // Merge, deduplicate by booking ID, remove cancelled
+            $all = collect(array_merge($arrivals, array_values($current)))
+                ->filter(fn($b) => !in_array($b['status'] ?? '', ['cancelled', 'declined']))
+                ->unique('id')
+                ->sortBy(fn($b) => ($b['guestFirstName'] ?? '') . ' ' . ($b['guestName'] ?? ''))
+                ->values()
+                ->all();
+
+            return $all;
+        } catch (\Throwable $e) {
+            Log::warning('CashierBot: Beds24 guest fetch failed', ['error' => $e->getMessage()]);
+            return [];
+        }
     }
 
     /**
