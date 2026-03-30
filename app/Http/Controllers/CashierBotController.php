@@ -1285,8 +1285,8 @@ class CashierBotController extends Controller
             $b[$c] += $bs->amount;
         }
 
-        // Add transactions
-        foreach (CashTransaction::where('cashier_shift_id', $shift->id)->get() as $tx) {
+        // Add transactions (drawerTruth excludes beds24_external audit rows)
+        foreach (CashTransaction::where('cashier_shift_id', $shift->id)->drawerTruth()->get() as $tx) {
             $c = is_string($tx->currency) ? $tx->currency : ($tx->currency->value ?? 'UZS');
             if (!isset($b[$c])) $b[$c] = 0;
             $typeVal = is_string($tx->type) ? $tx->type : ($tx->type->value ?? 'out');
