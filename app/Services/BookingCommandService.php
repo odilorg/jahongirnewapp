@@ -4,7 +4,10 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\DTOs\BookingFinance;
 use App\DTOs\CreateBookingRequest;
+use App\Enums\ChargeWriteStatus;
+use App\Enums\FinanceWritePolicy;
 use App\Models\RoomUnitMapping;
 use App\Models\User;
 use Illuminate\Support\Facades\Log;
@@ -334,9 +337,10 @@ class BookingCommandService
 
                 if ($result['success'] ?? false) {
                     $successes[] = [
-                        'unit'      => $mapping->unit_name,
-                        'room'      => $mapping->room_name,
-                        'bookingId' => $result['bookingId'] ?? $result['id'] ?? 'unknown',
+                        'unit'       => $mapping->unit_name,
+                        'room'       => $mapping->room_name,
+                        'bookingId'  => $result['bookingId'] ?? $result['id'] ?? 'unknown',
+                        'propertyId' => (int) $mapping->property_id,
                     ];
                 } else {
                     $failures[] = ['unit' => $mapping->unit_name, 'error' => 'API returned failure'];
@@ -350,8 +354,11 @@ class BookingCommandService
             }
         }
 
-        // 6. Format operator-facing result
-        return $this->formatCreateBookingResult($request, $successes, $failures, $preflightBypassed);
+        // 6. Write quoted charge (if finance provided and feature enabled)
+        $chargeStatus = $this->determineChargeWrite($request->finance, $successes, $request->createdBy);
+
+        // 7. Format operator-facing result
+        return $this->formatCreateBookingResult($request, $successes, $failures, $preflightBypassed, $chargeStatus);
     }
 
     protected function handleViewBookings(array $parsed): string
@@ -972,6 +979,71 @@ class BookingCommandService
     }
 
     /**
+     * Build the audit marker string embedded in the invoice item description.
+     * Format: "Room charge — BOT-CHG|{propertyId}|{bookingId}|{amountCents}|{staffSlug}|{isoDate}"
+     * The pipe-delimited suffix allows programmatic extraction from Beds24 reports.
+     */
+    private function buildChargeMarker(int $propertyId, int $bookingId, float $amount, string $createdBy): string
+    {
+        $amountCents = (int) round($amount * 100);
+        $staffSlug   = strtolower(preg_replace('/[^a-z0-9]+/i', '-', trim($createdBy)));
+        $isoDate     = now()->toDateString();
+
+        return "Room charge — BOT-CHG|{$propertyId}|{$bookingId}|{$amountCents}|{$staffSlug}|{$isoDate}";
+    }
+
+    /**
+     * Decide whether to write a charge item, execute the write, and return the outcome.
+     * All finance policy decisions live here — Beds24BookingService stays dumb.
+     */
+    private function determineChargeWrite(
+        ?BookingFinance $finance,
+        array $successes,
+        string $createdBy,
+    ): ChargeWriteStatus {
+        if ($finance === null) {
+            return ChargeWriteStatus::None;
+        }
+
+        if (!config('services.booking_bot.write_charge_items', false)) {
+            return ChargeWriteStatus::SkippedFeatureDisabled;
+        }
+
+        // Multi-room: combined total can't be split automatically — operator must add per room
+        if (count($successes) > 1) {
+            return ChargeWriteStatus::SkippedMultiRoomUnsupported;
+        }
+
+        // All bookings failed — nothing to attach the charge to
+        if (empty($successes)) {
+            return ChargeWriteStatus::None;
+        }
+
+        $success    = $successes[0];
+        $bookingId  = (int) $success['bookingId'];
+        $propertyId = (int) ($success['propertyId'] ?? 0);
+
+        try {
+            $marker = $this->buildChargeMarker($propertyId, $bookingId, $finance->quotedTotal, $createdBy);
+            $this->beds24->writeChargeItem($bookingId, $finance->quotedTotal, $marker);
+
+            // Optionally mirror to top-level price field based on policy
+            if (FinanceWritePolicy::fromConfig() === FinanceWritePolicy::InvoiceItemsPlusPriceMirror) {
+                $this->beds24->writeBookingPriceField($bookingId, $finance->quotedTotal);
+            }
+
+            return ChargeWriteStatus::Written;
+        } catch (\Throwable $e) {
+            Log::error('Charge write failed after booking creation', [
+                'booking_id' => $bookingId,
+                'amount'     => $finance->quotedTotal,
+                'error'      => $e->getMessage(),
+            ]);
+            return ChargeWriteStatus::Failed;
+        }
+    }
+
+    /**
      * Format the operator-facing result of a create-booking attempt.
      * Explicitly lists created booking IDs and failed rooms.
      * Partial-success message includes cancellation instructions.
@@ -980,7 +1052,8 @@ class BookingCommandService
         CreateBookingRequest $request,
         array $successes,
         array $failures,
-        bool $preflightBypassed = false
+        bool $preflightBypassed = false,
+        ChargeWriteStatus $chargeStatus = ChargeWriteStatus::None,
     ): string {
         $totalRooms = count($successes) + count($failures);
 

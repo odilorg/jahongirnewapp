@@ -930,6 +930,117 @@ class Beds24BookingService
     }
 
     /**
+     * Write a charge line item to a booking's invoiceItems (type=1 = charge).
+     * POST /bookings with a single invoiceItems entry.
+     *
+     * @throws \RuntimeException on API failure
+     */
+    public function writeChargeItem(int $bookingId, float $amount, string $description): void
+    {
+        $payload = [[
+            'id'           => $bookingId,
+            'invoiceItems' => [[
+                'type'        => 1,
+                'description' => $description,
+                'amount'      => $amount,
+            ]],
+        ]];
+
+        Log::info("Beds24: writing charge item for booking {$bookingId}", [
+            'amount'      => $amount,
+            'description' => $description,
+        ]);
+
+        $response = $this->apiCall('POST', '/bookings', $payload);
+
+        if (!$response->successful()) {
+            throw new \RuntimeException(
+                "Beds24 writeChargeItem failed for booking {$bookingId}: HTTP {$response->status()}"
+            );
+        }
+
+        $result = $response->json();
+        $first  = $result[0] ?? [];
+
+        if (!empty($first['errors'])) {
+            throw new \RuntimeException(
+                "Beds24 writeChargeItem returned errors for booking {$bookingId}: " . json_encode($first['errors'])
+            );
+        }
+
+        Log::info("Beds24: charge item written for booking {$bookingId}");
+    }
+
+    /**
+     * Mirror the quoted total to the booking's top-level price field.
+     * Only call this when FinanceWritePolicy::InvoiceItemsPlusPriceMirror is active.
+     *
+     * @throws \RuntimeException on API failure
+     */
+    public function writeBookingPriceField(int $bookingId, float $amount): void
+    {
+        $payload = [[
+            'id'    => $bookingId,
+            'price' => $amount,
+        ]];
+
+        Log::info("Beds24: writing price field for booking {$bookingId}", ['amount' => $amount]);
+
+        $response = $this->apiCall('POST', '/bookings', $payload);
+
+        if (!$response->successful()) {
+            throw new \RuntimeException(
+                "Beds24 writeBookingPriceField failed for booking {$bookingId}: HTTP {$response->status()}"
+            );
+        }
+
+        $result = $response->json();
+        $first  = $result[0] ?? [];
+
+        if (!empty($first['errors'])) {
+            throw new \RuntimeException(
+                "Beds24 writeBookingPriceField returned errors for booking {$bookingId}: " . json_encode($first['errors'])
+            );
+        }
+
+        Log::info("Beds24: price field written for booking {$bookingId}");
+    }
+
+    /**
+     * Fetch the current balance for a booking.
+     * Returns null if the API call fails — never throws.
+     */
+    public function getBookingBalance(int $bookingId): ?float
+    {
+        try {
+            $response = $this->apiCall('GET', '/bookings', [
+                'id'             => $bookingId,
+                'includeInvoice' => 'true',
+            ]);
+
+            if (!$response->successful()) {
+                return null;
+            }
+
+            $result  = $response->json();
+            $booking = $result['data'][0] ?? null;
+
+            if (!$booking) {
+                return null;
+            }
+
+            $balance = $booking['balance'] ?? null;
+
+            return $balance !== null ? (float) $balance : null;
+        } catch (\Throwable $e) {
+            Log::warning("Beds24 getBookingBalance failed for booking {$bookingId}", [
+                'error' => $e->getMessage(),
+            ]);
+            return null;
+        }
+    }
+
+    /**
      * Update multiple room units' status at once (batch).
      * $rooms = [ ['room_type_id' => 94984, 'unit_id' => 3, 'status' => 'clean'], ... ]
      */

@@ -172,4 +172,79 @@ class CreateBookingRequestTest extends TestCase
         $req = CreateBookingRequest::fromParsed($parsed, 'Staff');
         $this->assertNull($req->validationError());
     }
+
+    // ──────────────────────────────────────────────
+    // validationError() — optional finance
+    // ──────────────────────────────────────────────
+
+    /** @test */
+    public function it_passes_when_no_price_key_is_present(): void
+    {
+        // price absent → finance is null → no validation error from finance
+        $parsed = $this->baseValid();
+
+        $req = CreateBookingRequest::fromParsed($parsed, 'Staff');
+        $this->assertNull($req->finance);
+        $this->assertNull($req->validationError());
+    }
+
+    /** @test */
+    public function it_passes_when_price_is_explicitly_null(): void
+    {
+        $parsed           = $this->baseValid();
+        $parsed['price']  = null;
+
+        $req = CreateBookingRequest::fromParsed($parsed, 'Staff');
+        $this->assertNull($req->finance);
+        $this->assertNull($req->validationError());
+    }
+
+    /** @test */
+    public function it_passes_with_a_valid_quoted_total(): void
+    {
+        $parsed          = $this->baseValid();
+        $parsed['price'] = 200.0;
+
+        $req = CreateBookingRequest::fromParsed($parsed, 'Staff');
+        $this->assertNotNull($req->finance);
+        $this->assertSame(200.0, $req->finance->quotedTotal);
+        $this->assertNull($req->validationError());
+    }
+
+    /** @test */
+    public function it_rejects_a_zero_quoted_total(): void
+    {
+        $parsed          = $this->baseValid();
+        $parsed['price'] = 0;
+
+        $req   = CreateBookingRequest::fromParsed($parsed, 'Staff');
+        $error = $req->validationError();
+
+        $this->assertNotNull($error);
+        $this->assertStringContainsString('greater than zero', $error);
+    }
+
+    /** @test */
+    public function it_rejects_a_negative_quoted_total(): void
+    {
+        $parsed          = $this->baseValid();
+        $parsed['price'] = -50;
+
+        $req = CreateBookingRequest::fromParsed($parsed, 'Staff');
+        $this->assertNotNull($req->validationError());
+    }
+
+    /** @test */
+    public function finance_validation_fires_after_room_check(): void
+    {
+        // No rooms + invalid price: room error should surface first
+        $parsed = $this->baseValid();
+        unset($parsed['room']);
+        $parsed['price'] = -10;
+
+        $req   = CreateBookingRequest::fromParsed($parsed, 'Staff');
+        $error = $req->validationError();
+
+        $this->assertStringContainsString('room', $error);
+    }
 }

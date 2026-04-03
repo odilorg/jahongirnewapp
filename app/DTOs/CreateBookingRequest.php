@@ -10,15 +10,17 @@ readonly class CreateBookingRequest
 {
     /**
      * @param BookingRoomRequest[] $rooms  Normalized, deduplicated list
+     * @param BookingFinance|null  $finance Optional quoted total. Null means no price was provided.
      */
     public function __construct(
-        public string $guestName,
-        public string $guestPhone,
-        public string $guestEmail,
-        public string $checkIn,
-        public string $checkOut,
-        public array  $rooms,
-        public string $createdBy,      // staff name for booking notes
+        public string         $guestName,
+        public string         $guestPhone,
+        public string         $guestEmail,
+        public string         $checkIn,
+        public string         $checkOut,
+        public array          $rooms,
+        public string         $createdBy,      // staff name for booking notes
+        public ?BookingFinance $finance = null, // optional quoted total at booking time
     ) {}
 
     /**
@@ -34,6 +36,7 @@ readonly class CreateBookingRequest
             checkOut:   trim($parsed['dates']['check_out']    ?? ''),
             rooms:      BookingRoomRequest::fromParsed($parsed),
             createdBy:  $createdBy,
+            finance:    BookingFinance::fromParsed($parsed),
         );
     }
 
@@ -71,6 +74,13 @@ readonly class CreateBookingRequest
 
         if (empty($this->rooms)) {
             return 'Please specify at least one room. Example: book room 12 under...';
+        }
+
+        // Validate optional quoted total — a provided-but-invalid amount is an error, not silent null.
+        if ($this->finance !== null) {
+            if ($error = $this->finance->validationError()) {
+                return $error;
+            }
         }
 
         // Guard against duplicate room requests (e.g. "book rooms 12 and 12 under...").

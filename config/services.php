@@ -58,6 +58,13 @@ return [
         ],
     ],
 
+    'booking_bot' => [
+        // Enable writing quoted totals as Beds24 invoiceItems after Phase 0 confirms no side-effects.
+        'write_charge_items'   => env('BOOKING_BOT_WRITE_CHARGE_ITEMS', false),
+        // 'invoice_items_only' (safe default) or 'invoice_items_plus_price_mirror' (enable after Phase 0 Experiment C).
+        'finance_write_policy' => env('BOOKING_BOT_FINANCE_WRITE_MODE', 'invoice_items_only'),
+    ],
+
     'mailgun' => [
         'domain' => env('MAILGUN_DOMAIN'),
         'secret' => env('MAILGUN_SECRET'),
