@@ -795,42 +795,45 @@ class ProcessBookingMessage implements ShouldQueue
                        "- Room: change booking #{$bookingId} to room 14";
             }
 
-            // If changing dates, validate availability (optional but recommended)
-            if (isset($changes['arrival']) || isset($changes['departure'])) {
-                $newArrival = $changes['arrival'] ?? $currentBooking['arrival'];
-                $newDeparture = $changes['departure'] ?? $currentBooking['departure'];
+            // Always compute effective dates from the change set, falling back to current booking values.
+            // This must be done before any date validation or availability check, regardless of
+            // whether dates are part of the requested changes.
+            $effectiveArrival   = $changes['arrival']   ?? $currentBooking['arrival'];
+            $effectiveDeparture = $changes['departure'] ?? $currentBooking['departure'];
 
-                // Basic date validation
-                if ($newArrival >= $newDeparture) {
-                    return "❌ Invalid Dates\n\n" .
-                           "Check-in date must be before check-out date.\n" .
-                           "Requested: {$newArrival} to {$newDeparture}";
-                }
+            // Validate date order using Carbon for reliable comparison across formats
+            $arrivalDate   = \Carbon\Carbon::parse($effectiveArrival);
+            $departureDate = \Carbon\Carbon::parse($effectiveDeparture);
+
+            if (!$arrivalDate->lt($departureDate)) {
+                return "❌ Invalid Dates\n\n" .
+                       "Check-in date must be before check-out date.\n" .
+                       "Requested: {$effectiveArrival} to {$effectiveDeparture}";
             }
 
-                // Check if dates are actually changing - prevent overbooking
-                $currentArrival = $currentBooking['arrival'];
-                $currentDeparture = $currentBooking['departure'];
-                $datesChanged = ($newArrival != $currentArrival) || ($newDeparture != $currentDeparture);
+            // Check if dates are actually changing to avoid unnecessary availability calls
+            $currentArrival   = $currentBooking['arrival'];
+            $currentDeparture = $currentBooking['departure'];
+            $datesChanged = ($effectiveArrival !== $currentArrival) || ($effectiveDeparture !== $currentDeparture);
 
-                if ($datesChanged) {
-                    $roomId = $currentBooking['roomId'] ?? null;
+            if ($datesChanged) {
+                    $roomId     = $currentBooking['roomId']     ?? null;
                     $propertyId = $currentBooking['propertyId'] ?? null;
 
                     if ($roomId && $propertyId) {
                         try {
                             Log::info('Checking room availability for date change', [
                                 'booking_id' => $bookingId,
-                                'room_id' => $roomId,
-                                'current' => [$currentArrival, $currentDeparture],
-                                'new' => [$newArrival, $newDeparture]
+                                'room_id'    => $roomId,
+                                'current'    => [$currentArrival, $currentDeparture],
+                                'new'        => [$effectiveArrival, $effectiveDeparture],
                             ]);
 
-                            $availability = $beds24->checkAvailability($newArrival, $newDeparture, [$propertyId]);
+                            $availability = $beds24->checkAvailability($effectiveArrival, $effectiveDeparture, [$propertyId]);
 
                             if ($availability['success']) {
                                 $availableRooms = $availability['availableRooms'] ?? [];
-                                $roomAvailable = false;
+                                $roomAvailable  = false;
 
                                 foreach ($availableRooms as $availRoom) {
                                     if ($availRoom['roomId'] == $roomId && $availRoom['quantity'] > 0) {
@@ -844,7 +847,7 @@ class ProcessBookingMessage implements ShouldQueue
                                     return "Room Not Available\n\n" .
                                            "Cannot extend/modify booking #{$bookingId}\n" .
                                            "Room: {$roomName}\n" .
-                                           "Requested: {$newArrival} to {$newDeparture}\n\n" .
+                                           "Requested: {$effectiveArrival} to {$effectiveDeparture}\n\n" .
                                            "This room is booked by another guest during the new period.\n" .
                                            "Please choose different dates or cancel and rebook.";
                                 }
@@ -852,10 +855,10 @@ class ProcessBookingMessage implements ShouldQueue
                                 Log::info('Room available - proceeding with modification');
                             }
                         } catch (\Exception $e) {
-                            Log::warning('Availability check failed: ' . $e->getMessage());
+                            Log::warning('Availability check failed during modify: ' . $e->getMessage());
                         }
                     }
-                }
+            }
 
 
             // Perform the modification
