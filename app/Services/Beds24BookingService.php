@@ -972,6 +972,51 @@ class Beds24BookingService
     }
 
     /**
+     * Write a payment line item to a booking's invoiceItems (type=2).
+     * POST /bookings with a single invoiceItems entry.
+     *
+     * @throws \RuntimeException on API failure
+     */
+    public function writePaymentItem(int $bookingId, float $amount, string $description): void
+    {
+        $payload = [[
+            'id'           => $bookingId,
+            'invoiceItems' => [[
+                'type'        => '2',
+                'amount'      => $amount,
+                'description' => $description,
+            ]],
+        ]];
+
+        Log::info("Beds24: writing payment item for booking {$bookingId}", [
+            'amount'      => $amount,
+            'description' => $description,
+        ]);
+
+        $response = $this->apiCall('POST', '/bookings', $payload);
+
+        if (!$response->successful()) {
+            throw new \RuntimeException(
+                "Beds24 writePaymentItem failed for booking {$bookingId}: HTTP {$response->status()}"
+            );
+        }
+
+        $result = $response->json();
+        $first  = $result[0] ?? [];
+
+        if (!empty($first['errors'])) {
+            throw new \RuntimeException(
+                "Beds24 writePaymentItem returned errors for booking {$bookingId}: " . json_encode($first['errors'])
+            );
+        }
+
+        Log::info("Beds24: payment item written for booking {$bookingId}", [
+            'amount'      => $amount,
+            'description' => $description,
+        ]);
+    }
+
+    /**
      * Mirror the quoted total to the booking's top-level price field.
      * Only call this when FinanceWritePolicy::InvoiceItemsPlusPriceMirror is active.
      *

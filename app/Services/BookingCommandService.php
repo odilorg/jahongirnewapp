@@ -6,6 +6,7 @@ namespace App\Services;
 
 use App\DTOs\BookingFinance;
 use App\DTOs\CreateBookingRequest;
+use App\DTOs\RecordPaymentRequest;
 use App\Enums\ChargeWriteStatus;
 use App\Enums\FinanceWritePolicy;
 use App\Models\RoomUnitMapping;
@@ -47,6 +48,9 @@ class BookingCommandService
 
             case 'cancel_booking':
                 return $this->handleCancelBooking($parsed, $staff);
+
+            case 'record_payment':
+                return $this->handleRecordPayment($parsed, $staff);
 
             default:
                 return "I did not quite understand that. Try:\n\n" .
@@ -882,6 +886,83 @@ class BookingCommandService
                    "Error: {$e->getMessage()}\n\n" .
                    "Please check the details and try again, or modify manually in Beds24.";
         }
+    }
+
+    protected function handleRecordPayment(array $parsed, User $staff): string
+    {
+        // 1. Build and validate the request
+        $request = RecordPaymentRequest::fromParsed($parsed, $staff->name);
+
+        if ($error = $request->validationError()) {
+            return $error;
+        }
+
+        $bookingId = (int) $request->bookingId;
+
+        // 2. Build audit marker
+        $amountCents = (int) round($request->amount * 100);
+        $staffSlug   = substr(str_replace(' ', '.', strtolower($request->recordedBy)), 0, 16);
+        $method      = $request->method ?? 'unspecified';
+        $date        = date('Y-m-d');
+
+        $methodLabel = match ($request->method) {
+            'cash'     => 'Cash',
+            'card'     => 'Card',
+            'transfer' => 'Transfer',
+            default    => 'Unspecified',
+        };
+
+        $description = "{$methodLabel} payment — BOT-PMT|{$bookingId}|{$amountCents}|{$method}|{$staffSlug}|{$date}";
+
+        // 3. Write to Beds24
+        try {
+            $this->beds24->writePaymentItem($bookingId, $request->amount, $description);
+        } catch (\Throwable $e) {
+            Log::error('Payment recording failed', [
+                'booking_id' => $bookingId,
+                'amount'     => $request->amount,
+                'error'      => $e->getMessage(),
+            ]);
+
+            return "❌ Payment recording failed.\n\n"
+                 . "Booking: #{$bookingId}\n"
+                 . "Error: {$e->getMessage()}\n\n"
+                 . "Please record the payment manually in Beds24.";
+        }
+
+        // 4. Fetch updated balance (non-throwing — null is acceptable)
+        $balance = $this->beds24->getBookingBalance($bookingId);
+
+        // 5. Return confirmation
+        return $this->formatPaymentConfirmation($request, $balance);
+    }
+
+    private function formatPaymentConfirmation(RecordPaymentRequest $request, ?float $balance): string
+    {
+        $lines = ['✅ Payment Recorded', ''];
+
+        $lines[] = "Booking:     #{$request->bookingId}";
+        $lines[] = "Amount:      $" . number_format($request->amount, 2);
+
+        if ($request->method !== null) {
+            $methodLabel = match ($request->method) {
+                'cash'     => 'Cash',
+                'card'     => 'Card',
+                'transfer' => 'Transfer',
+                default    => ucfirst($request->method),
+            };
+            $lines[] = "Method:      {$methodLabel}";
+        }
+
+        $lines[] = "Recorded by: {$request->recordedBy}";
+        $lines[] = "Date:        " . date('Y-m-d');
+
+        if ($balance !== null) {
+            $lines[] = '';
+            $lines[] = "Balance due: $" . number_format($balance, 2);
+        }
+
+        return implode("\n", $lines);
     }
 
     // ──────────────────────────────────────────────────────────────────────────
