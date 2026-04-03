@@ -73,21 +73,16 @@ readonly class CreateBookingRequest
             return 'Please specify at least one room. Example: book room 12 under...';
         }
 
-        // Guard against duplicate room requests (e.g. "book rooms 12 and 12 under...")
-        // Deduplication already ran in BookingRoomRequest::fromParsed(), so if the
-        // original count was higher than the deduplicated count, warn the operator.
-        $rawRooms  = BookingRoomRequest::fromParsed([
-            'rooms'    => array_map(fn($r) => ['unit_name' => $r->unitName, 'property' => $r->propertyHint], $this->rooms),
-            'property' => null,
-        ]);
-
-        // Simpler check: count the raw input before dedup was applied.
-        // We compare against the rooms already stored to detect post-dedup shrinkage.
+        // Guard against duplicate room requests (e.g. "book rooms 12 and 12 under...").
+        // BookingRoomRequest::fromParsed() returns the raw list without silent deduplication,
+        // so this check operates on the actual operator input.
         $allUnits  = array_map(fn($r) => $r->unitName . '|' . ($r->propertyHint ?? ''), $this->rooms);
         $uniqueSet = array_unique($allUnits);
 
         if (count($allUnits) !== count($uniqueSet)) {
-            return 'Duplicate rooms detected in your request. '
+            $dupes = array_diff_key($allUnits, array_unique($allUnits));
+            $units = implode(', ', array_unique(array_map(fn($k) => explode('|', $k)[0], $dupes)));
+            return "Duplicate room(s) in your request: {$units}. "
                  . 'Each room should appear only once per booking command.';
         }
 

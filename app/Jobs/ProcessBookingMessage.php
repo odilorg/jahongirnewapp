@@ -311,15 +311,22 @@ class ProcessBookingMessage implements ShouldQueue
         $mappings = $resolution['mappings']; // RoomUnitMapping[]
 
         // 4. Availability preflight for all resolved rooms — avoids obvious partial failures
-        $unavailable = $this->checkRoomsAvailability($mappings, $request->checkIn, $request->checkOut, $beds24);
+        $availabilityResult = $this->checkRoomsAvailability($mappings, $request->checkIn, $request->checkOut, $beds24);
 
-        if (!empty($unavailable)) {
-            $unitList = implode(', ', array_map(fn($m) => "Unit {$m->unit_name}", $unavailable));
+        if (!$availabilityResult['ok']) {
+            // Preflight API call failed — continue but warn the operator
+            Log::warning('Availability preflight bypassed, proceeding to sequential creation', [
+                'reason' => $availabilityResult['reason'],
+            ]);
+        } elseif (!empty($availabilityResult['unavailable'])) {
+            $unitList = implode(', ', array_map(fn($m) => "Unit {$m->unit_name}", $availabilityResult['unavailable']));
             return "❌ Rooms Not Available\n\n"
                  . "The following rooms are already booked for {$request->checkIn} → {$request->checkOut}:\n"
                  . "  {$unitList}\n\n"
                  . "Please choose different dates or different rooms.";
         }
+
+        $preflightBypassed = !$availabilityResult['ok'];
 
         // 5. Sequential creation — Beds24 batch POST /bookings is non-transactional
         $successes = [];
@@ -357,7 +364,7 @@ class ProcessBookingMessage implements ShouldQueue
         }
 
         // 6. Format operator-facing result
-        return $this->formatCreateBookingResult($request, $successes, $failures);
+        return $this->formatCreateBookingResult($request, $successes, $failures, $preflightBypassed);
     }
 
     /**
@@ -411,7 +418,10 @@ class ProcessBookingMessage implements ShouldQueue
 
     /**
      * Check availability for all resolved room mappings over the requested date range.
-     * Returns an array of RoomUnitMapping objects that are NOT available.
+     *
+     * Returns a structured result:
+     *   ['ok' => true,  'unavailable' => [...RoomUnitMapping]]  — preflight ran
+     *   ['ok' => false, 'reason' => '...', 'unavailable' => []] — API failure, bypassed
      */
     private function checkRoomsAvailability(array $mappings, string $checkIn, string $checkOut, $beds24): array
     {
@@ -420,8 +430,8 @@ class ProcessBookingMessage implements ShouldQueue
         );
 
         try {
-            $availability    = $beds24->checkAvailability($checkIn, $checkOut, $propertyIds);
-            $availableRooms  = $availability['availableRooms'] ?? [];
+            $availability   = $beds24->checkAvailability($checkIn, $checkOut, $propertyIds);
+            $availableRooms = $availability['availableRooms'] ?? [];
 
             // Index available rooms by roomId for O(1) lookup
             $availableByRoom = [];
@@ -438,14 +448,12 @@ class ProcessBookingMessage implements ShouldQueue
                 }
             }
 
-            return $unavailable;
+            return ['ok' => true, 'unavailable' => $unavailable];
         } catch (\Exception $e) {
-            // Availability check failure is non-fatal — log and proceed.
-            // Creation itself will fail gracefully if rooms are taken.
-            Log::warning('Availability preflight failed, proceeding with creation', [
-                'error' => $e->getMessage(),
-            ]);
-            return [];
+            // Beds24 availability API is down — non-fatal, creation will still be attempted.
+            // Caller surfaces this to the operator via preflightBypassed flag.
+            Log::warning('Beds24 availability preflight failed', ['error' => $e->getMessage()]);
+            return ['ok' => false, 'reason' => $e->getMessage(), 'unavailable' => []];
         }
     }
 
@@ -457,7 +465,8 @@ class ProcessBookingMessage implements ShouldQueue
     private function formatCreateBookingResult(
         CreateBookingRequest $request,
         array $successes,
-        array $failures
+        array $failures,
+        bool $preflightBypassed = false
     ): string {
         $totalRooms = count($successes) + count($failures);
 
@@ -470,11 +479,15 @@ class ProcessBookingMessage implements ShouldQueue
             $header   = "✅ {$roomWord} Created Successfully";
         }
 
-        $lines = [
-            $header,
-            '',
-            "Guest:     {$request->guestName}",
-        ];
+        $lines = [$header, ''];
+
+        if ($preflightBypassed) {
+            $lines[] = "⚠️  Availability could not be verified (Beds24 API unavailable).";
+            $lines[] = "    Booking was attempted anyway — check Beds24 to confirm.";
+            $lines[] = '';
+        }
+
+        $lines[] = "Guest:     {$request->guestName}";
 
         if ($request->guestPhone !== '') {
             $lines[] = "Phone:     {$request->guestPhone}";

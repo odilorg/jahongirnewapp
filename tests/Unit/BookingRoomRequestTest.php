@@ -149,8 +149,10 @@ class BookingRoomRequestTest extends TestCase
     }
 
     /** @test */
-    public function it_deduplicates_identical_room_requests(): void
+    public function it_preserves_duplicates_for_upstream_validation(): void
     {
+        // fromParsed() does NOT silently deduplicate — that is CreateBookingRequest's job.
+        // Caller (validationError) must surface the duplicate to the operator explicitly.
         $requests = BookingRoomRequest::fromParsed([
             'rooms' => [
                 ['unit_name' => '12'],
@@ -159,9 +161,10 @@ class BookingRoomRequestTest extends TestCase
             ],
         ]);
 
-        $this->assertCount(2, $requests);
+        $this->assertCount(3, $requests);
         $this->assertSame('12', $requests[0]->unitName);
-        $this->assertSame('14', $requests[1]->unitName);
+        $this->assertSame('12', $requests[1]->unitName);
+        $this->assertSame('14', $requests[2]->unitName);
     }
 
     /** @test */

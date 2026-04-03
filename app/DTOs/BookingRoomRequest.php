@@ -69,19 +69,9 @@ readonly class BookingRoomRequest
             }
         }
 
-        // Deduplicate by (unitName, propertyHint) key — reject silently because
-        // CreateBookingRequest::validationError() will surface a clear message to the operator.
-        $seen   = [];
-        $unique = [];
-
-        foreach ($requests as $req) {
-            $key = $req->unitName . '|' . ($req->propertyHint ?? '');
-            if (!isset($seen[$key])) {
-                $seen[$key] = true;
-                $unique[]   = $req;
-            }
-        }
-
-        return $unique;
+        // Return the full list including any duplicates.
+        // Duplicate detection is the responsibility of CreateBookingRequest::validationError(),
+        // which surfaces a clear operator-facing message rather than silently collapsing entries.
+        return $requests;
     }
 }

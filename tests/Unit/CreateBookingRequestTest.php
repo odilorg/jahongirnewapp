@@ -134,4 +134,42 @@ class CreateBookingRequestTest extends TestCase
         $req = CreateBookingRequest::fromParsed($parsed, 'Staff');
         $this->assertNotNull($req->validationError());
     }
+
+    // ──────────────────────────────────────────────
+    // validationError() — duplicate rooms
+    // ──────────────────────────────────────────────
+
+    /** @test */
+    public function it_rejects_duplicate_room_requests(): void
+    {
+        $parsed = $this->baseValid();
+        $parsed['rooms'] = [
+            ['unit_name' => '12'],
+            ['unit_name' => '12'],
+            ['unit_name' => '14'],
+        ];
+        unset($parsed['room']);
+
+        $req   = CreateBookingRequest::fromParsed($parsed, 'Staff');
+        $error = $req->validationError();
+
+        $this->assertNotNull($error);
+        $this->assertStringContainsString('Duplicate', $error);
+        $this->assertStringContainsString('12', $error);
+    }
+
+    /** @test */
+    public function it_passes_for_different_rooms_with_same_number_but_different_properties(): void
+    {
+        // Room "12" at hotel and "12" at premium are distinct — should not be a duplicate error
+        $parsed = $this->baseValid();
+        $parsed['rooms'] = [
+            ['unit_name' => '12', 'property' => 'hotel'],
+            ['unit_name' => '12', 'property' => 'premium'],
+        ];
+        unset($parsed['room']);
+
+        $req = CreateBookingRequest::fromParsed($parsed, 'Staff');
+        $this->assertNull($req->validationError());
+    }
 }
