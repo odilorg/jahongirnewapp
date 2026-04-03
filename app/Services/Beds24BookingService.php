@@ -558,7 +558,7 @@ class Beds24BookingService
         try {
             // Query both properties by default
             if (empty($propertyIds)) {
-                $propertyIds = ['41097', '172793']; // Jahongir Hotel, Jahongir Premium
+                $propertyIds = array_values(config('services.beds24.properties', [41097, 172793]));
             }
 
             // Validate and swap dates if needed

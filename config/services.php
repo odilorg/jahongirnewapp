@@ -48,9 +48,14 @@ return [
     ],
 
     'beds24' => [
-        'api_token' => env('BEDS24_API_TOKEN'),
-        'api_v2_token' => env('BEDS24_API_V2_TOKEN'),
+        'api_token'            => env('BEDS24_API_TOKEN'),
+        'api_v2_token'         => env('BEDS24_API_V2_TOKEN'),
         'api_v2_refresh_token' => env('BEDS24_API_V2_REFRESH_TOKEN'),
+        // Property IDs: override via BEDS24_PROPERTY_ID_HOTEL / _PREMIUM in .env if they change.
+        'properties' => [
+            'hotel'   => (int) env('BEDS24_PROPERTY_ID_HOTEL',   41097),
+            'premium' => (int) env('BEDS24_PROPERTY_ID_PREMIUM', 172793),
+        ],
     ],
 
     'mailgun' => [

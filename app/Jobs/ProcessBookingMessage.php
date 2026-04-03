@@ -317,9 +317,9 @@ class ProcessBookingMessage implements ShouldQueue
         // Apply property filter if specified
         if ($propertyHint) {
             if (stripos($propertyHint, 'premium') !== false) {
-                $query->where('property_id', '172793'); // Jahongir Premium
+                $query->where('property_id', config('services.beds24.properties.premium'));
             } elseif (stripos($propertyHint, 'hotel') !== false) {
-                $query->where('property_id', '41097'); // Jahongir Hotel
+                $query->where('property_id', config('services.beds24.properties.hotel'));
             }
         }
 
@@ -756,9 +756,9 @@ class ProcessBookingMessage implements ShouldQueue
                 // Apply property filter if specified
                 if ($propertyHint) {
                     if (stripos($propertyHint, 'premium') !== false) {
-                        $query->where('property_id', '172793');
+                        $query->where('property_id', config('services.beds24.properties.premium'));
                     } elseif (stripos($propertyHint, 'hotel') !== false) {
-                        $query->where('property_id', '41097');
+                        $query->where('property_id', config('services.beds24.properties.hotel'));
                     }
                 }
 
