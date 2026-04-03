@@ -23,8 +23,12 @@ class Beds24BookingService
     public function __construct()
     {
         // Prefer cached rotated refresh token (Beds24 rotates on each use)
+        // Use ?? (not ?:) so an empty-string config value is kept, not skipped.
+        // config('key', default) returns null (not the default) when the key exists
+        // but its env() value is null, so chain a second ?? '' as the final guard.
         $this->refreshToken = Cache::get(self::CACHE_KEY_REFRESH_TOKEN)
-            ?: config('services.beds24.api_v2_refresh_token', '');
+            ?? config('services.beds24.api_v2_refresh_token')
+            ?? '';
     }
 
     /**
