@@ -1095,6 +1095,26 @@ class BookingCommandService
             $lines[] = "❌ Unit {$f['unit']} — Failed: {$f['error']}";
         }
 
+        // Finance / charge status line (only when a quoted total was provided)
+        if ($chargeStatus !== ChargeWriteStatus::None) {
+            $total      = $request->finance ? number_format($request->finance->quotedTotal, 2) : '0.00';
+            $chargeLine = match ($chargeStatus) {
+                ChargeWriteStatus::Written => "💳 Charge: \${$total} written to Beds24",
+                ChargeWriteStatus::SkippedFeatureDisabled =>
+                    "ℹ️  Quoted: \${$total} — charge recording is off, add manually in Beds24",
+                ChargeWriteStatus::SkippedMultiRoomUnsupported =>
+                    "ℹ️  Quoted: \${$total} — multi-room total, add charge per room manually",
+                ChargeWriteStatus::Failed =>
+                    "⚠️  Charge write failed — add \${$total} manually in Beds24",
+                default => null,
+            };
+
+            if ($chargeLine !== null) {
+                $lines[] = '';
+                $lines[] = $chargeLine;
+            }
+        }
+
         if (!empty($failures) && !empty($successes)) {
             $createdIds = implode(', ', array_map(fn($s) => "#{$s['bookingId']}", $successes));
             $lines[]    = '';
