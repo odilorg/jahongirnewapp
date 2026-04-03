@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\DTOs\CreateBookingRequest;
 use App\Models\User;
 use App\Models\RoomUnitMapping;
 use App\Services\Beds24BookingService;
@@ -292,109 +293,218 @@ class ProcessBookingMessage implements ShouldQueue
 
     protected function handleCreateBooking(array $parsed, $staff, $beds24): string
     {
-        $room = $parsed['room'] ?? null;
-        $guest = $parsed['guest'] ?? null;
-        $dates = $parsed['dates'] ?? null;
+        // 1. Normalize raw parser output into a typed request
+        $request = CreateBookingRequest::fromParsed($parsed, $staff->name);
 
-        if (!$room || empty($room['unit_name'])) {
-            return 'Please specify a room. Example: book room 12 under...';
+        // 2. Validate presence, date format/order, room list, duplicates
+        if ($error = $request->validationError()) {
+            return $error;
         }
 
-        if (!$guest || empty($guest['name'])) {
-            return 'Please provide guest name. Example: ...under John Walker...';
+        // 3. Resolve all requested rooms before any booking is created (preflight)
+        $resolution = $this->resolveRequestedRooms($request->rooms);
+
+        if (!$resolution['ok']) {
+            return $resolution['message'];
         }
 
-        if (!$dates || empty($dates['check_in']) || empty($dates['check_out'])) {
-            return 'Please provide check-in and check-out dates.';
+        $mappings = $resolution['mappings']; // RoomUnitMapping[]
+
+        // 4. Availability preflight for all resolved rooms — avoids obvious partial failures
+        $unavailable = $this->checkRoomsAvailability($mappings, $request->checkIn, $request->checkOut, $beds24);
+
+        if (!empty($unavailable)) {
+            $unitList = implode(', ', array_map(fn($m) => "Unit {$m->unit_name}", $unavailable));
+            return "❌ Rooms Not Available\n\n"
+                 . "The following rooms are already booked for {$request->checkIn} → {$request->checkOut}:\n"
+                 . "  {$unitList}\n\n"
+                 . "Please choose different dates or different rooms.";
         }
 
-        $unitName = $room['unit_name'];
-        $propertyHint = $parsed['property'] ?? null;
+        // 5. Sequential creation — Beds24 batch POST /bookings is non-transactional
+        $successes = [];
+        $failures  = [];
 
-        // Build query for room lookup
-        $query = RoomUnitMapping::where('unit_name', $unitName);
+        foreach ($mappings as $mapping) {
+            try {
+                $result = $beds24->createBooking([
+                    'property_id' => $mapping->property_id,
+                    'room_id'     => $mapping->room_id,
+                    'check_in'    => $request->checkIn,
+                    'check_out'   => $request->checkOut,
+                    'guest_name'  => $request->guestName,
+                    'guest_phone' => $request->guestPhone,
+                    'guest_email' => $request->guestEmail,
+                    'notes'       => 'Created by ' . $request->createdBy . ' via Telegram Bot',
+                ]);
 
-        // Apply property filter if specified
-        if ($propertyHint) {
-            if (stripos($propertyHint, 'premium') !== false) {
+                if ($result['success'] ?? false) {
+                    $successes[] = [
+                        'unit'      => $mapping->unit_name,
+                        'room'      => $mapping->room_name,
+                        'bookingId' => $result['bookingId'] ?? $result['id'] ?? 'unknown',
+                    ];
+                } else {
+                    $failures[] = ['unit' => $mapping->unit_name, 'error' => 'API returned failure'];
+                }
+            } catch (\Exception $e) {
+                Log::error('Booking creation failed in multi-room flow', [
+                    'unit'  => $mapping->unit_name,
+                    'error' => $e->getMessage(),
+                ]);
+                $failures[] = ['unit' => $mapping->unit_name, 'error' => $e->getMessage()];
+            }
+        }
+
+        // 6. Format operator-facing result
+        return $this->formatCreateBookingResult($request, $successes, $failures);
+    }
+
+    /**
+     * Resolve each BookingRoomRequest to a RoomUnitMapping row.
+     *
+     * Returns ['ok' => true, 'mappings' => [...]] on success,
+     * or      ['ok' => false, 'message' => '...'] on first resolution failure.
+     */
+    private function resolveRequestedRooms(array $roomRequests): array
+    {
+        $mappings = [];
+
+        foreach ($roomRequests as $req) {
+            $query = RoomUnitMapping::where('unit_name', $req->unitName);
+
+            // Canonical hint set by DTO — no stripos() needed here
+            if ($req->propertyHint === 'premium') {
                 $query->where('property_id', config('services.beds24.properties.premium'));
-            } elseif (stripos($propertyHint, 'hotel') !== false) {
+            } elseif ($req->propertyHint === 'hotel') {
                 $query->where('property_id', config('services.beds24.properties.hotel'));
             }
-        }
 
-        $matchingRooms = $query->get();
+            $matches = $query->get();
 
-        if ($matchingRooms->isEmpty()) {
-            return 'Room ' . $unitName . ' not found. Please check the room number and try again.';
-        }
-
-        // If multiple rooms with same unit name, need to disambiguate by property
-        if ($matchingRooms->count() > 1) {
-            $propertyList = $matchingRooms->map(function($r) {
-                return $r->property_name . ' (Unit ' . $r->unit_name . ' - ' . $r->room_name . ')';
-            })->join("\n");
-
-            return "Multiple rooms found with unit number {$unitName}:\n\n" .
-                   $propertyList . "\n\n" .
-                   "Please specify the property in your booking command.\n" .
-                   "Example: book room {$unitName} at Premium under [NAME]...\n" .
-                   "Or: book room {$unitName} at Hotel under [NAME]...";
-        }
-
-        $roomMapping = $matchingRooms->first();
-
-        $guestName = $guest['name'];
-        $phone = $guest['phone'] ?? '';
-        $email = $guest['email'] ?? '';
-        $checkIn = $dates['check_in'];
-        $checkOut = $dates['check_out'];
-
-        try {
-            $bookingData = [
-                'property_id' => $roomMapping->property_id,
-                'room_id' => $roomMapping->room_id,
-                'check_in' => $checkIn,
-                'check_out' => $checkOut,
-                'guest_name' => $guestName,
-                'guest_phone' => $phone,
-                'guest_email' => $email,
-                'notes' => 'Created by ' . $staff->name . ' via Telegram Bot'
-            ];
-
-            Log::info('Creating Beds24 booking', ['data' => $bookingData]);
-
-            $result = $beds24->createBooking($bookingData);
-
-            if (isset($result['success']) && $result['success']) {
-                $bookingId = $result['bookId'] ?? 'Unknown';
-
-                return "Booking Created Successfully!\n" .
-                       "Booking ID: #{$bookingId}\n" .
-                       "Room: {$roomMapping->unit_name} ({$roomMapping->room_name})\n" .
-                       "Guest: {$guestName}\n" .
-                       "Phone: {$phone}\n" .
-                       "Email: {$email}\n" .
-                       "Check-in: {$checkIn}\n" .
-                       "Check-out: {$checkOut}\n\n" .
-                       "Booking confirmed in Beds24!";
-            } else {
-                throw new \Exception('Booking creation failed: ' . json_encode($result));
+            if ($matches->isEmpty()) {
+                return [
+                    'ok'      => false,
+                    'message' => "Room {$req->unitName} not found. Check the room number and try again.",
+                ];
             }
 
-        } catch (\Exception $e) {
-            Log::error('Booking creation failed', [
-                'error' => $e->getMessage(),
-                'data' => $bookingData ?? []
-            ]);
+            if ($matches->count() > 1) {
+                $list = $matches->map(
+                    fn($r) => "  • {$r->property_name} → Unit {$r->unit_name} ({$r->room_name})"
+                )->join("\n");
 
-            return "Booking Failed\n" .
-                   "Room: {$unitName}\n" .
-                   "Guest: {$guestName}\n" .
-                   "Dates: {$checkIn} to {$checkOut}\n\n" .
-                   "Error: {$e->getMessage()}\n\n" .
-                   "Please check the details and try again or create manually in Beds24.";
+                return [
+                    'ok'      => false,
+                    'message' => "Unit {$req->unitName} exists in multiple properties:\n{$list}\n\n"
+                               . "Specify the property in your command:\n"
+                               . "  book room {$req->unitName} at Hotel under ...\n"
+                               . "  book room {$req->unitName} at Premium under ...",
+                ];
+            }
+
+            $mappings[] = $matches->first();
         }
+
+        return ['ok' => true, 'mappings' => $mappings];
+    }
+
+    /**
+     * Check availability for all resolved room mappings over the requested date range.
+     * Returns an array of RoomUnitMapping objects that are NOT available.
+     */
+    private function checkRoomsAvailability(array $mappings, string $checkIn, string $checkOut, $beds24): array
+    {
+        $propertyIds = array_values(
+            array_unique(array_map(fn($m) => (string) $m->property_id, $mappings))
+        );
+
+        try {
+            $availability    = $beds24->checkAvailability($checkIn, $checkOut, $propertyIds);
+            $availableRooms  = $availability['availableRooms'] ?? [];
+
+            // Index available rooms by roomId for O(1) lookup
+            $availableByRoom = [];
+            foreach ($availableRooms as $ar) {
+                if (($ar['quantity'] ?? 0) > 0) {
+                    $availableByRoom[$ar['roomId']] = true;
+                }
+            }
+
+            $unavailable = [];
+            foreach ($mappings as $mapping) {
+                if (!isset($availableByRoom[$mapping->room_id])) {
+                    $unavailable[] = $mapping;
+                }
+            }
+
+            return $unavailable;
+        } catch (\Exception $e) {
+            // Availability check failure is non-fatal — log and proceed.
+            // Creation itself will fail gracefully if rooms are taken.
+            Log::warning('Availability preflight failed, proceeding with creation', [
+                'error' => $e->getMessage(),
+            ]);
+            return [];
+        }
+    }
+
+    /**
+     * Format the operator-facing result of a create-booking attempt.
+     * Explicitly lists created booking IDs and failed rooms.
+     * Partial-success message includes cancellation instructions.
+     */
+    private function formatCreateBookingResult(
+        CreateBookingRequest $request,
+        array $successes,
+        array $failures
+    ): string {
+        $totalRooms = count($successes) + count($failures);
+
+        if (!empty($failures) && empty($successes)) {
+            $header = "❌ Booking Failed";
+        } elseif (!empty($failures)) {
+            $header = "⚠️ Partial Success — {$totalRooms} rooms requested";
+        } else {
+            $roomWord = $totalRooms === 1 ? 'Booking' : 'Bookings';
+            $header   = "✅ {$roomWord} Created Successfully";
+        }
+
+        $lines = [
+            $header,
+            '',
+            "Guest:     {$request->guestName}",
+        ];
+
+        if ($request->guestPhone !== '') {
+            $lines[] = "Phone:     {$request->guestPhone}";
+        }
+        if ($request->guestEmail !== '') {
+            $lines[] = "Email:     {$request->guestEmail}";
+        }
+
+        $lines[] = "Check-in:  {$request->checkIn}";
+        $lines[] = "Check-out: {$request->checkOut}";
+        $lines[] = '';
+
+        foreach ($successes as $s) {
+            $lines[] = "✅ Unit {$s['unit']} ({$s['room']}) — Booking #{$s['bookingId']}";
+        }
+
+        foreach ($failures as $f) {
+            $lines[] = "❌ Unit {$f['unit']} — Failed: {$f['error']}";
+        }
+
+        if (!empty($failures) && !empty($successes)) {
+            $createdIds = implode(', ', array_map(fn($s) => "#{$s['bookingId']}", $successes));
+            $lines[]    = '';
+            $lines[]    = "⚠️  Some rooms were created, some failed.";
+            $lines[]    = "    Confirmed booking IDs: {$createdIds}";
+            $lines[]    = "    To cancel a confirmed room: cancel booking #[ID]";
+            $lines[]    = "    Retry failed rooms separately after cancelling if needed.";
+        }
+
+        return implode("\n", $lines);
     }
 
 
