@@ -48,11 +48,7 @@ class ExpenseResource extends Resource
                         TextInput::make('name')
                             ->required(),
                     ])
-                    ->after(function ($component) {
-                        Session::put('last_selected_category_id', $component->getState());
-                    })
                     ->default(session('last_selected_category_id'))
-                    ->searchable()
                     ->preload()
                     ->required(),
 
