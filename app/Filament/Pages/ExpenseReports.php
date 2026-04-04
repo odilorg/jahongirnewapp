@@ -7,6 +7,7 @@ use App\Models\Hotel;
 use App\Models\Expense;
 use Filament\Forms\Form;
 use Filament\Pages\Page;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Http;
@@ -16,16 +17,32 @@ class ExpenseReports extends Page
     protected static ?string $navigationIcon = 'heroicon-o-rectangle-stack';
     protected static ?string $navigationLabel = 'Expense Reports';
     protected static ?string $title = 'Expense Reports';
-    
+
     public $start_date;
     public $end_date;
     public $hotel_id;
     public $reportData = null;
     public $hotels = [];
 
+    // Drill-down state: category name being expanded, null = all collapsed
+    public ?string $expandedCategory = null;
+
+    // Individual expense rows for the expanded category
+    public array $expandedRows = [];
+
+    // Sort state for main table
+    public string $sortBy = 'Sum';
+    public string $sortDir = 'desc';
+
+    // Toggle zero-value rows
+    public bool $showZeroRows = false;
+
+    // Cached USD rate used in the last report
+    public float $usdRate = 0;
+
     protected static string $view = 'filament.pages.expense-reports';
 
-    public function mount()
+    public function mount(): void
     {
         $this->hotels = Hotel::pluck('name', 'id')->toArray();
     }
@@ -42,119 +59,195 @@ class ExpenseReports extends Page
                     ->required(),
                 Forms\Components\Select::make('hotel_id')
                     ->label('Hotel')
-                    ->options($this->hotels + ['all' => 'All Hotels'])
+                    ->options(['all' => 'All Hotels'] + $this->hotels)
                     ->required(),
             ]);
     }
 
     public function createReport(): void
     {
-        $startDate = $this->start_date;
-        $endDate = $this->end_date;
-        $hotelId = $this->hotel_id;
+        $this->expandedCategory = null;
+        $this->expandedRows = [];
 
-        // Calculate the middle date of the report period
-        $middleDate = $this->getMiddleDate($startDate, $endDate);
+        $this->usdRate = $this->fetchUSDConversionRate($this->end_date);
 
-        // Fetch USD conversion rate dynamically
-        $usdConversionRate = $this->fetchUSDConversionRate($middleDate);
-
-        $hotels = Hotel::pluck('name', 'id')->toArray();
-        $expensesQuery = Expense::query()
-            ->whereBetween('expense_date', [$startDate, $endDate])
-            ->select(
-                'category_id',
-                'hotel_id',
-                DB::raw('SUM(amount) as total_amount')
-            )
+        $query = Expense::query()
+            ->whereBetween('expense_date', [$this->start_date, $this->end_date])
+            ->select('category_id', 'hotel_id', DB::raw('SUM(amount) as total_amount'))
             ->with('category', 'hotel')
             ->groupBy('category_id', 'hotel_id');
 
-        if ($hotelId !== 'all') {
-            $expensesQuery->where('hotel_id', $hotelId);
+        if ($this->hotel_id !== 'all') {
+            $query->where('hotel_id', $this->hotel_id);
         }
 
-        $expenses = $expensesQuery->get();
+        $expenses = $query->get();
+
+        // Build hotel id → column key map dynamically
+        $hotelColumnMap = [];
+        foreach ($this->hotels as $id => $name) {
+            $hotelColumnMap[$id] = $name;
+        }
 
         $reportData = [];
 
         foreach ($expenses as $expense) {
-            $hotelName = $hotels[$expense->hotel_id] ?? 'Unknown';
             $categoryName = $expense->category->name ?? 'Unknown';
+            $hotelName    = $hotelColumnMap[$expense->hotel_id] ?? 'Unknown';
+            $amountUzs    = $expense->total_amount / 100;
 
             if (!isset($reportData[$categoryName])) {
                 $reportData[$categoryName] = [
-                    'Premium' => 0,
-                    'Premium_in_USD' => 0,
-                    'Jahongir' => 0,
-                    'Jahongir_in_USD' => 0,
-                    'Sum' => 0,
-                    'Sum_in_USD' => 0,
+                    'Sum'        => 0,
+                    'Sum_USD'    => 0,
+                    'hotels'     => [],  // hotel_name => amount
+                    'row_count'  => 0,
                 ];
+                foreach ($this->hotels as $hName) {
+                    $reportData[$categoryName]['hotels'][$hName] = 0;
+                }
             }
 
-            if (str_contains(strtolower($hotelName), 'premium')) {
-                $reportData[$categoryName]['Premium'] += $expense->total_amount / 100;
-                $reportData[$categoryName]['Premium_in_USD'] += ($expense->total_amount / 100) / $usdConversionRate;
-            } elseif (str_contains(strtolower($hotelName), 'jahongir')) {
-                $reportData[$categoryName]['Jahongir'] += $expense->total_amount / 100;
-                $reportData[$categoryName]['Jahongir_in_USD'] += ($expense->total_amount / 100) / $usdConversionRate;
-            }
-
-            $reportData[$categoryName]['Sum'] += $expense->total_amount / 100;
-            $reportData[$categoryName]['Sum_in_USD'] += ($expense->total_amount / 100) / $usdConversionRate;
+            $reportData[$categoryName]['Sum']     += $amountUzs;
+            $reportData[$categoryName]['Sum_USD'] += $amountUzs / $this->usdRate;
+            $reportData[$categoryName]['hotels'][$hotelName] = ($reportData[$categoryName]['hotels'][$hotelName] ?? 0) + $amountUzs;
         }
 
-        // Calculate total row
-        $reportData['Total'] = [
-            'Premium' => array_sum(array_column($reportData, 'Premium')),
-            'Premium_in_USD' => array_sum(array_column($reportData, 'Premium_in_USD')),
-            'Jahongir' => array_sum(array_column($reportData, 'Jahongir')),
-            'Jahongir_in_USD' => array_sum(array_column($reportData, 'Jahongir_in_USD')),
-            'Sum' => array_sum(array_column($reportData, 'Sum')),
-            'Sum_in_USD' => array_sum(array_column($reportData, 'Sum_in_USD')),
+        // Attach row counts per category
+        $rowCounts = Expense::query()
+            ->whereBetween('expense_date', [$this->start_date, $this->end_date])
+            ->when($this->hotel_id !== 'all', fn($q) => $q->where('hotel_id', $this->hotel_id))
+            ->select('category_id', DB::raw('COUNT(*) as cnt'))
+            ->with('category')
+            ->groupBy('category_id')
+            ->get();
+
+        foreach ($rowCounts as $row) {
+            $catName = $row->category->name ?? 'Unknown';
+            if (isset($reportData[$catName])) {
+                $reportData[$catName]['row_count'] = $row->cnt;
+            }
+        }
+
+        // Sort
+        uasort($reportData, function ($a, $b) {
+            $va = $a[$this->sortBy === 'Sum' ? 'Sum' : 'Sum'];
+            $vb = $b[$this->sortBy === 'Sum' ? 'Sum' : 'Sum'];
+            return $this->sortDir === 'desc' ? $vb <=> $va : $va <=> $vb;
+        });
+
+        // Calculate totals
+        $totalUzs = array_sum(array_column($reportData, 'Sum'));
+        $totalUsd = $totalUzs / $this->usdRate;
+
+        // Attach % of total
+        foreach ($reportData as $cat => &$data) {
+            $data['pct'] = $totalUzs > 0 ? round($data['Sum'] / $totalUzs * 100, 1) : 0;
+        }
+        unset($data);
+
+        $this->reportData = [
+            'rows'      => $reportData,
+            'total_uzs' => $totalUzs,
+            'total_usd' => $totalUsd,
         ];
-
-        $this->reportData = $reportData;
     }
 
     /**
-     * Calculate the middle date of the report period.
-     *
-     * @param string $startDate
-     * @param string $endDate
-     * @return string
+     * Toggle drill-down for a category row.
      */
-    private function getMiddleDate(string $startDate, string $endDate): string
+    public function toggleCategory(string $category): void
     {
-        $start = new \DateTime($startDate);
-        $end = new \DateTime($endDate);
-        $interval = $start->diff($end);
-        $middle = $start->add(new \DateInterval('P' . floor($interval->days / 2) . 'D'));
+        if ($this->expandedCategory === $category) {
+            $this->expandedCategory = null;
+            $this->expandedRows = [];
+            return;
+        }
 
-        return $middle->format('Y-m-d');
+        $this->expandedCategory = $category;
+
+        $this->expandedRows = Expense::query()
+            ->whereBetween('expense_date', [$this->start_date, $this->end_date])
+            ->when($this->hotel_id !== 'all', fn($q) => $q->where('hotel_id', $this->hotel_id))
+            ->whereHas('category', fn($q) => $q->where('name', $category))
+            ->with('category', 'hotel')
+            ->orderBy('expense_date')
+            ->get()
+            ->map(fn($e) => [
+                'date'         => $e->expense_date,
+                'name'         => $e->name,
+                'payment_type' => $e->payment_type,
+                'hotel'        => $e->hotel->name ?? '—',
+                'amount_uzs'   => $e->amount / 100,
+                'amount_usd'   => ($e->amount / 100) / $this->usdRate,
+            ])
+            ->toArray();
     }
 
     /**
-     * Fetch the USD conversion rate for the given date.
-     *
-     * @param string $date
-     * @return float
+     * Sort the report table by a column.
      */
+    public function sortTable(string $column): void
+    {
+        if ($this->sortBy === $column) {
+            $this->sortDir = $this->sortDir === 'desc' ? 'asc' : 'desc';
+        } else {
+            $this->sortBy  = $column;
+            $this->sortDir = 'desc';
+        }
+
+        // Re-run report with new sort (reuses existing data if already generated)
+        if ($this->reportData) {
+            $this->createReport();
+        }
+    }
+
+    /**
+     * Export current report as CSV.
+     */
+    public function exportCsv(): \Symfony\Component\HttpFoundation\StreamedResponse
+    {
+        $filename = 'expense-report-' . $this->start_date . '-' . $this->end_date . '.csv';
+
+        return response()->streamDownload(function () {
+            $handle = fopen('php://output', 'w');
+            fputcsv($handle, ['Category', 'Total UZS', 'Total USD', '% of Total', 'Transactions']);
+
+            foreach ($this->reportData['rows'] as $cat => $data) {
+                fputcsv($handle, [
+                    $cat,
+                    number_format($data['Sum'], 2),
+                    number_format($data['Sum_USD'], 2),
+                    $data['pct'] . '%',
+                    $data['row_count'],
+                ]);
+            }
+
+            fputcsv($handle, [
+                'TOTAL',
+                number_format($this->reportData['total_uzs'], 2),
+                number_format($this->reportData['total_usd'], 2),
+                '100%',
+                '',
+            ]);
+
+            fclose($handle);
+        }, $filename, ['Content-Type' => 'text/csv']);
+    }
+
     private function fetchUSDConversionRate(string $date): float
     {
-        try {
-            $response = Http::get("https://cbu.uz/ru/arkhiv-kursov-valyut/json/USD/$date/");
-            $data = $response->json();
-
-            if (!empty($data) && isset($data[0]['Rate'])) {
-                return floatval($data[0]['Rate']);
+        return Cache::remember("usd_rate_{$date}", 3600, function () use ($date) {
+            try {
+                $response = Http::timeout(5)->get("https://cbu.uz/ru/arkhiv-kursov-valyut/json/USD/{$date}/");
+                $data = $response->json();
+                if (!empty($data) && isset($data[0]['Rate'])) {
+                    return (float) $data[0]['Rate'];
+                }
+            } catch (\Exception $e) {
+                Log::error('USD rate fetch failed: ' . $e->getMessage());
             }
-        } catch (\Exception $e) {
-            // Log error and return a default rate
-            Log::error("Failed to fetch USD conversion rate: " . $e->getMessage());
-        }
-
-        return 13000; // Default rate if API fails
+            return 12700.0;
+        });
     }
 }
