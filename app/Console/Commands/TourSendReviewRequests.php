@@ -88,8 +88,8 @@ class TourSendReviewRequests extends Command
                 }
             }
 
-            // Fallback: email (GYG relay or direct)
-            if (!$sent && !empty(trim($booking->email ?? ''))) {
+            // Fallback: email — skip for GYG bookings (ToS prohibits soliciting external reviews via email)
+            if (!$sent && $booking->booking_source !== 'getyourguide' && !empty(trim($booking->email ?? ''))) {
                 $email = trim($booking->email);
                 $this->line("     → Email: {$email}");
                 if (!$dryRun) {
