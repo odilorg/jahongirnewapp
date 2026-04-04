@@ -178,8 +178,8 @@ class ExpenseReports extends Page
                 'name'         => $e->name,
                 'payment_type' => $e->payment_type,
                 'hotel'        => $e->hotel->name ?? '—',
-                'amount_uzs'   => $e->amount / 100,
-                'amount_usd'   => ($e->amount / 100) / $this->usdRate,
+                'amount_uzs'   => $e->amount,
+                'amount_usd'   => $e->amount / $this->usdRate,
             ])
             ->toArray();
     }
