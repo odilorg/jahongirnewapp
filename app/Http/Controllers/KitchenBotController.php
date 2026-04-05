@@ -32,18 +32,26 @@ class KitchenBotController extends Controller
 
     public function handleWebhook(Request $request)
     {
-        $data = $request->all();
+        $data     = $request->all();
         $updateId = $data['update_id'] ?? null;
+        $eventId  = $updateId ? "kitchen:{$updateId}" : null;
 
-        $webhook = \App\Models\IncomingWebhook::create([
-            'source'      => 'telegram:kitchen',
-            'event_id'    => $updateId ? "kitchen:{$updateId}" : null,
-            'payload'     => $data,
-            'status'      => \App\Models\IncomingWebhook::STATUS_PENDING,
-            'received_at' => now(),
-        ]);
+        // Idempotency guard: Telegram retries the same update_id on non-2xx responses.
+        // firstOrCreate keyed by event_id prevents duplicate DB rows AND duplicate jobs.
+        // wasRecentlyCreated is false on the second delivery → skip dispatch, return 200.
+        $webhook = \App\Models\IncomingWebhook::firstOrCreate(
+            ['event_id' => $eventId],
+            [
+                'source'      => 'telegram:kitchen',
+                'payload'     => $data,
+                'status'      => \App\Models\IncomingWebhook::STATUS_PENDING,
+                'received_at' => now(),
+            ]
+        );
 
-        \App\Jobs\ProcessTelegramUpdateJob::dispatch('kitchen', $webhook->id);
+        if ($webhook->wasRecentlyCreated) {
+            \App\Jobs\ProcessTelegramUpdateJob::dispatch('kitchen', $webhook->id);
+        }
 
         return response('OK');
     }
