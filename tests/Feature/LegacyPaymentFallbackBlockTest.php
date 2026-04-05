@@ -11,22 +11,21 @@ use App\Models\CashierShift;
 use App\Models\CashTransaction;
 use App\Models\User;
 use App\Services\BotPaymentService;
-use App\Services\CashierPaymentService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 /**
- * Tests for Microphase 7: legacy/manual payment path removed from controller.
+ * Tests for Microphases 7 & 8: legacy payment path blocked then wiring removed.
  *
- * The controller previously fell back to CashierPaymentService (legacy) when
- * no FX presentation was available. Microphase 7 replaces that fallback with
- * a hard block so the legacy service is never reached from real cashier traffic.
+ * Microphase 7 replaced the CashierPaymentService fallback with hard blocks.
+ * Microphase 8 deleted CashierPaymentService and removed it from the controller.
  *
- * Three entry points are blocked:
+ * Blocked entry points (verified to send block message and not advance session):
  *   (A) selectGuest() with bid='manual'
  *   (B) selectGuest() when FX preparePayment() throws
  *   (C) confirmPayment() when fx_presentation is absent from session data
+ *   (D) selectCur() when FX presentation is absent or corrupted
  *
  * The FX/canonical path (fx_presentation is present) is preserved.
  */
@@ -36,7 +35,6 @@ class LegacyPaymentFallbackBlockTest extends TestCase
 
     private TestableLegacyBlockController $controller;
     private BotPaymentService $botPaymentServiceMock;
-    private CashierPaymentService $legacyServiceMock;
     private int $shiftId;
     private int $userId;
 
@@ -45,11 +43,9 @@ class LegacyPaymentFallbackBlockTest extends TestCase
         parent::setUp();
 
         $this->botPaymentServiceMock = $this->createMock(BotPaymentService::class);
-        $this->legacyServiceMock     = $this->createMock(CashierPaymentService::class);
 
-        // Bind mocks into the container so make() resolves them
+        // Bind mock into the container so make() resolves it
         $this->app->bind(BotPaymentService::class, fn () => $this->botPaymentServiceMock);
-        $this->app->bind(CashierPaymentService::class, fn () => $this->legacyServiceMock);
 
         $this->controller = $this->app->make(TestableLegacyBlockController::class);
 
@@ -137,9 +133,10 @@ class LegacyPaymentFallbackBlockTest extends TestCase
     }
 
     /** @test */
-    public function manual_entry_does_not_invoke_legacy_payment_service(): void
+    public function manual_entry_does_not_invoke_bot_payment_service(): void
     {
-        $this->legacyServiceMock->expects($this->never())->method('recordPayment');
+        // CashierPaymentService is deleted (MP8). Verify BotPaymentService is also not called.
+        $this->botPaymentServiceMock->expects($this->never())->method('recordPayment');
 
         $s = $this->makeSession(['shift_id' => $this->shiftId]);
         $this->controller->callSelectGuest($s, 12345, 'guest_manual');
@@ -212,7 +209,8 @@ class LegacyPaymentFallbackBlockTest extends TestCase
             ->method('preparePayment')
             ->willThrowException(new \RuntimeException('FX error'));
 
-        $this->legacyServiceMock->expects($this->never())->method('recordPayment');
+        // CashierPaymentService is deleted (MP8). Verify recordPayment is also not called.
+        $this->botPaymentServiceMock->expects($this->never())->method('recordPayment');
 
         $s = $this->makeSession(['shift_id' => $this->shiftId, '_live_guests' => []]);
         $this->controller->callSelectGuest($s, 12345, 'guest_B_FX_ERR');
@@ -241,9 +239,10 @@ class LegacyPaymentFallbackBlockTest extends TestCase
     }
 
     /** @test */
-    public function confirm_payment_without_fx_presentation_does_not_call_legacy_service(): void
+    public function confirm_payment_without_fx_presentation_does_not_call_bot_payment_service(): void
     {
-        $this->legacyServiceMock->expects($this->never())->method('recordPayment');
+        // CashierPaymentService is deleted (MP8). Verify BotPaymentService is also not called.
+        $this->botPaymentServiceMock->expects($this->never())->method('recordPayment');
 
         $s = $this->makeSession([
             'shift_id'       => $this->shiftId,
@@ -447,8 +446,6 @@ class LegacyPaymentFallbackBlockTest extends TestCase
             ->expects($this->once())
             ->method('recordPayment')
             ->willReturn($mockTx);
-
-        $this->legacyServiceMock->expects($this->never())->method('recordPayment');
 
         $s = $this->makeSession([
             'shift_id'        => $this->shiftId,

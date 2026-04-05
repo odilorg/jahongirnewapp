@@ -21,7 +21,6 @@ use App\Enums\OverrideTier;
 use App\Services\BotPaymentService;
 use App\Services\CashierExchangeService;
 use App\Services\CashierExpenseService;
-use App\Services\CashierPaymentService;
 use App\Services\CashierShiftService;
 use App\Services\ExchangeRateService;
 use App\Services\Fx\OverridePolicyEvaluator as FxOverridePolicyEvaluator;
@@ -35,7 +34,6 @@ use Carbon\Carbon;
 class CashierBotController extends Controller
 {
     protected OwnerAlertService $ownerAlert;
-    protected CashierPaymentService $paymentService;
     protected BotPaymentService $botPaymentService;
     protected FxOverridePolicyEvaluator $overridePolicy;
     protected CashierShiftService $shiftService;
@@ -51,7 +49,6 @@ class CashierBotController extends Controller
 
     public function __construct(
         OwnerAlertService $ownerAlert,
-        CashierPaymentService $paymentService,
         BotPaymentService $botPaymentService,
         FxOverridePolicyEvaluator $overridePolicy,
         CashierShiftService $shiftService,
@@ -63,7 +60,6 @@ class CashierBotController extends Controller
         Beds24BookingService $beds24,
     ) {
         $this->ownerAlert = $ownerAlert;
-        $this->paymentService = $paymentService;
         $this->botPaymentService = $botPaymentService;
         $this->overridePolicy = $overridePolicy;
         $this->shiftService = $shiftService;
@@ -877,8 +873,8 @@ class CashierBotController extends Controller
                 );
                 $this->botPaymentService->recordPayment($recordData);
             } else {
-                // Microphase 7: FX presentation absent — hard block.
-                // CashierPaymentService is no longer reachable from this controller.
+                // Microphases 7 & 8: FX presentation absent — hard block.
+                // CashierPaymentService has been deleted; only the FX path above is reachable.
                 if ($callbackId) $this->failCallback($callbackId, 'FX presentation unavailable');
                 $this->send($chatId, "❌ Курсы ФX недоступны. Обратитесь к менеджеру.");
                 return $this->showMainMenu($chatId, $s);
