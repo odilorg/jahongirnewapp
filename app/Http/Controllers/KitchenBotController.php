@@ -447,8 +447,13 @@ class KitchenBotController extends Controller
         $this->send($chatId, "⏳ Haftalik prognoz tayyorlanmoqda...");
 
         $forecast = $this->kitchen->getWeeklyForecast();
+        $anyDegraded = collect($forecast)->contains('degraded', true);
 
         $lines = ["📊 <b>7 kunlik mehmon prognozi</b>\n"];
+
+        if ($anyDegraded) {
+            $lines[] = "⚠️ <i>Beds24 bilan bog'lanishda xato — ma'lumotlar eskirgan bo'lishi mumkin.</i>\n";
+        }
 
         $today = now()->timezone('Asia/Tashkent')->format('Y-m-d');
 
