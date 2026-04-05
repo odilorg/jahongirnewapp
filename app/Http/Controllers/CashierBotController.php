@@ -497,13 +497,9 @@ class CashierBotController extends Controller
         $bid = str_replace('guest_', '', $data);
 
         if ($bid === 'manual') {
-            $d['guest_name']       = 'Ручной ввод';
-            $d['booking_id']       = null;
-            $d['booking_currency'] = null;
-            $d['booking_amount']   = null;
-            $d['fx_presentation']  = null;
-            $s->update(['state' => 'payment_amount', 'data' => $d]);
-            $this->send($chatId, "Гость: Ручной ввод\nВведите сумму:");
+            // Microphase 7: manual/legacy entry point removed.
+            // Manual payments bypass the FX snapshot controls — operators must contact manager.
+            $this->send($chatId, "❌ Курсы ФX недоступны. Обратитесь к менеджеру.");
             return response('OK');
         }
 
@@ -553,23 +549,17 @@ class CashierBotController extends Controller
                 return response('OK');
 
             } catch (\Throwable $e) {
-                // FX sync not available — fall through to manual amount entry
-                Log::warning('CashierBot: FX presentation unavailable, falling back to manual', [
+                // FX presentation unavailable — hard block (Microphase 7).
+                Log::warning('CashierBot: FX presentation unavailable — payment blocked', [
                     'beds24_booking_id' => $bid,
                     'error'             => $e->getMessage(),
                 ]);
-                $d['fx_presentation'] = null;
             }
-        } else {
-            $d['fx_presentation'] = null;
         }
 
-        // Fallback: manual amount entry (FX sync failed or amount is zero)
-        $s->update(['state' => 'payment_amount', 'data' => $d]);
-        $hint = ($d['booking_amount'] && $d['booking_currency'])
-            ? "\nБронь: {$d['booking_amount']} {$d['booking_currency']}"
-            : '';
-        $this->send($chatId, "Гость: {$d['guest_name']}{$hint}\nВведите сумму:");
+        // FX presentation unavailable: booking not locally synced, zero amount, or FX service down.
+        // Microphase 7: legacy/manual fallback removed — operator must contact manager.
+        $this->send($chatId, "❌ Курсы ФX недоступны. Обратитесь к менеджеру.");
         return response('OK');
     }
 
@@ -898,15 +888,11 @@ class CashierBotController extends Controller
                 );
                 $this->botPaymentService->recordPayment($recordData);
             } else {
-                // Legacy path: manual payments and bookings without FX sync
-                $this->paymentService->recordPayment($shift->id, array_merge($d, [
-                    'booking_currency' => $d['booking_currency'] ?? null,
-                    'booking_amount'   => $d['booking_amount']   ?? null,
-                    'applied_rate'     => $d['applied_rate']     ?? null,
-                    'reference_rate'   => $d['reference_rate']   ?? null,
-                    'reference_source' => $d['reference_source'] ?? null,
-                    'reference_date'   => $d['reference_date']   ?? null,
-                ]), $s->user_id, $callbackId);
+                // Microphase 7: FX presentation absent — hard block.
+                // CashierPaymentService is no longer reachable from this controller.
+                if ($callbackId) $this->failCallback($callbackId, 'FX presentation unavailable');
+                $this->send($chatId, "❌ Курсы ФX недоступны. Обратитесь к менеджеру.");
+                return $this->showMainMenu($chatId, $s);
             }
 
             if ($callbackId) $this->succeedCallback($callbackId);
