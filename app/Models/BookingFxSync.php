@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Carbon\Carbon;
+use App\Models\Beds24Booking;
 
 class BookingFxSync extends Model
 {
@@ -56,6 +57,30 @@ class BookingFxSync extends Model
     public function cashTransactions(): HasMany
     {
         return $this->hasMany(CashTransaction::class, 'booking_fx_sync_id');
+    }
+
+    /**
+     * Whether this sync record needs to be recomputed.
+     *
+     * True when:
+     *  - push never succeeded (failed or pending)
+     *  - the rate date is older than today (a fresh daily rate is available)
+     *  - no rate date is recorded (defensive guard)
+     *
+     * Called by FxSyncService::ensureFresh() to decide whether to re-push.
+     */
+    public function isStale(Beds24Booking $booking): bool
+    {
+        if ($this->push_status !== FxSyncPushStatus::Pushed) {
+            return true;
+        }
+
+        if (! $this->fx_rate_date) {
+            return true;
+        }
+
+        // Re-push when the nightly job has deposited a newer rate
+        return $this->fx_rate_date->toDateString() < today()->toDateString();
     }
 
     /**

@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Enums\FxSyncPushStatus;
 use App\Exceptions\Beds24RateLimitException;
 use App\Models\Beds24Booking;
 use App\Models\BookingFxSync;
@@ -79,8 +80,25 @@ class FxSyncService
      */
     public function pushNow(Beds24Booking $booking, string $trigger = 'manual'): BookingFxSync
     {
-        $rate = DailyExchangeRate::where('rate_date', today())->first()
-            ?? DailyExchangeRate::orderByDesc('rate_date')->firstOrFail();
+        $rate = DailyExchangeRate::where('rate_date', today())->first();
+
+        if ($rate === null) {
+            $rate = DailyExchangeRate::orderByDesc('rate_date')->first();
+
+            if ($rate === null) {
+                Log::error('FxSyncService: no DailyExchangeRate exists — FX sync aborted', [
+                    'beds24_booking_id' => $booking->beds24_booking_id,
+                    'trigger'           => $trigger,
+                ]);
+                throw new \RuntimeException('No DailyExchangeRate available. Run fx:push-payment-options to seed rates.');
+            }
+
+            Log::warning('FxSyncService: today\'s rate missing — using fallback', [
+                'beds24_booking_id' => $booking->beds24_booking_id,
+                'rate_date_used'    => $rate->rate_date->toDateString(),
+                'trigger'           => $trigger,
+            ]);
+        }
 
         $usdAmount = $booking->effectiveUsdAmount();
         $options   = $this->calcService->calculate($usdAmount, $rate);
@@ -103,6 +121,7 @@ class FxSyncService
                 'uzs_final'              => $options['uzs_final'],
                 'eur_final'              => $options['eur_final'],
                 'rub_final'              => $options['rub_final'],
+                'usd_final'              => $options['usd_amount'],
                 'push_status'            => 'pushed',
                 'fx_last_pushed_at'      => now(),
                 'last_push_error'        => null,
@@ -114,16 +133,26 @@ class FxSyncService
     }
 
     /**
-     * Mark a sync record as failed. Called by FxSyncJob::failed().
+     * Mark an existing sync record as failed. Called by FxSyncJob::failed().
+     *
+     * Uses UPDATE-only (not updateOrCreate) to avoid inserting a partial row
+     * with NOT NULL columns missing (e.g. fx_rate_date, usd_final).
+     * If no row exists yet the failure is logged — the record will be created
+     * on the next successful pushNow().
      */
     public function markFailed(string $beds24BookingId, string $error): void
     {
-        BookingFxSync::updateOrCreate(
-            ['beds24_booking_id' => $beds24BookingId],
-            [
-                'push_status'    => 'failed',
+        $updated = BookingFxSync::where('beds24_booking_id', $beds24BookingId)
+            ->update([
+                'push_status'     => FxSyncPushStatus::Failed->value,
                 'last_push_error' => $error,
-            ]
-        );
+            ]);
+
+        if ($updated === 0) {
+            Log::warning('FxSyncService: markFailed skipped — no sync row exists yet', [
+                'beds24_booking_id' => $beds24BookingId,
+                'error'             => $error,
+            ]);
+        }
     }
 }
