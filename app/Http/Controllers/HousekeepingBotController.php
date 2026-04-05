@@ -343,6 +343,12 @@ class HousekeepingBotController extends Controller
             return response('OK');
         }
 
+        // Only housekeeping staff and management can use this bot
+        if (!$user->hasAnyRole(['housekeeping', 'admin', 'manager', 'owner', 'super_admin'])) {
+            $this->send($chatId, "❌ Sizga tozalik botiga kirish ruxsati yo'q.\nRahbariyatga murojaat qiling.");
+            return response('OK');
+        }
+
         TelegramPosSession::updateOrCreate(
             ['chat_id' => $chatId],
             ['telegram_user_id' => $contact['user_id'] ?? $chatId, 'user_id' => $user->id, 'state' => 'hk_main', 'data' => null]
