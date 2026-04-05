@@ -11,6 +11,11 @@ return new class extends Migration
      */
     public function up(): void
     {
+        // Duplicate of 2025_10_11_225743; skip if already created.
+        if (Schema::hasTable('bot_analytics')) {
+            return;
+        }
+
         Schema::create('bot_analytics', function (Blueprint $table) {
             $table->id();
             $table->date('date')->unique();

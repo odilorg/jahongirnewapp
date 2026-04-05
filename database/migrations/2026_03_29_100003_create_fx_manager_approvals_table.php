@@ -8,6 +8,9 @@ return new class extends Migration
 {
     public function up(): void
     {
+        // Drop the earlier version created by 2026_03_28_130001 (different schema).
+        Schema::dropIfExists('fx_manager_approvals');
+
         Schema::create('fx_manager_approvals', function (Blueprint $table) {
             $table->id();
             $table->string('beds24_booking_id')->index();

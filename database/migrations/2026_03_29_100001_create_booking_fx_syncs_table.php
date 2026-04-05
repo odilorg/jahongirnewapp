@@ -8,6 +8,9 @@ return new class extends Migration
 {
     public function up(): void
     {
+        // Drop the earlier version created by 2026_03_28_130000 (different schema/FKs).
+        Schema::dropIfExists('booking_fx_syncs');
+
         Schema::create('booking_fx_syncs', function (Blueprint $table) {
             $table->id();
             $table->string('beds24_booking_id')->unique();
