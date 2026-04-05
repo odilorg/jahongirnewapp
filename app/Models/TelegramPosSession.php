@@ -11,21 +11,15 @@ class TelegramPosSession extends Model
     use HasFactory;
 
     protected $fillable = [
-        'telegram_user_id',
         'chat_id',
         'user_id',
         'state',
         'data',
         'language',
-        'last_activity_at',
-        'expires_at',
     ];
 
     protected $casts = [
         'data' => 'array',
-        'last_activity_at' => 'datetime',
-        'expires_at' => 'datetime',
-        'telegram_user_id' => 'integer',
         'chat_id' => 'integer',
     ];
 
@@ -38,28 +32,23 @@ class TelegramPosSession extends Model
     }
 
     /**
-     * Check if the session has expired
+     * Check if the session has expired.
+     * Uses updated_at as the activity timestamp (schema has no last_activity_at/expires_at).
+     * Idle sessions (main_menu/idle) expire after the configured timeout;
+     * active financial sessions expire after a hard 4-hour TTL.
      */
-    public function isExpired(): bool
+    public function isExpired(?int $timeoutMinutes = null): bool
     {
-        if (!$this->expires_at) {
-            return false;
-        }
-
-        return now()->greaterThan($this->expires_at);
+        $timeoutMinutes ??= config('services.telegram_pos_bot.session_timeout', 240);
+        return $this->updated_at && $this->updated_at->addMinutes($timeoutMinutes)->isPast();
     }
 
     /**
-     * Update the last activity timestamp and extend expiry
+     * Touch the session so updated_at reflects the latest activity.
      */
     public function updateActivity(?int $timeoutMinutes = null): void
     {
-        $timeoutMinutes ??= config('services.telegram_pos_bot.session_timeout', 15);
-        
-        $this->update([
-            'last_activity_at' => now(),
-            'expires_at' => now()->addMinutes($timeoutMinutes),
-        ]);
+        $this->touch();
     }
 
     /**
@@ -97,21 +86,21 @@ class TelegramPosSession extends Model
     }
 
     /**
-     * Scope for active sessions
+     * Scope for active sessions (updated within the configured timeout window).
      */
     public function scopeActive($query)
     {
-        return $query->where('expires_at', '>', now())
-            ->orWhereNull('expires_at');
+        $minutes = config('services.telegram_pos_bot.session_timeout', 240);
+        return $query->where('updated_at', '>', now()->subMinutes($minutes));
     }
 
     /**
-     * Scope for expired sessions
+     * Scope for expired sessions.
      */
     public function scopeExpired($query)
     {
-        return $query->where('expires_at', '<=', now())
-            ->whereNotNull('expires_at');
+        $minutes = config('services.telegram_pos_bot.session_timeout', 240);
+        return $query->where('updated_at', '<=', now()->subMinutes($minutes));
     }
 }
 

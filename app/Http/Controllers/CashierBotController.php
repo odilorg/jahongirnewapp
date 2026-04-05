@@ -148,14 +148,7 @@ class CashierBotController extends Controller
             $this->send($chatId, "Сессия истекла. Отправьте номер телефона.", $this->phoneKb());
             return response('OK');
         }
-        // Hard TTL: expire active financial sessions after 4 hours to prevent
-        // abandoned sessions from being inherited by the next person
-        if ($session->last_activity_at && Carbon::parse($session->last_activity_at)->addHours(4)->isPast()) {
-            $session->update(['user_id' => null, 'state' => 'idle', 'data' => null]);
-            $this->send($chatId, "Сессия истекла (4ч). Отправьте номер телефона.", $this->phoneKb());
-            return response('OK');
-        }
-        $session->updateActivity();
+        $session->updateActivity(); // touches updated_at; isExpired() checks that column
         if ($photo && $session->state === 'shift_close_photo') return $this->handleShiftPhoto($session, $chatId, $photo);
         if ($text === '/start' || $text === '/menu') return $this->showMainMenu($chatId, $session);
         if ($text === '/logout') {
@@ -171,14 +164,10 @@ class CashierBotController extends Controller
         $phone = preg_replace('/[^0-9]/', '', $contact['phone_number'] ?? '');
         $user = User::where('phone_number', 'LIKE', '%' . substr($phone, -9))->first();
         if (!$user) { $this->send($chatId, "Номер не найден. Обратитесь к руководству."); return response('OK'); }
-        $timeoutMinutes = config('services.telegram_pos_bot.session_timeout', 15);
         TelegramPosSession::updateOrCreate(['chat_id' => $chatId], [
-            'telegram_user_id' => $contact['user_id'] ?? $chatId,
-            'user_id'          => $user->id,
-            'state'            => 'main_menu',
-            'data'             => null,
-            'last_activity_at' => now(),
-            'expires_at'       => now()->addMinutes($timeoutMinutes),
+            'user_id' => $user->id,
+            'state'   => 'main_menu',
+            'data'    => null,
         ]);
         // Don't overwrite user telegram_user_id (shared with POS bot)
         // Remove the phone reply-keyboard so the user can't accidentally re-auth
