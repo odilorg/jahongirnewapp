@@ -14,6 +14,35 @@ return new class extends Migration
 {
     public function up(): void
     {
+        // Guard: 2026_03_28_130002 added an overlapping set of columns to cash_transactions.
+        // During migrate:fresh both migrations run; roll back 130002's additions first so
+        // we can apply this replacement schema without duplicate-column errors.
+        if (Schema::hasColumn('cash_transactions', 'booking_fx_sync_id')) {
+            Schema::table('cash_transactions', function (Blueprint $table) {
+                $table->dropForeign(['booking_fx_sync_id']);
+                $table->dropForeign(['daily_exchange_rate_id']);
+                $table->dropForeign(['override_approved_by']);
+            });
+            Schema::table('cash_transactions', function (Blueprint $table) {
+                $table->dropColumn([
+                    'booking_fx_sync_id',
+                    'daily_exchange_rate_id',
+                    'amount_presented_uzs',
+                    'amount_presented_eur',
+                    'amount_presented_rub',
+                    'presented_currency',
+                    'amount_presented_selected',
+                    'is_override',
+                    'override_tier',
+                    'override_reason',
+                    'override_approved_by',
+                    'override_approved_at',
+                    'presented_at',
+                    'bot_session_id',
+                ]);
+            });
+        }
+
         Schema::table('cash_transactions', function (Blueprint $table) {
             // Origin discriminator — the single most important new column.
             // Default 'beds24_external' correctly classifies all pre-existing rows.

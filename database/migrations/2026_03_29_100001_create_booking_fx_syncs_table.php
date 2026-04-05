@@ -3,13 +3,18 @@
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\DB;
 
 return new class extends Migration
 {
     public function up(): void
     {
         // Drop the earlier version created by 2026_03_28_130000 (different schema/FKs).
+        // 2026_03_28_130002 added a booking_fx_sync_id FK on cash_transactions pointing here;
+        // disable FK checks so the drop succeeds — the FK stays valid after recreation.
+        DB::statement('SET FOREIGN_KEY_CHECKS=0');
         Schema::dropIfExists('booking_fx_syncs');
+        DB::statement('SET FOREIGN_KEY_CHECKS=1');
 
         Schema::create('booking_fx_syncs', function (Blueprint $table) {
             $table->id();
