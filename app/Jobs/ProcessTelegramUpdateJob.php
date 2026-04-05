@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Models\IncomingWebhook;
+use App\Services\OwnerAlertService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -10,6 +11,7 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Throwable;
 
 class ProcessTelegramUpdateJob implements ShouldQueue
 {
@@ -66,6 +68,31 @@ class ProcessTelegramUpdateJob implements ShouldQueue
             ]);
             $webhook->markFailed($e->getMessage());
             throw $e; // Let queue retry
+        }
+    }
+
+    /**
+     * Called by the queue after all retry attempts are exhausted.
+     * Sends a single owner alert — not once per retry attempt.
+     */
+    public function failed(Throwable $e): void
+    {
+        Log::error("ProcessTelegramUpdateJob: {$this->botName} permanently failed after all retries", [
+            'webhook_id' => $this->incomingWebhookId,
+            'error'      => $e->getMessage(),
+        ]);
+
+        try {
+            /** @var OwnerAlertService $alert */
+            $alert = app(OwnerAlertService::class);
+            $msg   = "🔴 <b>" . ucfirst($this->botName) . " Bot Error</b>\n\n"
+                . "📍 All retries exhausted\n"
+                . "🪝 Webhook ID: {$this->incomingWebhookId}\n"
+                . "❌ " . mb_substr($e->getMessage(), 0, 200) . "\n"
+                . "📄 " . basename($e->getFile()) . ':' . $e->getLine();
+            $alert->sendShiftCloseReport($msg);
+        } catch (\Throwable $ignore) {
+            // Never let the alert failure mask the original error
         }
     }
 }

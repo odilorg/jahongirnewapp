@@ -52,9 +52,9 @@ class TelegramPosSession extends Model
     /**
      * Update the last activity timestamp and extend expiry
      */
-    public function updateActivity(): void
+    public function updateActivity(?int $timeoutMinutes = null): void
     {
-        $timeoutMinutes = config('services.telegram_pos_bot.session_timeout', 15);
+        $timeoutMinutes ??= config('services.telegram_pos_bot.session_timeout', 15);
         
         $this->update([
             'last_activity_at' => now(),
