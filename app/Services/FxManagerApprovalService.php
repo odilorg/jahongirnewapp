@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\DTO\PaymentPresentation;
+use App\Enums\ManagerApprovalStatus;
 use App\Models\FxManagerApproval;
 use Illuminate\Support\Facades\DB;
 
@@ -41,8 +42,8 @@ class FxManagerApprovalService
     ): FxManagerApproval {
         // Expire any existing pending request for this session
         FxManagerApproval::where('bot_session_id', $p->botSessionId)
-            ->where('status', 'pending')
-            ->update(['status' => 'expired']);
+            ->where('status', ManagerApprovalStatus::Pending->value)
+            ->update(['status' => ManagerApprovalStatus::Expired->value]);
 
         return FxManagerApproval::create([
             'beds24_booking_id' => $p->beds24BookingId,
@@ -52,7 +53,7 @@ class FxManagerApprovalService
             'amount_presented'  => $p->presentedAmountFor($currency),
             'amount_proposed'   => $amountProposed,
             'variance_pct'      => $variancePct,
-            'status'            => 'pending',
+            'status'            => ManagerApprovalStatus::Pending->value,
             'expires_at'        => now()->addMinutes(self::APPROVAL_TTL_MINUTES),
         ]);
     }
@@ -76,19 +77,23 @@ class FxManagerApprovalService
         return DB::transaction(function () use ($approvalId, $managerId, $approved, $rejectionReason) {
             $approval = FxManagerApproval::lockForUpdate()->findOrFail($approvalId);
 
-            if ($approval->status !== 'pending') {
+            $statusValue = $approval->status instanceof ManagerApprovalStatus
+                ? $approval->status->value
+                : (string) $approval->status;
+
+            if ($statusValue !== ManagerApprovalStatus::Pending->value) {
                 throw new \RuntimeException(
-                    "Approval #{$approvalId} cannot be resolved — status is '{$approval->status}'."
+                    "Approval #{$approvalId} cannot be resolved — status is '{$statusValue}'."
                 );
             }
 
             if ($approval->isExpired()) {
-                $approval->update(['status' => 'expired']);
+                $approval->update(['status' => ManagerApprovalStatus::Expired->value]);
                 throw new \RuntimeException("Approval #{$approvalId} has expired.");
             }
 
             $approval->update([
-                'status'           => $approved ? 'approved' : 'rejected',
+                'status'           => $approved ? ManagerApprovalStatus::Approved->value : ManagerApprovalStatus::Rejected->value,
                 'resolved_by'      => $managerId,
                 'resolved_at'      => now(),
                 'rejection_reason' => $rejectionReason,
@@ -113,14 +118,18 @@ class FxManagerApprovalService
         // Re-lock and re-check inside the payment transaction
         $fresh = FxManagerApproval::lockForUpdate()->findOrFail($approval->id);
 
-        if ($fresh->status !== 'approved') {
+        $freshStatusValue = $fresh->status instanceof ManagerApprovalStatus
+            ? $fresh->status->value
+            : (string) $fresh->status;
+
+        if ($freshStatusValue !== ManagerApprovalStatus::Approved->value) {
             throw new \RuntimeException(
-                "Manager approval #{$approval->id} cannot be consumed — status is '{$fresh->status}'."
+                "Manager approval #{$approval->id} cannot be consumed — status is '{$freshStatusValue}'."
             );
         }
 
         $fresh->update([
-            'status'                      => 'consumed',
+            'status'                      => ManagerApprovalStatus::Consumed->value,
             'used_in_cash_transaction_id' => $cashTransactionId,
         ]);
     }
