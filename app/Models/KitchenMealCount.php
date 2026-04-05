@@ -2,11 +2,13 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 
 class KitchenMealCount extends Model
 {
+    use HasFactory;
     protected $fillable = [
         'date',
         'meal_type',
@@ -34,13 +36,22 @@ class KitchenMealCount extends Model
         $this->increment('served_count', $count);
     }
 
-    public function decrementServed(int $count = 1): void
+    /**
+     * Atomically decrement served_count, clamped to zero.
+     *
+     * Uses a single SQL UPDATE so concurrent calls from multiple staff
+     * cannot interleave a PHP read + write (lost-update race condition).
+     * Returns true if a row was actually updated (false = record vanished mid-request).
+     */
+    public function decrementServed(int $count = 1): bool
     {
-        // Atomic update — avoids race condition when two staff tap "Qaytarish" simultaneously.
-        // GREATEST(0, ...) prevents going negative, matching the floor guard in incrementServed.
-        $this->newQuery()->where('id', $this->id)->update([
-            'served_count' => DB::raw("GREATEST(0, served_count - {$count})"),
-        ]);
+        $affected = $this->newQuery()
+            ->where('id', $this->id)
+            ->update([
+                'served_count' => DB::raw("GREATEST(0, served_count - {$count})"),
+            ]);
+
+        return $affected > 0;
     }
 
     public static function forDate(string $date, string $mealType = 'breakfast'): ?self
