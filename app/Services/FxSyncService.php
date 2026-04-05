@@ -103,6 +103,7 @@ class FxSyncService
                 'uzs_final'              => $options['uzs_final'],
                 'eur_final'              => $options['eur_final'],
                 'rub_final'              => $options['rub_final'],
+                'usd_final'              => $options['usd_amount'],
                 'push_status'            => 'pushed',
                 'fx_last_pushed_at'      => now(),
                 'last_push_error'        => null,
