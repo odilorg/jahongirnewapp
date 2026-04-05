@@ -74,6 +74,9 @@ class GygBookingApplicator
             $specialRequests = $this->buildSpecialRequests($email, $timeDefaulted);
 
             // Step 5: Create booking
+            // grand_total is int (whole dollars). GYG price is a decimal string like "458.00".
+            $grandTotal = (int) round((float) ($email->price ?? 0));
+
             $bookingId = DB::table('bookings')->insertGetId([
                 'booking_number'          => $ref,
                 'guest_id'                => $guestId,
@@ -81,6 +84,7 @@ class GygBookingApplicator
                 'booking_start_date_time' => $startDateTime,
                 'booking_status'          => 'confirmed',
                 'booking_source'          => 'getyourguide',
+                'grand_total'             => $grandTotal,
                 'special_requests'        => $specialRequests,
                 'created_at'              => now(),
                 'updated_at'              => now(),
