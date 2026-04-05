@@ -76,16 +76,35 @@ class CashierBotController extends Controller
         $data = $request->all();
         $updateId = $data['update_id'] ?? null;
 
-        // Durable ingest: persist raw update, return 200 fast, process async
-        $webhook = \App\Models\IncomingWebhook::create([
-            'source'      => 'telegram:cashier',
-            'event_id'    => $updateId ? "cashier:{$updateId}" : null,
-            'payload'     => $data,
-            'status'      => \App\Models\IncomingWebhook::STATUS_PENDING,
-            'received_at' => now(),
-        ]);
+        // Durable ingest: persist raw update, return 200 fast, process async.
+        // firstOrCreate makes this idempotent — Telegram retries after a prior 500
+        // will find the existing row and skip dispatching again.
+        $eventId = $updateId ? "cashier:{$updateId}" : null;
 
-        \App\Jobs\ProcessTelegramUpdateJob::dispatch('cashier', $webhook->id);
+        if ($eventId) {
+            $webhook = \App\Models\IncomingWebhook::firstOrCreate(
+                ['event_id' => $eventId],
+                [
+                    'source'      => 'telegram:cashier',
+                    'payload'     => $data,
+                    'status'      => \App\Models\IncomingWebhook::STATUS_PENDING,
+                    'received_at' => now(),
+                ]
+            );
+        } else {
+            $webhook = \App\Models\IncomingWebhook::create([
+                'source'      => 'telegram:cashier',
+                'event_id'    => null,
+                'payload'     => $data,
+                'status'      => \App\Models\IncomingWebhook::STATUS_PENDING,
+                'received_at' => now(),
+            ]);
+        }
+
+        // Only dispatch for newly created rows; duplicate retries get a 200 with no re-work.
+        if ($webhook->wasRecentlyCreated) {
+            \App\Jobs\ProcessTelegramUpdateJob::dispatch('cashier', $webhook->id);
+        }
 
         return response('OK');
     }
