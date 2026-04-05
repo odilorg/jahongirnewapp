@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Enums\FxSyncPushStatus;
 use App\Jobs\FxSyncJob;
 use App\Models\Beds24Booking;
 use App\Models\BookingFxSync;
@@ -52,7 +53,7 @@ class RepairMissingFxSyncs extends Command
 
         // Filter to those with no sync row, or a failed/pending sync
         $synced = BookingFxSync::whereIn('beds24_booking_id', $bookingIds)
-            ->where('push_status', 'pushed')
+            ->where('push_status', FxSyncPushStatus::Pushed->value)
             ->pluck('beds24_booking_id')
             ->flip();  // O(1) lookup
 
