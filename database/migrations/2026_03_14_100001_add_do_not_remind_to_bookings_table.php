@@ -9,7 +9,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('bookings', function (Blueprint $table) {
-            $table->boolean('do_not_remind')->default(false)->after('google_sync_error');
+            $table->boolean('do_not_remind')->default(false);
         });
     }
 
