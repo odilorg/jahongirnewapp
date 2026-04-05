@@ -600,31 +600,20 @@ class CashierBotController extends Controller
                 );
                 return response('OK');
             } catch (\Throwable $e) {
-                // Invalid currency or bad session data — fall through to legacy path
-                Log::warning('CashierBot: failed to get presentedAmountFor, falling back', [
+                // Microphase 7.1: FX presentation invalid — stop immediately, do not fall through.
+                Log::warning('CashierBot: failed to get presentedAmountFor — payment blocked', [
                     'currency' => $d['currency'],
                     'error'    => $e->getMessage(),
                 ]);
-                $d['fx_presentation'] = null;
+                $this->send($chatId, "❌ Курсы ФX недоступны. Обратитесь к менеджеру.");
+                return response('OK');
             }
         }
 
-        // Legacy path: no FX presentation (manual entry or old-style booking)
-        $needsFxStep = !empty($d['booking_currency'])
-            && $d['booking_currency'] !== $d['currency']
-            && $d['currency'] === 'UZS'
-            && !empty($d['booking_amount']);
-
-        if ($needsFxStep) {
-            return $this->askExchangeRate($s, $chatId, $d);
-        }
-
-        $s->update(['state' => 'payment_method', 'data' => $d]);
-        $this->send($chatId, "Способ оплаты:", ['inline_keyboard' => [[
-            ['text' => 'Наличные', 'callback_data' => 'method_cash'],
-            ['text' => 'Карта', 'callback_data' => 'method_card'],
-            ['text' => 'Перевод', 'callback_data' => 'method_transfer'],
-        ]]], 'inline');
+        // Microphase 7.1: FX presentation absent — hard block (defence-in-depth).
+        // This path was the legacy manual/fallback route; it is no longer reachable
+        // from real cashier traffic because selectGuest() blocks before we get here.
+        $this->send($chatId, "❌ Курсы ФX недоступны. Обратитесь к менеджеру.");
         return response('OK');
     }
 
