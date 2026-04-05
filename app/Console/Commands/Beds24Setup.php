@@ -32,18 +32,12 @@ class Beds24Setup extends Command
         $this->info('Exchanging Beds24 invite token for refresh token...');
 
         // Try both known base URLs for the setup endpoint
+        // Per Beds24 API v2 spec: header is 'code', not 'inviteToken'
         $response = Http::withHeaders([
-            'inviteToken' => $inviteToken,
-            'accept'      => 'application/json',
+            'code'       => $inviteToken,
+            'deviceName' => 'JahongirApp',
+            'accept'     => 'application/json',
         ])->timeout(15)->get('https://beds24.com/api/v2/authentication/setup');
-
-        // Fallback: some Beds24 accounts use api.beds24.com subdomain
-        if (!$response->successful() || empty($response->json('refreshToken'))) {
-            $response = Http::withHeaders([
-                'inviteToken' => $inviteToken,
-                'accept'      => 'application/json',
-            ])->timeout(15)->get('https://api.beds24.com/v2/authentication/setup');
-        }
 
         $result = $response->json();
 
@@ -76,13 +70,6 @@ class Beds24Setup extends Command
             'refreshToken' => $refreshToken,
             'accept'       => 'application/json',
         ])->timeout(15)->get('https://beds24.com/api/v2/authentication/token');
-
-        if (!$verifyResp->successful() || empty($verifyResp->json('token'))) {
-            $verifyResp = Http::withHeaders([
-                'refreshToken' => $refreshToken,
-                'accept'       => 'application/json',
-            ])->timeout(15)->get('https://api.beds24.com/v2/authentication/token');
-        }
 
         $verifyResult = $verifyResp->json();
 
