@@ -98,8 +98,9 @@ return [
     ],
 
     'kitchen_bot' => [
-        'token'          => env('KITCHEN_BOT_TOKEN', ''),
-        'webhook_secret' => env('KITCHEN_WEBHOOK_SECRET', ''),
+        'token'           => env('KITCHEN_BOT_TOKEN', ''),
+        'webhook_secret'  => env('KITCHEN_WEBHOOK_SECRET', ''),
+        'session_timeout' => env('KITCHEN_SESSION_TIMEOUT', 480), // minutes (8h shift)
     ],
 
 

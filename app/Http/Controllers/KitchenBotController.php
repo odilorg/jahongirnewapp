@@ -62,7 +62,9 @@ class KitchenBotController extends Controller
                 'e'     => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
             ]);
-            $this->alertOwnerOnError('Webhook', $e);
+            // Do NOT alert here — the job retries up to 3 times before calling failed().
+            // Alerting here would fire once per retry attempt (3× noise).
+            // Owner alert is sent in ProcessTelegramUpdateJob::failed() instead.
             throw $e;
         }
     }
@@ -85,13 +87,16 @@ class KitchenBotController extends Controller
 
         $session = $this->getSession($chatId);
 
-        // Not authenticated
-        if (!$session || !$session->user_id) {
+        // Not authenticated or session expired (8h inactivity)
+        if (!$session || !$session->user_id || $session->isExpired()) {
+            if ($session?->isExpired()) {
+                $session->update(['user_id' => null, 'state' => 'idle', 'data' => null]);
+            }
             $this->send($chatId, "👋 Oshxona botiga xush kelibsiz!\n\nTelefon raqamingizni yuboring.", $this->phoneKb());
             return response('OK');
         }
 
-        $session->updateActivity();
+        $session->updateActivity(config('services.kitchen_bot.session_timeout', 480));
 
         $today = now()->timezone('Asia/Tashkent')->format('Y-m-d');
 
@@ -262,44 +267,22 @@ class KitchenBotController extends Controller
 
     protected function incrementServed(int $chatId, $session, int $count)
     {
-        $today = now()->timezone('Asia/Tashkent')->format('Y-m-d');
-        $meal = KitchenMealCount::forDate($today);
-
-        if (!$meal) {
-            $meal = $this->kitchen->syncExpectedCount($today);
-        }
-
+        $meal = $this->resolveOrSyncMeal(now()->timezone('Asia/Tashkent')->format('Y-m-d'));
         $meal->incrementServed($count);
         $meal->refresh();
 
         $emoji = $count === 1 ? '✅' : "✅ +{$count}";
-        $text = "{$emoji} Keldi: <b>{$meal->served_count}</b> / {$meal->total_expected}\n"
-            . "⏳ Qoldi: <b>{$meal->remaining()}</b>";
-
-        $this->send($chatId, $text, $this->mainKb());
+        $this->send($chatId, $this->counterText($meal, $emoji), $this->mainKb());
         return response('OK');
     }
 
     protected function incrementServedInline(int $chatId, int $count, ?int $messageId)
     {
-        $today = now()->timezone('Asia/Tashkent')->format('Y-m-d');
-        $meal = KitchenMealCount::forDate($today);
-
-        if (!$meal) {
-            $meal = $this->kitchen->syncExpectedCount($today);
-        }
-
+        $meal = $this->resolveOrSyncMeal(now()->timezone('Asia/Tashkent')->format('Y-m-d'));
         $meal->incrementServed($count);
         $meal->refresh();
 
-        $text = "✅ Keldi: <b>{$meal->served_count}</b> / {$meal->total_expected}\n"
-            . "⏳ Qoldi: <b>{$meal->remaining()}</b>";
-
-        if ($messageId) {
-            $this->editMessage($chatId, $messageId, $text, $this->counterInlineKb());
-        } else {
-            $this->send($chatId, $text, $this->mainKb());
-        }
+        $this->replyCounter($chatId, $messageId, $this->counterText($meal));
         return response('OK');
     }
 
@@ -307,8 +290,7 @@ class KitchenBotController extends Controller
 
     protected function decrementServed(int $chatId, $session, int $count)
     {
-        $today = now()->timezone('Asia/Tashkent')->format('Y-m-d');
-        $meal = KitchenMealCount::forDate($today);
+        $meal = KitchenMealCount::forDate(now()->timezone('Asia/Tashkent')->format('Y-m-d'));
 
         if (!$meal) {
             $this->send($chatId, "Bugun hali ma'lumot yo'q. 🔄 Yangilash bosing.", $this->mainKb());
@@ -318,32 +300,45 @@ class KitchenBotController extends Controller
         $meal->decrementServed($count);
         $meal->refresh();
 
-        $text = "↩️ Qaytarildi. Keldi: <b>{$meal->served_count}</b> / {$meal->total_expected}\n"
-            . "⏳ Qoldi: <b>{$meal->remaining()}</b>";
-
-        $this->send($chatId, $text, $this->mainKb());
+        $this->send($chatId, $this->counterText($meal, '↩️ Qaytarildi.'), $this->mainKb());
         return response('OK');
     }
 
     protected function decrementServedInline(int $chatId, int $count, ?int $messageId)
     {
-        $today = now()->timezone('Asia/Tashkent')->format('Y-m-d');
-        $meal = KitchenMealCount::forDate($today);
-
+        $meal = KitchenMealCount::forDate(now()->timezone('Asia/Tashkent')->format('Y-m-d'));
         if (!$meal) return response('OK');
 
         $meal->decrementServed($count);
         $meal->refresh();
 
-        $text = "↩️ Qaytarildi. Keldi: <b>{$meal->served_count}</b> / {$meal->total_expected}\n"
-            . "⏳ Qoldi: <b>{$meal->remaining()}</b>";
+        $this->replyCounter($chatId, $messageId, $this->counterText($meal, '↩️ Qaytarildi.'));
+        return response('OK');
+    }
 
+    // ── COUNTER HELPERS ─────────────────────────────────────────
+
+    /** Get or create today's meal record, syncing from Beds24 if it doesn't exist yet. */
+    private function resolveOrSyncMeal(string $date): KitchenMealCount
+    {
+        return KitchenMealCount::forDate($date) ?? $this->kitchen->syncExpectedCount($date);
+    }
+
+    /** Build a consistent counter status line. */
+    private function counterText(KitchenMealCount $meal, string $prefix = '✅'): string
+    {
+        return "{$prefix} Keldi: <b>{$meal->served_count}</b> / {$meal->total_expected}\n"
+            . "⏳ Qoldi: <b>{$meal->remaining()}</b>";
+    }
+
+    /** Send or edit a counter message — inline keyboard if messageId given, reply keyboard otherwise. */
+    private function replyCounter(int $chatId, ?int $messageId, string $text): void
+    {
         if ($messageId) {
             $this->editMessage($chatId, $messageId, $text, $this->counterInlineKb());
         } else {
             $this->send($chatId, $text, $this->mainKb());
         }
-        return response('OK');
     }
 
     // ── SHOW REMAINING ──────────────────────────────────────────
@@ -384,8 +379,10 @@ class KitchenBotController extends Controller
 
     protected function showTodayFull(int $chatId, string $date)
     {
-        $counts = $this->kitchen->getGuestCountForDate($date);
-        $meal = $this->kitchen->syncExpectedCount($date);
+        // syncExpectedCount already calls getGuestCountForDate internally — use its return
+        // value for counts to avoid making the same 3 Beds24 calls twice.
+        $meal   = $this->kitchen->syncExpectedCount($date);
+        $counts = $this->kitchen->getLastFetchedCounts() ?? $this->kitchen->getGuestCountForDate($date);
         $bd = $counts['breakdown'] ?? [];
 
         $dateObj = Carbon::parse($date);

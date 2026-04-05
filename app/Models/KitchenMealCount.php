@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\DB;
 
 class KitchenMealCount extends Model
 {
@@ -35,8 +36,11 @@ class KitchenMealCount extends Model
 
     public function decrementServed(int $count = 1): void
     {
-        $new = max(0, $this->served_count - $count);
-        $this->update(['served_count' => $new]);
+        // Atomic update — avoids race condition when two staff tap "Qaytarish" simultaneously.
+        // GREATEST(0, ...) prevents going negative, matching the floor guard in incrementServed.
+        $this->newQuery()->where('id', $this->id)->update([
+            'served_count' => DB::raw("GREATEST(0, served_count - {$count})"),
+        ]);
     }
 
     public static function forDate(string $date, string $mealType = 'breakfast'): ?self
