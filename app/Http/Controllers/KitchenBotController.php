@@ -8,25 +8,21 @@ use App\Models\KitchenMealCount;
 use App\Models\TelegramPosSession;
 use App\Models\User;
 use App\Services\KitchenGuestService;
-use App\Services\OwnerAlertService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 
 class KitchenBotController extends Controller
 {
-    protected OwnerAlertService $ownerAlert;
     protected KitchenGuestService $kitchen;
     protected BotResolverInterface $botResolver;
     protected TelegramTransportInterface $transport;
 
     public function __construct(
-        OwnerAlertService $ownerAlert,
         KitchenGuestService $kitchen,
         BotResolverInterface $botResolver,
         TelegramTransportInterface $transport,
     ) {
-        $this->ownerAlert  = $ownerAlert;
         $this->kitchen     = $kitchen;
         $this->botResolver = $botResolver;
         $this->transport   = $transport;
@@ -715,16 +711,4 @@ class KitchenBotController extends Controller
         }
     }
 
-    protected function alertOwnerOnError(string $context, \Throwable $e, ?int $userId = null): void
-    {
-        try {
-            $user = $userId ? (User::find($userId)?->name ?? "ID:{$userId}") : 'unknown';
-            $msg  = "🔴 <b>Kitchen Bot Error</b>\n\n"
-                . "📍 {$context}\n"
-                . "👤 {$user}\n"
-                . "❌ " . mb_substr($e->getMessage(), 0, 200) . "\n"
-                . "📄 " . basename($e->getFile()) . ":" . $e->getLine();
-            $this->ownerAlert->sendShiftCloseReport($msg);
-        } catch (\Throwable $ignore) {}
-    }
 }

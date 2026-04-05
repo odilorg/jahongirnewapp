@@ -11,7 +11,11 @@ class KitchenGuestService
     protected Beds24BookingService $beds24;
     protected const PROPERTY_ID = 41097;
 
-    /** Holds the counts from the most recent getGuestCountForDate call within this request. */
+    /**
+     * In-memory cache of the last getGuestCountForDate result.
+     * Scoped to a single PHP-FPM request / queue job — never shared across workers.
+     * Used by callers (e.g. showTodayFull) to avoid re-fetching after syncExpectedCount.
+     */
     protected ?array $lastFetchedCounts = null;
 
     public function __construct(Beds24BookingService $beds24)
@@ -52,7 +56,7 @@ class KitchenGuestService
 
             // Breakfast guests = everyone sleeping the night BEFORE this date
             // Arrived on or before yesterday, departs on or after today
-            $prevDay = \Carbon\Carbon::parse($dateStr)->subDay()->format('Y-m-d');
+            $prevDay = Carbon::parse($dateStr, 'Asia/Tashkent')->subDay()->format('Y-m-d');
             $overnightResp = $this->beds24->getBookings([
                 'arrivalFrom' => '2020-01-01',
                 'arrivalTo' => $prevDay,
@@ -127,9 +131,12 @@ class KitchenGuestService
      */
     public function getWeeklyForecast(?string $startDate = null): array
     {
+        // Always anchor to Asia/Tashkent so date boundaries are consistent
+        // regardless of where the PHP process runs (UTC server vs local TZ).
+        $tz    = 'Asia/Tashkent';
         $start = $startDate
-            ? Carbon::parse($startDate)
-            : now()->timezone('Asia/Tashkent')->startOfDay();
+            ? Carbon::parse($startDate, $tz)->startOfDay()
+            : now($tz)->startOfDay();
 
         $endDate = $start->copy()->addDays(6);
         $startStr = $start->format('Y-m-d');
