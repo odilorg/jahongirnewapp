@@ -25,12 +25,12 @@ return new class extends Migration
         $columns = DB::select("SHOW COLUMNS FROM cashier_shifts WHERE Field = 'open_shift_marker'");
         
         if (empty($columns)) {
-            // Add a virtual column that's only populated when status is 'open'
-            // NULL values are ignored in unique constraints, so this effectively
-            // creates a partial unique index for open shifts only.
-            // MySQL 8.0 requires FK checks disabled when adding a STORED generated column
-            // to a table that has outgoing FK constraints.
-            DB::statement('SET FOREIGN_KEY_CHECKS=0');
+            // Add a virtual generated column that is only populated when status = 'open'.
+            // NULL values are ignored in unique constraints, effectively creating a partial
+            // unique index for open shifts only.
+            // Must be VIRTUAL, not STORED: MySQL 8.0 forbids adding STORED generated columns
+            // to a table that is the parent of FK constraints (cash_transactions → cashier_shifts).
+            // VIRTUAL is sufficient here — we only need the column for the unique index.
             DB::statement("
                 ALTER TABLE cashier_shifts
                 ADD COLUMN open_shift_marker VARCHAR(50)
@@ -39,9 +39,8 @@ return new class extends Migration
                         WHEN status = 'open' THEN CONCAT(cash_drawer_id, '-', user_id)
                         ELSE NULL
                     END
-                ) STORED
+                ) VIRTUAL
             ");
-            DB::statement('SET FOREIGN_KEY_CHECKS=1');
         }
 
         // Create unique constraint on the marker column if it doesn't exist
