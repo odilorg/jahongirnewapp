@@ -27,17 +27,21 @@ return new class extends Migration
         if (empty($columns)) {
             // Add a virtual column that's only populated when status is 'open'
             // NULL values are ignored in unique constraints, so this effectively
-            // creates a partial unique index for open shifts only
+            // creates a partial unique index for open shifts only.
+            // MySQL 8.0 requires FK checks disabled when adding a STORED generated column
+            // to a table that has outgoing FK constraints.
+            DB::statement('SET FOREIGN_KEY_CHECKS=0');
             DB::statement("
-                ALTER TABLE cashier_shifts 
-                ADD COLUMN open_shift_marker VARCHAR(50) 
+                ALTER TABLE cashier_shifts
+                ADD COLUMN open_shift_marker VARCHAR(50)
                 GENERATED ALWAYS AS (
-                    CASE 
+                    CASE
                         WHEN status = 'open' THEN CONCAT(cash_drawer_id, '-', user_id)
-                        ELSE NULL 
+                        ELSE NULL
                     END
                 ) STORED
             ");
+            DB::statement('SET FOREIGN_KEY_CHECKS=1');
         }
 
         // Create unique constraint on the marker column if it doesn't exist
