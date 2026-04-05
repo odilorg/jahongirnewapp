@@ -27,6 +27,11 @@ class AppServiceProvider extends ServiceProvider
         $this->app->bind(BotSecretProviderInterface::class, BotSecretProvider::class);
         $this->app->bind(BotResolverInterface::class, FallbackBotResolver::class);
         $this->app->bind(TelegramTransportInterface::class, TelegramTransport::class);
+
+        // Explicitly transient (NOT singleton) — KitchenGuestService carries
+        // per-request state ($lastFetchedCounts). Long-lived queue workers must
+        // get a fresh instance per job to prevent stale cache bleeding between jobs.
+        $this->app->bind(\App\Services\KitchenGuestService::class);
     }
 
     /**

@@ -91,8 +91,11 @@ class KitchenGuestService
 
             return $this->lastFetchedCounts;
         } catch (\Throwable $e) {
-            Log::error('KitchenGuestService error', ['date' => $date, 'error' => $e->getMessage()]);
-            return ['total' => 0, 'adults' => 0, 'children' => 0, 'bookings' => 0, 'breakdown' => []];
+            Log::error('KitchenGuestService: Beds24 fetch failed — returning zero counts', [
+                'date'  => $date,
+                'error' => $e->getMessage(),
+            ]);
+            return ['total' => 0, 'adults' => 0, 'children' => 0, 'bookings' => 0, 'breakdown' => [], 'degraded' => true];
         }
     }
 
@@ -138,9 +141,10 @@ class KitchenGuestService
             ? Carbon::parse($startDate, $tz)->startOfDay()
             : now($tz)->startOfDay();
 
-        $endDate = $start->copy()->addDays(6);
+        $endDate  = $start->copy()->addDays(6);
         $startStr = $start->format('Y-m-d');
         $endStr   = $endDate->format('Y-m-d');
+        $degraded = false;
 
         try {
             // Single query: all bookings whose stay overlaps the 7-day window.
@@ -165,9 +169,17 @@ class KitchenGuestService
             $allArrivals = collect($this->filterActive($arrivalsResp['data'] ?? []));
 
         } catch (\Throwable $e) {
-            Log::error('KitchenGuestService::getWeeklyForecast batch fetch failed', ['error' => $e->getMessage()]);
+            // Log at error so this surfaces in monitoring/PM2 logs.
+            // The forecast continues with empty collections so the bot
+            // returns zeros rather than crashing — but the caller receives
+            // a 'degraded' flag so it can warn the kitchen staff.
+            Log::error('KitchenGuestService::getWeeklyForecast batch fetch failed', [
+                'error' => $e->getMessage(),
+                'range' => "{$startStr} → {$endStr}",
+            ]);
             $allBookings = collect();
             $allArrivals = collect();
+            $degraded    = true;
         }
 
         $forecast = [];
@@ -202,6 +214,7 @@ class KitchenGuestService
                 ],
                 'day_name'  => $date->translatedFormat('D'),
                 'day_label' => $date->format('d.m'),
+                'degraded'  => $degraded, // true if Beds24 was unreachable — caller should warn user
             ];
         }
 
