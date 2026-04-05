@@ -13,6 +13,7 @@ class Beds24BookingFactory extends Factory
     {
         return [
             'beds24_booking_id' => 'B' . $this->faker->unique()->numerify('######'),
+            'property_id'       => '41097',
             'guest_name'        => $this->faker->name(),
             'guest_email'       => $this->faker->safeEmail(),
             'room_name'         => '10' . $this->faker->numberBetween(1, 9),

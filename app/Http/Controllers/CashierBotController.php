@@ -511,8 +511,14 @@ class CashierBotController extends Controller
         $liveGuest  = $d['_live_guests'][$bid] ?? null;
         $snap       = $this->extractLiveBookingSnapshot($liveGuest, $bid);
 
-        // 2. Local DB — defensive fallback; still needed for FX presentation path
+        // 2. Local DB — needed for FX presentation path
         $b = Beds24Booking::where('beds24_booking_id', $bid)->first();
+
+        // 3. On-demand import — booking arrived via Beds24 API but was never synced locally.
+        //    Live payload is already in session (fetched by startPayment/hPayRoom), no extra call.
+        if (! $b && $liveGuest) {
+            $b = $this->importBookingFromLiveData($bid, $liveGuest);
+        }
 
         // Merge: live snapshot wins, local DB fills gaps, hard defaults last
         $d['guest_name']       = $snap['guest_name']       ?? ($b?->guest_name ?? '?');
@@ -530,7 +536,17 @@ class CashierBotController extends Controller
             ]);
         }
 
-        // Try to get a frozen FX presentation from the sync system (requires local booking record)
+        // Warn if still missing — import was attempted above but failed, or no live data was available
+        if (! $b) {
+            Log::warning('CashierBot: booking not in local DB and import failed — payment blocked', [
+                'beds24_booking_id' => $bid,
+                'amount_from_live'  => $d['booking_amount'],
+                'guest_name'        => $d['guest_name'],
+                'live_data_present' => (bool) $liveGuest,
+                'import_attempted'  => (bool) $liveGuest,
+            ]);
+        }
+
         if ($b && $d['booking_amount'] > 0) {
             try {
                 $botSessionId = (string) $chatId . ':' . ($d['shift_id'] ?? '0');
@@ -1447,6 +1463,96 @@ class CashierBotController extends Controller
             'booking_currency' => $currency,
             'currency_source'  => $currencySource,
         ];
+    }
+
+    /**
+     * Upsert a minimal Beds24Booking row from a raw Beds24 API booking array.
+     *
+     * Called when the cashier selects a guest who is confirmed in Beds24 but whose
+     * booking has not yet been synced to the local DB (e.g. arrived via a channel
+     * whose webhook was delayed or missed). The live payload is already in the
+     * session from startPayment()/hPayRoom() — no additional API call is made.
+     *
+     * Uses updateOrCreate so it is idempotent with the normal webhook path.
+     *
+     * Returns the upserted model on success, null on any failure (caller falls
+     * through to the existing "FX unavailable" operator message).
+     */
+    protected function importBookingFromLiveData(string $bid, array $liveGuest): ?Beds24Booking
+    {
+        // Guard: minimum viable fields required by downstream consumers.
+        //
+        // arrival_date is mandatory — PaymentPresentation::fromSync() calls
+        // $booking->arrival_date->toDateString(), which throws on null.
+        // A row without arrival_date would import successfully then crash in
+        // the FX path, which is worse than returning null and showing the
+        // standard "FX unavailable" message to the operator.
+        if (empty($liveGuest['arrival'])) {
+            Log::warning('CashierBot: on-demand import skipped — arrival_date missing from live payload', [
+                'beds24_booking_id' => $bid,
+                'live_keys'         => array_keys($liveGuest),
+            ]);
+            return null;
+        }
+
+        try {
+            $firstName = trim($liveGuest['firstName'] ?? '');
+            $lastName  = trim($liveGuest['lastName']  ?? '');
+            $guestName = trim("{$firstName} {$lastName}") ?: 'Guest';
+
+            $price   = (float) ($liveGuest['price']   ?? 0);
+            $deposit = (float) ($liveGuest['deposit'] ?? 0);
+            $balance = max(0.0, $price - $deposit);
+
+            // Map Beds24 status to our known values; treat unknown as 'confirmed'.
+            $rawStatus     = (string) ($liveGuest['status'] ?? 'confirmed');
+            $bookingStatus = in_array($rawStatus, ['confirmed', 'new'], true) ? $rawStatus : 'confirmed';
+
+            // Identity key: external Beds24 booking ID (not our local PK).
+            // updateOrCreate is idempotent with the normal webhook path.
+            //
+            // Only Beds24-owned fields are listed in the update set.
+            // Internal operational fields (notes, admin_confirmed_at, payment_type)
+            // are intentionally absent — they are not overwritten on repeated imports.
+            $booking = Beds24Booking::updateOrCreate(
+                ['beds24_booking_id' => $bid],
+                [
+                    'property_id'    => (string) ($liveGuest['propertyId'] ?? '41097'),
+                    'guest_name'     => $guestName,
+                    'arrival_date'   => $liveGuest['arrival'],
+                    'departure_date' => $liveGuest['departure'] ?? null,
+                    'num_adults'     => max(1, (int) ($liveGuest['numAdult'] ?? 1)),
+                    'num_children'   => max(0, (int) ($liveGuest['numChild'] ?? 0)),
+                    'total_amount'   => $price,
+                    'invoice_balance'=> $balance,
+                    'currency'       => 'USD',
+                    'booking_status' => $bookingStatus,
+                    'room_id'        => $liveGuest['roomId']   ?? null,
+                    'room_name'      => $liveGuest['roomName'] ?? null,
+                ]
+            );
+
+            Log::info('CashierBot: booking imported on-demand from live Beds24 data', [
+                'beds24_booking_id' => $bid,
+                'property_id'       => $liveGuest['propertyId'] ?? null,
+                'guest_name'        => $guestName,
+                'arrival_date'      => $liveGuest['arrival'],
+                'total_amount'      => $price,
+                'invoice_balance'   => $balance,
+                'booking_status'    => $bookingStatus,
+                'action'            => $booking->wasRecentlyCreated ? 'created' : 'updated',
+            ]);
+
+            return $booking;
+
+        } catch (\Throwable $e) {
+            Log::error('CashierBot: on-demand booking import failed', [
+                'beds24_booking_id' => $bid,
+                'error'             => $e->getMessage(),
+                'live_keys'         => array_keys($liveGuest),
+            ]);
+            return null;
+        }
     }
 
     protected function getShift(?int $uid): ?CashierShift

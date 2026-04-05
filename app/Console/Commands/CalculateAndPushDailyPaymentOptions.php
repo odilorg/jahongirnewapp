@@ -68,6 +68,12 @@ class CalculateAndPushDailyPaymentOptions extends Command
 
         $this->info("fx:push-payment-options — {$startDate} + {$days} days" . ($isDryRun ? ' [DRY RUN]' : ''));
 
+        Log::info('fx:push-payment-options: starting', [
+            'start_date' => $startDate,
+            'days'       => $days,
+            'dry_run'    => $isDryRun,
+        ]);
+
         // ------------------------------------------------------------------
         // Step 1: Fetch rates
         // ------------------------------------------------------------------
@@ -82,6 +88,9 @@ class CalculateAndPushDailyPaymentOptions extends Command
             $usdData = $this->fxService->getUsdToUzs();
             if (!$usdData) {
                 $this->error('Failed to fetch USD/UZS rate from all sources. Aborting.');
+                Log::error('fx:push-payment-options: USD rate fetch failed — all sources exhausted', [
+                    'start_date' => $startDate,
+                ]);
                 return Command::FAILURE;
             }
             $usdRate      = $usdData['rate'];
