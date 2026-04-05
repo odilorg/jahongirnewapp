@@ -28,5 +28,6 @@
         <env name="QUEUE_CONNECTION" value="sync"/>
         <env name="SESSION_DRIVER" value="array"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
+        <env name="BEDS24_API_V2_REFRESH_TOKEN" value="test-placeholder"/>
     </php>
 </phpunit>
