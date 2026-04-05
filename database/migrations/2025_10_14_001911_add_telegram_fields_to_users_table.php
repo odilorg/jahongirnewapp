@@ -11,6 +11,12 @@ return new class extends Migration
      */
     public function up(): void
     {
+        // Guard: these columns were already added by the 2025_10_13_105001 migration.
+        // This migration is a duplicate that was created in error; skip if already present.
+        if (Schema::hasColumn('users', 'phone_number')) {
+            return;
+        }
+
         Schema::table('users', function (Blueprint $table) {
             $table->string('phone_number')->nullable()->after('email');
             $table->bigInteger('telegram_user_id')->nullable()->unique()->after('phone_number');
@@ -24,8 +30,6 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::table('users', function (Blueprint $table) {
-            $table->dropColumn(['phone_number', 'telegram_user_id', 'telegram_username', 'last_active_at']);
-        });
+        // No-op: the 2025_10_13_105001 migration owns and drops these columns.
     }
 };
