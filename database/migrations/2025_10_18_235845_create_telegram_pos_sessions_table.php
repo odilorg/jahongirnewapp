@@ -11,6 +11,10 @@ return new class extends Migration
      */
     public function up(): void
     {
+        // Replaces the 2025_10_14_223335 version (different schema: added unique on chat_id,
+        // dropped telegram_user_id/last_activity_at/expires_at columns).
+        Schema::dropIfExists('telegram_pos_sessions');
+
         Schema::create('telegram_pos_sessions', function (Blueprint $table) {
             $table->id();
             $table->bigInteger('chat_id')->unique();
