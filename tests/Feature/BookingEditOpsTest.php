@@ -246,12 +246,14 @@ class BookingEditOpsTest extends TestCase
     /** @test */
     public function edit_guest_name_throws_when_booking_has_no_guest(): void
     {
-        // Create a booking whose guest relation returns null (stub via partial mock)
         $booking = $this->makeBooking('pending');
 
-        // Detach guest without deleting the booking by setting guest_id to a non-existent id
+        // Temporarily disable FK checks to create an orphaned booking row.
+        DB::statement('SET FOREIGN_KEY_CHECKS=0');
         DB::table('bookings')->where('id', $booking->id)->update(['guest_id' => 99999]);
-        $booking = Booking::find($booking->id); // fresh load
+        DB::statement('SET FOREIGN_KEY_CHECKS=1');
+
+        $booking = Booking::find($booking->id); // fresh load — guest relation will return null
 
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessageMatches('/no linked guest/i');
