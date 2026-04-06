@@ -41,9 +41,9 @@ class GroupPaymentIntegrationTest extends TestCase
     {
         $user = User::factory()->create();
         return CashierShift::factory()->create([
+            'user_id'   => $user->id,
             'status'    => 'open',
             'opened_at' => now(),
-            'opened_by' => $user->id,
         ]);
     }
 
