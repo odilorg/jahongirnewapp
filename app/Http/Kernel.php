@@ -75,5 +75,6 @@ class Kernel extends HttpKernel
         'telegram.auth'    => \App\Http\Middleware\AuthenticateTelegramUser::class,
         'gyg.auth'         => \App\Http\Middleware\GygBasicAuth::class,
         'service.key'      => \App\Http\Middleware\AuthenticateServiceKey::class,
+        'website.api_key'  => \App\Http\Middleware\VerifyWebsiteApiKey::class,
     ];
 }

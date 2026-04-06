@@ -36,6 +36,8 @@ class Booking extends Model
         'booking_number',
         'booking_end_date_time',
         'booking_id',
+        'idempotency_key',
+        'grand_total',
     ];
 
     protected static function boot()
@@ -56,14 +58,20 @@ class Booking extends Model
 
         $booking->saveQuietly();
 
-        $booking->scheduleNotifications();
-
-        // Dispatch PDF job (if used)
-        // GenerateBookingPdf::dispatch($booking);
+        // Wrap notification scheduling so a missing chats table or any other
+        // infrastructure failure never rolls back a successfully created booking.
+        try {
             $booking->scheduleNotifications();
+        } catch (\Throwable $e) {
+            Log::error("Booking #{$booking->id}: scheduleNotifications failed — {$e->getMessage()}");
+        }
 
-            // Dispatch PDF generation
-        GenerateBookingPdf::dispatch($booking);
+        // Dispatch PDF generation
+        try {
+            GenerateBookingPdf::dispatch($booking);
+        } catch (\Throwable $e) {
+            Log::error("Booking #{$booking->id}: GenerateBookingPdf dispatch failed — {$e->getMessage()}");
+        }
         });
 
         

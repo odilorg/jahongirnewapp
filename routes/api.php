@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\TelegramController;
 use App\Http\Controllers\TelegramDriverGuideSignUpController;
 use App\Http\Controllers\WebhookController;
+use App\Http\Controllers\WebsiteBookingController;
 
 
 /*
@@ -43,6 +44,11 @@ Route::post('/telegram/driver_guide_signup', [TelegramDriverGuideSignUpControlle
 
 
 Route::post('/webhook/tour-booking', [WebhookController::class, 'handleTourBooking']);
+
+// Website booking form → DB pipeline
+Route::post('/bookings/website', [WebsiteBookingController::class, 'store'])
+    ->middleware(['website.api_key', 'throttle:30,1'])
+    ->name('bookings.website');
 
 
 // Telegram Bot Availability Routes
