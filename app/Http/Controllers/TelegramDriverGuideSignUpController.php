@@ -7,6 +7,7 @@ use App\Contracts\Telegram\TelegramTransportInterface;
 use App\Models\Driver;
 use App\Models\Guide;
 use App\Models\Partner;
+use App\Services\OperatorBookingFlow;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -18,8 +19,11 @@ class TelegramDriverGuideSignUpController extends Controller
     protected BotResolverInterface $botResolver;
     protected TelegramTransportInterface $transport;
 
-    public function __construct(BotResolverInterface $botResolver, TelegramTransportInterface $transport)
-    {
+    public function __construct(
+        BotResolverInterface $botResolver,
+        TelegramTransportInterface $transport,
+        private readonly OperatorBookingFlow $operatorBookingFlow,
+    ) {
         $this->ownerChatId  = config('services.driver_guide_bot.owner_chat_id', '38738713');
         $this->botResolver  = $botResolver;
         $this->transport    = $transport;
@@ -64,6 +68,45 @@ class TelegramDriverGuideSignUpController extends Controller
         if ($chatType !== 'private') return;
 
         Log::info('DriverGuideBot: update', compact('chatId', 'text'));
+
+        // ── Operator manual booking flow (owner only) ──────────────────────
+        // All /newbooking commands and booking-flow callbacks are handled here
+        // before the regular driver/partner logic so the session state machine
+        // takes full precedence while a booking is in progress.
+        if ($chatId === $this->ownerChatId) {
+            $callbackData = $callbackQuery ? data_get($callbackQuery, 'data') : null;
+            $isBookingFlow = str_starts_with($text ?? '', '/newbooking')
+                || str_starts_with($text ?? '', '/cancel')
+                || str_starts_with($callbackData ?? '', 'tour:')
+                || str_starts_with($callbackData ?? '', 'hotel:')
+                || str_starts_with($callbackData ?? '', 'confirm:')
+                || $callbackData === 'cancel';
+
+            // Also intercept any text while a booking session is in progress
+            if (! $isBookingFlow) {
+                $session = \App\Models\OperatorBookingSession::where('chat_id', $chatId)->first();
+                $isBookingFlow = $session && $session->state !== 'idle' && ! $session->isExpired();
+            }
+
+            if ($isBookingFlow) {
+                if ($callbackQuery) {
+                    $this->answerCallbackQuery(data_get($callbackQuery, 'id'));
+                }
+
+                $response = $this->operatorBookingFlow->handle($chatId, $text, $callbackData);
+
+                if (isset($response['reply_markup'])) {
+                    $this->sendInlineKeyboard(
+                        $chatId,
+                        $response['text'],
+                        $response['reply_markup']['inline_keyboard'],
+                    );
+                } else {
+                    $this->sendMessage($chatId, $response['text']);
+                }
+                return;
+            }
+        }
 
         // ── Inline calendar button taps ────────────────────────────────────
         if ($callbackQuery) {
