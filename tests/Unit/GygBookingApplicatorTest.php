@@ -4,6 +4,7 @@ namespace Tests\Unit;
 
 use App\Models\GygInboundEmail;
 use App\Services\GygBookingApplicator;
+use App\Services\GygPickupResolver;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
@@ -17,11 +18,26 @@ class GygBookingApplicatorTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->applicator = new GygBookingApplicator();
+        $this->applicator = new GygBookingApplicator(new GygPickupResolver());
     }
 
     private function createParsedEmail(array $overrides = []): GygInboundEmail
     {
+        // Seed a minimal tour row so matchTour() can resolve a non-null tour_id.
+        // The tours table has a NOT NULL constraint on the tour_id FK in bookings.
+        $tourTitle = $overrides['tour_name'] ?? 'Test Tour';
+        $existingTour = DB::table('tours')->where('title', $tourTitle)->first();
+        if (! $existingTour) {
+            DB::table('tours')->insert([
+                'title'            => $tourTitle,
+                'tour_duration'    => '1 day',
+                'tour_description' => 'Test tour description',
+                'booking_id'       => 0,
+                'created_at'       => now(),
+                'updated_at'       => now(),
+            ]);
+        }
+
         return GygInboundEmail::create(array_merge([
             'email_message_id'      => '<test-' . uniqid() . '@test.com>',
             'email_from'            => 'do-not-reply@notification.getyourguide.com',
@@ -121,6 +137,7 @@ class GygBookingApplicatorTest extends TestCase
         $existingId = DB::table('guests')->insertGetId([
             'first_name' => 'Jane',
             'last_name'  => 'Smith',
+            'email'      => 'jane.smith@test.com',
             'phone'      => '+1234567890',
             'country'    => 'Test',
             'created_at' => now(),
@@ -179,7 +196,16 @@ class GygBookingApplicatorTest extends TestCase
         // Create existing booking
         DB::table('bookings')->insert([
             'booking_number' => $ref,
-            'guest_id'       => DB::table('guests')->insertGetId(['first_name' => 'Test', 'last_name' => 'Guest', 'country' => 'Test', 'created_at' => now(), 'updated_at' => now()]),
+            'guest_id'       => DB::table('guests')->insertGetId(['first_name' => 'Test', 'last_name' => 'Guest', 'email' => 'test.guest@test.com', 'phone' => 'not-provided', 'country' => 'Test', 'created_at' => now(), 'updated_at' => now()]),
+            'tour_id'        => 1,
+            'grand_total'    => 0,
+            'amount'         => 0,
+            'payment_method' => 'getyourguide',
+            'payment_status' => 'paid',
+            'dropoff_location' => 'TBD',
+            'driver_id'      => 0,
+            'guide_id'       => 0,
+            'group_name'     => 'Test',
             'booking_status' => 'confirmed',
             'booking_source' => 'getyourguide',
             'created_at'     => now(),
@@ -203,12 +229,21 @@ class GygBookingApplicatorTest extends TestCase
         $ref = 'GYGCANCELIDEM' . strtoupper(uniqid());
 
         DB::table('bookings')->insert([
-            'booking_number' => $ref,
-            'guest_id'       => DB::table('guests')->insertGetId(['first_name' => 'Test', 'last_name' => 'Guest', 'country' => 'Test', 'created_at' => now(), 'updated_at' => now()]),
-            'booking_status' => 'cancelled',
-            'booking_source' => 'getyourguide',
-            'created_at'     => now(),
-            'updated_at'     => now(),
+            'booking_number'   => $ref,
+            'guest_id'         => DB::table('guests')->insertGetId(['first_name' => 'Test', 'last_name' => 'Guest', 'email' => 'test.guest@test.com', 'phone' => 'not-provided', 'country' => 'Test', 'created_at' => now(), 'updated_at' => now()]),
+            'tour_id'          => 1,
+            'grand_total'      => 0,
+            'amount'           => 0,
+            'payment_method'   => 'getyourguide',
+            'payment_status'   => 'paid',
+            'dropoff_location' => 'TBD',
+            'driver_id'        => 0,
+            'guide_id'         => 0,
+            'group_name'       => 'Test',
+            'booking_status'   => 'cancelled',
+            'booking_source'   => 'getyourguide',
+            'created_at'       => now(),
+            'updated_at'       => now(),
         ]);
 
         $email = $this->createParsedEmail([
@@ -244,7 +279,16 @@ class GygBookingApplicatorTest extends TestCase
 
         DB::table('bookings')->insert([
             'booking_number' => $ref,
-            'guest_id'       => DB::table('guests')->insertGetId(['first_name' => 'Test', 'last_name' => 'Guest', 'country' => 'Test', 'created_at' => now(), 'updated_at' => now()]),
+            'guest_id'       => DB::table('guests')->insertGetId(['first_name' => 'Test', 'last_name' => 'Guest', 'email' => 'test.guest@test.com', 'phone' => 'not-provided', 'country' => 'Test', 'created_at' => now(), 'updated_at' => now()]),
+            'tour_id'        => 1,
+            'grand_total'    => 0,
+            'amount'         => 0,
+            'payment_method' => 'getyourguide',
+            'payment_status' => 'paid',
+            'dropoff_location' => 'TBD',
+            'driver_id'      => 0,
+            'guide_id'       => 0,
+            'group_name'     => 'Test',
             'booking_status' => 'confirmed',
             'booking_source' => 'getyourguide',
             'created_at'     => now(),
@@ -263,5 +307,97 @@ class GygBookingApplicatorTest extends TestCase
 
         $email->refresh();
         $this->assertEquals('needs_review', $email->processing_status);
+    }
+
+    // ── Pickup location resolution ──────────────────────
+
+    public function test_group_booking_gets_meeting_point_as_pickup(): void
+    {
+        $email = $this->createParsedEmail([
+            'tour_type'        => 'group',
+            'tour_type_source' => 'explicit',
+            'option_title'     => 'Samarkand to Bukhara: 2-Day Group Yurt & Camel',
+        ]);
+
+        $result  = $this->applicator->applyNewBooking($email);
+        $booking = DB::table('bookings')->where('id', $result['booking_id'])->first();
+
+        $this->assertSame(GygPickupResolver::GROUP_MEETING_POINT, $booking->pickup_location);
+    }
+
+    public function test_private_booking_gets_null_pickup_location(): void
+    {
+        $email = $this->createParsedEmail([
+            'tour_type'        => 'private',
+            'tour_type_source' => 'defaulted',
+            'option_title'     => 'Private Shahrisabz Day Trip – Driver Only',
+        ]);
+
+        $result  = $this->applicator->applyNewBooking($email);
+        $booking = DB::table('bookings')->where('id', $result['booking_id'])->first();
+
+        $this->assertNull($booking->pickup_location,
+            'Private tour should have null pickup_location so reminder falls back to "your hotel"');
+    }
+
+    public function test_null_tour_type_with_private_in_option_title_gets_null_pickup(): void
+    {
+        // Simulates emails where tour_type was empty in DB but option_title is clear
+        $email = $this->createParsedEmail([
+            'tour_type'        => null,
+            'tour_type_source' => null,
+            'option_title'     => 'Private Shahrisabz Day Trip – Driver Only',
+        ]);
+
+        $result  = $this->applicator->applyNewBooking($email);
+        $booking = DB::table('bookings')->where('id', $result['booking_id'])->first();
+
+        $this->assertNull($booking->pickup_location);
+    }
+
+    public function test_null_tour_type_with_group_in_option_title_gets_meeting_point(): void
+    {
+        $email = $this->createParsedEmail([
+            'tour_type'        => null,
+            'tour_type_source' => null,
+            'option_title'     => 'Group Tour with Guide – Shahrisabz Day Trip',
+        ]);
+
+        $result  = $this->applicator->applyNewBooking($email);
+        $booking = DB::table('bookings')->where('id', $result['booking_id'])->first();
+
+        $this->assertSame(GygPickupResolver::GROUP_MEETING_POINT, $booking->pickup_location);
+    }
+
+    public function test_completely_unknown_type_gets_null_pickup_conservative_fallback(): void
+    {
+        // No tour_type, no keywords in option_title — should be treated as private (safe default)
+        $email = $this->createParsedEmail([
+            'tour_type'        => null,
+            'tour_type_source' => null,
+            'option_title'     => 'Samarkand Day Trip',
+            'tour_name'        => 'Samarkand Day Trip',
+        ]);
+
+        $result  = $this->applicator->applyNewBooking($email);
+        $booking = DB::table('bookings')->where('id', $result['booking_id'])->first();
+
+        // Conservative: null is safer than wrong meeting point
+        $this->assertNull($booking->pickup_location);
+    }
+
+    public function test_defaulted_private_option_title_group_keyword_wins(): void
+    {
+        // tour_type=private(defaulted) but option_title contains "Group" — option_title wins
+        $email = $this->createParsedEmail([
+            'tour_type'        => 'private',
+            'tour_type_source' => 'defaulted',
+            'option_title'     => 'Group Yurt & Camel Tour',
+        ]);
+
+        $result  = $this->applicator->applyNewBooking($email);
+        $booking = DB::table('bookings')->where('id', $result['booking_id'])->first();
+
+        $this->assertSame(GygPickupResolver::GROUP_MEETING_POINT, $booking->pickup_location);
     }
 }

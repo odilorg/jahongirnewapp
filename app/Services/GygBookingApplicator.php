@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\GygInboundEmail;
+use App\Services\GygPickupResolver;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -20,6 +21,9 @@ use Illuminate\Support\Facades\Log;
  */
 class GygBookingApplicator
 {
+    public function __construct(
+        private GygPickupResolver $pickupResolver = new GygPickupResolver(),
+    ) {}
     /**
      * Apply a single parsed new_booking email.
      *
@@ -74,7 +78,7 @@ class GygBookingApplicator
             $specialRequests = $this->buildSpecialRequests($email, $timeDefaulted);
 
             // Step 5: Create booking
-            // grand_total/amount are int (whole dollars). GYG price is a decimal string like "458.00".
+            // grand_total is int (whole dollars). GYG price is a decimal string like "458.00".
             $grandTotal = (int) round((float) ($email->price ?? 0));
 
             $bookingId = DB::table('bookings')->insertGetId([
@@ -89,7 +93,7 @@ class GygBookingApplicator
                 'payment_method'          => 'getyourguide',
                 'payment_status'          => 'paid',
                 'group_name'              => $email->guest_name ?? 'GYG Guest',
-                'pickup_location'         => 'Gur Emir Mausoleum',
+                'pickup_location'         => $this->pickupResolver->resolveFromEmail($email),
                 'dropoff_location'        => 'TBD',
                 'driver_id'               => 0,
                 'guide_id'                => 0,
