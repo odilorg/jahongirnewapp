@@ -31,12 +31,16 @@ class CashierShiftService
         DB::transaction(function () use ($shiftId, $countData, $callbackId, &$handover) {
             // Lock shift to prevent concurrent close
             $lockedShift = CashierShift::where('id', $shiftId)->lockForUpdate()->first();
+            // Null check FIRST — accessing ->status on null crashes without this guard
+            if (! $lockedShift) {
+                throw new \RuntimeException('Shift not found');
+            }
             // status is a ShiftStatus enum — compare via ->value
             $statusValue = $lockedShift->status instanceof \App\Enums\ShiftStatus
                 ? $lockedShift->status->value
                 : (string) $lockedShift->status;
-            if (!$lockedShift || $statusValue !== 'open') {
-                throw new \RuntimeException('Shift already closed or not found');
+            if ($statusValue !== 'open') {
+                throw new \RuntimeException('Shift already closed');
             }
 
             $expected = $countData['expected'] ?? [];
