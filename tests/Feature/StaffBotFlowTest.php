@@ -99,12 +99,12 @@ class StaffBotFlowTest extends TestCase
     // ── Permission tests ──────────────────────────────────────────────────────
 
     /** @test */
-    public function operator_role_cannot_access_staff_menu_via_command(): void
+    public function viewer_role_cannot_access_staff_menu_via_command(): void
     {
-        $response = $this->handle('100', '/staff', null, $this->makeOperator('operator'));
+        // viewer has PERM_VIEW only — insufficient for /staff (requires PERM_EDIT)
+        $response = $this->handle('100', '/staff', null, $this->makeOperator('viewer'));
 
         $this->assertStringContainsString('🚫', $response['text']);
-        $this->assertStringContainsString('manager', $response['text']);
     }
 
     /** @test */
@@ -117,9 +117,10 @@ class StaffBotFlowTest extends TestCase
     }
 
     /** @test */
-    public function operator_role_cannot_access_staff_callback(): void
+    public function viewer_role_cannot_access_staff_callback(): void
     {
-        $response = $this->handle('100', null, 'staff:drivers', $this->makeOperator('operator'));
+        // viewer has PERM_VIEW only — insufficient for staff: callbacks (requires PERM_EDIT)
+        $response = $this->handle('100', null, 'staff:drivers', $this->makeOperator('viewer'));
 
         $this->assertStringContainsString('🚫', $response['text']);
     }
