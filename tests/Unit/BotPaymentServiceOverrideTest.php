@@ -8,8 +8,8 @@ use App\Enums\OverrideTier;
 use App\Exceptions\PaymentBlockedException;
 use App\Services\BotPaymentService;
 use App\Services\Fx\Beds24PaymentSyncService;
-use App\Services\Fx\FxManagerApprovalService;
 use App\Services\Fx\OverridePolicyEvaluator;
+use App\Services\FxManagerApprovalService;
 use App\Services\FxSyncService;
 use Tests\TestCase;
 
