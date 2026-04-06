@@ -72,6 +72,17 @@ class OperatorBookingFlow
 
         // ── Commands ─────────────────────────────────────────────────────────
 
+        if ($text === '/start' || $text === '/help') {
+            return ['text' =>
+                "👋 <b>Jahongir Ops Bot</b>\n\n"
+                . "Available commands:\n"
+                . "/newbooking — create a new manual booking\n"
+                . "/bookings   — browse and manage upcoming bookings\n"
+                . "/cancel     — cancel the current flow\n\n"
+                . "Tap a command to get started."
+            ];
+        }
+
         if ($text === '/newbooking') {
             // Clear browse context so "back" button is not shown on post-create menu
             $session->update(['data' => null, 'state' => 'idle']);
@@ -110,7 +121,7 @@ class OperatorBookingFlow
             'browse_list'     => $this->buildBookingList($session),
             'set_price_input' => $this->handleSetPriceInput($session, $chatId, $text),
             'set_pickup_input'=> $this->handleSetPickupInput($session, $chatId, $text),
-            default           => ['text' => "Use /newbooking to create a booking, or /bookings to browse existing ones."],
+            default           => ['text' => "Use /newbooking to create a booking, /bookings to browse, or /help for all commands."],
         };
     }
 
