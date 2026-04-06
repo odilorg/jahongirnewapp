@@ -99,7 +99,9 @@ class RepairMissingBeds24Syncs extends Command
                 $usdAmount = (float) ($transaction->usd_equivalent_paid ?? 0.0);
 
                 if ($usdAmount <= 0) {
-                    $errors[] = "tx#{$transaction->id}: usd_equivalent_paid is zero or null — skipping";
+                    // Not an error — a zero-amount transaction has no payment to push.
+                    // Log a warning for visibility but skip silently (do not fail the command).
+                    $this->warn("tx#{$transaction->id}: usd_equivalent_paid is zero or null — skipping");
                     Log::warning('beds24:repair-missing-syncs: skipping zero-amount transaction', [
                         'cash_transaction_id' => $transaction->id,
                         'beds24_booking_id'   => $transaction->beds24_booking_id,
