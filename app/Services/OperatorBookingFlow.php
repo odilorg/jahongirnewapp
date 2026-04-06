@@ -14,29 +14,34 @@ use Illuminate\Support\Facades\Log;
 
 /**
  * Handles the step-by-step Telegram flow for manual tour booking entry and
- * post-creation operational actions (confirm, cancel, assign driver/guide,
- * set price, set pickup location).
+ * post-creation / browse-based operational actions.
  *
- * ── Creation state machine ────────────────────────────────────────────────────
+ * ── Creation flow ─────────────────────────────────────────────────────────────
+ *   /newbooking
  *   idle → select_tour → enter_date → enter_adults → enter_children
  *        → enter_name  → enter_email → enter_phone → enter_hotel → confirm
- *        → booking_actions  (stays here until /newbooking or ops:new)
+ *        → booking_actions   (stays alive for immediate ops)
  *
- * ── Post-creation states ──────────────────────────────────────────────────────
- *   booking_actions  → action menu (hub state)
+ * ── Browse flow ───────────────────────────────────────────────────────────────
+ *   /bookings → browse_list (paginated)
+ *   tap row   → booking_actions (same action menu as Phase 1)
+ *   ◀ Back    → browse_list (restores last page)
+ *
+ * ── Post-creation / browse states ────────────────────────────────────────────
+ *   booking_actions  → action menu hub (shared by creation and browse)
  *   set_price_input  → waiting for price text
- *   set_pickup_input → waiting for pickup text
- *   cancel_confirm   → "are you sure?" before cancellation
+ *   set_pickup_input → waiting for pickup location text
  *
- * ── ops: callbacks (state-independent) ───────────────────────────────────────
- *   ops:confirm, ops:cancel_ask, ops:cancel_yes, ops:drivers, ops:driver:{id},
- *   ops:guides, ops:guide:{id}, ops:price, ops:pickup, ops:menu, ops:new
+ * ── Callback prefixes ─────────────────────────────────────────────────────────
+ *   ops: → booking mutation actions (state-independent)
+ *   brs: → browse navigation (state-independent)
  */
 class OperatorBookingFlow
 {
     public function __construct(
         private readonly WebsiteBookingService $bookingService,
-        private readonly BookingOpsService     $opsService = new BookingOpsService(),
+        private readonly BookingOpsService     $opsService    = new BookingOpsService(),
+        private readonly BookingBrowseService  $browseService = new BookingBrowseService(),
     ) {}
 
     // ── Public entry point ───────────────────────────────────────────────────
@@ -59,24 +64,37 @@ class OperatorBookingFlow
             return ['text' => "⏰ Session expired. Use /newbooking to start again."];
         }
 
-        // Global cancel at any step (returns to idle, clears active booking too)
+        // Global cancel at any step — resets everything including browse context
         if ($text === '/cancel' || $callback === 'cancel') {
             $session->reset();
             return ['text' => "❌ Booking cancelled."];
         }
 
-        // Command to start a new booking (clears any active booking context)
+        // ── Commands ─────────────────────────────────────────────────────────
+
         if ($text === '/newbooking') {
-            $session->reset();
+            // Clear browse context so "back" button is not shown on post-create menu
+            $session->update(['data' => null, 'state' => 'idle']);
             return $this->stepSelectTour($session);
         }
 
-        // ops: callbacks are state-independent — handled before the state match.
-        // This lets the action buttons work regardless of which step the session
-        // is currently on (e.g. if the operator taps an old message).
+        if ($text === '/bookings') {
+            return $this->handleBrowseCommand($session);
+        }
+
+        // ── State-independent callback prefixes ───────────────────────────────
+
+        // ops: — booking mutation actions
         if ($callback && str_starts_with($callback, 'ops:')) {
             return $this->handleOpsCallback($session, $chatId, $callback);
         }
+
+        // brs: — browse navigation
+        if ($callback && str_starts_with($callback, 'brs:')) {
+            return $this->handleBrsCallback($session, $chatId, $callback);
+        }
+
+        // ── State machine ─────────────────────────────────────────────────────
 
         return match ($session->state) {
             'select_tour'     => $this->handleTourSelection($session, $callback),
@@ -89,11 +107,165 @@ class OperatorBookingFlow
             'enter_hotel'     => $this->handleHotel($session, $text, $callback),
             'confirm'         => $this->handleConfirm($session, $callback),
             'booking_actions' => $this->buildActionMenu($session),
+            'browse_list'     => $this->buildBookingList($session),
             'set_price_input' => $this->handleSetPriceInput($session, $chatId, $text),
             'set_pickup_input'=> $this->handleSetPickupInput($session, $chatId, $text),
-            'cancel_confirm'  => $this->buildActionMenu($session), // stale text → re-show menu
-            default           => ['text' => "Use /newbooking to start a booking."],
+            default           => ['text' => "Use /newbooking to create a booking, or /bookings to browse existing ones."],
         };
+    }
+
+    // ── Browse: /bookings command ─────────────────────────────────────────────
+
+    private function handleBrowseCommand(OperatorBookingSession $session): array
+    {
+        // Preserve show_cancelled preference across sessions; reset page to 1
+        $showCancelled = (bool) ($session->getData('browse_show_cancelled') ?? false);
+        $session->update([
+            'state' => 'browse_list',
+            'data'  => ['browse_page' => 1, 'browse_show_cancelled' => $showCancelled],
+        ]);
+
+        return $this->buildBookingList($session);
+    }
+
+    // ── Browse: brs: callback router ─────────────────────────────────────────
+
+    private function handleBrsCallback(
+        OperatorBookingSession $session,
+        string $chatId,
+        string $callback,
+    ): array {
+        $suffix = substr($callback, 4); // strip "brs:"
+
+        return match (true) {
+            $suffix === 'back'               => $this->browseBack($session),
+            $suffix === 'rf'                 => $this->buildBookingList($session),
+            $suffix === 'tog'                => $this->toggleCancelled($session),
+            str_starts_with($suffix, 'pg:') => $this->goToPage($session, (int) substr($suffix, 3)),
+            str_starts_with($suffix, 'op:') => $this->openBooking($session, (int) substr($suffix, 3)),
+            default                          => $this->buildBookingList($session),
+        };
+    }
+
+    private function browseBack(OperatorBookingSession $session): array
+    {
+        // Clear active booking but keep browse context
+        $session->update([
+            'state' => 'browse_list',
+            'data'  => [
+                'browse_page'           => $session->getData('browse_page', 1),
+                'browse_show_cancelled' => $session->getData('browse_show_cancelled', false),
+            ],
+        ]);
+
+        return $this->buildBookingList($session);
+    }
+
+    private function goToPage(OperatorBookingSession $session, int $page): array
+    {
+        $session->setData('browse_page', $page);
+        return $this->buildBookingList($session);
+    }
+
+    private function toggleCancelled(OperatorBookingSession $session): array
+    {
+        $current = (bool) ($session->getData('browse_show_cancelled') ?? false);
+        $session->setData('browse_show_cancelled', ! $current);
+        $session->setData('browse_page', 1);
+        return $this->buildBookingList($session);
+    }
+
+    private function openBooking(OperatorBookingSession $session, int $bookingId): array
+    {
+        $booking = $this->browseService->findWithRelations($bookingId);
+
+        if (! $booking) {
+            return ['text' => "⚠️ Booking not found — it may have been deleted.\n\nTap 🔄 to refresh the list.", 'reply_markup' => [
+                'inline_keyboard' => [[['text' => '◀ Back to list', 'callback_data' => 'brs:back']]],
+            ]];
+        }
+
+        // Set as the active booking — same mechanism used after /newbooking
+        $session->setData('active_booking_id', $booking->id);
+        $session->setState('booking_actions');
+
+        return $this->buildActionMenu($session, $booking);
+    }
+
+    // ── Browse: list renderer ─────────────────────────────────────────────────
+
+    private function buildBookingList(OperatorBookingSession $session): array
+    {
+        $page          = (int) ($session->getData('browse_page') ?? 1);
+        $showCancelled = (bool) ($session->getData('browse_show_cancelled') ?? false);
+
+        $result = $this->browseService->paginate($page, $showCancelled);
+
+        $session->setState('browse_list');
+
+        if ($result['total'] === 0) {
+            $noResultMsg = $showCancelled
+                ? "📋 No bookings in the next 30 days."
+                : "📋 No upcoming pending/confirmed bookings in the next 30 days.";
+
+            return [
+                'text'         => $noResultMsg,
+                'reply_markup' => [
+                    'inline_keyboard' => [
+                        [
+                            ['text' => '🔄 Refresh',            'callback_data' => 'brs:rf'],
+                            $this->cancelledToggleButton($showCancelled),
+                        ],
+                    ],
+                ],
+            ];
+        }
+
+        // Update page in case it was clamped inside paginate()
+        if ($result['page'] !== $page) {
+            $session->setData('browse_page', $result['page']);
+        }
+
+        // One button per booking row
+        $buttons = array_map(fn ($item) => [
+            ['text' => $item['label'], 'callback_data' => "brs:op:{$item['id']}"],
+        ], $result['items']);
+
+        // Pagination row (only show buttons that are meaningful)
+        $navRow = [];
+        if ($result['page'] > 1) {
+            $navRow[] = ['text' => '◀ Prev', 'callback_data' => 'brs:pg:' . ($result['page'] - 1)];
+        }
+        if ($result['page'] < $result['pages']) {
+            $navRow[] = ['text' => 'Next ▶', 'callback_data' => 'brs:pg:' . ($result['page'] + 1)];
+        }
+        if (! empty($navRow)) {
+            $buttons[] = $navRow;
+        }
+
+        // Controls row
+        $buttons[] = [
+            ['text' => '🔄 Refresh', 'callback_data' => 'brs:rf'],
+            $this->cancelledToggleButton($showCancelled),
+        ];
+
+        $toggleLabel = $showCancelled ? ' (incl. cancelled)' : '';
+        $header      = "📋 <b>Upcoming bookings{$toggleLabel}</b>"
+            . "  —  Page {$result['page']}/{$result['pages']}"
+            . " ({$result['total']} total)\n\n"
+            . "Tap a booking to manage:";
+
+        return [
+            'text'         => $header,
+            'reply_markup' => ['inline_keyboard' => $buttons],
+        ];
+    }
+
+    private function cancelledToggleButton(bool $showCancelled): array
+    {
+        return $showCancelled
+            ? ['text' => '✅ Incl. cancelled', 'callback_data' => 'brs:tog']
+            : ['text' => '➕ Show cancelled',  'callback_data' => 'brs:tog'];
     }
 
     // ── Creation steps ────────────────────────────────────────────────────────
@@ -125,7 +297,6 @@ class OperatorBookingFlow
             );
         }
 
-        // callback_data = "tour:{id}:{title}"
         [, $tourId, $tourName] = explode(':', $callback, 3);
 
         $session->setData('tour_id', (int) $tourId);
@@ -279,25 +450,16 @@ class OperatorBookingFlow
             return ['text' => "❌ Failed to create booking: {$e->getMessage()}\n\nCheck admin email for the submission details."];
         }
 
-        // Store booking_id and switch to the action menu — don't reset to idle.
-        $session->setData('active_booking_id', $booking->id);
-        $session->setState('booking_actions');
+        // Store booking_id and switch to the action menu; no browse context here.
+        $session->update(['state' => 'booking_actions', 'data' => ['active_booking_id' => $booking->id]]);
 
         $label = $created ? '✅ Booking created' : '♻️ Booking already exists';
 
-        $intro = "{$label}: <b>{$booking->booking_number}</b>\n\n";
-
-        return $this->buildActionMenu($session, $booking, $intro);
+        return $this->buildActionMenu($session, $booking, "{$label}: <b>{$booking->booking_number}</b>\n\n");
     }
 
-    // ── Post-creation ops callback router ─────────────────────────────────────
+    // ── Post-creation / browse: ops: callback router ──────────────────────────
 
-    /**
-     * Route all ops: prefixed callbacks.
-     *
-     * Called before the state machine match, so action buttons work from
-     * any state (old messages, stale keyboards, etc.).
-     */
     private function handleOpsCallback(
         OperatorBookingSession $session,
         string $chatId,
@@ -305,55 +467,37 @@ class OperatorBookingFlow
     ): array {
         $suffix = substr($callback, 4); // strip "ops:"
 
-        // Fetch the active booking for this session.
         $bookingId = $session->getData('active_booking_id');
         $booking   = $bookingId ? Booking::find($bookingId) : null;
 
         if (! $booking && $suffix !== 'new') {
-            return ['text' => "⚠️ No active booking. Use /newbooking to start one."];
+            return ['text' => "⚠️ No active booking. Use /newbooking to create one or /bookings to browse."];
         }
 
         return match (true) {
-            // ── Navigation ────────────────────────────────────────────────
-            $suffix === 'menu'       => $this->buildActionMenu($session, $booking),
-            $suffix === 'new'        => $this->startNew($session),
-
-            // ── Confirm booking ───────────────────────────────────────────
-            $suffix === 'confirm'    => $this->opsConfirm($session, $booking, $chatId),
-
-            // ── Cancel booking ────────────────────────────────────────────
-            $suffix === 'cancel_ask' => $this->buildCancelConfirm($booking),
-            $suffix === 'cancel_yes' => $this->opsCancel($session, $booking, $chatId),
-
-            // ── Driver/guide lists ────────────────────────────────────────
-            $suffix === 'drivers'    => $this->buildDriverList($booking),
-            $suffix === 'guides'     => $this->buildGuideList($booking),
-
-            // ── Assign driver ─────────────────────────────────────────────
+            $suffix === 'menu'        => $this->buildActionMenu($session, $booking),
+            $suffix === 'new'         => $this->startNew($session),
+            $suffix === 'confirm'     => $this->opsConfirm($session, $booking, $chatId),
+            $suffix === 'cancel_ask'  => $this->buildCancelConfirm($booking),
+            $suffix === 'cancel_yes'  => $this->opsCancel($session, $booking, $chatId),
+            $suffix === 'drivers'     => $this->buildDriverList($booking),
+            $suffix === 'guides'      => $this->buildGuideList($booking),
+            $suffix === 'price'       => $this->promptSetPrice($session),
+            $suffix === 'pickup'      => $this->promptSetPickup($session),
             str_starts_with($suffix, 'driver:') => $this->opsAssignDriver(
                 $session, $booking, $chatId, (int) substr($suffix, 7)
             ),
-
-            // ── Assign guide ──────────────────────────────────────────────
-            str_starts_with($suffix, 'guide:') => $this->opsAssignGuide(
+            str_starts_with($suffix, 'guide:')  => $this->opsAssignGuide(
                 $session, $booking, $chatId, (int) substr($suffix, 6)
             ),
-
-            // ── Price / pickup text-input entry ───────────────────────────
-            $suffix === 'price'      => $this->promptSetPrice($session),
-            $suffix === 'pickup'     => $this->promptSetPickup($session),
-
             default => $this->buildActionMenu($session, $booking),
         };
     }
 
     // ── Ops actions ───────────────────────────────────────────────────────────
 
-    private function opsConfirm(
-        OperatorBookingSession $session,
-        Booking $booking,
-        string $actor,
-    ): array {
+    private function opsConfirm(OperatorBookingSession $session, Booking $booking, string $actor): array
+    {
         try {
             $this->opsService->confirm($booking, $actor);
             $booking->refresh();
@@ -364,11 +508,8 @@ class OperatorBookingFlow
         return $this->buildActionMenu($session, $booking, "✅ Booking confirmed.\n\n");
     }
 
-    private function opsCancel(
-        OperatorBookingSession $session,
-        Booking $booking,
-        string $actor,
-    ): array {
+    private function opsCancel(OperatorBookingSession $session, Booking $booking, string $actor): array
+    {
         try {
             $this->opsService->cancel($booking, $actor);
             $booking->refresh();
@@ -428,12 +569,11 @@ class OperatorBookingFlow
         string $chatId,
         ?string $text,
     ): array {
-        $bookingId = $session->getData('active_booking_id');
-        $booking   = $bookingId ? Booking::find($bookingId) : null;
+        $booking = $this->activeBooking($session);
 
         if (! $booking) {
             $session->reset();
-            return ['text' => "⚠️ Session lost. Use /newbooking."];
+            return ['text' => "⚠️ Session lost. Use /newbooking or /bookings."];
         }
 
         $amount = filter_var(trim($text ?? ''), FILTER_VALIDATE_FLOAT);
@@ -460,12 +600,11 @@ class OperatorBookingFlow
         string $chatId,
         ?string $text,
     ): array {
-        $bookingId = $session->getData('active_booking_id');
-        $booking   = $bookingId ? Booking::find($bookingId) : null;
+        $booking = $this->activeBooking($session);
 
         if (! $booking) {
             $session->reset();
-            return ['text' => "⚠️ Session lost. Use /newbooking."];
+            return ['text' => "⚠️ Session lost. Use /newbooking or /bookings."];
         }
 
         $location = trim($text ?? '');
@@ -496,9 +635,7 @@ class OperatorBookingFlow
         return [
             'text'         => "💰 Enter the booking price in USD (e.g. 120 or 120.50):",
             'reply_markup' => [
-                'inline_keyboard' => [
-                    [['text' => '◀ Back', 'callback_data' => 'ops:menu']],
-                ],
+                'inline_keyboard' => [[['text' => '◀ Back', 'callback_data' => 'ops:menu']]],
             ],
         ];
     }
@@ -510,9 +647,7 @@ class OperatorBookingFlow
         return [
             'text'         => "📍 Enter the pickup location:",
             'reply_markup' => [
-                'inline_keyboard' => [
-                    [['text' => '◀ Back', 'callback_data' => 'ops:menu']],
-                ],
+                'inline_keyboard' => [[['text' => '◀ Back', 'callback_data' => 'ops:menu']]],
             ],
         ];
     }
@@ -523,41 +658,56 @@ class OperatorBookingFlow
         return $this->stepSelectTour($session);
     }
 
-    // ── Keyboard builders ─────────────────────────────────────────────────────
+    // ── Action menu (shared by Phase 1 and Phase 2) ───────────────────────────
 
     /**
-     * Build the action menu for the current active booking.
+     * Render the booking detail + action buttons.
      *
-     * @param  string|null $intro  Optional intro line prepended to the booking summary.
+     * Shows full booking details (tour, guest, date, driver, guide, price, pickup).
+     * Adds "◀ Back to list" button when the session came from /bookings.
+     *
+     * @param  string|null $intro  Optional prefix line (e.g. "✅ Booking confirmed.\n\n")
      */
     private function buildActionMenu(
         OperatorBookingSession $session,
         ?Booking $booking = null,
-        ?string $intro = null,
+        ?string  $intro   = null,
     ): array {
         if ($booking === null) {
-            $bookingId = $session->getData('active_booking_id');
-            $booking   = $bookingId ? Booking::find($bookingId) : null;
+            $booking = $this->activeBooking($session);
         }
 
         if (! $booking) {
             $session->reset();
-            return ['text' => "⚠️ Booking not found. Use /newbooking to start again."];
+            return ['text' => "⚠️ Booking not found. Use /newbooking or /bookings."];
         }
 
-        $status  = $booking->booking_status;
-        $driver  = $booking->driver ? $booking->driver->full_name : '—';
-        $guide   = $booking->guide  ? $booking->guide->full_name  : '—';
-        $price   = $booking->amount  ? "\${$booking->amount}"      : '—';
-        $pickup  = $booking->pickup_location ?: '—';
+        $status = $booking->booking_status;
 
-        $info = ($intro ?? '')
+        // ── Booking detail block ──────────────────────────────────────────────
+        $tourTitle = $booking->tour?->title ?? '—';
+        $date      = $booking->booking_start_date_time
+            ? Carbon::parse($booking->booking_start_date_time)->format('d M Y')
+            : '—';
+        $pax       = $booking->guest?->number_of_people
+            ? "{$booking->guest->number_of_people} guests"
+            : '—';
+        $guestName = $booking->guest?->full_name ?? '—';
+        $guestPhone= $booking->guest?->phone ?? '—';
+        $driver    = $booking->driver?->full_name ?? '—';
+        $guide     = $booking->guide?->full_name  ?? '—';
+        $price     = $booking->amount     ? "\${$booking->amount}"      : '—';
+        $pickup    = $booking->pickup_location ?: '—';
+
+        $detail = ($intro ?? '')
             . "📋 <b>{$booking->booking_number}</b>  |  Status: <b>{$status}</b>\n"
-            . "🚗 Driver: {$driver}\n"
-            . "🧭 Guide: {$guide}\n"
-            . "💰 Price: {$price}\n"
-            . "📍 Pickup: {$pickup}";
+            . "🗺 {$tourTitle}\n"
+            . "📅 {$date}  |  👥 {$pax}\n"
+            . "👤 {$guestName}  |  📱 {$guestPhone}\n"
+            . "🚗 Driver: {$driver}  |  🧭 Guide: {$guide}\n"
+            . "💰 {$price}  |  📍 {$pickup}";
 
+        // ── Action buttons ────────────────────────────────────────────────────
         $buttons = [];
 
         if ($status !== 'cancelled') {
@@ -578,10 +728,16 @@ class OperatorBookingFlow
             ];
         }
 
-        $buttons[] = [['text' => '🔄 New booking', 'callback_data' => 'ops:new']];
+        // "Back to list" if the operator came via /bookings
+        $fromBrowse = $session->getData('browse_page') !== null;
+        if ($fromBrowse) {
+            $buttons[] = [['text' => '◀ Back to list', 'callback_data' => 'brs:back']];
+        } else {
+            $buttons[] = [['text' => '🔄 New booking', 'callback_data' => 'ops:new']];
+        }
 
         return [
-            'text'         => $info,
+            'text'         => $detail,
             'reply_markup' => ['inline_keyboard' => $buttons],
         ];
     }
@@ -610,7 +766,6 @@ class OperatorBookingFlow
         }
 
         $buttons = $drivers->map(fn ($d) => [
-            // callback_data max 64 bytes — "ops:driver:999" = 14 chars, safe
             ['text' => $d->full_name, 'callback_data' => "ops:driver:{$d->id}"],
         ])->all();
 
@@ -646,7 +801,7 @@ class OperatorBookingFlow
         ];
     }
 
-    // ── Confirm prompt (creation step) ────────────────────────────────────────
+    // ── Creation confirm prompt ───────────────────────────────────────────────
 
     private function buildConfirmPrompt(OperatorBookingSession $session): array
     {
@@ -679,7 +834,13 @@ class OperatorBookingFlow
         ];
     }
 
-    // ── Session factory ───────────────────────────────────────────────────────
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private function activeBooking(OperatorBookingSession $session): ?Booking
+    {
+        $id = $session->getData('active_booking_id');
+        return $id ? Booking::find($id) : null;
+    }
 
     protected function getOrCreateSession(string $chatId): OperatorBookingSession
     {

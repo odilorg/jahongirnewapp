@@ -6,6 +6,8 @@ namespace Tests\Unit;
 
 use App\Models\Booking;
 use App\Models\OperatorBookingSession;
+use App\Services\BookingBrowseService;
+use App\Services\BookingOpsService;
 use App\Services\OperatorBookingFlow;
 use App\Services\WebsiteBookingService;
 use Illuminate\Support\Facades\DB;
@@ -23,13 +25,15 @@ use Tests\TestCase;
 class OperatorBookingFlowTest extends TestCase
 {
     private WebsiteBookingService $bookingService;
-    private OperatorBookingFlow $flow;
+    private BookingBrowseService  $browseService;
+    private OperatorBookingFlow   $flow;
 
     protected function setUp(): void
     {
         parent::setUp();
         $this->bookingService = Mockery::mock(WebsiteBookingService::class);
-        $this->flow = new OperatorBookingFlow($this->bookingService);
+        $this->browseService  = Mockery::mock(BookingBrowseService::class);
+        $this->flow           = new OperatorBookingFlow($this->bookingService);
     }
 
     protected function tearDown(): void
@@ -44,7 +48,8 @@ class OperatorBookingFlowTest extends TestCase
     public function newbooking_command_returns_tour_selection_keyboard(): void
     {
         $session = $this->mockSession('idle');
-        $session->shouldReceive('reset')->once();
+        // /newbooking clears data via update() then stepSelectTour sets state
+        $session->shouldReceive('update')->once();
         $session->shouldReceive('setState')->with('select_tour')->once();
 
         // Mock DB tour query
@@ -242,9 +247,10 @@ class OperatorBookingFlowTest extends TestCase
             'hotel' => null, 'date' => '2026-06-01',
             'adults' => 2, 'children' => 0, 'tour_code' => null,
         ]);
-        // On success: store active_booking_id and switch to action menu (no reset)
-        $session->shouldReceive('setData')->with('active_booking_id', Mockery::any())->once();
-        $session->shouldReceive('setState')->with('booking_actions')->once();
+        // On success: single update() call stores booking_id and state together
+        $session->shouldReceive('update')->with(Mockery::on(fn ($args) =>
+            ($args['state'] ?? null) === 'booking_actions'
+        ))->once();
 
         $response = $this->flow->handle('12345', null, 'confirm:yes');
 
@@ -282,9 +288,10 @@ class OperatorBookingFlowTest extends TestCase
             'hotel' => null, 'date' => '2026-06-01',
             'adults' => 2, 'children' => 0, 'tour_code' => null,
         ]);
-        // Duplicate: also stores booking_id and switches to action menu (no reset)
-        $session->shouldReceive('setData')->with('active_booking_id', Mockery::any())->once();
-        $session->shouldReceive('setState')->with('booking_actions')->once();
+        // Duplicate: single update() call stores booking_id and state together
+        $session->shouldReceive('update')->with(Mockery::on(fn ($args) =>
+            ($args['state'] ?? null) === 'booking_actions'
+        ))->once();
 
         $response = $this->flow->handle('12345', null, 'confirm:yes');
 
@@ -314,23 +321,119 @@ class OperatorBookingFlowTest extends TestCase
         $this->assertStringContainsString('Failed', $response['text']);
     }
 
+    // ── /bookings command ─────────────────────────────────────────────────────
+
+    #[Test]
+    public function bookings_command_shows_paginated_list(): void
+    {
+        $session = $this->mockSession('idle', browseService: $this->browseService);
+        $session->shouldReceive('update')->once();  // stores browse state
+        $session->shouldReceive('setState')->andReturn(); // buildBookingList -> setState
+        $session->shouldReceive('getData')->with('browse_show_cancelled', false)->andReturn(false);
+        $session->shouldReceive('getData')->with('browse_page', 1)->andReturn(1);
+        $session->shouldReceive('getData')->with('browse_page')->andReturn(1);
+        $session->shouldReceive('getData')->with('browse_show_cancelled')->andReturn(false);
+        $session->shouldReceive('setData')->andReturn();
+
+        $this->browseService->shouldReceive('paginate')
+            ->with(1, false)
+            ->once()
+            ->andReturn([
+                'items' => [
+                    ['id' => 10, 'label' => 'BOOK-2026-089 | 22 May | John Doe ⏳'],
+                    ['id' => 11, 'label' => 'BOOK-2026-090 | 03 May | Blake Kim ⏳'],
+                ],
+                'page'  => 1,
+                'pages' => 1,
+                'total' => 2,
+            ]);
+
+        $response = $this->flow->handle('12345', '/bookings', null);
+
+        $this->assertStringContainsString('Upcoming bookings', $response['text']);
+        $this->assertStringContainsString('2 total', $response['text']);
+        $this->assertArrayHasKey('reply_markup', $response);
+        // 2 booking rows + 1 control row = 3 rows
+        $this->assertCount(3, $response['reply_markup']['inline_keyboard']);
+    }
+
+    #[Test]
+    public function bookings_command_shows_empty_state_when_no_results(): void
+    {
+        $session = $this->mockSession('idle', browseService: $this->browseService);
+        $session->shouldReceive('update')->once();
+        $session->shouldReceive('setState')->andReturn();
+        $session->shouldReceive('getData')->andReturn(null);
+        $session->shouldReceive('setData')->andReturn();
+
+        $this->browseService->shouldReceive('paginate')
+            ->with(1, false)
+            ->once()
+            ->andReturn(['items' => [], 'page' => 1, 'pages' => 1, 'total' => 0]);
+
+        $response = $this->flow->handle('12345', '/bookings', null);
+
+        $this->assertStringContainsString('No upcoming', $response['text']);
+        $this->assertArrayHasKey('reply_markup', $response);
+    }
+
+    #[Test]
+    public function brs_pg_callback_navigates_to_next_page(): void
+    {
+        $session = $this->mockSession('browse_list', browseService: $this->browseService);
+        $session->shouldReceive('setData')->with('browse_page', 2)->once();
+        $session->shouldReceive('setState')->andReturn();
+        $session->shouldReceive('getData')->with('browse_page')->andReturn(2);
+        $session->shouldReceive('getData')->with('browse_show_cancelled')->andReturn(false);
+        $session->shouldReceive('getData')->with('browse_show_cancelled', false)->andReturn(false);
+        $session->shouldReceive('getData')->with('browse_page', 1)->andReturn(2);
+        $session->shouldReceive('setData')->andReturn();
+
+        $this->browseService->shouldReceive('paginate')
+            ->with(2, false)
+            ->once()
+            ->andReturn([
+                'items' => [['id' => 15, 'label' => 'BOOK-2026-095 | 10 Jun | Jane ✅']],
+                'page'  => 2,
+                'pages' => 2,
+                'total' => 11,
+            ]);
+
+        $response = $this->flow->handle('12345', null, 'brs:pg:2');
+
+        $this->assertStringContainsString('Page 2/2', $response['text']);
+        $this->assertArrayHasKey('reply_markup', $response);
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────────
 
-    private function mockSession(string $state, bool $expired = false): Mockery\MockInterface
-    {
+    private function mockSession(
+        string $state,
+        bool $expired = false,
+        ?BookingBrowseService $browseService = null,
+    ): Mockery\MockInterface {
         $session = Mockery::mock(OperatorBookingSession::class)->makePartial();
         $session->shouldAllowMockingProtectedMethods();
         $session->state    = $state;
         $session->chat_id  = '12345';
         $session->shouldReceive('isExpired')->andReturn($expired);
 
-        // Replace the flow with a subclass that injects our mock session
-        $this->flow = new class ($this->bookingService, $session) extends OperatorBookingFlow {
+        $bs = $browseService ?? new BookingBrowseService();
+
+        // Replace the flow with a subclass that injects our mock session and browse service
+        $this->flow = new class (
+            $this->bookingService,
+            new BookingOpsService(),
+            $bs,
+            $session,
+        ) extends OperatorBookingFlow {
             public function __construct(
                 WebsiteBookingService $bookingService,
+                BookingOpsService $opsService,
+                BookingBrowseService $browseService,
                 private OperatorBookingSession $mockSession,
             ) {
-                parent::__construct($bookingService);
+                parent::__construct($bookingService, $opsService, $browseService);
             }
 
             protected function getOrCreateSession(string $chatId): OperatorBookingSession
