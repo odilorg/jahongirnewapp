@@ -5,24 +5,30 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Models\Driver;
+use App\Models\StaffAuditLog;
+use App\Support\PhoneNormalizer;
 use Illuminate\Database\Eloquent\Collection;
-use Illuminate\Support\Facades\Log;
 
 /**
  * CRUD and lifecycle management for Driver records.
  *
- * All mutations are logged to the application log channel with actor context.
- * Callers are responsible for authorization before invoking these methods.
+ * All mutations are persisted to staff_audit_logs.
+ * Callers are responsible for authorization before invoking mutating methods.
  */
 class DriverService
 {
     /**
      * Create a new driver record.
      *
+     * Throws if another driver already has the same normalized phone01.
+     *
      * @param  array{first_name: string, last_name: string, phone01: string, email: string, fuel_type: string, phone02?: string|null, address_city?: string|null, extra_details?: string|null}  $data
+     * @throws \RuntimeException  on duplicate phone
      */
     public function create(array $data, string $actor): Driver
     {
+        $this->assertNoDuplicatePhone(phone: trim($data['phone01']), exceptId: null);
+
         $driver = Driver::create([
             'first_name'    => trim($data['first_name']),
             'last_name'     => trim($data['last_name']),
@@ -35,11 +41,19 @@ class DriverService
             'is_active'     => true,
         ]);
 
-        Log::info('DriverService: driver created', [
-            'driver_id' => $driver->id,
-            'name'      => $driver->full_name,
-            'actor'     => $actor,
-        ]);
+        StaffAuditLog::record(
+            entityType: 'driver',
+            entityId:   $driver->id,
+            action:     'created',
+            changes:    [
+                'first_name' => $driver->first_name,
+                'last_name'  => $driver->last_name,
+                'phone01'    => $driver->phone01,
+                'email'      => $driver->email,
+                'fuel_type'  => $driver->fuel_type,
+            ],
+            actor:      $actor,
+        );
 
         return $driver;
     }
@@ -48,11 +62,18 @@ class DriverService
      * Update one or more editable fields on an existing driver.
      * Only fields present in $data are touched; unchanged values are skipped.
      *
+     * Throws if the new phone01 value is already used by a different driver.
+     *
      * @param  array<string, mixed>  $data  Keys from: first_name, last_name, phone01, phone02,
      *                                       email, fuel_type, address_city, extra_details
+     * @throws \RuntimeException  on duplicate phone
      */
     public function update(Driver $driver, array $data, string $actor): void
     {
+        if (array_key_exists('phone01', $data) && $data['phone01'] !== null) {
+            $this->assertNoDuplicatePhone(phone: trim((string) $data['phone01']), exceptId: $driver->id);
+        }
+
         $allowed = ['first_name', 'last_name', 'phone01', 'phone02', 'email', 'fuel_type', 'address_city', 'extra_details'];
         $changes = [];
 
@@ -72,11 +93,13 @@ class DriverService
 
         $driver->update(array_map(fn ($v) => $v['new'], $changes));
 
-        Log::info('DriverService: driver updated', [
-            'driver_id' => $driver->id,
-            'actor'     => $actor,
-            'changes'   => $changes,
-        ]);
+        StaffAuditLog::record(
+            entityType: 'driver',
+            entityId:   $driver->id,
+            action:     'updated',
+            changes:    $changes,
+            actor:      $actor,
+        );
     }
 
     /**
@@ -91,11 +114,49 @@ class DriverService
 
         $driver->update(['is_active' => $active]);
 
-        Log::info('DriverService: driver ' . ($active ? 'activated' : 'deactivated'), [
-            'driver_id' => $driver->id,
-            'name'      => $driver->full_name,
-            'actor'     => $actor,
-        ]);
+        StaffAuditLog::record(
+            entityType: 'driver',
+            entityId:   $driver->id,
+            action:     $active ? 'activated' : 'deactivated',
+            changes:    null,
+            actor:      $actor,
+        );
+    }
+
+    /**
+     * Hard-delete a driver.
+     *
+     * Only allowed when the driver has no booking references.
+     * Intended for admin use only — not exposed in the Telegram bot.
+     *
+     * @throws \RuntimeException  if the driver is referenced by bookings
+     */
+    public function delete(Driver $driver, string $actor): void
+    {
+        if ($driver->bookings()->exists()) {
+            throw new \RuntimeException(
+                "Driver #{$driver->id} cannot be deleted: they are referenced by one or more bookings."
+            );
+        }
+
+        $snapshot = [
+            'first_name' => $driver->first_name,
+            'last_name'  => $driver->last_name,
+            'phone01'    => $driver->phone01,
+            'email'      => $driver->email,
+            'is_active'  => $driver->is_active,
+        ];
+
+        $driverId = $driver->id;
+        $driver->delete();
+
+        StaffAuditLog::record(
+            entityType: 'driver',
+            entityId:   $driverId,
+            action:     'deleted',
+            changes:    $snapshot,
+            actor:      $actor,
+        );
     }
 
     /**
@@ -114,6 +175,30 @@ class DriverService
     }
 
     /**
+     * Search drivers by normalized phone or partial name (case-insensitive).
+     * Returns active and inactive records.
+     */
+    public function search(string $query): Collection
+    {
+        $normalizedQuery = PhoneNormalizer::normalize($query);
+
+        return Driver::orderBy('first_name')
+            ->where(function ($q) use ($query, $normalizedQuery) {
+                $q->where('first_name', 'LIKE', "%{$query}%")
+                  ->orWhere('last_name', 'LIKE', "%{$query}%");
+
+                if ($normalizedQuery !== '') {
+                    // Match phone by digits — compare normalized storage via REGEXP_REPLACE
+                    $q->orWhereRaw(
+                        "REGEXP_REPLACE(phone01, '[^0-9]', '') LIKE ?",
+                        ["%{$normalizedQuery}%"]
+                    );
+                }
+            })
+            ->get();
+    }
+
+    /**
      * Find a driver by ID or throw if not found.
      *
      * @throws \RuntimeException
@@ -127,5 +212,34 @@ class DriverService
         }
 
         return $driver;
+    }
+
+    // ── Private helpers ───────────────────────────────────────────────────────
+
+    /**
+     * Throw if another driver already has the same normalized phone.
+     *
+     * @param  int|null  $exceptId  When updating, the current driver's own ID — skip self-match
+     * @throws \RuntimeException
+     */
+    private function assertNoDuplicatePhone(string $phone, ?int $exceptId): void
+    {
+        $normalized = PhoneNormalizer::normalize($phone);
+
+        if ($normalized === '') {
+            return; // empty/invalid phone — let model validation handle it
+        }
+
+        $existing = Driver::all(['id', 'phone01'])
+            ->first(function (Driver $d) use ($normalized, $exceptId) {
+                return $d->id !== $exceptId
+                    && PhoneNormalizer::normalize($d->phone01) === $normalized;
+            });
+
+        if ($existing) {
+            throw new \RuntimeException(
+                "A driver with phone number {$phone} already exists (Driver #{$existing->id})."
+            );
+        }
     }
 }

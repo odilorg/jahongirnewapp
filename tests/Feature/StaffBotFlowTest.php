@@ -8,6 +8,7 @@ use App\Models\BotOperator;
 use App\Models\Booking;
 use App\Models\Driver;
 use App\Models\Guide;
+use App\Models\StaffAuditLog;
 use App\Services\DriverService;
 use App\Services\GuideService;
 use App\Services\OperatorBookingFlow;
@@ -35,6 +36,7 @@ class StaffBotFlowTest extends TestCase
         DB::table('drivers')->delete();
         DB::table('guides')->delete();
         DB::table('operator_booking_sessions')->delete();
+        DB::table('staff_audit_logs')->delete();
     }
 
     protected function tearDown(): void
@@ -375,5 +377,180 @@ class StaffBotFlowTest extends TestCase
 
         $guide->refresh();
         $this->assertSame('new@example.com', $guide->email);
+    }
+
+    // ── Auth granularity: operator read-only ──────────────────────────────────
+
+    /** @test */
+    public function operator_can_access_staff_menu(): void
+    {
+        $r = $this->handle('600', '/staff', null, $this->makeOperator('operator'));
+
+        $this->assertStringContainsString('Staff Management', $r['text']);
+    }
+
+    /** @test */
+    public function operator_can_view_driver_list(): void
+    {
+        $r = $this->handle('600', null, 'staff:drivers', $this->makeOperator('operator'));
+
+        $this->assertArrayHasKey('reply_markup', $r);
+    }
+
+    /** @test */
+    public function operator_can_view_driver_detail(): void
+    {
+        $driver = $this->makeDriver();
+
+        $r = $this->handle('600', null, "staff:driver:{$driver->id}", $this->makeOperator('operator'));
+
+        $this->assertStringContainsString($driver->first_name, $r['text']);
+    }
+
+    /** @test */
+    public function operator_cannot_add_driver(): void
+    {
+        $r = $this->handle('600', null, 'staff:driver:add', $this->makeOperator('operator'));
+
+        $this->assertStringContainsString('🚫', $r['text']);
+    }
+
+    /** @test */
+    public function operator_cannot_toggle_driver(): void
+    {
+        $driver = $this->makeDriver();
+
+        $r = $this->handle('600', null, "staff:driver:{$driver->id}:toggle", $this->makeOperator('operator'));
+
+        $this->assertStringContainsString('🚫', $r['text']);
+    }
+
+    /** @test */
+    public function operator_detail_view_has_no_edit_or_toggle_buttons(): void
+    {
+        $driver = $this->makeDriver();
+
+        $r = $this->handle('600', null, "staff:driver:{$driver->id}", $this->makeOperator('operator'));
+
+        $buttons = collect($r['reply_markup']['inline_keyboard'])->flatten(1);
+        $cbData  = $buttons->pluck('callback_data')->all();
+
+        $this->assertFalse(collect($cbData)->contains(fn ($c) => str_contains($c, ':toggle')));
+        $this->assertFalse(collect($cbData)->contains(fn ($c) => str_contains($c, ':edit')));
+    }
+
+    /** @test */
+    public function manager_detail_view_has_edit_and_toggle_buttons(): void
+    {
+        $driver = $this->makeDriver();
+
+        $r = $this->handle('600', null, "staff:driver:{$driver->id}", $this->makeOperator('manager'));
+
+        $buttons = collect($r['reply_markup']['inline_keyboard'])->flatten(1);
+        $cbData  = $buttons->pluck('callback_data')->all();
+
+        $this->assertTrue(collect($cbData)->contains(fn ($c) => str_contains($c, ':toggle')));
+        $this->assertTrue(collect($cbData)->contains(fn ($c) => str_contains($c, ':edit')));
+    }
+
+    // ── Filter ────────────────────────────────────────────────────────────────
+
+    /** @test */
+    public function driver_list_active_filter_shows_only_active(): void
+    {
+        $this->makeDriver(['first_name' => 'Active',   'is_active' => true]);
+        $this->makeDriver(['first_name' => 'Inactive', 'is_active' => false]);
+
+        $r = $this->handle('700', null, 'staff:drivers:active', $this->makeOperator('manager'));
+
+        $buttons = collect($r['reply_markup']['inline_keyboard'])->flatten(1);
+        $texts   = $buttons->pluck('text')->all();
+
+        $this->assertTrue(collect($texts)->contains(fn ($t) => str_contains($t, 'Active')));
+        $this->assertFalse(collect($texts)->contains(fn ($t) => str_contains($t, '🔴') && str_contains($t, 'Inactive')));
+    }
+
+    /** @test */
+    public function driver_list_inactive_filter_shows_only_inactive(): void
+    {
+        $this->makeDriver(['first_name' => 'Active',   'is_active' => true]);
+        $this->makeDriver(['first_name' => 'Inactive', 'is_active' => false]);
+
+        $r = $this->handle('700', null, 'staff:drivers:inactive', $this->makeOperator('manager'));
+
+        $buttons = collect($r['reply_markup']['inline_keyboard'])->flatten(1);
+        $texts   = $buttons->pluck('text')->all();
+
+        $this->assertTrue(collect($texts)->contains(fn ($t) => str_contains($t, 'Inactive')));
+        $this->assertFalse(collect($texts)->contains(fn ($t) => str_contains($t, '✅') && str_contains($t, 'Active')));
+    }
+
+    // ── Duplicate phone prevention in edit flow ───────────────────────────────
+
+    /** @test */
+    public function edit_phone_blocked_when_number_already_used_by_another_driver(): void
+    {
+        $this->makeDriver(['phone01' => '+998901111111']);
+        $driver2 = $this->makeDriver(['phone01' => '+998902222222', 'email' => 'other@example.com']);
+        $chatId  = '800';
+        $op      = $this->makeOperator('manager');
+
+        $this->handle($chatId, null, "staff:driver:{$driver2->id}:edit:phone01", $op);
+        $r = $this->handle($chatId, '+998901111111', null, $op);
+
+        $this->assertStringContainsString('⚠️', $r['text']);
+        // Session not cleared — user can retry
+        $driver2->refresh();
+        $this->assertSame('+998902222222', $driver2->phone01);
+    }
+
+    // ── Search ────────────────────────────────────────────────────────────────
+
+    /** @test */
+    public function driver_search_returns_matching_results(): void
+    {
+        $this->makeDriver(['first_name' => 'Timur',   'phone01' => '+998901111111']);
+        $this->makeDriver(['first_name' => 'Kamoliddin', 'phone01' => '+998902222222', 'email' => 'k@example.com']);
+        $chatId = '900';
+        $op     = $this->makeOperator('operator');
+
+        // Enter search state
+        $this->handle($chatId, null, 'staff:driver:search', $op);
+
+        // Send search term
+        $r = $this->handle($chatId, 'Timur', null, $op);
+
+        $this->assertStringContainsString('Timur', $r['text']);
+        $buttons = collect($r['reply_markup']['inline_keyboard'])->flatten(1);
+        $texts   = $buttons->pluck('text')->all();
+        $this->assertTrue(collect($texts)->contains(fn ($t) => str_contains($t, 'Timur')));
+        $this->assertFalse(collect($texts)->contains(fn ($t) => str_contains($t, 'Kamoliddin')));
+    }
+
+    /** @test */
+    public function driver_search_by_phone_returns_matching_driver(): void
+    {
+        $this->makeDriver(['first_name' => 'Timur', 'phone01' => '+998901111111']);
+        $chatId = '901';
+        $op     = $this->makeOperator('operator');
+
+        $this->handle($chatId, null, 'staff:driver:search', $op);
+        $r = $this->handle($chatId, '998901111111', null, $op);
+
+        $buttons = collect($r['reply_markup']['inline_keyboard'])->flatten(1);
+        $texts   = $buttons->pluck('text')->all();
+        $this->assertTrue(collect($texts)->contains(fn ($t) => str_contains($t, 'Timur')));
+    }
+
+    /** @test */
+    public function driver_search_empty_result_shows_no_found_message(): void
+    {
+        $chatId = '902';
+        $op     = $this->makeOperator('manager');
+
+        $this->handle($chatId, null, 'staff:driver:search', $op);
+        $r = $this->handle($chatId, 'Nonexistent', null, $op);
+
+        $this->assertStringContainsString('No drivers found', $r['text']);
     }
 }

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature;
 
 use App\Models\Guide;
+use App\Models\StaffAuditLog;
 use App\Services\GuideService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -18,7 +19,9 @@ class GuideServiceTest extends TestCase
     {
         parent::setUp();
         DB::statement('SET FOREIGN_KEY_CHECKS=0');
+        DB::table('bookings')->delete();
         DB::table('guides')->delete();
+        DB::table('staff_audit_logs')->delete();
     }
 
     protected function tearDown(): void
@@ -182,5 +185,137 @@ class GuideServiceTest extends TestCase
         $this->expectExceptionMessageMatches('/Guide #9999 not found/');
 
         $this->service()->find(9999);
+    }
+
+    // ── audit logging ─────────────────────────────────────────────────────────
+
+    /** @test */
+    public function create_writes_audit_log_entry(): void
+    {
+        $this->service()->create($this->minimalData(), 'telegram:99');
+
+        $log = StaffAuditLog::where('entity_type', 'guide')->where('action', 'created')->first();
+
+        $this->assertNotNull($log);
+        $this->assertSame('telegram:99', $log->actor);
+        $this->assertArrayHasKey('phone01', $log->changes);
+    }
+
+    /** @test */
+    public function update_writes_audit_log_entry(): void
+    {
+        $guide = Guide::create($this->minimalData());
+
+        $this->service()->update($guide, ['first_name' => 'Updated'], 'telegram:99');
+
+        $log = StaffAuditLog::where('entity_type', 'guide')->where('action', 'updated')->first();
+
+        $this->assertNotNull($log);
+        $this->assertSame($guide->id, $log->entity_id);
+        $this->assertArrayHasKey('first_name', $log->changes);
+    }
+
+    /** @test */
+    public function set_active_writes_audit_log_entry(): void
+    {
+        $guide = Guide::create($this->minimalData(['is_active' => true]));
+
+        $this->service()->setActive($guide, false, 'telegram:99');
+
+        $log = StaffAuditLog::where('entity_type', 'guide')->where('action', 'deactivated')->first();
+
+        $this->assertNotNull($log);
+        $this->assertSame($guide->id, $log->entity_id);
+    }
+
+    // ── duplicate phone prevention ────────────────────────────────────────────
+
+    /** @test */
+    public function create_throws_on_duplicate_normalized_phone(): void
+    {
+        $this->service()->create($this->minimalData(['phone01' => '+998901111111']), 'actor:1');
+
+        $this->expectException(\RuntimeException::class);
+
+        $this->service()->create($this->minimalData(['email' => 'other@example.com', 'phone01' => '998901111111']), 'actor:1');
+    }
+
+    /** @test */
+    public function update_throws_when_new_phone_matches_another_guide(): void
+    {
+        Guide::create($this->minimalData(['phone01' => '+998901111111']));
+        $guide2 = Guide::create($this->minimalData(['phone01' => '+998902222222', 'email' => 'other@example.com']));
+
+        $this->expectException(\RuntimeException::class);
+
+        $this->service()->update($guide2, ['phone01' => '+998901111111'], 'actor:1');
+    }
+
+    /** @test */
+    public function update_allows_same_guide_to_keep_own_phone(): void
+    {
+        $guide = Guide::create($this->minimalData(['phone01' => '+998901111111']));
+
+        $this->service()->update($guide, ['phone01' => '+998901111111'], 'actor:1');
+
+        $this->assertSame('+998901111111', $guide->fresh()->phone01);
+    }
+
+    // ── delete ────────────────────────────────────────────────────────────────
+
+    /** @test */
+    public function delete_removes_unreferenced_guide(): void
+    {
+        $guide = Guide::create($this->minimalData());
+
+        $this->service()->delete($guide, 'actor:1');
+
+        $this->assertDatabaseMissing('guides', ['id' => $guide->id]);
+    }
+
+    /** @test */
+    public function delete_writes_audit_log_entry(): void
+    {
+        $guide = Guide::create($this->minimalData());
+        $id    = $guide->id;
+
+        $this->service()->delete($guide, 'actor:1');
+
+        $log = StaffAuditLog::where('entity_type', 'guide')
+            ->where('entity_id', $id)
+            ->where('action', 'deleted')
+            ->first();
+
+        $this->assertNotNull($log);
+        $this->assertArrayHasKey('phone01', $log->changes);
+    }
+
+    /** @test */
+    public function delete_throws_when_guide_has_bookings(): void
+    {
+        $guide = Guide::create($this->minimalData());
+
+        DB::table('bookings')->insert([
+            'driver_id'       => 1,
+            'guide_id'        => $guide->id,
+            'tour_id'         => 1,
+            'guest_id'        => 1,
+            'grand_total'     => 0,
+            'amount'          => 0,
+            'payment_method'  => 'cash',
+            'payment_status'  => 'unpaid',
+            'group_name'      => 'Test',
+            'pickup_location' => 'TBD',
+            'dropoff_location'=> 'TBD',
+            'booking_status'  => 'pending',
+            'booking_source'  => 'test',
+            'created_at'      => now(),
+            'updated_at'      => now(),
+        ]);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessageMatches('/cannot be deleted/');
+
+        $this->service()->delete($guide, 'actor:1');
     }
 }
