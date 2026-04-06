@@ -70,14 +70,12 @@ class GroupPaymentIntegrationTest extends TestCase
         $evaluator = new OverridePolicyEvaluator();
         $approvals = $this->createMock(FxManagerApprovalService::class);
 
-        // syncSvc: createPending returns a minimal Beds24PaymentSync stub (not persisted)
+        // syncSvc: createPending returns a minimal stub with null id.
+        // beds24_payment_sync_id FK is nullable (ON DELETE SET NULL), so null is valid.
         $syncRow = new \App\Models\Beds24PaymentSync([
-            'beds24_booking_id' => 'TEST',
-            'local_reference'   => \Illuminate\Support\Str::uuid()->toString(),
-            'amount_usd'        => 100.0,
-            'status'            => 'pending',
+            'local_reference' => \Illuminate\Support\Str::uuid()->toString(),
         ]);
-        $syncRow->id = 999;  // fake PK so ->id isn't null
+        // id remains null — the FK update writes null, which is allowed
 
         $syncSvc = $this->createMock(Beds24PaymentSyncService::class);
         $syncSvc->method('createPending')->willReturn($syncRow);
