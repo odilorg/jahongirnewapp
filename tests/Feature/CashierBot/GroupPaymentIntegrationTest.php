@@ -37,7 +37,10 @@ class GroupPaymentIntegrationTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        Queue::fake();  // prevent real job dispatch (Beds24PaymentSyncJob needs real syncRow->id)
+        Queue::fake();
+        // Disable auto-push so Beds24PaymentSyncJob::dispatch($syncRow->id) is never called
+        // (our stub has null id which would fail the int type hint)
+        config(['features.beds24_auto_push_payment' => false]);
     }
 
     // -------------------------------------------------------------------------
