@@ -103,7 +103,7 @@ class OperatorBookingFlow
         }
 
         if ($text === '/staff') {
-            return $this->checkPerm(BotOperator::PERM_MANAGE, '🚫 Staff management requires manager role.') ?? $this->buildStaffMenu();
+            return $this->checkPerm(BotOperator::PERM_EDIT, '🚫 Staff management requires at least operator role.') ?? $this->buildStaffMenu();
         }
 
         if ($text === '/newbooking') {
@@ -128,9 +128,9 @@ class OperatorBookingFlow
             return $this->handleBrsCallback($session, $chatId, $callback);
         }
 
-        // staff: — driver/guide management
+        // staff: — driver/guide management (read-only at PERM_EDIT; mutations guarded inside)
         if ($callback && str_starts_with($callback, 'staff:')) {
-            return $this->checkPerm(BotOperator::PERM_MANAGE, '🚫 Staff management requires manager role.') ?? $this->handleStaffCallback($session, $chatId, $callback);
+            return $this->checkPerm(BotOperator::PERM_EDIT, '🚫 Staff management requires at least operator role.') ?? $this->handleStaffCallback($session, $chatId, $callback);
         }
 
         // ── State machine ─────────────────────────────────────────────────────
@@ -159,6 +159,8 @@ class OperatorBookingFlow
             'add_guide'         => $this->handleAddGuideInput($session, $chatId, $text),
             'edit_driver_field' => $this->handleEditDriverFieldInput($session, $chatId, $text),
             'edit_guide_field'  => $this->handleEditGuideFieldInput($session, $chatId, $text),
+            'search_driver'     => $this->handleSearchDriverInput($session, $chatId, $text),
+            'search_guide'      => $this->handleSearchGuideInput($session, $chatId, $text),
             default             => ['text' => "Use /newbooking to create a booking, /bookings to browse, /staff for staff, or /help for all commands."],
         };
     }
@@ -1333,14 +1335,27 @@ class OperatorBookingFlow
         string $chatId,
         string $callback,
     ): array {
-        $suffix = substr($callback, 6); // strip "staff:"
+        $suffix    = substr($callback, 6); // strip "staff:"
+        $canMutate = $this->operator?->can(BotOperator::PERM_MANAGE) ?? false;
 
         // ── Drivers ───────────────────────────────────────────────────────────
-        if ($suffix === 'drivers') {
-            return $this->staffDriverList();
+
+        // Filtered/paginated list: staff:drivers[:filter[:page:N]]
+        if ($suffix === 'drivers' || preg_match('/^drivers(?::(all|active|inactive))?(?::page:(\d+))?$/', $suffix, $lm)) {
+            $filter = $lm[1] ?? 'all';
+            $page   = isset($lm[2]) ? (int) $lm[2] : 1;
+            return $this->staffDriverList($filter, $page);
+        }
+
+        if ($suffix === 'driver:search') {
+            $session->update(['state' => 'search_driver', 'data' => null]);
+            return ['text' => "🔍 Search drivers\n\nType a name or phone number:"];
         }
 
         if ($suffix === 'driver:add') {
+            if (! $canMutate) {
+                return ['text' => '🚫 Creating staff requires manager role.'];
+            }
             $session->update(['state' => 'add_driver', 'data' => ['step' => 'first_name', 'collected' => []]]);
             return ['text' => "🚗 <b>Add Driver</b> — step 1/5\n\nEnter first name:"];
         }
@@ -1350,14 +1365,23 @@ class OperatorBookingFlow
         }
 
         if (preg_match('/^driver:(\d+):toggle$/', $suffix, $m)) {
+            if (! $canMutate) {
+                return ['text' => '🚫 Activating/deactivating staff requires manager role.'];
+            }
             return $this->staffToggleDriver((int) $m[1], $this->actor($chatId));
         }
 
         if (preg_match('/^driver:(\d+):edit$/', $suffix, $m)) {
+            if (! $canMutate) {
+                return ['text' => '🚫 Editing staff requires manager role.'];
+            }
             return $this->staffDriverEditMenu((int) $m[1]);
         }
 
         if (preg_match('/^driver:(\d+):edit:(.+)$/', $suffix, $m)) {
+            if (! $canMutate) {
+                return ['text' => '🚫 Editing staff requires manager role.'];
+            }
             $driverId = (int) $m[1];
             $field    = $m[2];
             $session->update(['state' => 'edit_driver_field', 'data' => ['driver_id' => $driverId, 'field' => $field]]);
@@ -1365,11 +1389,22 @@ class OperatorBookingFlow
         }
 
         // ── Guides ────────────────────────────────────────────────────────────
-        if ($suffix === 'guides') {
-            return $this->staffGuideList();
+
+        if ($suffix === 'guides' || preg_match('/^guides(?::(all|active|inactive))?(?::page:(\d+))?$/', $suffix, $lm)) {
+            $filter = $lm[1] ?? 'all';
+            $page   = isset($lm[2]) ? (int) $lm[2] : 1;
+            return $this->staffGuideList($filter, $page);
+        }
+
+        if ($suffix === 'guide:search') {
+            $session->update(['state' => 'search_guide', 'data' => null]);
+            return ['text' => "🔍 Search guides\n\nType a name or phone number:"];
         }
 
         if ($suffix === 'guide:add') {
+            if (! $canMutate) {
+                return ['text' => '🚫 Creating staff requires manager role.'];
+            }
             $session->update(['state' => 'add_guide', 'data' => ['step' => 'first_name', 'collected' => []]]);
             return ['text' => "🧭 <b>Add Guide</b> — step 1/5\n\nEnter first name:"];
         }
@@ -1379,14 +1414,23 @@ class OperatorBookingFlow
         }
 
         if (preg_match('/^guide:(\d+):toggle$/', $suffix, $m)) {
+            if (! $canMutate) {
+                return ['text' => '🚫 Activating/deactivating staff requires manager role.'];
+            }
             return $this->staffToggleGuide((int) $m[1], $this->actor($chatId));
         }
 
         if (preg_match('/^guide:(\d+):edit$/', $suffix, $m)) {
+            if (! $canMutate) {
+                return ['text' => '🚫 Editing staff requires manager role.'];
+            }
             return $this->staffGuideEditMenu((int) $m[1]);
         }
 
         if (preg_match('/^guide:(\d+):edit:(.+)$/', $suffix, $m)) {
+            if (! $canMutate) {
+                return ['text' => '🚫 Editing staff requires manager role.'];
+            }
             $guideId = (int) $m[1];
             $field   = $m[2];
             $session->update(['state' => 'edit_guide_field', 'data' => ['guide_id' => $guideId, 'field' => $field]]);
@@ -1398,30 +1442,74 @@ class OperatorBookingFlow
 
     // ── Driver list / detail / toggle / edit ─────────────────────────────────
 
-    private function staffDriverList(): array
+    private function staffDriverList(string $filter = 'all', int $page = 1): array
     {
-        $drivers = Driver::orderBy('first_name')->get(['id', 'first_name', 'last_name', 'is_active']);
+        $perPage   = 15;
+        $canMutate = $this->operator?->can(BotOperator::PERM_MANAGE) ?? false;
+
+        $query = Driver::orderBy('first_name');
+        if ($filter === 'active') {
+            $query->where('is_active', true);
+        } elseif ($filter === 'inactive') {
+            $query->where('is_active', false);
+        }
+        $all      = $query->get(['id', 'first_name', 'last_name', 'is_active']);
+        $total    = $all->count();
+        $pages    = (int) ceil($total / $perPage) ?: 1;
+        $page     = max(1, min($page, $pages));
+        $drivers  = $all->forPage($page, $perPage);
+
+        $filterRow = [
+            ['text' => ($filter === 'all'      ? '● All'      : '○ All'),      'callback_data' => 'staff:drivers:all'],
+            ['text' => ($filter === 'active'   ? '● Active'   : '○ Active'),   'callback_data' => 'staff:drivers:active'],
+            ['text' => ($filter === 'inactive' ? '● Inactive' : '○ Inactive'), 'callback_data' => 'staff:drivers:inactive'],
+        ];
 
         if ($drivers->isEmpty()) {
+            $buttons = [$filterRow];
+            $buttons[] = [['text' => '🔍 Search', 'callback_data' => 'staff:driver:search']];
+            if ($canMutate) {
+                $buttons[] = [['text' => '➕ Add driver', 'callback_data' => 'staff:driver:add']];
+            }
+            $buttons[] = [['text' => '◀ Back', 'callback_data' => 'staff:menu']];
             return [
                 'text'         => "🚗 <b>Drivers</b>\n\nNo drivers found.",
-                'reply_markup' => ['inline_keyboard' => [
-                    [['text' => '➕ Add driver', 'callback_data' => 'staff:driver:add']],
-                    [['text' => '◀ Back',        'callback_data' => 'staff:menu']],
-                ]],
+                'reply_markup' => ['inline_keyboard' => $buttons],
             ];
         }
 
-        $buttons = $drivers->map(fn ($d) => [[
-            'text'          => ($d->is_active ? '✅' : '🔴') . ' ' . $d->full_name,
-            'callback_data' => "staff:driver:{$d->id}",
-        ]])->all();
+        $buttons   = [$filterRow];
+        $buttons[] = [['text' => '🔍 Search', 'callback_data' => 'staff:driver:search']];
 
-        $buttons[] = [['text' => '➕ Add driver', 'callback_data' => 'staff:driver:add']];
-        $buttons[] = [['text' => '◀ Back',        'callback_data' => 'staff:menu']];
+        foreach ($drivers as $d) {
+            $buttons[] = [[
+                'text'          => ($d->is_active ? '✅' : '🔴') . ' ' . $d->full_name,
+                'callback_data' => "staff:driver:{$d->id}",
+            ]];
+        }
+
+        // Pagination row
+        if ($pages > 1) {
+            $pagRow = [];
+            if ($page > 1) {
+                $pagRow[] = ['text' => '◀ Prev', 'callback_data' => "staff:drivers:{$filter}:page:" . ($page - 1)];
+            }
+            $pagRow[] = ['text' => "{$page}/{$pages}", 'callback_data' => "staff:drivers:{$filter}:page:{$page}"];
+            if ($page < $pages) {
+                $pagRow[] = ['text' => 'Next ▶', 'callback_data' => "staff:drivers:{$filter}:page:" . ($page + 1)];
+            }
+            $buttons[] = $pagRow;
+        }
+
+        if ($canMutate) {
+            $buttons[] = [['text' => '➕ Add driver', 'callback_data' => 'staff:driver:add']];
+        }
+        $buttons[] = [['text' => '◀ Back', 'callback_data' => 'staff:menu']];
+
+        $filterLabel = $filter !== 'all' ? " · " . ucfirst($filter) . " only" : '';
 
         return [
-            'text'         => "🚗 <b>Drivers</b> ({$drivers->count()} total)\n\n✅ active · 🔴 inactive",
+            'text'         => "🚗 <b>Drivers</b> ({$total} total{$filterLabel})\n\n✅ active · 🔴 inactive",
             'reply_markup' => ['inline_keyboard' => $buttons],
         ];
     }
@@ -1445,15 +1533,16 @@ class OperatorBookingFlow
             . "🏙 City:  " . ($driver->address_city ?? '—') . "\n"
             . "Status: {$status}";
 
+        $keyboard = [];
+        if ($this->operator?->can(BotOperator::PERM_MANAGE)) {
+            $keyboard[] = [['text' => '✏️ Edit',  'callback_data' => "staff:driver:{$driverId}:edit"]];
+            $keyboard[] = [['text' => $toggleLbl,  'callback_data' => "staff:driver:{$driverId}:toggle"]];
+        }
+        $keyboard[] = [['text' => '◀ Back', 'callback_data' => 'staff:drivers']];
+
         return [
             'text'         => $text,
-            'reply_markup' => [
-                'inline_keyboard' => [
-                    [['text' => '✏️ Edit',     'callback_data' => "staff:driver:{$driverId}:edit"]],
-                    [['text' => $toggleLbl,     'callback_data' => "staff:driver:{$driverId}:toggle"]],
-                    [['text' => '◀ Back',       'callback_data' => 'staff:drivers']],
-                ],
-            ],
+            'reply_markup' => ['inline_keyboard' => $keyboard],
         ];
     }
 
@@ -1541,7 +1630,11 @@ class OperatorBookingFlow
             $value = null;
         }
 
-        $this->driverService->update($driver, [$field => $value], $this->actor($chatId));
+        try {
+            $this->driverService->update($driver, [$field => $value], $this->actor($chatId));
+        } catch (\RuntimeException $e) {
+            return ['text' => "⚠️ " . $e->getMessage() . "\n\nSend a different value or /cancel to abort."];
+        }
         $driver->refresh();
 
         $session->update(['state' => 'idle', 'data' => null]);
@@ -1551,30 +1644,73 @@ class OperatorBookingFlow
 
     // ── Guide list / detail / toggle / edit ──────────────────────────────────
 
-    private function staffGuideList(): array
+    private function staffGuideList(string $filter = 'all', int $page = 1): array
     {
-        $guides = Guide::orderBy('first_name')->get(['id', 'first_name', 'last_name', 'is_active']);
+        $perPage   = 15;
+        $canMutate = $this->operator?->can(BotOperator::PERM_MANAGE) ?? false;
+
+        $query = Guide::orderBy('first_name');
+        if ($filter === 'active') {
+            $query->where('is_active', true);
+        } elseif ($filter === 'inactive') {
+            $query->where('is_active', false);
+        }
+        $all    = $query->get(['id', 'first_name', 'last_name', 'is_active']);
+        $total  = $all->count();
+        $pages  = (int) ceil($total / $perPage) ?: 1;
+        $page   = max(1, min($page, $pages));
+        $guides = $all->forPage($page, $perPage);
+
+        $filterRow = [
+            ['text' => ($filter === 'all'      ? '● All'      : '○ All'),      'callback_data' => 'staff:guides:all'],
+            ['text' => ($filter === 'active'   ? '● Active'   : '○ Active'),   'callback_data' => 'staff:guides:active'],
+            ['text' => ($filter === 'inactive' ? '● Inactive' : '○ Inactive'), 'callback_data' => 'staff:guides:inactive'],
+        ];
 
         if ($guides->isEmpty()) {
+            $buttons = [$filterRow];
+            $buttons[] = [['text' => '🔍 Search', 'callback_data' => 'staff:guide:search']];
+            if ($canMutate) {
+                $buttons[] = [['text' => '➕ Add guide', 'callback_data' => 'staff:guide:add']];
+            }
+            $buttons[] = [['text' => '◀ Back', 'callback_data' => 'staff:menu']];
             return [
                 'text'         => "🧭 <b>Guides</b>\n\nNo guides found.",
-                'reply_markup' => ['inline_keyboard' => [
-                    [['text' => '➕ Add guide', 'callback_data' => 'staff:guide:add']],
-                    [['text' => '◀ Back',       'callback_data' => 'staff:menu']],
-                ]],
+                'reply_markup' => ['inline_keyboard' => $buttons],
             ];
         }
 
-        $buttons = $guides->map(fn ($g) => [[
-            'text'          => ($g->is_active ? '✅' : '🔴') . ' ' . $g->full_name,
-            'callback_data' => "staff:guide:{$g->id}",
-        ]])->all();
+        $buttons   = [$filterRow];
+        $buttons[] = [['text' => '🔍 Search', 'callback_data' => 'staff:guide:search']];
 
-        $buttons[] = [['text' => '➕ Add guide', 'callback_data' => 'staff:guide:add']];
-        $buttons[] = [['text' => '◀ Back',       'callback_data' => 'staff:menu']];
+        foreach ($guides as $g) {
+            $buttons[] = [[
+                'text'          => ($g->is_active ? '✅' : '🔴') . ' ' . $g->full_name,
+                'callback_data' => "staff:guide:{$g->id}",
+            ]];
+        }
+
+        if ($pages > 1) {
+            $pagRow = [];
+            if ($page > 1) {
+                $pagRow[] = ['text' => '◀ Prev', 'callback_data' => "staff:guides:{$filter}:page:" . ($page - 1)];
+            }
+            $pagRow[] = ['text' => "{$page}/{$pages}", 'callback_data' => "staff:guides:{$filter}:page:{$page}"];
+            if ($page < $pages) {
+                $pagRow[] = ['text' => 'Next ▶', 'callback_data' => "staff:guides:{$filter}:page:" . ($page + 1)];
+            }
+            $buttons[] = $pagRow;
+        }
+
+        if ($canMutate) {
+            $buttons[] = [['text' => '➕ Add guide', 'callback_data' => 'staff:guide:add']];
+        }
+        $buttons[] = [['text' => '◀ Back', 'callback_data' => 'staff:menu']];
+
+        $filterLabel = $filter !== 'all' ? " · " . ucfirst($filter) . " only" : '';
 
         return [
-            'text'         => "🧭 <b>Guides</b> ({$guides->count()} total)\n\n✅ active · 🔴 inactive",
+            'text'         => "🧭 <b>Guides</b> ({$total} total{$filterLabel})\n\n✅ active · 🔴 inactive",
             'reply_markup' => ['inline_keyboard' => $buttons],
         ];
     }
@@ -1598,15 +1734,16 @@ class OperatorBookingFlow
             . "🗣 Languages: {$langs}\n"
             . "Status: {$status}";
 
+        $keyboard = [];
+        if ($this->operator?->can(BotOperator::PERM_MANAGE)) {
+            $keyboard[] = [['text' => '✏️ Edit',  'callback_data' => "staff:guide:{$guideId}:edit"]];
+            $keyboard[] = [['text' => $toggleLbl,  'callback_data' => "staff:guide:{$guideId}:toggle"]];
+        }
+        $keyboard[] = [['text' => '◀ Back', 'callback_data' => 'staff:guides']];
+
         return [
             'text'         => $text,
-            'reply_markup' => [
-                'inline_keyboard' => [
-                    [['text' => '✏️ Edit',  'callback_data' => "staff:guide:{$guideId}:edit"]],
-                    [['text' => $toggleLbl, 'callback_data' => "staff:guide:{$guideId}:toggle"]],
-                    [['text' => '◀ Back',   'callback_data' => 'staff:guides']],
-                ],
-            ],
+            'reply_markup' => ['inline_keyboard' => $keyboard],
         ];
     }
 
@@ -1691,12 +1828,90 @@ class OperatorBookingFlow
             $value = null;
         }
 
-        $this->guideService->update($guide, [$field => $value], $this->actor($chatId));
+        try {
+            $this->guideService->update($guide, [$field => $value], $this->actor($chatId));
+        } catch (\RuntimeException $e) {
+            return ['text' => "⚠️ " . $e->getMessage() . "\n\nSend a different value or /cancel to abort."];
+        }
         $guide->refresh();
 
         $session->update(['state' => 'idle', 'data' => null]);
 
         return $this->staffGuideDetail($guideId);
+    }
+
+    // ── Search handlers ───────────────────────────────────────────────────────
+
+    private function handleSearchDriverInput(
+        OperatorBookingSession $session,
+        string $chatId,
+        ?string $text,
+    ): array {
+        $query = trim($text ?? '');
+
+        if ($query === '') {
+            return ['text' => "🔍 Type a name or phone number to search drivers:"];
+        }
+
+        $drivers = $this->driverService->search($query);
+
+        $session->update(['state' => 'idle', 'data' => null]);
+
+        if ($drivers->isEmpty()) {
+            return [
+                'text'         => "🔍 No drivers found for "<b>{$query}</b>".",
+                'reply_markup' => ['inline_keyboard' => [
+                    [['text' => '◀ Back to list', 'callback_data' => 'staff:drivers']],
+                ]],
+            ];
+        }
+
+        $buttons = $drivers->map(fn ($d) => [[
+            'text'          => ($d->is_active ? '✅' : '🔴') . ' ' . $d->full_name,
+            'callback_data' => "staff:driver:{$d->id}",
+        ]])->all();
+        $buttons[] = [['text' => '◀ Back to list', 'callback_data' => 'staff:drivers']];
+
+        return [
+            'text'         => "🔍 <b>Driver search: "{$query}"</b>\n\n{$drivers->count()} result(s)",
+            'reply_markup' => ['inline_keyboard' => $buttons],
+        ];
+    }
+
+    private function handleSearchGuideInput(
+        OperatorBookingSession $session,
+        string $chatId,
+        ?string $text,
+    ): array {
+        $query = trim($text ?? '');
+
+        if ($query === '') {
+            return ['text' => "🔍 Type a name or phone number to search guides:"];
+        }
+
+        $guides = $this->guideService->search($query);
+
+        $session->update(['state' => 'idle', 'data' => null]);
+
+        if ($guides->isEmpty()) {
+            return [
+                'text'         => "🔍 No guides found for "<b>{$query}</b>".",
+                'reply_markup' => ['inline_keyboard' => [
+                    [['text' => '◀ Back to list', 'callback_data' => 'staff:guides']],
+                ]],
+            ];
+        }
+
+        $buttons = $guides->map(fn ($g) => [[
+            'text'          => ($g->is_active ? '✅' : '🔴') . ' ' . $g->full_name,
+            'callback_data' => "staff:guide:{$g->id}",
+        ]])->all();
+        $buttons[] = [['text' => '◀ Back to list', 'callback_data' => 'staff:guides']];
+
+        return [
+            'text'         => "🔍 <b>Guide search: "{$query}"</b>\n\n{$guides->count()} result(s)",
+            'reply_markup' => ['inline_keyboard' => $buttons],
+        ];
     }
 
     // ── Add driver multi-step flow ────────────────────────────────────────────

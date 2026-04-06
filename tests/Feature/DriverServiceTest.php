@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace Tests\Feature;
 
 use App\Models\Driver;
+use App\Models\StaffAuditLog;
 use App\Services\DriverService;
+use App\Support\PhoneNormalizer;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
@@ -18,7 +20,9 @@ class DriverServiceTest extends TestCase
     {
         parent::setUp();
         DB::statement('SET FOREIGN_KEY_CHECKS=0');
+        DB::table('bookings')->delete();
         DB::table('drivers')->delete();
+        DB::table('staff_audit_logs')->delete();
     }
 
     protected function tearDown(): void
@@ -214,5 +218,147 @@ class DriverServiceTest extends TestCase
         $this->expectExceptionMessageMatches('/Driver #9999 not found/');
 
         $this->service()->find(9999);
+    }
+
+    // ── audit logging ─────────────────────────────────────────────────────────
+
+    /** @test */
+    public function create_writes_audit_log_entry(): void
+    {
+        $this->service()->create($this->minimalData(), 'telegram:99');
+
+        $log = StaffAuditLog::where('entity_type', 'driver')->where('action', 'created')->first();
+
+        $this->assertNotNull($log);
+        $this->assertSame('telegram:99', $log->actor);
+        $this->assertArrayHasKey('phone01', $log->changes);
+    }
+
+    /** @test */
+    public function update_writes_audit_log_entry(): void
+    {
+        $driver = Driver::create($this->minimalData());
+
+        $this->service()->update($driver, ['first_name' => 'Updated'], 'telegram:99');
+
+        $log = StaffAuditLog::where('entity_type', 'driver')->where('action', 'updated')->first();
+
+        $this->assertNotNull($log);
+        $this->assertSame($driver->id, $log->entity_id);
+        $this->assertArrayHasKey('first_name', $log->changes);
+    }
+
+    /** @test */
+    public function set_active_writes_audit_log_entry(): void
+    {
+        $driver = Driver::create($this->minimalData(['is_active' => true]));
+
+        $this->service()->setActive($driver, false, 'telegram:99');
+
+        $log = StaffAuditLog::where('entity_type', 'driver')->where('action', 'deactivated')->first();
+
+        $this->assertNotNull($log);
+        $this->assertSame($driver->id, $log->entity_id);
+    }
+
+    // ── duplicate phone prevention ────────────────────────────────────────────
+
+    /** @test */
+    public function create_throws_on_duplicate_normalized_phone(): void
+    {
+        $this->service()->create($this->minimalData(['phone01' => '+998901234567']), 'actor:1');
+
+        $this->expectException(\RuntimeException::class);
+
+        // Same digits, different formatting
+        $this->service()->create($this->minimalData(['email' => 'other@example.com', 'phone01' => '998901234567']), 'actor:1');
+    }
+
+    /** @test */
+    public function update_throws_when_new_phone_matches_another_driver(): void
+    {
+        Driver::create($this->minimalData(['phone01' => '+998901111111']));
+        $driver2 = Driver::create($this->minimalData(['phone01' => '+998902222222', 'email' => 'other@example.com']));
+
+        $this->expectException(\RuntimeException::class);
+
+        $this->service()->update($driver2, ['phone01' => '+998901111111'], 'actor:1');
+    }
+
+    /** @test */
+    public function update_allows_same_driver_to_keep_own_phone(): void
+    {
+        $driver = Driver::create($this->minimalData(['phone01' => '+998901234567']));
+
+        // Should not throw — same driver keeping same phone
+        $this->service()->update($driver, ['phone01' => '+998901234567'], 'actor:1');
+
+        $this->assertSame('+998901234567', $driver->fresh()->phone01);
+    }
+
+    /** @test */
+    public function phone_formatting_variants_normalize_to_same_value(): void
+    {
+        $this->assertSame(PhoneNormalizer::normalize('+998 90 123 45 67'), PhoneNormalizer::normalize('998901234567'));
+        $this->assertSame(PhoneNormalizer::normalize('(998)901-234-567'), PhoneNormalizer::normalize('998901234567'));
+    }
+
+    // ── delete ────────────────────────────────────────────────────────────────
+
+    /** @test */
+    public function delete_removes_unreferenced_driver(): void
+    {
+        $driver = Driver::create($this->minimalData());
+
+        $this->service()->delete($driver, 'actor:1');
+
+        $this->assertDatabaseMissing('drivers', ['id' => $driver->id]);
+    }
+
+    /** @test */
+    public function delete_writes_audit_log_entry(): void
+    {
+        $driver = Driver::create($this->minimalData());
+        $id     = $driver->id;
+
+        $this->service()->delete($driver, 'actor:1');
+
+        $log = StaffAuditLog::where('entity_type', 'driver')
+            ->where('entity_id', $id)
+            ->where('action', 'deleted')
+            ->first();
+
+        $this->assertNotNull($log);
+        $this->assertArrayHasKey('phone01', $log->changes);
+    }
+
+    /** @test */
+    public function delete_throws_when_driver_has_bookings(): void
+    {
+        $driver = Driver::create($this->minimalData());
+
+        // Insert a fake booking row referencing this driver (FK checks disabled)
+        DB::table('bookings')->insert([
+            'driver_id'       => $driver->id,
+            'guide_id'        => 1,
+            'tour_id'         => 1,
+            'guest_id'        => 1,
+            'grand_total'     => 0,
+            'amount'          => 0,
+            'payment_method'  => 'cash',
+            'payment_status'  => 'unpaid',
+            'group_name'      => 'Test',
+            'pickup_location' => 'TBD',
+            'dropoff_location'=> 'TBD',
+            'booking_status'  => 'pending',
+            'booking_source'  => 'test',
+            'created_at'      => now(),
+            'updated_at'      => now(),
+        ]);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessageMatches('/cannot be deleted/');
+
+        $this->service()->delete($driver, 'actor:1');
     }
 }
