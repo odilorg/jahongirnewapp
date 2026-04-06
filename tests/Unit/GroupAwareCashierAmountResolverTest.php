@@ -167,33 +167,35 @@ class GroupAwareCashierAmountResolverTest extends TestCase
     /** @test */
     public function group_booking_fetches_missing_siblings_from_api_when_incomplete(): void
     {
-        $master = 'GRP_INCOMPLETE_1';
+        // Beds24 IDs are always numeric — use integers in raw_data too
+        $master    = '9001';
+        $localId   = '9001001';
+        $missingId = '9001002';
 
-        // Only 1 of 2 siblings stored locally
         $this->makeBooking([
-            'beds24_booking_id'  => 'LOCAL_ONLY',
+            'beds24_booking_id'  => $localId,
             'master_booking_id'  => $master,
             'booking_group_size' => 2,
             'total_amount'       => 250.00,
             'invoice_balance'    => 0,
-            // raw data contains both sibling IDs
+            // raw data carries both numeric sibling IDs
             'beds24_raw_data'    => [
                 'booking' => [
                     'bookingGroup' => [
-                        'master' => $master,
-                        'ids'    => ['LOCAL_ONLY', 'MISSING_SIBLING'],
+                        'master' => (int) $master,
+                        'ids'    => [(int) $localId, (int) $missingId],
                     ],
                 ],
             ],
         ]);
 
-        $booking = Beds24Booking::where('beds24_booking_id', 'LOCAL_ONLY')->first();
+        $booking = Beds24Booking::where('beds24_booking_id', $localId)->first();
 
         // Fake API response for the missing sibling
         $beds24Svc = $this->createMock(Beds24BookingService::class);
         $beds24Svc->expects($this->once())
             ->method('getBooking')
-            ->with('MISSING_SIBLING')
+            ->with($missingId)
             ->willReturn(['data' => [[
                 'booking'      => ['price' => 250],
                 'invoiceItems' => [],
@@ -203,7 +205,7 @@ class GroupAwareCashierAmountResolverTest extends TestCase
         $result   = $resolver->resolve($booking);
 
         $this->assertFalse($result->isSingleBooking);
-        $this->assertEquals(500.00, $result->usdAmount);  // 250 + 250
+        $this->assertEquals(500.00, $result->usdAmount);  // 250 (local) + 250 (fetched)
         $this->assertEquals(2, $result->groupSizeExpected);
         $this->assertFalse($result->isGroupComplete);  // partial local sync
     }
@@ -215,10 +217,12 @@ class GroupAwareCashierAmountResolverTest extends TestCase
     /** @test */
     public function group_booking_throws_incomplete_sync_exception_when_api_fetch_fails(): void
     {
-        $master = 'GRP_INCOMPLETE_2';
+        $master    = '9002';
+        $localId   = '9002001';
+        $missingId = '9002002';
 
         $this->makeBooking([
-            'beds24_booking_id'  => 'LOCAL_ONLY_2',
+            'beds24_booking_id'  => $localId,
             'master_booking_id'  => $master,
             'booking_group_size' => 2,
             'total_amount'       => 200.00,
@@ -226,14 +230,14 @@ class GroupAwareCashierAmountResolverTest extends TestCase
             'beds24_raw_data'    => [
                 'booking' => [
                     'bookingGroup' => [
-                        'master' => $master,
-                        'ids'    => ['LOCAL_ONLY_2', 'MISSING_2'],
+                        'master' => (int) $master,
+                        'ids'    => [(int) $localId, (int) $missingId],
                     ],
                 ],
             ],
         ]);
 
-        $booking = Beds24Booking::where('beds24_booking_id', 'LOCAL_ONLY_2')->first();
+        $booking = Beds24Booking::where('beds24_booking_id', $localId)->first();
 
         $beds24Svc = $this->createMock(Beds24BookingService::class);
         $beds24Svc->method('getBooking')
