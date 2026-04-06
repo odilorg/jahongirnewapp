@@ -70,11 +70,17 @@ class GroupPaymentIntegrationTest extends TestCase
         $evaluator = new OverridePolicyEvaluator();
         $approvals = $this->createMock(FxManagerApprovalService::class);
 
-        // syncSvc: createPending returns a minimal Beds24PaymentSync
+        // syncSvc: createPending returns a minimal Beds24PaymentSync stub (not persisted)
+        $syncRow = new \App\Models\Beds24PaymentSync([
+            'beds24_booking_id' => 'TEST',
+            'local_reference'   => \Illuminate\Support\Str::uuid()->toString(),
+            'amount_usd'        => 100.0,
+            'status'            => 'pending',
+        ]);
+        $syncRow->id = 999;  // fake PK so ->id isn't null
+
         $syncSvc = $this->createMock(Beds24PaymentSyncService::class);
-        $syncSvc->method('createPending')->willReturn(
-            \App\Models\Beds24PaymentSync::factory()->create()
-        );
+        $syncSvc->method('createPending')->willReturn($syncRow);
 
         $groupResolver = $this->createMock(GroupAwareCashierAmountResolver::class);
 
