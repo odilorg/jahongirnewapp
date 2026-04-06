@@ -53,8 +53,10 @@ class OperatorBookingFlow
 
     public function __construct(
         private readonly WebsiteBookingService $bookingService,
-        private readonly BookingOpsService     $opsService    = new BookingOpsService(),
-        private readonly BookingBrowseService  $browseService = new BookingBrowseService(),
+        private readonly BookingOpsService     $opsService      = new BookingOpsService(),
+        private readonly BookingBrowseService  $browseService   = new BookingBrowseService(),
+        private readonly DriverService         $driverService   = new DriverService(),
+        private readonly GuideService          $guideService    = new GuideService(),
     ) {}
 
     // ── Public entry point ───────────────────────────────────────────────────
@@ -94,9 +96,14 @@ class OperatorBookingFlow
                 . "Available commands:\n"
                 . "/newbooking — create a new manual booking\n"
                 . "/bookings   — browse and manage upcoming bookings\n"
+                . "/staff      — manage drivers and guides\n"
                 . "/cancel     — cancel the current flow\n\n"
                 . "Tap a command to get started."
             ];
+        }
+
+        if ($text === '/staff') {
+            return $this->checkPerm(BotOperator::PERM_MANAGE, '🚫 Staff management requires manager role.') ?? $this->buildStaffMenu();
         }
 
         if ($text === '/newbooking') {
@@ -121,6 +128,11 @@ class OperatorBookingFlow
             return $this->handleBrsCallback($session, $chatId, $callback);
         }
 
+        // staff: — driver/guide management
+        if ($callback && str_starts_with($callback, 'staff:')) {
+            return $this->checkPerm(BotOperator::PERM_MANAGE, '🚫 Staff management requires manager role.') ?? $this->handleStaffCallback($session, $chatId, $callback);
+        }
+
         // ── State machine ─────────────────────────────────────────────────────
 
         return match ($session->state) {
@@ -137,13 +149,17 @@ class OperatorBookingFlow
             'browse_list'      => $this->buildBookingList($session),
             'set_price_input'  => $this->handleSetPriceInput($session, $chatId, $text),
             'set_pickup_input' => $this->handleSetPickupInput($session, $chatId, $text),
-            'edit_name_input'  => $this->handleEditNameInput($session, $chatId, $text),
-            'edit_phone_input' => $this->handleEditPhoneInput($session, $chatId, $text),
-            'edit_email_input' => $this->handleEditEmailInput($session, $chatId, $text),
-            'edit_date_input'  => $this->handleEditDateInput($session, $chatId, $text),
-            'edit_pax_input'   => $this->handleEditPaxInput($session, $chatId, $text),
-            'edit_notes_input' => $this->handleEditNotesInput($session, $chatId, $text),
-            default            => ['text' => "Use /newbooking to create a booking, /bookings to browse, or /help for all commands."],
+            'edit_name_input'   => $this->handleEditNameInput($session, $chatId, $text),
+            'edit_phone_input'  => $this->handleEditPhoneInput($session, $chatId, $text),
+            'edit_email_input'  => $this->handleEditEmailInput($session, $chatId, $text),
+            'edit_date_input'   => $this->handleEditDateInput($session, $chatId, $text),
+            'edit_pax_input'    => $this->handleEditPaxInput($session, $chatId, $text),
+            'edit_notes_input'  => $this->handleEditNotesInput($session, $chatId, $text),
+            'add_driver'        => $this->handleAddDriverInput($session, $chatId, $text),
+            'add_guide'         => $this->handleAddGuideInput($session, $chatId, $text),
+            'edit_driver_field' => $this->handleEditDriverFieldInput($session, $chatId, $text),
+            'edit_guide_field'  => $this->handleEditGuideFieldInput($session, $chatId, $text),
+            default             => ['text' => "Use /newbooking to create a booking, /bookings to browse, /staff for staff, or /help for all commands."],
         };
     }
 
@@ -598,6 +614,10 @@ class OperatorBookingFlow
             return ['text' => "⚠️ Driver not found."];
         }
 
+        if (! $driver->is_active) {
+            return ['text' => "⚠️ {$driver->full_name} is inactive and cannot be assigned. Reactivate them first via /staff."];
+        }
+
         try {
             $this->opsService->assignDriver($booking, $driverId, $actor);
             $booking->refresh();
@@ -618,6 +638,10 @@ class OperatorBookingFlow
 
         if (! $guide) {
             return ['text' => "⚠️ Guide not found."];
+        }
+
+        if (! $guide->is_active) {
+            return ['text' => "⚠️ {$guide->full_name} is inactive and cannot be assigned. Reactivate them first via /staff."];
         }
 
         try {
@@ -1182,7 +1206,7 @@ class OperatorBookingFlow
 
     private function buildDriverList(Booking $booking): array
     {
-        $drivers = Driver::orderBy('first_name')->get(['id', 'first_name', 'last_name']);
+        $drivers = Driver::where('is_active', true)->orderBy('first_name')->get(['id', 'first_name', 'last_name']);
 
         if ($drivers->isEmpty()) {
             return ['text' => "⚠️ No drivers found in the system."];
@@ -1204,7 +1228,7 @@ class OperatorBookingFlow
 
     private function buildGuideList(Booking $booking): array
     {
-        $guides = Guide::orderBy('first_name')->get(['id', 'first_name', 'last_name']);
+        $guides = Guide::where('is_active', true)->orderBy('first_name')->get(['id', 'first_name', 'last_name']);
 
         if ($guides->isEmpty()) {
             return ['text' => "⚠️ No guides found in the system."];
@@ -1271,5 +1295,539 @@ class OperatorBookingFlow
             ['chat_id' => $chatId],
             ['state' => 'idle'],
         );
+    }
+
+    // ── Staff management ─────────────────────────────────────────────────────
+    //
+    // Entry points:
+    //   /staff              → buildStaffMenu()
+    //   staff:drivers       → staffDriverList()
+    //   staff:driver:{id}   → staffDriverDetail(id)
+    //   staff:driver:add    → start add_driver state
+    //   staff:driver:{id}:edit         → staffDriverEditMenu(id)
+    //   staff:driver:{id}:edit:{field} → start edit_driver_field state
+    //   staff:driver:{id}:toggle       → toggle is_active
+    //   staff:guides / guide variants  → mirror of above
+    //
+    // Session states:
+    //   add_driver        data: {step, collected:{}}
+    //   add_guide         data: {step, collected:{}}
+    //   edit_driver_field data: {driver_id, field}
+    //   edit_guide_field  data: {guide_id, field}
+
+    private function buildStaffMenu(): array
+    {
+        return [
+            'text'         => "👥 <b>Staff Management</b>\n\nChoose a category:",
+            'reply_markup' => [
+                'inline_keyboard' => [
+                    [['text' => '🚗 Drivers', 'callback_data' => 'staff:drivers']],
+                    [['text' => '🧭 Guides',  'callback_data' => 'staff:guides']],
+                ],
+            ],
+        ];
+    }
+
+    private function handleStaffCallback(
+        OperatorBookingSession $session,
+        string $chatId,
+        string $callback,
+    ): array {
+        $suffix = substr($callback, 6); // strip "staff:"
+
+        // ── Drivers ───────────────────────────────────────────────────────────
+        if ($suffix === 'drivers') {
+            return $this->staffDriverList();
+        }
+
+        if ($suffix === 'driver:add') {
+            $session->update(['state' => 'add_driver', 'data' => ['step' => 'first_name', 'collected' => []]]);
+            return ['text' => "🚗 <b>Add Driver</b> — step 1/5\n\nEnter first name:"];
+        }
+
+        if (preg_match('/^driver:(\d+)$/', $suffix, $m)) {
+            return $this->staffDriverDetail((int) $m[1]);
+        }
+
+        if (preg_match('/^driver:(\d+):toggle$/', $suffix, $m)) {
+            return $this->staffToggleDriver((int) $m[1], $this->actor($chatId));
+        }
+
+        if (preg_match('/^driver:(\d+):edit$/', $suffix, $m)) {
+            return $this->staffDriverEditMenu((int) $m[1]);
+        }
+
+        if (preg_match('/^driver:(\d+):edit:(.+)$/', $suffix, $m)) {
+            $driverId = (int) $m[1];
+            $field    = $m[2];
+            $session->update(['state' => 'edit_driver_field', 'data' => ['driver_id' => $driverId, 'field' => $field]]);
+            return ['text' => $this->editDriverFieldPrompt($field)];
+        }
+
+        // ── Guides ────────────────────────────────────────────────────────────
+        if ($suffix === 'guides') {
+            return $this->staffGuideList();
+        }
+
+        if ($suffix === 'guide:add') {
+            $session->update(['state' => 'add_guide', 'data' => ['step' => 'first_name', 'collected' => []]]);
+            return ['text' => "🧭 <b>Add Guide</b> — step 1/5\n\nEnter first name:"];
+        }
+
+        if (preg_match('/^guide:(\d+)$/', $suffix, $m)) {
+            return $this->staffGuideDetail((int) $m[1]);
+        }
+
+        if (preg_match('/^guide:(\d+):toggle$/', $suffix, $m)) {
+            return $this->staffToggleGuide((int) $m[1], $this->actor($chatId));
+        }
+
+        if (preg_match('/^guide:(\d+):edit$/', $suffix, $m)) {
+            return $this->staffGuideEditMenu((int) $m[1]);
+        }
+
+        if (preg_match('/^guide:(\d+):edit:(.+)$/', $suffix, $m)) {
+            $guideId = (int) $m[1];
+            $field   = $m[2];
+            $session->update(['state' => 'edit_guide_field', 'data' => ['guide_id' => $guideId, 'field' => $field]]);
+            return ['text' => $this->editGuideFieldPrompt($field)];
+        }
+
+        return $this->buildStaffMenu();
+    }
+
+    // ── Driver list / detail / toggle / edit ─────────────────────────────────
+
+    private function staffDriverList(): array
+    {
+        $drivers = Driver::orderBy('first_name')->get(['id', 'first_name', 'last_name', 'is_active']);
+
+        if ($drivers->isEmpty()) {
+            return [
+                'text'         => "🚗 <b>Drivers</b>\n\nNo drivers found.",
+                'reply_markup' => ['inline_keyboard' => [
+                    [['text' => '➕ Add driver', 'callback_data' => 'staff:driver:add']],
+                    [['text' => '◀ Back',        'callback_data' => 'staff:menu']],
+                ]],
+            ];
+        }
+
+        $buttons = $drivers->map(fn ($d) => [[
+            'text'          => ($d->is_active ? '✅' : '🔴') . ' ' . $d->full_name,
+            'callback_data' => "staff:driver:{$d->id}",
+        ]])->all();
+
+        $buttons[] = [['text' => '➕ Add driver', 'callback_data' => 'staff:driver:add']];
+        $buttons[] = [['text' => '◀ Back',        'callback_data' => 'staff:menu']];
+
+        return [
+            'text'         => "🚗 <b>Drivers</b> ({$drivers->count()} total)\n\n✅ active · 🔴 inactive",
+            'reply_markup' => ['inline_keyboard' => $buttons],
+        ];
+    }
+
+    private function staffDriverDetail(int $driverId): array
+    {
+        $driver = Driver::find($driverId);
+
+        if (! $driver) {
+            return ['text' => "⚠️ Driver not found."];
+        }
+
+        $status    = $driver->is_active ? '✅ Active' : '🔴 Inactive';
+        $toggleLbl = $driver->is_active ? '🔴 Deactivate' : '✅ Activate';
+        $langs     = $driver->phone02 ? "\n📱 Phone 2: {$driver->phone02}" : '';
+
+        $text = "🚗 <b>{$driver->full_name}</b>\n\n"
+            . "📱 Phone: {$driver->phone01}{$langs}\n"
+            . "📧 Email: {$driver->email}\n"
+            . "⛽ Fuel:  {$driver->fuel_type}\n"
+            . "🏙 City:  " . ($driver->address_city ?? '—') . "\n"
+            . "Status: {$status}";
+
+        return [
+            'text'         => $text,
+            'reply_markup' => [
+                'inline_keyboard' => [
+                    [['text' => '✏️ Edit',     'callback_data' => "staff:driver:{$driverId}:edit"]],
+                    [['text' => $toggleLbl,     'callback_data' => "staff:driver:{$driverId}:toggle"]],
+                    [['text' => '◀ Back',       'callback_data' => 'staff:drivers']],
+                ],
+            ],
+        ];
+    }
+
+    private function staffToggleDriver(int $driverId, string $actor): array
+    {
+        $driver = Driver::find($driverId);
+
+        if (! $driver) {
+            return ['text' => "⚠️ Driver not found."];
+        }
+
+        $this->driverService->setActive($driver, ! $driver->is_active, $actor);
+        $driver->refresh();
+
+        return $this->staffDriverDetail($driverId);
+    }
+
+    private function staffDriverEditMenu(int $driverId): array
+    {
+        $driver = Driver::find($driverId);
+
+        if (! $driver) {
+            return ['text' => "⚠️ Driver not found."];
+        }
+
+        return [
+            'text'         => "✏️ <b>Edit {$driver->full_name}</b>\n\nWhich field?",
+            'reply_markup' => [
+                'inline_keyboard' => [
+                    [['text' => 'First name',  'callback_data' => "staff:driver:{$driverId}:edit:first_name"]],
+                    [['text' => 'Last name',   'callback_data' => "staff:driver:{$driverId}:edit:last_name"]],
+                    [['text' => 'Phone 1',     'callback_data' => "staff:driver:{$driverId}:edit:phone01"]],
+                    [['text' => 'Phone 2',     'callback_data' => "staff:driver:{$driverId}:edit:phone02"]],
+                    [['text' => 'Email',       'callback_data' => "staff:driver:{$driverId}:edit:email"]],
+                    [['text' => 'Fuel type',   'callback_data' => "staff:driver:{$driverId}:edit:fuel_type"]],
+                    [['text' => 'City',        'callback_data' => "staff:driver:{$driverId}:edit:address_city"]],
+                    [['text' => '◀ Back',      'callback_data' => "staff:driver:{$driverId}"]],
+                ],
+            ],
+        ];
+    }
+
+    private function editDriverFieldPrompt(string $field): string
+    {
+        return match ($field) {
+            'first_name'    => "Enter new first name:",
+            'last_name'     => "Enter new last name:",
+            'phone01'       => "Enter new primary phone:",
+            'phone02'       => "Enter new secondary phone (or send - to clear):",
+            'email'         => "Enter new email:",
+            'fuel_type'     => "Enter fuel type (e.g. Petrol, Diesel, Gas, Electric):",
+            'address_city'  => "Enter city (or send - to clear):",
+            default         => "Enter new value for {$field}:",
+        };
+    }
+
+    private function handleEditDriverFieldInput(
+        OperatorBookingSession $session,
+        string $chatId,
+        ?string $text,
+    ): array {
+        $driverId = (int) ($session->getData('driver_id') ?? 0);
+        $field    = (string) ($session->getData('field') ?? '');
+
+        if (! $driverId || ! $field) {
+            $session->reset();
+            return ['text' => "⚠️ Session lost. Use /staff to start again."];
+        }
+
+        $driver = Driver::find($driverId);
+
+        if (! $driver) {
+            $session->reset();
+            return ['text' => "⚠️ Driver not found."];
+        }
+
+        $value = trim($text ?? '');
+
+        if ($value === '') {
+            return ['text' => $this->editDriverFieldPrompt($field) . "\n\n(Send /cancel to abort.)"];
+        }
+
+        // "-" clears nullable fields
+        if ($value === '-' && in_array($field, ['phone02', 'address_city'])) {
+            $value = null;
+        }
+
+        $this->driverService->update($driver, [$field => $value], $this->actor($chatId));
+        $driver->refresh();
+
+        $session->update(['state' => 'idle', 'data' => null]);
+
+        return $this->staffDriverDetail($driverId);
+    }
+
+    // ── Guide list / detail / toggle / edit ──────────────────────────────────
+
+    private function staffGuideList(): array
+    {
+        $guides = Guide::orderBy('first_name')->get(['id', 'first_name', 'last_name', 'is_active']);
+
+        if ($guides->isEmpty()) {
+            return [
+                'text'         => "🧭 <b>Guides</b>\n\nNo guides found.",
+                'reply_markup' => ['inline_keyboard' => [
+                    [['text' => '➕ Add guide', 'callback_data' => 'staff:guide:add']],
+                    [['text' => '◀ Back',       'callback_data' => 'staff:menu']],
+                ]],
+            ];
+        }
+
+        $buttons = $guides->map(fn ($g) => [[
+            'text'          => ($g->is_active ? '✅' : '🔴') . ' ' . $g->full_name,
+            'callback_data' => "staff:guide:{$g->id}",
+        ]])->all();
+
+        $buttons[] = [['text' => '➕ Add guide', 'callback_data' => 'staff:guide:add']];
+        $buttons[] = [['text' => '◀ Back',       'callback_data' => 'staff:menu']];
+
+        return [
+            'text'         => "🧭 <b>Guides</b> ({$guides->count()} total)\n\n✅ active · 🔴 inactive",
+            'reply_markup' => ['inline_keyboard' => $buttons],
+        ];
+    }
+
+    private function staffGuideDetail(int $guideId): array
+    {
+        $guide = Guide::find($guideId);
+
+        if (! $guide) {
+            return ['text' => "⚠️ Guide not found."];
+        }
+
+        $status    = $guide->is_active ? '✅ Active' : '🔴 Inactive';
+        $toggleLbl = $guide->is_active ? '🔴 Deactivate' : '✅ Activate';
+        $langs     = $guide->lang_spoken ? implode(', ', $guide->lang_spoken) : '—';
+        $phone2    = $guide->phone02 ? "\n📱 Phone 2: {$guide->phone02}" : '';
+
+        $text = "🧭 <b>{$guide->full_name}</b>\n\n"
+            . "📱 Phone: {$guide->phone01}{$phone2}\n"
+            . "📧 Email: {$guide->email}\n"
+            . "🗣 Languages: {$langs}\n"
+            . "Status: {$status}";
+
+        return [
+            'text'         => $text,
+            'reply_markup' => [
+                'inline_keyboard' => [
+                    [['text' => '✏️ Edit',  'callback_data' => "staff:guide:{$guideId}:edit"]],
+                    [['text' => $toggleLbl, 'callback_data' => "staff:guide:{$guideId}:toggle"]],
+                    [['text' => '◀ Back',   'callback_data' => 'staff:guides']],
+                ],
+            ],
+        ];
+    }
+
+    private function staffToggleGuide(int $guideId, string $actor): array
+    {
+        $guide = Guide::find($guideId);
+
+        if (! $guide) {
+            return ['text' => "⚠️ Guide not found."];
+        }
+
+        $this->guideService->setActive($guide, ! $guide->is_active, $actor);
+        $guide->refresh();
+
+        return $this->staffGuideDetail($guideId);
+    }
+
+    private function staffGuideEditMenu(int $guideId): array
+    {
+        $guide = Guide::find($guideId);
+
+        if (! $guide) {
+            return ['text' => "⚠️ Guide not found."];
+        }
+
+        return [
+            'text'         => "✏️ <b>Edit {$guide->full_name}</b>\n\nWhich field?",
+            'reply_markup' => [
+                'inline_keyboard' => [
+                    [['text' => 'First name', 'callback_data' => "staff:guide:{$guideId}:edit:first_name"]],
+                    [['text' => 'Last name',  'callback_data' => "staff:guide:{$guideId}:edit:last_name"]],
+                    [['text' => 'Phone 1',    'callback_data' => "staff:guide:{$guideId}:edit:phone01"]],
+                    [['text' => 'Phone 2',    'callback_data' => "staff:guide:{$guideId}:edit:phone02"]],
+                    [['text' => 'Email',      'callback_data' => "staff:guide:{$guideId}:edit:email"]],
+                    [['text' => 'Languages',  'callback_data' => "staff:guide:{$guideId}:edit:lang_spoken"]],
+                    [['text' => '◀ Back',     'callback_data' => "staff:guide:{$guideId}"]],
+                ],
+            ],
+        ];
+    }
+
+    private function editGuideFieldPrompt(string $field): string
+    {
+        return match ($field) {
+            'first_name'  => "Enter new first name:",
+            'last_name'   => "Enter new last name:",
+            'phone01'     => "Enter new primary phone:",
+            'phone02'     => "Enter new secondary phone (or send - to clear):",
+            'email'       => "Enter new email:",
+            'lang_spoken' => "Enter languages spoken, comma-separated (e.g. EN, RU, UZ):",
+            default       => "Enter new value for {$field}:",
+        };
+    }
+
+    private function handleEditGuideFieldInput(
+        OperatorBookingSession $session,
+        string $chatId,
+        ?string $text,
+    ): array {
+        $guideId = (int) ($session->getData('guide_id') ?? 0);
+        $field   = (string) ($session->getData('field') ?? '');
+
+        if (! $guideId || ! $field) {
+            $session->reset();
+            return ['text' => "⚠️ Session lost. Use /staff to start again."];
+        }
+
+        $guide = Guide::find($guideId);
+
+        if (! $guide) {
+            $session->reset();
+            return ['text' => "⚠️ Guide not found."];
+        }
+
+        $value = trim($text ?? '');
+
+        if ($value === '') {
+            return ['text' => $this->editGuideFieldPrompt($field) . "\n\n(Send /cancel to abort.)"];
+        }
+
+        if ($value === '-' && $field === 'phone02') {
+            $value = null;
+        }
+
+        $this->guideService->update($guide, [$field => $value], $this->actor($chatId));
+        $guide->refresh();
+
+        $session->update(['state' => 'idle', 'data' => null]);
+
+        return $this->staffGuideDetail($guideId);
+    }
+
+    // ── Add driver multi-step flow ────────────────────────────────────────────
+
+    /** Driver add steps: first_name → last_name → phone01 → email → fuel_type */
+    private function handleAddDriverInput(
+        OperatorBookingSession $session,
+        string $chatId,
+        ?string $text,
+    ): array {
+        $step      = (string) ($session->getData('step') ?? 'first_name');
+        $collected = (array)  ($session->getData('collected') ?? []);
+        $value     = trim($text ?? '');
+
+        if ($value === '') {
+            return ['text' => $this->addDriverStepPrompt($step)];
+        }
+
+        // Validate minimum
+        if ($step === 'phone01' && strlen($value) < 7) {
+            return ['text' => "⚠️ Phone looks too short. Try again:"];
+        }
+        if ($step === 'email' && ! str_contains($value, '@')) {
+            return ['text' => "⚠️ That doesn't look like a valid email. Try again:"];
+        }
+
+        $collected[$step] = $value;
+
+        $nextStep = match ($step) {
+            'first_name' => 'last_name',
+            'last_name'  => 'phone01',
+            'phone01'    => 'email',
+            'email'      => 'fuel_type',
+            'fuel_type'  => 'done',
+            default      => 'done',
+        };
+
+        if ($nextStep === 'done') {
+            // Create driver
+            try {
+                $driver = $this->driverService->create($collected, $this->actor($chatId));
+            } catch (\Throwable $e) {
+                Log::error('OperatorBookingFlow: add driver failed', ['error' => $e->getMessage()]);
+                $session->update(['state' => 'idle', 'data' => null]);
+                return ['text' => "❌ Failed to create driver: {$e->getMessage()}"];
+            }
+
+            $session->update(['state' => 'idle', 'data' => null]);
+            return $this->staffDriverDetail($driver->id);
+        }
+
+        $stepNum  = array_search($nextStep, ['first_name', 'last_name', 'phone01', 'email', 'fuel_type']) + 1;
+        $session->update(['state' => 'add_driver', 'data' => ['step' => $nextStep, 'collected' => $collected]]);
+
+        return ['text' => "🚗 <b>Add Driver</b> — step {$stepNum}/5\n\n" . $this->addDriverStepPrompt($nextStep)];
+    }
+
+    private function addDriverStepPrompt(string $step): string
+    {
+        return match ($step) {
+            'first_name' => "Enter first name:",
+            'last_name'  => "Enter last name:",
+            'phone01'    => "Enter primary phone (e.g. +998901234567):",
+            'email'      => "Enter email:",
+            'fuel_type'  => "Enter fuel type (Petrol / Diesel / Gas / Electric):",
+            default      => "Enter value:",
+        };
+    }
+
+    // ── Add guide multi-step flow ─────────────────────────────────────────────
+
+    /** Guide add steps: first_name → last_name → phone01 → email → lang_spoken */
+    private function handleAddGuideInput(
+        OperatorBookingSession $session,
+        string $chatId,
+        ?string $text,
+    ): array {
+        $step      = (string) ($session->getData('step') ?? 'first_name');
+        $collected = (array)  ($session->getData('collected') ?? []);
+        $value     = trim($text ?? '');
+
+        if ($value === '') {
+            return ['text' => $this->addGuideStepPrompt($step)];
+        }
+
+        if ($step === 'phone01' && strlen($value) < 7) {
+            return ['text' => "⚠️ Phone looks too short. Try again:"];
+        }
+        if ($step === 'email' && ! str_contains($value, '@')) {
+            return ['text' => "⚠️ That doesn't look like a valid email. Try again:"];
+        }
+
+        $collected[$step] = $value;
+
+        $nextStep = match ($step) {
+            'first_name'  => 'last_name',
+            'last_name'   => 'phone01',
+            'phone01'     => 'email',
+            'email'       => 'lang_spoken',
+            'lang_spoken' => 'done',
+            default       => 'done',
+        };
+
+        if ($nextStep === 'done') {
+            try {
+                $guide = $this->guideService->create($collected, $this->actor($chatId));
+            } catch (\Throwable $e) {
+                Log::error('OperatorBookingFlow: add guide failed', ['error' => $e->getMessage()]);
+                $session->update(['state' => 'idle', 'data' => null]);
+                return ['text' => "❌ Failed to create guide: {$e->getMessage()}"];
+            }
+
+            $session->update(['state' => 'idle', 'data' => null]);
+            return $this->staffGuideDetail($guide->id);
+        }
+
+        $stepNum = array_search($nextStep, ['first_name', 'last_name', 'phone01', 'email', 'lang_spoken']) + 1;
+        $session->update(['state' => 'add_guide', 'data' => ['step' => $nextStep, 'collected' => $collected]]);
+
+        return ['text' => "🧭 <b>Add Guide</b> — step {$stepNum}/5\n\n" . $this->addGuideStepPrompt($nextStep)];
+    }
+
+    private function addGuideStepPrompt(string $step): string
+    {
+        return match ($step) {
+            'first_name'  => "Enter first name:",
+            'last_name'   => "Enter last name:",
+            'phone01'     => "Enter primary phone (e.g. +998901234567):",
+            'email'       => "Enter email:",
+            'lang_spoken' => "Enter languages spoken, comma-separated (e.g. EN, RU, UZ):",
+            default       => "Enter value:",
+        };
     }
 }

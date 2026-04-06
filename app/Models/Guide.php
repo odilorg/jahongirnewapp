@@ -13,9 +13,15 @@ class Guide extends Model
 
     protected $casts = [
         'lang_spoken' => 'array',
+        'is_active'   => 'boolean',
     ];
 
-    protected $fillable = ['first_name', 'last_name', 'email', 'phone01', 'phone02', 'lang_spoken', 'guide_image', 'telegram_chat_id'];
+    protected $fillable = ['first_name', 'last_name', 'email', 'phone01', 'phone02', 'lang_spoken', 'guide_image', 'telegram_chat_id', 'is_active'];
+
+    public function scopeActive(\Illuminate\Database\Eloquent\Builder $query): \Illuminate\Database\Eloquent\Builder
+    {
+        return $query->where('is_active', true);
+    }
 
     public function languages(): BelongsToMany
     {
