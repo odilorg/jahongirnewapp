@@ -25,7 +25,7 @@ readonly class PaymentPresentation
         // Use beds24_booking_id (external Beds24 ID), not local model PK
         public string $beds24BookingId,
         public int    $syncId,
-        public int    $dailyExchangeRateId,
+        public ?int   $dailyExchangeRateId,
         public string $guestName,
         public string $arrivalDate,
         public int    $uzsPresented,
