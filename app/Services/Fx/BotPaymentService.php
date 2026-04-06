@@ -9,6 +9,7 @@ use App\Enums\FxSourceTrigger;
 use App\Enums\OverrideTier;
 use App\Enums\TransactionCategory;
 use App\Enums\TransactionType;
+use App\Exceptions\DuplicatePaymentException;
 use App\Exceptions\Fx\PaymentBlockedException;
 use App\Exceptions\Fx\StalePaymentSessionException;
 use App\Jobs\Beds24PaymentSyncJob;
@@ -79,14 +80,31 @@ class BotPaymentService
      *
      * @throws StalePaymentSessionException
      * @throws PaymentBlockedException
+     * @throws DuplicatePaymentException
      */
     public function recordPayment(RecordPaymentData $data): CashTransaction
     {
         return DB::transaction(function () use ($data) {
-            // Lock the FX snapshot row to prevent concurrent payment inserts
+            // Lock the FX snapshot row (1:1 with booking) to serialize concurrent
+            // payment attempts for the same booking. The second request waits here
+            // until the first transaction commits, then the duplicate guard below
+            // sees the committed CashTransaction and throws.
             $fxSync = BookingFxSync::where('beds24_booking_id', $data->beds24BookingId)
                 ->lockForUpdate()
                 ->firstOrFail();
+
+            // Duplicate guard — runs under the FX sync lock so it is race-safe.
+            // Prevents double-pays when two callback events reach this path
+            // for the same booking with different callback_query_ids.
+            $duplicate = CashTransaction::where('beds24_booking_id', $data->beds24BookingId)
+                ->where('source_trigger', CashTransactionSource::CashierBot->value)
+                ->exists();
+
+            if ($duplicate) {
+                throw new DuplicatePaymentException(
+                    "A cashier payment has already been recorded for booking #{$data->beds24BookingId}."
+                );
+            }
 
             // Guard: presentation must not be stale
             if ($data->presentation->isStale()) {
