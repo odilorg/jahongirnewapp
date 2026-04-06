@@ -31,6 +31,7 @@ class StaffBotFlowTest extends TestCase
     {
         parent::setUp();
         DB::statement('SET FOREIGN_KEY_CHECKS=0');
+        DB::table('bookings')->delete();
         DB::table('drivers')->delete();
         DB::table('guides')->delete();
         DB::table('operator_booking_sessions')->delete();
@@ -166,20 +167,26 @@ class StaffBotFlowTest extends TestCase
             'updated_at' => now(),
         ]);
 
-        // Create a minimal booking row so activeBooking() doesn't return null
+        // Create a minimal booking row so activeBooking() doesn't return null.
+        // FK checks are disabled; use fake integer values for all NOT NULL FKs.
         DB::table('bookings')->insertOrIgnore([
-            'id'             => 1,
-            'booking_number' => 'TEST-001',
-            'status'         => 'pending',
-            'tour_id'        => 1,
-            'booking_date'   => now()->toDateString(),
-            'guest_name'     => 'Test Guest',
-            'guest_email'    => 'test@test.com',
-            'guest_phone'    => '+1234567890',
-            'adults'         => 1,
-            'children'       => 0,
-            'created_at'     => now(),
-            'updated_at'     => now(),
+            'id'              => 1,
+            'booking_number'  => 'TEST-001',
+            'booking_status'  => 'pending',
+            'tour_id'         => 1,
+            'guest_id'        => 1,
+            'driver_id'       => 1,
+            'guide_id'        => 1,
+            'grand_total'     => 0,
+            'amount'          => 0,
+            'payment_method'  => 'cash',
+            'payment_status'  => 'unpaid',
+            'group_name'      => 'Test Group',
+            'pickup_location' => 'TBD',
+            'dropoff_location'=> 'TBD',
+            'booking_source'  => 'test',
+            'created_at'      => now(),
+            'updated_at'      => now(),
         ]);
 
         $response = $this->handle($chatId, null, "ops:driver:{$driver->id}", $this->makeOperator('manager'));
@@ -203,18 +210,23 @@ class StaffBotFlowTest extends TestCase
         ]);
 
         DB::table('bookings')->insertOrIgnore([
-            'id'             => 2,
-            'booking_number' => 'TEST-002',
-            'status'         => 'pending',
-            'tour_id'        => 1,
-            'booking_date'   => now()->toDateString(),
-            'guest_name'     => 'Test Guest',
-            'guest_email'    => 'test@test.com',
-            'guest_phone'    => '+1234567890',
-            'adults'         => 1,
-            'children'       => 0,
-            'created_at'     => now(),
-            'updated_at'     => now(),
+            'id'              => 2,
+            'booking_number'  => 'TEST-002',
+            'booking_status'  => 'pending',
+            'tour_id'         => 1,
+            'guest_id'        => 1,
+            'driver_id'       => 1,
+            'guide_id'        => 1,
+            'grand_total'     => 0,
+            'amount'          => 0,
+            'payment_method'  => 'cash',
+            'payment_status'  => 'unpaid',
+            'group_name'      => 'Test Group',
+            'pickup_location' => 'TBD',
+            'dropoff_location'=> 'TBD',
+            'booking_source'  => 'test',
+            'created_at'      => now(),
+            'updated_at'      => now(),
         ]);
 
         $response = $this->handle($chatId, null, "ops:guide:{$guide->id}", $this->makeOperator('manager'));

@@ -22,12 +22,17 @@ class Driver extends Model
 
     protected $casts = ['is_active' => 'boolean'];
 
+    public function getFullNameAttribute(): string
+    {
+        return trim("{$this->first_name} {$this->last_name}");
+    }
+
     public function scopeActive(\Illuminate\Database\Eloquent\Builder $query): \Illuminate\Database\Eloquent\Builder
     {
         return $query->where('is_active', true);
     }
 
-    
+
     // public function carsplates(): HasMany
     // {
     //     return $this->hasMany(CarDriver::class);
