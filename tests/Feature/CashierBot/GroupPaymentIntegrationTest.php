@@ -17,6 +17,7 @@ use App\Services\Fx\OverridePolicyEvaluator;
 use App\Services\FxManagerApprovalService;
 use App\Services\FxSyncService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
 
 /**
@@ -32,6 +33,12 @@ use Tests\TestCase;
 class GroupPaymentIntegrationTest extends TestCase
 {
     use RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        Queue::fake();  // prevent real job dispatch (Beds24PaymentSyncJob needs real syncRow->id)
+    }
 
     // -------------------------------------------------------------------------
     // Helpers
