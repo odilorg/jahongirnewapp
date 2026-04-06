@@ -31,6 +31,12 @@ class OpsBotController extends Controller
     {
         $update = $request->all();
 
+        Log::debug('OpsBotController: raw webhook', [
+            'content_type' => $request->header('Content-Type'),
+            'update_keys'  => array_keys($update),
+            'body_len'     => strlen($request->getContent()),
+        ]);
+
         $chatId        = (string) (data_get($update, 'message.chat.id')
                       ?? data_get($update, 'callback_query.message.chat.id') ?? '');
         $text          = data_get($update, 'message.text');
@@ -39,6 +45,7 @@ class OpsBotController extends Controller
         $callbackId    = $callbackQuery ? data_get($callbackQuery, 'id') : null;
 
         if (! $chatId) {
+            Log::debug('OpsBotController: empty chatId, returning ok', ['update' => $update]);
             return response()->json(['ok' => true]);
         }
 
