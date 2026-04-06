@@ -52,11 +52,12 @@ class OperatorBookingFlow
     private ?BotOperator $operator = null;
 
     public function __construct(
-        private readonly WebsiteBookingService $bookingService,
-        private readonly BookingOpsService     $opsService      = new BookingOpsService(),
-        private readonly BookingBrowseService  $browseService   = new BookingBrowseService(),
-        private readonly DriverService         $driverService   = new DriverService(),
-        private readonly GuideService          $guideService    = new GuideService(),
+        private readonly WebsiteBookingService    $bookingService,
+        private readonly BookingOpsService        $opsService           = new BookingOpsService(),
+        private readonly BookingBrowseService     $browseService        = new BookingBrowseService(),
+        private readonly DriverService            $driverService        = new DriverService(),
+        private readonly GuideService             $guideService         = new GuideService(),
+        private readonly ?StaffNotificationService $notificationService = null,
     ) {}
 
     // ── Public entry point ───────────────────────────────────────────────────
@@ -627,6 +628,9 @@ class OperatorBookingFlow
             return ['text' => "⚠️ {$e->getMessage()}"];
         }
 
+        // Notify the driver — failure is swallowed inside the service
+        $this->notificationService?->notifyDriverAssigned($driver, $booking);
+
         return $this->buildActionMenu($session, $booking, "🚗 Driver assigned: <b>{$driver->full_name}</b>\n\n");
     }
 
@@ -652,6 +656,9 @@ class OperatorBookingFlow
         } catch (\RuntimeException $e) {
             return ['text' => "⚠️ {$e->getMessage()}"];
         }
+
+        // Notify the guide — failure is swallowed inside the service
+        $this->notificationService?->notifyGuideAssigned($guide, $booking);
 
         return $this->buildActionMenu($session, $booking, "🧭 Guide assigned: <b>{$guide->full_name}</b>\n\n");
     }
@@ -1214,9 +1221,13 @@ class OperatorBookingFlow
             return ['text' => "⚠️ No drivers found in the system."];
         }
 
-        $buttons = $drivers->map(fn ($d) => [
-            ['text' => $d->full_name, 'callback_data' => "ops:driver:{$d->id}"],
-        ])->all();
+        $stats = $this->driverService->getAssignmentStats($drivers);
+
+        $buttons = $drivers->map(function ($d) use ($stats) {
+            $stat  = $stats[$d->id] ?? null;
+            $label = $d->full_name . "\n" . $this->formatStatLine($stat);
+            return [['text' => $label, 'callback_data' => "ops:driver:{$d->id}"]];
+        })->all();
 
         $buttons[] = [['text' => '◀ Back', 'callback_data' => 'ops:menu']];
 
@@ -1236,9 +1247,13 @@ class OperatorBookingFlow
             return ['text' => "⚠️ No guides found in the system."];
         }
 
-        $buttons = $guides->map(fn ($g) => [
-            ['text' => $g->full_name, 'callback_data' => "ops:guide:{$g->id}"],
-        ])->all();
+        $stats = $this->guideService->getAssignmentStats($guides);
+
+        $buttons = $guides->map(function ($g) use ($stats) {
+            $stat  = $stats[$g->id] ?? null;
+            $label = $g->full_name . "\n" . $this->formatStatLine($stat);
+            return [['text' => $label, 'callback_data' => "ops:guide:{$g->id}"]];
+        })->all();
 
         $buttons[] = [['text' => '◀ Back', 'callback_data' => 'ops:menu']];
 
@@ -1248,6 +1263,35 @@ class OperatorBookingFlow
             'text'         => "🧭 Select a guide{$current}:",
             'reply_markup' => ['inline_keyboard' => $buttons],
         ];
+    }
+
+    /**
+     * Format a compact stats line for the driver/guide selection button.
+     * null stat (no bookings at all) → "0 trips • new"
+     */
+    private function formatStatLine(?array $stat): string
+    {
+        if ($stat === null) {
+            return '0 trips • new';
+        }
+
+        $trips = $stat['trips_today'] ?? 0;
+        $tripsPart = $trips === 1 ? '1 trip' : "{$trips} trips";
+
+        $lastAt = $stat['last_assigned_at'] ?? null;
+
+        if ($lastAt === null) {
+            return "{$tripsPart} • new";
+        }
+
+        $diff    = Carbon::parse($lastAt)->diffInMinutes(Carbon::now());
+        $lastStr = match (true) {
+            $diff < 60   => 'last ' . (int) round($diff) . 'm',
+            $diff < 1440 => 'last ' . (int) round($diff / 60) . 'h',
+            default      => 'last ' . (int) round($diff / 1440) . 'd',
+        };
+
+        return "{$tripsPart} • {$lastStr}";
     }
 
     // ── Creation confirm prompt ───────────────────────────────────────────────
