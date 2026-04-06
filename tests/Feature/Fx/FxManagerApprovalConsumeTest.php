@@ -6,6 +6,7 @@ use App\Enums\Currency;
 use App\Enums\ManagerApprovalStatus;
 use App\Exceptions\Fx\ManagerApprovalAlreadyUsedException;
 use App\Exceptions\Fx\ManagerApprovalNotFoundException;
+use App\Models\CashTransaction;
 use App\Models\FxManagerApproval;
 use App\Models\User;
 use App\Services\Fx\FxManagerApprovalService;
@@ -56,15 +57,16 @@ class FxManagerApprovalConsumeTest extends TestCase
     /** @test */
     public function consume_marks_approval_as_consumed(): void
     {
-        $approval = $this->makeApproval(ManagerApprovalStatus::Approved);
+        $approval    = $this->makeApproval(ManagerApprovalStatus::Approved);
+        $transaction = CashTransaction::factory()->create();
 
-        \Illuminate\Support\Facades\DB::transaction(function () use ($approval) {
-            $this->service->consume($approval, 999);
+        \Illuminate\Support\Facades\DB::transaction(function () use ($approval, $transaction) {
+            $this->service->consume($approval, $transaction->id);
         });
 
         $approval->refresh();
         $this->assertEquals(ManagerApprovalStatus::Consumed, $approval->status);
-        $this->assertEquals(999, $approval->used_in_cash_transaction_id);
+        $this->assertEquals($transaction->id, $approval->used_in_cash_transaction_id);
         $this->assertNotNull($approval->resolved_at);
     }
 
@@ -91,24 +93,24 @@ class FxManagerApprovalConsumeTest extends TestCase
         // - Request A consumes → DB now has status=Consumed
         // - Request B calls consume() with its stale 'Approved' model
         //   → The fix: re-fetches with lockForUpdate → sees 'Consumed' → throws
-        $approval = $this->makeApproval(ManagerApprovalStatus::Approved);
+        $approval     = $this->makeApproval(ManagerApprovalStatus::Approved);
+        $transaction1 = CashTransaction::factory()->create();
 
-        // Request A consumes first (simulated by direct DB update)
-        \Illuminate\Support\Facades\DB::transaction(function () use ($approval) {
-            $this->service->consume($approval, 100);
+        // Request A consumes first
+        \Illuminate\Support\Facades\DB::transaction(function () use ($approval, $transaction1) {
+            $this->service->consume($approval, $transaction1->id);
         });
 
         // Request B has a stale model still showing 'Approved' in memory
-        $staleModel = clone $approval;
-        // Force the in-memory status to 'Approved' to simulate the stale read
-        $staleModel->status = ManagerApprovalStatus::Approved;
+        $staleModel         = clone $approval;
+        $staleModel->status = ManagerApprovalStatus::Approved; // stale in-memory state
 
         $this->expectException(ManagerApprovalAlreadyUsedException::class);
 
         \Illuminate\Support\Facades\DB::transaction(function () use ($staleModel) {
             // The lock inside consume() will re-read the actual DB state (Consumed),
-            // NOT the stale in-memory status on $staleModel
-            $this->service->consume($staleModel, 200);
+            // NOT the stale in-memory status on $staleModel — throws before any update
+            $this->service->consume($staleModel, 99999);
         });
     }
 

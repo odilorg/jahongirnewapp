@@ -11,7 +11,7 @@ use App\Services\Fx\Beds24PaymentSyncService;
 use App\Services\Fx\FxManagerApprovalService;
 use App\Services\Fx\OverridePolicyEvaluator;
 use App\Services\FxSyncService;
-use PHPUnit\Framework\TestCase;
+use Tests\TestCase;
 
 /**
  * Verifies that BotPaymentService now injects the canonical FxOverridePolicyEvaluator
