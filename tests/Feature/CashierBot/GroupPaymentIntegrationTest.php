@@ -99,7 +99,7 @@ class GroupPaymentIntegrationTest extends TestCase
         ]);
     }
 
-    private function makeFxSyncRow(string $bookingId, int $syncId): BookingFxSync
+    private function makeFxSyncRow(string $bookingId): BookingFxSync
     {
         return BookingFxSync::updateOrCreate(
             ['beds24_booking_id' => $bookingId],
@@ -117,6 +117,28 @@ class GroupPaymentIntegrationTest extends TestCase
         );
     }
 
+    private function makeRecordData(
+        string $bookingId,
+        int    $syncId,
+        int    $shiftId,
+        int    $cashierId,
+        array  $presentationOverrides = [],
+    ): RecordPaymentData {
+        return new RecordPaymentData(
+            presentation: $this->makePresentation(array_merge([
+                'beds24_booking_id' => $bookingId,
+                'sync_id'           => $syncId,
+            ], $presentationOverrides)),
+            shiftId:         $shiftId,
+            cashierId:       $cashierId,
+            currencyPaid:    'UZS',
+            amountPaid:      1_280_000,
+            paymentMethod:   'cash',
+            overrideReason:  null,
+            managerApproval: null,
+        );
+    }
+
     // -------------------------------------------------------------------------
     // (A) Standalone — group columns null on CashTransaction
     // -------------------------------------------------------------------------
@@ -124,32 +146,18 @@ class GroupPaymentIntegrationTest extends TestCase
     /** @test */
     public function standalone_payment_writes_null_group_columns(): void
     {
-        $shift = $this->openShift();
+        $shift   = $this->openShift();
         $cashier = User::factory()->create();
         $this->makeBookingRow('SOLO_1');
 
-        // Insert FX sync row directly (avoids factory dependency)
-        $this->makeFxSyncRow('SOLO_1', 99);
-
+        $sync    = $this->makeFxSyncRow('SOLO_1');  // ID assigned by DB
         $service = $this->makeBotPaymentService();
-        $presentation = $this->makePresentation([
-            'beds24_booking_id' => 'SOLO_1',
-            'sync_id'           => 99,
-            'is_group_payment'  => false,
-        ]);
 
-        $data = new RecordPaymentData(
-            presentation:    $presentation,
-            shiftId:         $shift->id,
-            cashierId:       $cashier->id,
-            currencyPaid:    'UZS',
-            amountPaid:      1_280_000,
-            paymentMethod:   'cash',
-            overrideReason:  null,
-            managerApproval: null,
+        $tx = $service->recordPayment(
+            $this->makeRecordData('SOLO_1', $sync->id, $shift->id, $cashier->id, [
+                'is_group_payment' => false,
+            ])
         );
-
-        $tx = $service->recordPayment($data);
 
         $this->assertFalse((bool) $tx->is_group_payment);
         $this->assertNull($tx->group_master_booking_id);
@@ -169,31 +177,17 @@ class GroupPaymentIntegrationTest extends TestCase
         $master  = 'GRP_MASTER_AUDIT';
 
         $this->makeBookingRow('GRP_B1', $master);
-        $this->makeFxSyncRow('GRP_B1', 98);
-
+        $sync    = $this->makeFxSyncRow('GRP_B1');
         $service = $this->makeBotPaymentService();
 
-        $presentation = $this->makePresentation([
-            'beds24_booking_id'       => 'GRP_B1',
-            'sync_id'                 => 98,
-            'is_group_payment'        => true,
-            'group_master_booking_id' => $master,
-            'group_size_expected'     => 3,
-            'group_size_local'        => 3,
-        ]);
-
-        $data = new RecordPaymentData(
-            presentation:    $presentation,
-            shiftId:         $shift->id,
-            cashierId:       $cashier->id,
-            currencyPaid:    'UZS',
-            amountPaid:      1_280_000,
-            paymentMethod:   'cash',
-            overrideReason:  null,
-            managerApproval: null,
+        $tx = $service->recordPayment(
+            $this->makeRecordData('GRP_B1', $sync->id, $shift->id, $cashier->id, [
+                'is_group_payment'        => true,
+                'group_master_booking_id' => $master,
+                'group_size_expected'     => 3,
+                'group_size_local'        => 3,
+            ])
         );
-
-        $tx = $service->recordPayment($data);
 
         $this->assertTrue((bool) $tx->is_group_payment);
         $this->assertEquals($master, $tx->group_master_booking_id);
@@ -214,35 +208,27 @@ class GroupPaymentIntegrationTest extends TestCase
 
         $this->makeBookingRow('GRP_D1', $master);
         $this->makeBookingRow('GRP_D2', $master);
-        $this->makeFxSyncRow('GRP_D1', 97);
-        $this->makeFxSyncRow('GRP_D2', 96);
-
+        $sync1   = $this->makeFxSyncRow('GRP_D1');
+        $sync2   = $this->makeFxSyncRow('GRP_D2');
         $service = $this->makeBotPaymentService();
 
-        $makeData = fn(string $bookingId, int $syncId) => new RecordPaymentData(
-            presentation: $this->makePresentation([
-                'beds24_booking_id'       => $bookingId,
-                'sync_id'                 => $syncId,
-                'is_group_payment'        => true,
-                'group_master_booking_id' => $master,
-                'group_size_expected'     => 2,
-                'group_size_local'        => 2,
-            ]),
-            shiftId:         $shift->id,
-            cashierId:       $cashier->id,
-            currencyPaid:    'UZS',
-            amountPaid:      1_280_000,
-            paymentMethod:   'cash',
-            overrideReason:  null,
-            managerApproval: null,
-        );
+        $groupOverride = [
+            'is_group_payment'        => true,
+            'group_master_booking_id' => $master,
+            'group_size_expected'     => 2,
+            'group_size_local'        => 2,
+        ];
 
         // First payment succeeds
-        $service->recordPayment($makeData('GRP_D1', 97));
+        $service->recordPayment(
+            $this->makeRecordData('GRP_D1', $sync1->id, $shift->id, $cashier->id, $groupOverride)
+        );
 
-        // Second attempt (different sibling) must be blocked
+        // Second attempt (different sibling, same group master) must be blocked
         $this->expectException(DuplicateGroupPaymentException::class);
-        $service->recordPayment($makeData('GRP_D2', 96));
+        $service->recordPayment(
+            $this->makeRecordData('GRP_D2', $sync2->id, $shift->id, $cashier->id, $groupOverride)
+        );
     }
 
     // -------------------------------------------------------------------------
