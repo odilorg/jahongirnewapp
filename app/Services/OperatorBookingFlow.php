@@ -4,35 +4,39 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Models\Booking;
+use App\Models\Driver;
+use App\Models\Guide;
 use App\Models\OperatorBookingSession;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 /**
- * Handles the step-by-step Telegram flow for manual tour booking entry.
+ * Handles the step-by-step Telegram flow for manual tour booking entry and
+ * post-creation operational actions (confirm, cancel, assign driver/guide,
+ * set price, set pickup location).
  *
- * Called from TelegramDriverGuideSignUpController for messages/callbacks that
- * originate from the owner chat ID.
- *
- * The flow uses a database-backed state machine (OperatorBookingSession).
- * Each call to handle() advances the session one step forward, or returns
- * an error prompt so the operator can retry the current step.
- *
- * Entry point:   /newbooking command  → starts the flow
- * Exit points:   ✅ confirm           → creates booking, resets session
- *                ❌ cancel            → resets session at any step
- *                30-min idle timeout  → session auto-abandoned
- *
- * ── State machine ───────────────────────────────────────────────────────────
+ * ── Creation state machine ────────────────────────────────────────────────────
  *   idle → select_tour → enter_date → enter_adults → enter_children
  *        → enter_name  → enter_email → enter_phone → enter_hotel → confirm
- *        → idle (on confirm or cancel)
+ *        → booking_actions  (stays here until /newbooking or ops:new)
+ *
+ * ── Post-creation states ──────────────────────────────────────────────────────
+ *   booking_actions  → action menu (hub state)
+ *   set_price_input  → waiting for price text
+ *   set_pickup_input → waiting for pickup text
+ *   cancel_confirm   → "are you sure?" before cancellation
+ *
+ * ── ops: callbacks (state-independent) ───────────────────────────────────────
+ *   ops:confirm, ops:cancel_ask, ops:cancel_yes, ops:drivers, ops:driver:{id},
+ *   ops:guides, ops:guide:{id}, ops:price, ops:pickup, ops:menu, ops:new
  */
 class OperatorBookingFlow
 {
     public function __construct(
         private readonly WebsiteBookingService $bookingService,
+        private readonly BookingOpsService     $opsService = new BookingOpsService(),
     ) {}
 
     // ── Public entry point ───────────────────────────────────────────────────
@@ -55,33 +59,44 @@ class OperatorBookingFlow
             return ['text' => "⏰ Session expired. Use /newbooking to start again."];
         }
 
-        // Global cancel at any step
+        // Global cancel at any step (returns to idle, clears active booking too)
         if ($text === '/cancel' || $callback === 'cancel') {
             $session->reset();
             return ['text' => "❌ Booking cancelled."];
         }
 
-        // Command to start a new booking
+        // Command to start a new booking (clears any active booking context)
         if ($text === '/newbooking') {
             $session->reset();
             return $this->stepSelectTour($session);
         }
 
+        // ops: callbacks are state-independent — handled before the state match.
+        // This lets the action buttons work regardless of which step the session
+        // is currently on (e.g. if the operator taps an old message).
+        if ($callback && str_starts_with($callback, 'ops:')) {
+            return $this->handleOpsCallback($session, $chatId, $callback);
+        }
+
         return match ($session->state) {
-            'select_tour'    => $this->handleTourSelection($session, $callback),
-            'enter_date'     => $this->handleDate($session, $text),
-            'enter_adults'   => $this->handleAdults($session, $text),
-            'enter_children' => $this->handleChildren($session, $text),
-            'enter_name'     => $this->handleName($session, $text),
-            'enter_email'    => $this->handleEmail($session, $text),
-            'enter_phone'    => $this->handlePhone($session, $text),
-            'enter_hotel'    => $this->handleHotel($session, $text, $callback),
-            'confirm'        => $this->handleConfirm($session, $callback),
-            default          => ['text' => "Use /newbooking to start a booking, or /cancel to reset."],
+            'select_tour'     => $this->handleTourSelection($session, $callback),
+            'enter_date'      => $this->handleDate($session, $text),
+            'enter_adults'    => $this->handleAdults($session, $text),
+            'enter_children'  => $this->handleChildren($session, $text),
+            'enter_name'      => $this->handleName($session, $text),
+            'enter_email'     => $this->handleEmail($session, $text),
+            'enter_phone'     => $this->handlePhone($session, $text),
+            'enter_hotel'     => $this->handleHotel($session, $text, $callback),
+            'confirm'         => $this->handleConfirm($session, $callback),
+            'booking_actions' => $this->buildActionMenu($session),
+            'set_price_input' => $this->handleSetPriceInput($session, $chatId, $text),
+            'set_pickup_input'=> $this->handleSetPickupInput($session, $chatId, $text),
+            'cancel_confirm'  => $this->buildActionMenu($session), // stale text → re-show menu
+            default           => ['text' => "Use /newbooking to start a booking."],
         };
     }
 
-    // ── Steps ────────────────────────────────────────────────────────────────
+    // ── Creation steps ────────────────────────────────────────────────────────
 
     private function stepSelectTour(OperatorBookingSession $session): array
     {
@@ -264,24 +279,382 @@ class OperatorBookingFlow
             return ['text' => "❌ Failed to create booking: {$e->getMessage()}\n\nCheck admin email for the submission details."];
         }
 
-        $session->reset();
+        // Store booking_id and switch to the action menu — don't reset to idle.
+        $session->setData('active_booking_id', $booking->id);
+        $session->setState('booking_actions');
 
         $label = $created ? '✅ Booking created' : '♻️ Booking already exists';
 
+        $intro = "{$label}: <b>{$booking->booking_number}</b>\n\n";
+
+        return $this->buildActionMenu($session, $booking, $intro);
+    }
+
+    // ── Post-creation ops callback router ─────────────────────────────────────
+
+    /**
+     * Route all ops: prefixed callbacks.
+     *
+     * Called before the state machine match, so action buttons work from
+     * any state (old messages, stale keyboards, etc.).
+     */
+    private function handleOpsCallback(
+        OperatorBookingSession $session,
+        string $chatId,
+        string $callback,
+    ): array {
+        $suffix = substr($callback, 4); // strip "ops:"
+
+        // Fetch the active booking for this session.
+        $bookingId = $session->getData('active_booking_id');
+        $booking   = $bookingId ? Booking::find($bookingId) : null;
+
+        if (! $booking && $suffix !== 'new') {
+            return ['text' => "⚠️ No active booking. Use /newbooking to start one."];
+        }
+
+        return match (true) {
+            // ── Navigation ────────────────────────────────────────────────
+            $suffix === 'menu'       => $this->buildActionMenu($session, $booking),
+            $suffix === 'new'        => $this->startNew($session),
+
+            // ── Confirm booking ───────────────────────────────────────────
+            $suffix === 'confirm'    => $this->opsConfirm($session, $booking, $chatId),
+
+            // ── Cancel booking ────────────────────────────────────────────
+            $suffix === 'cancel_ask' => $this->buildCancelConfirm($booking),
+            $suffix === 'cancel_yes' => $this->opsCancel($session, $booking, $chatId),
+
+            // ── Driver/guide lists ────────────────────────────────────────
+            $suffix === 'drivers'    => $this->buildDriverList($booking),
+            $suffix === 'guides'     => $this->buildGuideList($booking),
+
+            // ── Assign driver ─────────────────────────────────────────────
+            str_starts_with($suffix, 'driver:') => $this->opsAssignDriver(
+                $session, $booking, $chatId, (int) substr($suffix, 7)
+            ),
+
+            // ── Assign guide ──────────────────────────────────────────────
+            str_starts_with($suffix, 'guide:') => $this->opsAssignGuide(
+                $session, $booking, $chatId, (int) substr($suffix, 6)
+            ),
+
+            // ── Price / pickup text-input entry ───────────────────────────
+            $suffix === 'price'      => $this->promptSetPrice($session),
+            $suffix === 'pickup'     => $this->promptSetPickup($session),
+
+            default => $this->buildActionMenu($session, $booking),
+        };
+    }
+
+    // ── Ops actions ───────────────────────────────────────────────────────────
+
+    private function opsConfirm(
+        OperatorBookingSession $session,
+        Booking $booking,
+        string $actor,
+    ): array {
+        try {
+            $this->opsService->confirm($booking, $actor);
+            $booking->refresh();
+        } catch (\RuntimeException $e) {
+            return ['text' => "⚠️ {$e->getMessage()}"];
+        }
+
+        return $this->buildActionMenu($session, $booking, "✅ Booking confirmed.\n\n");
+    }
+
+    private function opsCancel(
+        OperatorBookingSession $session,
+        Booking $booking,
+        string $actor,
+    ): array {
+        try {
+            $this->opsService->cancel($booking, $actor);
+            $booking->refresh();
+        } catch (\RuntimeException $e) {
+            return ['text' => "⚠️ {$e->getMessage()}"];
+        }
+
+        return $this->buildActionMenu($session, $booking, "❌ Booking cancelled.\n\n");
+    }
+
+    private function opsAssignDriver(
+        OperatorBookingSession $session,
+        Booking $booking,
+        string $actor,
+        int $driverId,
+    ): array {
+        $driver = Driver::find($driverId);
+
+        if (! $driver) {
+            return ['text' => "⚠️ Driver not found."];
+        }
+
+        try {
+            $this->opsService->assignDriver($booking, $driverId, $actor);
+            $booking->refresh();
+        } catch (\RuntimeException $e) {
+            return ['text' => "⚠️ {$e->getMessage()}"];
+        }
+
+        return $this->buildActionMenu($session, $booking, "🚗 Driver assigned: <b>{$driver->full_name}</b>\n\n");
+    }
+
+    private function opsAssignGuide(
+        OperatorBookingSession $session,
+        Booking $booking,
+        string $actor,
+        int $guideId,
+    ): array {
+        $guide = Guide::find($guideId);
+
+        if (! $guide) {
+            return ['text' => "⚠️ Guide not found."];
+        }
+
+        try {
+            $this->opsService->assignGuide($booking, $guideId, $actor);
+            $booking->refresh();
+        } catch (\RuntimeException $e) {
+            return ['text' => "⚠️ {$e->getMessage()}"];
+        }
+
+        return $this->buildActionMenu($session, $booking, "🧭 Guide assigned: <b>{$guide->full_name}</b>\n\n");
+    }
+
+    private function handleSetPriceInput(
+        OperatorBookingSession $session,
+        string $chatId,
+        ?string $text,
+    ): array {
+        $bookingId = $session->getData('active_booking_id');
+        $booking   = $bookingId ? Booking::find($bookingId) : null;
+
+        if (! $booking) {
+            $session->reset();
+            return ['text' => "⚠️ Session lost. Use /newbooking."];
+        }
+
+        $amount = filter_var(trim($text ?? ''), FILTER_VALIDATE_FLOAT);
+
+        if ($amount === false || $amount < 0) {
+            return ['text' => "⚠️ Please enter a valid price (e.g. 120 or 120.50):"];
+        }
+
+        try {
+            $this->opsService->setPrice($booking, $amount, $chatId);
+            $booking->refresh();
+        } catch (\RuntimeException $e) {
+            $session->setState('booking_actions');
+            return ['text' => "⚠️ {$e->getMessage()}"];
+        }
+
+        $session->setState('booking_actions');
+
+        return $this->buildActionMenu($session, $booking, "💰 Price set: <b>\${$amount}</b>\n\n");
+    }
+
+    private function handleSetPickupInput(
+        OperatorBookingSession $session,
+        string $chatId,
+        ?string $text,
+    ): array {
+        $bookingId = $session->getData('active_booking_id');
+        $booking   = $bookingId ? Booking::find($bookingId) : null;
+
+        if (! $booking) {
+            $session->reset();
+            return ['text' => "⚠️ Session lost. Use /newbooking."];
+        }
+
+        $location = trim($text ?? '');
+
+        if (mb_strlen($location) < 3) {
+            return ['text' => "⚠️ Location too short. Please enter the pickup location:"];
+        }
+
+        try {
+            $this->opsService->setPickupLocation($booking, $location, $chatId);
+            $booking->refresh();
+        } catch (\RuntimeException $e) {
+            $session->setState('booking_actions');
+            return ['text' => "⚠️ {$e->getMessage()}"];
+        }
+
+        $session->setState('booking_actions');
+
+        return $this->buildActionMenu($session, $booking, "📍 Pickup set: <b>{$location}</b>\n\n");
+    }
+
+    // ── Prompt helpers ────────────────────────────────────────────────────────
+
+    private function promptSetPrice(OperatorBookingSession $session): array
+    {
+        $session->setState('set_price_input');
+
         return [
-            'text' => "{$label}\n\n<b>{$booking->booking_number}</b>\nStatus: pending — confirm price and set driver/guide in the admin panel.",
+            'text'         => "💰 Enter the booking price in USD (e.g. 120 or 120.50):",
+            'reply_markup' => [
+                'inline_keyboard' => [
+                    [['text' => '◀ Back', 'callback_data' => 'ops:menu']],
+                ],
+            ],
         ];
     }
 
-    // ── Helpers ──────────────────────────────────────────────────────────────
+    private function promptSetPickup(OperatorBookingSession $session): array
+    {
+        $session->setState('set_pickup_input');
+
+        return [
+            'text'         => "📍 Enter the pickup location:",
+            'reply_markup' => [
+                'inline_keyboard' => [
+                    [['text' => '◀ Back', 'callback_data' => 'ops:menu']],
+                ],
+            ],
+        ];
+    }
+
+    private function startNew(OperatorBookingSession $session): array
+    {
+        $session->reset();
+        return $this->stepSelectTour($session);
+    }
+
+    // ── Keyboard builders ─────────────────────────────────────────────────────
+
+    /**
+     * Build the action menu for the current active booking.
+     *
+     * @param  string|null $intro  Optional intro line prepended to the booking summary.
+     */
+    private function buildActionMenu(
+        OperatorBookingSession $session,
+        ?Booking $booking = null,
+        ?string $intro = null,
+    ): array {
+        if ($booking === null) {
+            $bookingId = $session->getData('active_booking_id');
+            $booking   = $bookingId ? Booking::find($bookingId) : null;
+        }
+
+        if (! $booking) {
+            $session->reset();
+            return ['text' => "⚠️ Booking not found. Use /newbooking to start again."];
+        }
+
+        $status  = $booking->booking_status;
+        $driver  = $booking->driver ? $booking->driver->full_name : '—';
+        $guide   = $booking->guide  ? $booking->guide->full_name  : '—';
+        $price   = $booking->amount  ? "\${$booking->amount}"      : '—';
+        $pickup  = $booking->pickup_location ?: '—';
+
+        $info = ($intro ?? '')
+            . "📋 <b>{$booking->booking_number}</b>  |  Status: <b>{$status}</b>\n"
+            . "🚗 Driver: {$driver}\n"
+            . "🧭 Guide: {$guide}\n"
+            . "💰 Price: {$price}\n"
+            . "📍 Pickup: {$pickup}";
+
+        $buttons = [];
+
+        if ($status !== 'cancelled') {
+            $row1 = [];
+            if ($status === 'pending') {
+                $row1[] = ['text' => '✅ Confirm', 'callback_data' => 'ops:confirm'];
+            }
+            $row1[] = ['text' => '❌ Cancel booking', 'callback_data' => 'ops:cancel_ask'];
+            $buttons[] = $row1;
+
+            $buttons[] = [
+                ['text' => '🚗 Assign driver', 'callback_data' => 'ops:drivers'],
+                ['text' => '🧭 Assign guide',  'callback_data' => 'ops:guides'],
+            ];
+            $buttons[] = [
+                ['text' => '💰 Set price',  'callback_data' => 'ops:price'],
+                ['text' => '📍 Set pickup', 'callback_data' => 'ops:pickup'],
+            ];
+        }
+
+        $buttons[] = [['text' => '🔄 New booking', 'callback_data' => 'ops:new']];
+
+        return [
+            'text'         => $info,
+            'reply_markup' => ['inline_keyboard' => $buttons],
+        ];
+    }
+
+    private function buildCancelConfirm(Booking $booking): array
+    {
+        return [
+            'text'         => "⚠️ Cancel <b>{$booking->booking_number}</b>?\n\nThis will delete all scheduled notifications.",
+            'reply_markup' => [
+                'inline_keyboard' => [
+                    [
+                        ['text' => '✅ Yes, cancel it', 'callback_data' => 'ops:cancel_yes'],
+                        ['text' => '◀ Back',            'callback_data' => 'ops:menu'],
+                    ],
+                ],
+            ],
+        ];
+    }
+
+    private function buildDriverList(Booking $booking): array
+    {
+        $drivers = Driver::orderBy('first_name')->get(['id', 'first_name', 'last_name']);
+
+        if ($drivers->isEmpty()) {
+            return ['text' => "⚠️ No drivers found in the system."];
+        }
+
+        $buttons = $drivers->map(fn ($d) => [
+            // callback_data max 64 bytes — "ops:driver:999" = 14 chars, safe
+            ['text' => $d->full_name, 'callback_data' => "ops:driver:{$d->id}"],
+        ])->all();
+
+        $buttons[] = [['text' => '◀ Back', 'callback_data' => 'ops:menu']];
+
+        $current = $booking->driver ? " (current: {$booking->driver->full_name})" : '';
+
+        return [
+            'text'         => "🚗 Select a driver{$current}:",
+            'reply_markup' => ['inline_keyboard' => $buttons],
+        ];
+    }
+
+    private function buildGuideList(Booking $booking): array
+    {
+        $guides = Guide::orderBy('first_name')->get(['id', 'first_name', 'last_name']);
+
+        if ($guides->isEmpty()) {
+            return ['text' => "⚠️ No guides found in the system."];
+        }
+
+        $buttons = $guides->map(fn ($g) => [
+            ['text' => $g->full_name, 'callback_data' => "ops:guide:{$g->id}"],
+        ])->all();
+
+        $buttons[] = [['text' => '◀ Back', 'callback_data' => 'ops:menu']];
+
+        $current = $booking->guide ? " (current: {$booking->guide->full_name})" : '';
+
+        return [
+            'text'         => "🧭 Select a guide{$current}:",
+            'reply_markup' => ['inline_keyboard' => $buttons],
+        ];
+    }
+
+    // ── Confirm prompt (creation step) ────────────────────────────────────────
 
     private function buildConfirmPrompt(OperatorBookingSession $session): array
     {
         $d = $session->data ?? [];
 
-        $hotel    = $d['hotel'] ?? '<i>not provided</i>';
-        $pax      = ($d['adults'] ?? 0) . ' adults' . ($d['children'] ? ', ' . $d['children'] . ' children' : '');
-        $date     = Carbon::parse($d['date'])->format('d M Y');
+        $hotel = $d['hotel'] ?? '<i>not provided</i>';
+        $pax   = ($d['adults'] ?? 0) . ' adults' . ($d['children'] ? ', ' . $d['children'] . ' children' : '');
+        $date  = Carbon::parse($d['date'])->format('d M Y');
 
         $summary = "📋 <b>Booking summary</b>\n\n"
             . "🗺 Tour:    <b>{$d['tour_name']}</b>\n"
@@ -305,6 +678,8 @@ class OperatorBookingFlow
             ],
         ];
     }
+
+    // ── Session factory ───────────────────────────────────────────────────────
 
     protected function getOrCreateSession(string $chatId): OperatorBookingSession
     {

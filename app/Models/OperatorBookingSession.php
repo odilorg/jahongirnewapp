@@ -13,17 +13,22 @@ use Illuminate\Database\Eloquent\Model;
  * step-by-step; on completion it is passed directly to
  * WebsiteBookingService::createFromWebsite() and the session is reset.
  *
- * States:
- *   idle           → no booking in progress
- *   select_tour    → waiting for tour inline-button tap
- *   enter_date     → waiting for date string (YYYY-MM-DD)
- *   enter_adults   → waiting for adult count
- *   enter_children → waiting for children count
- *   enter_name     → waiting for guest full name
- *   enter_email    → waiting for guest email
- *   enter_phone    → waiting for guest phone
- *   enter_hotel    → waiting for hotel name (or "skip")
- *   confirm        → summary shown, waiting for ✅ or ❌
+ * Creation states:
+ *   idle            → no booking in progress
+ *   select_tour     → waiting for tour inline-button tap
+ *   enter_date      → waiting for date string (YYYY-MM-DD)
+ *   enter_adults    → waiting for adult count
+ *   enter_children  → waiting for children count
+ *   enter_name      → waiting for guest full name
+ *   enter_email     → waiting for guest email
+ *   enter_phone     → waiting for guest phone
+ *   enter_hotel     → waiting for hotel name (or "skip")
+ *   confirm         → summary shown, waiting for ✅ or ❌
+ *
+ * Post-creation states (active_booking_id stored in data):
+ *   booking_actions → action menu hub
+ *   set_price_input → waiting for price text input
+ *   set_pickup_input→ waiting for pickup location text input
  */
 class OperatorBookingSession extends Model
 {

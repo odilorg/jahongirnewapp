@@ -225,7 +225,7 @@ class OperatorBookingFlowTest extends TestCase
     // ── Confirm: success ─────────────────────────────────────────────────────
 
     #[Test]
-    public function confirm_yes_creates_booking_and_resets_session(): void
+    public function confirm_yes_creates_booking_and_shows_action_menu(): void
     {
         $booking = new Booking();
         $booking->booking_number = 'BOOK-2026-999';
@@ -242,12 +242,15 @@ class OperatorBookingFlowTest extends TestCase
             'hotel' => null, 'date' => '2026-06-01',
             'adults' => 2, 'children' => 0, 'tour_code' => null,
         ]);
-        $session->shouldReceive('reset')->once();
+        // On success: store active_booking_id and switch to action menu (no reset)
+        $session->shouldReceive('setData')->with('active_booking_id', Mockery::any())->once();
+        $session->shouldReceive('setState')->with('booking_actions')->once();
 
         $response = $this->flow->handle('12345', null, 'confirm:yes');
 
         $this->assertStringContainsString('BOOK-2026-999', $response['text']);
         $this->assertStringContainsString('created', $response['text']);
+        $this->assertArrayHasKey('reply_markup', $response);
     }
 
     #[Test]
@@ -279,12 +282,15 @@ class OperatorBookingFlowTest extends TestCase
             'hotel' => null, 'date' => '2026-06-01',
             'adults' => 2, 'children' => 0, 'tour_code' => null,
         ]);
-        $session->shouldReceive('reset')->once();
+        // Duplicate: also stores booking_id and switches to action menu (no reset)
+        $session->shouldReceive('setData')->with('active_booking_id', Mockery::any())->once();
+        $session->shouldReceive('setState')->with('booking_actions')->once();
 
         $response = $this->flow->handle('12345', null, 'confirm:yes');
 
         $this->assertStringContainsString('BOOK-2026-087', $response['text']);
         $this->assertStringContainsString('already exists', $response['text']);
+        $this->assertArrayHasKey('reply_markup', $response);
     }
 
     #[Test]
