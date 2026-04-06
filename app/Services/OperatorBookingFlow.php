@@ -75,7 +75,22 @@ class OperatorBookingFlow
     {
         $this->operator = $operator;
 
+        // Normalize command text: strip @BotUsername suffix that Telegram appends in
+        // group chats or when the user taps a registered command suggestion.
+        // "/staff@JahongirOpsBot" → "/staff", "/newbooking@bot" → "/newbooking"
+        if ($text !== null && str_starts_with($text, '/')) {
+            $text = preg_replace('/@\S+$/', '', $text) ?: $text;
+        }
+
         $session = $this->getOrCreateSession($chatId);
+
+        Log::info('OperatorBookingFlow: handle', [
+            'chat_id'  => $chatId,
+            'state'    => $session->state,
+            'text'     => $text,
+            'callback' => $callback,
+            'role'     => $operator?->role,
+        ]);
 
         // Expire idle sessions gracefully
         if ($session->isExpired() && $session->state !== 'idle') {
