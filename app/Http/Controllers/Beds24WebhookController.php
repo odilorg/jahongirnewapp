@@ -395,6 +395,44 @@ class Beds24WebhookController extends Controller
         return [$master, $size];
     }
 
+    /**
+     * Resolve a human-readable room number from Beds24 roomId+unitId.
+     *
+     * Results are cached in Redis (TTL 24 h) so that a Beds24 token expiry at
+     * checkout time does not cause the room to appear as "?" in notifications.
+     * A successful API call always refreshes the cache for the whole property.
+     */
+    private function resolveRoomNumber(int $propertyId, int $roomId, int $unitId): ?string
+    {
+        $cacheKey = "beds24_room_map_{$propertyId}";
+
+        // Try fresh API call first (warms/refreshes the cache while token is valid)
+        try {
+            $rooms = $this->beds24Service->getRoomStatuses($propertyId);
+            // Build a flat map and persist it
+            $map = [];
+            foreach ($rooms as $room) {
+                $key       = $room['room_type_id'] . '_' . $room['unit_id'];
+                $map[$key] = $room['room_number'];
+            }
+            \Illuminate\Support\Facades\Cache::put($cacheKey, $map, now()->addHours(24));
+            return $map["{$roomId}_{$unitId}"] ?? null;
+        } catch (\Throwable $e) {
+            Log::warning('Beds24 Checkout: Live room lookup failed, trying cache', [
+                'property_id' => $propertyId,
+                'error'       => $e->getMessage(),
+            ]);
+        }
+
+        // Fall back to cached map
+        $cached = \Illuminate\Support\Facades\Cache::get($cacheKey);
+        if (is_array($cached)) {
+            return $cached["{$roomId}_{$unitId}"] ?? null;
+        }
+
+        return null;
+    }
+
     // -------------------------------------------------------------------------
     // FX infoItems push — queued, never blocks webhook response
     // -------------------------------------------------------------------------
@@ -781,23 +819,14 @@ class Beds24WebhookController extends Controller
             return;
         }
 
-        // Resolve room number: try room_name, then look up unit name from Beds24
+        // Resolve room number: try room_name, then cached map, then live API (which also refreshes the cache)
         $roomName = $booking->room_name;
         if (empty($roomName)) {
-            try {
-                $propertyId = (int) $booking->property_id;
-                $rooms = $this->beds24Service->getRoomStatuses($propertyId);
-                $raw = $booking->beds24_raw_data ?? [];
-                $roomId = (int) ($raw['booking']['roomId'] ?? 0);
-                $unitId = (int) ($raw['booking']['unitId'] ?? 0);
-                foreach ($rooms as $room) {
-                    if ($room['room_type_id'] === $roomId && $room['unit_id'] === $unitId) {
-                        $roomName = $room['room_number'];
-                        break;
-                    }
-                }
-            } catch (\Throwable $e) {
-                Log::warning('Beds24 Checkout: Failed to resolve room name', ['error' => $e->getMessage()]);
+            $raw    = $booking->beds24_raw_data ?? [];
+            $roomId = (int) ($raw['booking']['roomId'] ?? 0);
+            $unitId = (int) ($raw['booking']['unitId'] ?? 0);
+            if ($roomId && $unitId) {
+                $roomName = $this->resolveRoomNumber((int) $booking->property_id, $roomId, $unitId);
             }
         }
         $roomName = $roomName ?: '?';
