@@ -39,12 +39,12 @@ class RefreshBeds24Token extends Command
             }
 
             // Proactively refresh the room map cache now that the token is fresh.
-            // This ensures checkout notifications resolve room numbers from cache
-            // even if the next token expiry coincides with a checkout event.
-            foreach ([41097, 172793] as $propertyId) {
-                $roomMap->warmCache($propertyId);
+            // Property list is config-driven (services.beds24.room_map_properties).
+            $propertyIds = config('services.beds24.room_map_properties', []);
+            foreach ($propertyIds as $propertyId) {
+                $roomMap->warmCache((int) $propertyId);
             }
-            $this->info('Room map cache warmed for all properties.');
+            $this->info('Room map cache warmed for properties: ' . implode(', ', $propertyIds));
 
             return self::SUCCESS;
         }

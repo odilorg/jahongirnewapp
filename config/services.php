@@ -48,9 +48,15 @@ return [
     ],
 
     'beds24' => [
-        'api_token' => env('BEDS24_API_TOKEN'),
-        'api_v2_token' => env('BEDS24_API_V2_TOKEN'),
-        'api_v2_refresh_token' => env('BEDS24_API_V2_REFRESH_TOKEN'),
+        'api_token'             => env('BEDS24_API_TOKEN'),
+        'api_v2_token'          => env('BEDS24_API_V2_TOKEN'),
+        'api_v2_refresh_token'  => env('BEDS24_API_V2_REFRESH_TOKEN'),
+        // Comma-separated property IDs whose room maps are warmed after token refresh.
+        // Add a new property here when onboarding additional hotels.
+        'room_map_properties'   => array_map(
+            'intval',
+            array_filter(explode(',', env('BEDS24_ROOM_MAP_PROPERTIES', '41097,172793')))
+        ),
     ],
 
     'mailgun' => [
