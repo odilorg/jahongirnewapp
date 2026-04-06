@@ -1859,7 +1859,7 @@ class OperatorBookingFlow
 
         if ($drivers->isEmpty()) {
             return [
-                'text'         => "🔍 No drivers found for "<b>{$query}</b>".",
+                'text'         => "🔍 No drivers found for &ldquo;<b>{$query}</b>&rdquo;.",
                 'reply_markup' => ['inline_keyboard' => [
                     [['text' => '◀ Back to list', 'callback_data' => 'staff:drivers']],
                 ]],
@@ -1873,7 +1873,7 @@ class OperatorBookingFlow
         $buttons[] = [['text' => '◀ Back to list', 'callback_data' => 'staff:drivers']];
 
         return [
-            'text'         => "🔍 <b>Driver search: "{$query}"</b>\n\n{$drivers->count()} result(s)",
+            'text'         => "🔍 <b>Driver search: &ldquo;{$query}&rdquo;</b>\n\n{$drivers->count()} result(s)",
             'reply_markup' => ['inline_keyboard' => $buttons],
         ];
     }
@@ -1895,7 +1895,7 @@ class OperatorBookingFlow
 
         if ($guides->isEmpty()) {
             return [
-                'text'         => "🔍 No guides found for "<b>{$query}</b>".",
+                'text'         => "🔍 No guides found for &ldquo;<b>{$query}</b>&rdquo;.",
                 'reply_markup' => ['inline_keyboard' => [
                     [['text' => '◀ Back to list', 'callback_data' => 'staff:guides']],
                 ]],
@@ -1909,7 +1909,7 @@ class OperatorBookingFlow
         $buttons[] = [['text' => '◀ Back to list', 'callback_data' => 'staff:guides']];
 
         return [
-            'text'         => "🔍 <b>Guide search: "{$query}"</b>\n\n{$guides->count()} result(s)",
+            'text'         => "🔍 <b>Guide search: &ldquo;{$query}&rdquo;</b>\n\n{$guides->count()} result(s)",
             'reply_markup' => ['inline_keyboard' => $buttons],
         ];
     }
