@@ -41,6 +41,7 @@ class StaffNotificationServiceTest extends TestCase
         DB::table('bookings')->delete();
         DB::table('drivers')->delete();
         DB::table('guides')->delete();
+        // driver_id and guide_id are NOT NULL on bookings; FK checks disabled.
     }
 
     protected function tearDown(): void
@@ -110,8 +111,8 @@ class StaffNotificationServiceTest extends TestCase
     private function makeBooking(): Booking
     {
         $id = DB::table('bookings')->insertGetId([
-            'driver_id'               => null,
-            'guide_id'                => null,
+            'driver_id'               => 1,    // placeholder; FK checks disabled
+            'guide_id'                => 1,    // placeholder; FK checks disabled
             'tour_id'                 => 1,
             'guest_id'                => null,
             'grand_total'             => 100,

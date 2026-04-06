@@ -35,6 +35,9 @@ class AssignmentStatsTest extends TestCase
         DB::table('bookings')->delete();
         DB::table('drivers')->delete();
         DB::table('guides')->delete();
+        // Note: driver_id and guide_id are NOT NULL on bookings.
+        // All insertBooking() calls must supply both columns (or use placeholder 1).
+        // FK checks are disabled so phantom IDs are fine for unit testing.
     }
 
     protected function tearDown(): void
@@ -82,8 +85,8 @@ class AssignmentStatsTest extends TestCase
     private function insertBooking(array $overrides = []): int
     {
         $id = DB::table('bookings')->insertGetId(array_merge([
-            'driver_id'               => null,
-            'guide_id'                => null,
+            'driver_id'               => 1,    // placeholder; FK checks disabled
+            'guide_id'                => 1,    // placeholder; FK checks disabled
             'tour_id'                 => 1,
             'guest_id'                => 1,
             'grand_total'             => 0,
@@ -173,7 +176,7 @@ class AssignmentStatsTest extends TestCase
 
         DB::table('bookings')->insert([
             'driver_id'               => $driver->id,
-            'guide_id'                => null,
+            'guide_id'                => 1,
             'tour_id'                 => 1,
             'guest_id'                => 1,
             'grand_total'             => 0,
@@ -192,7 +195,7 @@ class AssignmentStatsTest extends TestCase
 
         DB::table('bookings')->insert([
             'driver_id'               => $driver->id,
-            'guide_id'                => null,
+            'guide_id'                => 1,
             'tour_id'                 => 1,
             'guest_id'                => 1,
             'grand_total'             => 0,
