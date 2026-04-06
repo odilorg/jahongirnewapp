@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\TelegramController;
 use App\Http\Controllers\TelegramDriverGuideSignUpController;
 use App\Http\Controllers\WebhookController;
+use App\Http\Controllers\OpsBotController;
 use App\Http\Controllers\WebsiteBookingController;
 
 
@@ -57,6 +58,10 @@ Route::post('/telegram/bot/webhook', [\App\Http\Controllers\TelegramWebhookContr
     ->name('telegram.webhook');
 Route::post('/telegram/bot/set-webhook', [\App\Http\Controllers\TelegramWebhookController::class, 'setWebhook'])->middleware('auth:sanctum');
 Route::get('/telegram/bot/webhook-info', [\App\Http\Controllers\TelegramWebhookController::class, 'getWebhookInfo'])->middleware('auth:sanctum');
+
+// Ops Bot — operator manual booking entry (@JahongirOpsBot)
+Route::post('/telegram/ops/webhook', [OpsBotController::class, 'webhook'])
+    ->name('ops_bot.webhook');
 
 // Booking Bot Webhook
 Route::post('/booking/bot/webhook', [\App\Http\Controllers\BookingWebhookController::class, 'handle'])
