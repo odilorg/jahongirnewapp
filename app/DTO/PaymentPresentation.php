@@ -101,10 +101,27 @@ readonly class PaymentPresentation
 
     public static function fromArray(array $data): self
     {
+        // Validate required keys — missing keys mean the session was corrupted mid-write.
+        // Throw explicitly rather than letting a typed constructor receive null and crash with a
+        // cryptic TypeError. Caller (CashierBotController) catches \Throwable and shows the
+        // "FX unavailable" message, which is the correct UX for this scenario.
+        $required = ['beds24_booking_id', 'sync_id', 'guest_name', 'arrival_date',
+                     'uzs_presented', 'eur_presented', 'rub_presented',
+                     'fx_rate_date', 'bot_session_id', 'presented_at'];
+
+        foreach ($required as $key) {
+            if (! array_key_exists($key, $data)) {
+                throw new \InvalidArgumentException(
+                    "PaymentPresentation::fromArray() missing required key: '{$key}'. "
+                    . "Session data may be corrupted."
+                );
+            }
+        }
+
         return new self(
             beds24BookingId:     $data['beds24_booking_id'],
             syncId:              $data['sync_id'],
-            dailyExchangeRateId: $data['daily_rate_id'],
+            dailyExchangeRateId: $data['daily_rate_id'] ?? null,
             guestName:           $data['guest_name'],
             arrivalDate:         $data['arrival_date'],
             uzsPresented:        $data['uzs_presented'],
