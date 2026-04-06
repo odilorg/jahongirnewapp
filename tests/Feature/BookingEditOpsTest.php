@@ -67,6 +67,11 @@ class BookingEditOpsTest extends TestCase
             'group_name'             => 'Test Group',
             'booking_start_date_time'=> now()->addDays(10)->format('Y-m-d'),
             'dropoff_location'       => 'Registan',
+            'booking_source'         => 'manual',
+            // FK-less NOT NULL columns — set to 0 (no FK constraint on these)
+            'driver_id'              => 0,
+            'guide_id'               => 0,
+            'tour_id'                => 0,
             'created_at'             => now(),
             'updated_at'             => now(),
         ]);
