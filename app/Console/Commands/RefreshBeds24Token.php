@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Services\Beds24BookingService;
+use App\Services\Beds24RoomMapService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -12,7 +13,7 @@ class RefreshBeds24Token extends Command
     protected $signature = 'beds24:refresh-token';
     protected $description = 'Force refresh Beds24 API access token and verify it works';
 
-    public function handle(Beds24BookingService $service): int
+    public function handle(Beds24BookingService $service, Beds24RoomMapService $roomMap): int
     {
         $this->info('Refreshing Beds24 API token...');
 
@@ -36,6 +37,14 @@ class RefreshBeds24Token extends Command
                 $this->warn('Token refreshed but API verification failed: ' . $e->getMessage());
                 Log::warning('beds24:refresh-token: Token refreshed but verification failed', ['error' => $e->getMessage()]);
             }
+
+            // Proactively refresh the room map cache now that the token is fresh.
+            // This ensures checkout notifications resolve room numbers from cache
+            // even if the next token expiry coincides with a checkout event.
+            foreach ([41097, 172793] as $propertyId) {
+                $roomMap->warmCache($propertyId);
+            }
+            $this->info('Room map cache warmed for all properties.');
 
             return self::SUCCESS;
         }
