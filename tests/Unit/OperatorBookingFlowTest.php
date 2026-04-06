@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Unit;
 
+use App\Models\BotOperator;
 use App\Models\Booking;
 use App\Models\OperatorBookingSession;
 use App\Services\BookingBrowseService;
@@ -61,7 +62,7 @@ class OperatorBookingFlowTest extends TestCase
             (object) ['id' => 4, 'title' => 'Yurt Camp Group Tour'],
         ]));
 
-        $response = $this->flow->handle('12345', '/newbooking', null);
+        $response = $this->flow->handle('12345', '/newbooking', null, $this->adminOperator());
 
         $this->assertStringContainsString('New manual booking', $response['text']);
         $this->assertArrayHasKey('reply_markup', $response);
@@ -78,7 +79,7 @@ class OperatorBookingFlowTest extends TestCase
         $session = $this->mockSession('enter_date');
         $session->shouldReceive('reset')->once();
 
-        $response = $this->flow->handle('12345', '/cancel', null);
+        $response = $this->flow->handle('12345', '/cancel', null, $this->adminOperator());
 
         $this->assertStringContainsString('cancelled', $response['text']);
     }
@@ -89,7 +90,7 @@ class OperatorBookingFlowTest extends TestCase
         $session = $this->mockSession('enter_name');
         $session->shouldReceive('reset')->once();
 
-        $response = $this->flow->handle('12345', null, 'cancel');
+        $response = $this->flow->handle('12345', null, 'cancel', $this->adminOperator());
 
         $this->assertStringContainsString('cancelled', $response['text']);
     }
@@ -102,7 +103,7 @@ class OperatorBookingFlowTest extends TestCase
         $session = $this->mockSession('enter_date', expired: true);
         $session->shouldReceive('reset')->once();
 
-        $response = $this->flow->handle('12345', 'some text', null);
+        $response = $this->flow->handle('12345', 'some text', null, $this->adminOperator());
 
         $this->assertStringContainsString('expired', $response['text']);
     }
@@ -114,7 +115,7 @@ class OperatorBookingFlowTest extends TestCase
     {
         $this->mockSession('enter_date');
 
-        $response = $this->flow->handle('12345', 'not-a-date', null);
+        $response = $this->flow->handle('12345', 'not-a-date', null, $this->adminOperator());
 
         $this->assertStringContainsString('Invalid date', $response['text']);
     }
@@ -124,7 +125,7 @@ class OperatorBookingFlowTest extends TestCase
     {
         $this->mockSession('enter_date');
 
-        $response = $this->flow->handle('12345', '2020-01-01', null);
+        $response = $this->flow->handle('12345', '2020-01-01', null, $this->adminOperator());
 
         $this->assertStringContainsString('future', $response['text']);
     }
@@ -136,7 +137,7 @@ class OperatorBookingFlowTest extends TestCase
         $session->shouldReceive('setData')->with('date', '2026-12-01')->once();
         $session->shouldReceive('setState')->with('enter_adults')->once();
 
-        $response = $this->flow->handle('12345', '2026-12-01', null);
+        $response = $this->flow->handle('12345', '2026-12-01', null, $this->adminOperator());
 
         $this->assertStringContainsString('adults', strtolower($response['text']));
     }
@@ -148,7 +149,7 @@ class OperatorBookingFlowTest extends TestCase
     {
         $this->mockSession('enter_adults');
 
-        $response = $this->flow->handle('12345', '0', null);
+        $response = $this->flow->handle('12345', '0', null, $this->adminOperator());
 
         $this->assertStringContainsString('valid number of adults', $response['text']);
     }
@@ -158,7 +159,7 @@ class OperatorBookingFlowTest extends TestCase
     {
         $this->mockSession('enter_adults');
 
-        $response = $this->flow->handle('12345', 'lots', null);
+        $response = $this->flow->handle('12345', 'lots', null, $this->adminOperator());
 
         $this->assertStringContainsString('valid number of adults', $response['text']);
     }
@@ -170,7 +171,7 @@ class OperatorBookingFlowTest extends TestCase
         $session->shouldReceive('setData')->with('adults', 3)->once();
         $session->shouldReceive('setState')->with('enter_children')->once();
 
-        $response = $this->flow->handle('12345', '3', null);
+        $response = $this->flow->handle('12345', '3', null, $this->adminOperator());
 
         $this->assertStringContainsString('children', strtolower($response['text']));
     }
@@ -182,7 +183,7 @@ class OperatorBookingFlowTest extends TestCase
     {
         $this->mockSession('enter_email');
 
-        $response = $this->flow->handle('12345', 'not-an-email', null);
+        $response = $this->flow->handle('12345', 'not-an-email', null, $this->adminOperator());
 
         $this->assertStringContainsString('valid email', $response['text']);
     }
@@ -194,7 +195,7 @@ class OperatorBookingFlowTest extends TestCase
         $session->shouldReceive('setData')->with('guest_email', 'john@example.com')->once();
         $session->shouldReceive('setState')->with('enter_phone')->once();
 
-        $response = $this->flow->handle('12345', 'John@Example.COM', null);
+        $response = $this->flow->handle('12345', 'John@Example.COM', null, $this->adminOperator());
 
         // Email normalised to lowercase
         $this->assertStringContainsString('john@example.com', $response['text']);
@@ -221,7 +222,7 @@ class OperatorBookingFlowTest extends TestCase
             'hotel'       => null,
         ];
 
-        $response = $this->flow->handle('12345', null, 'hotel:skip');
+        $response = $this->flow->handle('12345', null, 'hotel:skip', $this->adminOperator());
 
         $this->assertStringContainsString('Booking summary', $response['text']);
         $this->assertArrayHasKey('reply_markup', $response);
@@ -252,7 +253,7 @@ class OperatorBookingFlowTest extends TestCase
             ($args['state'] ?? null) === 'booking_actions'
         ))->once();
 
-        $response = $this->flow->handle('12345', null, 'confirm:yes');
+        $response = $this->flow->handle('12345', null, 'confirm:yes', $this->adminOperator());
 
         $this->assertStringContainsString('BOOK-2026-999', $response['text']);
         $this->assertStringContainsString('created', $response['text']);
@@ -265,7 +266,7 @@ class OperatorBookingFlowTest extends TestCase
         $session = $this->mockSession('confirm');
         $session->shouldReceive('reset')->once();
 
-        $response = $this->flow->handle('12345', null, 'cancel');
+        $response = $this->flow->handle('12345', null, 'cancel', $this->adminOperator());
 
         $this->assertStringContainsString('cancelled', $response['text']);
     }
@@ -293,7 +294,7 @@ class OperatorBookingFlowTest extends TestCase
             ($args['state'] ?? null) === 'booking_actions'
         ))->once();
 
-        $response = $this->flow->handle('12345', null, 'confirm:yes');
+        $response = $this->flow->handle('12345', null, 'confirm:yes', $this->adminOperator());
 
         $this->assertStringContainsString('BOOK-2026-087', $response['text']);
         $this->assertStringContainsString('already exists', $response['text']);
@@ -316,7 +317,7 @@ class OperatorBookingFlowTest extends TestCase
         ]);
         $session->shouldReceive('reset')->once();
 
-        $response = $this->flow->handle('12345', null, 'confirm:yes');
+        $response = $this->flow->handle('12345', null, 'confirm:yes', $this->adminOperator());
 
         $this->assertStringContainsString('Failed', $response['text']);
     }
@@ -348,7 +349,7 @@ class OperatorBookingFlowTest extends TestCase
                 'total' => 2,
             ]);
 
-        $response = $this->flow->handle('12345', '/bookings', null);
+        $response = $this->flow->handle('12345', '/bookings', null, $this->adminOperator());
 
         $this->assertStringContainsString('Upcoming bookings', $response['text']);
         $this->assertStringContainsString('2 total', $response['text']);
@@ -371,7 +372,7 @@ class OperatorBookingFlowTest extends TestCase
             ->once()
             ->andReturn(['items' => [], 'page' => 1, 'pages' => 1, 'total' => 0]);
 
-        $response = $this->flow->handle('12345', '/bookings', null);
+        $response = $this->flow->handle('12345', '/bookings', null, $this->adminOperator());
 
         $this->assertStringContainsString('No upcoming', $response['text']);
         $this->assertArrayHasKey('reply_markup', $response);
@@ -399,7 +400,7 @@ class OperatorBookingFlowTest extends TestCase
                 'total' => 11,
             ]);
 
-        $response = $this->flow->handle('12345', null, 'brs:pg:2');
+        $response = $this->flow->handle('12345', null, 'brs:pg:2', $this->adminOperator());
 
         $this->assertStringContainsString('Page 2/2', $response['text']);
         $this->assertArrayHasKey('reply_markup', $response);
@@ -420,7 +421,7 @@ class OperatorBookingFlowTest extends TestCase
 
         $this->patchActiveBooking($session, $booking);
 
-        $response = $this->flow->handle('12345', null, 'ops:menu');
+        $response = $this->flow->handle('12345', null, 'ops:menu', $this->adminOperator());
 
         $encoded = json_encode($response['reply_markup']['inline_keyboard']);
         $this->assertStringContainsString('ops:edit', $encoded);
@@ -441,7 +442,7 @@ class OperatorBookingFlowTest extends TestCase
 
         $this->patchActiveBooking($session, $booking);
 
-        $response = $this->flow->handle('12345', null, 'ops:edit');
+        $response = $this->flow->handle('12345', null, 'ops:edit', $this->adminOperator());
 
         $this->assertStringContainsString('Edit', $response['text']);
         $encoded = json_encode($response['reply_markup']['inline_keyboard']);
@@ -467,7 +468,7 @@ class OperatorBookingFlowTest extends TestCase
 
         $this->patchActiveBooking($session, $booking);
 
-        $response = $this->flow->handle('12345', null, 'ops:edit_name');
+        $response = $this->flow->handle('12345', null, 'ops:edit_name', $this->adminOperator());
 
         $this->assertStringContainsString('full name', strtolower($response['text']));
         $encoded = json_encode($response['reply_markup']['inline_keyboard']);
@@ -488,7 +489,7 @@ class OperatorBookingFlowTest extends TestCase
 
         $this->patchActiveBooking($session, $booking);
 
-        $response = $this->flow->handle('12345', null, 'ops:edit_date');
+        $response = $this->flow->handle('12345', null, 'ops:edit_date', $this->adminOperator());
 
         $this->assertStringContainsString('reschedule', strtolower($response['text']));
     }
@@ -506,7 +507,7 @@ class OperatorBookingFlowTest extends TestCase
 
         $this->patchActiveBooking($session, $booking);
 
-        $response = $this->flow->handle('12345', 'not-an-email', null);
+        $response = $this->flow->handle('12345', 'not-an-email', null, $this->adminOperator());
 
         $this->assertStringContainsString('valid email', strtolower($response['text']));
     }
@@ -524,7 +525,7 @@ class OperatorBookingFlowTest extends TestCase
 
         $this->patchActiveBooking($session, $booking);
 
-        $response = $this->flow->handle('12345', '2020-01-01', null);
+        $response = $this->flow->handle('12345', '2020-01-01', null, $this->adminOperator());
 
         $this->assertStringContainsString('future', strtolower($response['text']));
     }
@@ -542,7 +543,7 @@ class OperatorBookingFlowTest extends TestCase
 
         $this->patchActiveBooking($session, $booking);
 
-        $response = $this->flow->handle('12345', '15/06/2026', null);
+        $response = $this->flow->handle('12345', '15/06/2026', null, $this->adminOperator());
 
         $this->assertStringContainsString('YYYY-MM-DD', $response['text']);
     }
@@ -560,7 +561,7 @@ class OperatorBookingFlowTest extends TestCase
 
         $this->patchActiveBooking($session, $booking);
 
-        $response = $this->flow->handle('12345', '0', null);
+        $response = $this->flow->handle('12345', '0', null, $this->adminOperator());
 
         $this->assertStringContainsString('1 and 50', $response['text']);
     }
@@ -578,12 +579,183 @@ class OperatorBookingFlowTest extends TestCase
 
         $this->patchActiveBooking($session, $booking);
 
-        $response = $this->flow->handle('12345', '51', null);
+        $response = $this->flow->handle('12345', '51', null, $this->adminOperator());
 
         $this->assertStringContainsString('1 and 50', $response['text']);
     }
 
+    // ── Auth / permission tests ──────────────────────────────────────────────
+
+    #[Test]
+    public function null_operator_cannot_confirm_booking(): void
+    {
+        $booking = new Booking();
+        $booking->id             = 1;
+        $booking->booking_status = 'pending';
+
+        $session = $this->mockSession('booking_actions');
+        $session->shouldReceive('getData')->andReturn(null);
+        $this->patchActiveBooking($session, $booking);
+
+        // No operator passed → should be denied
+        $response = $this->flow->handle('12345', null, 'ops:confirm');
+
+        $this->assertStringContainsString('🚫', $response['text']);
+        $this->assertArrayNotHasKey('reply_markup', $response);
+    }
+
+    #[Test]
+    public function operator_role_cannot_confirm_booking(): void
+    {
+        $booking = new Booking();
+        $booking->id             = 1;
+        $booking->booking_status = 'pending';
+
+        $session = $this->mockSession('booking_actions');
+        $session->shouldReceive('getData')->andReturn(null);
+        $this->patchActiveBooking($session, $booking);
+
+        $response = $this->flow->handle('12345', null, 'ops:confirm', $this->makeOperator('operator'));
+
+        $this->assertStringContainsString('🚫', $response['text']);
+        $this->assertStringContainsString('managers', strtolower($response['text']));
+    }
+
+    #[Test]
+    public function operator_role_cannot_cancel_booking(): void
+    {
+        $booking = new Booking();
+        $booking->id             = 1;
+        $booking->booking_status = 'pending';
+
+        $session = $this->mockSession('booking_actions');
+        $session->shouldReceive('getData')->andReturn(null);
+        $this->patchActiveBooking($session, $booking);
+
+        $response = $this->flow->handle('12345', null, 'ops:cancel_ask', $this->makeOperator('operator'));
+
+        $this->assertStringContainsString('🚫', $response['text']);
+    }
+
+    #[Test]
+    public function operator_role_cannot_set_price(): void
+    {
+        $booking = new Booking();
+        $booking->id             = 1;
+        $booking->booking_status = 'pending';
+
+        $session = $this->mockSession('booking_actions');
+        $session->shouldReceive('getData')->andReturn(null);
+        $this->patchActiveBooking($session, $booking);
+
+        $response = $this->flow->handle('12345', null, 'ops:price', $this->makeOperator('operator'));
+
+        $this->assertStringContainsString('🚫', $response['text']);
+    }
+
+    #[Test]
+    public function manager_role_can_confirm_booking(): void
+    {
+        // Manager CAN confirm — only tests the permission check, not the full confirm flow
+        $booking = new Booking();
+        $booking->id             = 1;
+        $booking->booking_status = 'pending';
+        $booking->booking_number = 'BOOK-TEST';
+
+        $session = $this->mockSession('booking_actions');
+        $session->shouldReceive('getData')->andReturn(null);
+        $this->patchActiveBooking($session, $booking);
+
+        // opsConfirm calls $this->opsService->confirm() → BookingOpsService
+        // The booking refresh() will fail since it's a plain Booking instance,
+        // but the perm check passes. We verify 🚫 is NOT in the response text.
+        $response = $this->flow->handle('12345', null, 'ops:confirm', $this->makeOperator('manager'));
+
+        // If permission denied, response contains '🚫'. Manager should NOT see that.
+        $this->assertStringNotContainsString('🚫', $response['text']);
+    }
+
+    #[Test]
+    public function viewer_role_action_menu_shows_no_edit_or_manage_buttons(): void
+    {
+        $booking = new Booking();
+        $booking->id             = 1;
+        $booking->booking_number = 'BOOK-2026-001';
+        $booking->booking_status = 'pending';
+
+        $session = $this->mockSession('booking_actions');
+        $session->shouldReceive('getData')->andReturn(null);
+        $this->patchActiveBooking($session, $booking);
+
+        $response = $this->flow->handle('12345', null, 'ops:menu', $this->makeOperator('viewer'));
+
+        $encoded = json_encode($response['reply_markup']['inline_keyboard'] ?? []);
+        $this->assertStringNotContainsString('ops:edit',    $encoded);
+        $this->assertStringNotContainsString('ops:confirm', $encoded);
+        $this->assertStringNotContainsString('ops:cancel',  $encoded);
+        $this->assertStringNotContainsString('ops:price',   $encoded);
+    }
+
+    #[Test]
+    public function operator_role_action_menu_shows_edit_but_not_price_or_cancel(): void
+    {
+        $booking = new Booking();
+        $booking->id             = 1;
+        $booking->booking_number = 'BOOK-2026-001';
+        $booking->booking_status = 'pending';
+
+        $session = $this->mockSession('booking_actions');
+        $session->shouldReceive('getData')->andReturn(null);
+        $this->patchActiveBooking($session, $booking);
+
+        $response = $this->flow->handle('12345', null, 'ops:menu', $this->makeOperator('operator'));
+
+        $encoded = json_encode($response['reply_markup']['inline_keyboard'] ?? []);
+        $this->assertStringContainsString('ops:edit',    $encoded, 'operator should see edit');
+        $this->assertStringContainsString('ops:drivers', $encoded, 'operator should see assign driver');
+        $this->assertStringNotContainsString('ops:confirm', $encoded, 'operator should NOT see confirm');
+        $this->assertStringNotContainsString('ops:price',   $encoded, 'operator should NOT see set price');
+    }
+
+    #[Test]
+    public function edit_input_step_re_checks_permission_if_role_changed(): void
+    {
+        // Start with a viewer in the edit_name_input state (simulating a role downgrade mid-flow)
+        $booking = new Booking();
+        $booking->id             = 1;
+        $booking->booking_status = 'pending';
+
+        $session = $this->mockSession('edit_name_input');
+        $session->shouldReceive('getData')->with('active_booking_id')->andReturn(1);
+        $session->shouldReceive('getData')->andReturn(null);
+        $session->shouldReceive('setState')->with('booking_actions')->once(); // reset on deny
+
+        $this->patchActiveBooking($session, $booking);
+
+        // Viewer tries to submit text input for the name edit
+        $response = $this->flow->handle('12345', 'New Name', null, $this->makeOperator('viewer'));
+
+        $this->assertStringContainsString('🚫', $response['text']);
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────────
+
+    /**
+     * Build an in-memory BotOperator without touching the database.
+     */
+    private function adminOperator(): BotOperator
+    {
+        return $this->makeOperator('admin');
+    }
+
+    private function makeOperator(string $role): BotOperator
+    {
+        $op = new BotOperator();
+        $op->telegram_user_id = '12345';
+        $op->role             = $role;
+        $op->is_active        = true;
+        return $op;
+    }
 
     /**
      * Replace the OperatorBookingFlow with an anonymous subclass that returns

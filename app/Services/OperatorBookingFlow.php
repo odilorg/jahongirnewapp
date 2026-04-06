@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Models\BotOperator;
 use App\Models\Booking;
 use App\Models\Driver;
 use App\Models\Guide;
@@ -47,6 +48,9 @@ use Illuminate\Support\Facades\Log;
  */
 class OperatorBookingFlow
 {
+    /** Set on every handle() call from the authenticated operator. */
+    private ?BotOperator $operator = null;
+
     public function __construct(
         private readonly WebsiteBookingService $bookingService,
         private readonly BookingOpsService     $opsService    = new BookingOpsService(),
@@ -58,13 +62,16 @@ class OperatorBookingFlow
     /**
      * Handle an incoming text message or callback from the operator.
      *
-     * @param  string      $chatId   Telegram chat_id (string)
-     * @param  string|null $text     Text message (null for callbacks)
-     * @param  string|null $callback Callback data from inline button (null for text)
+     * @param  string           $chatId    Telegram chat_id (string)
+     * @param  string|null      $text      Text message (null for callbacks)
+     * @param  string|null      $callback  Callback data from inline button (null for text)
+     * @param  BotOperator|null $operator  Authenticated operator (null = unauthenticated, deny all mutations)
      * @return array{text: string, reply_markup?: array}  Response to send back
      */
-    public function handle(string $chatId, ?string $text, ?string $callback): array
+    public function handle(string $chatId, ?string $text, ?string $callback, ?BotOperator $operator = null): array
     {
+        $this->operator = $operator;
+
         $session = $this->getOrCreateSession($chatId);
 
         // Expire idle sessions gracefully
@@ -138,6 +145,33 @@ class OperatorBookingFlow
             'edit_notes_input' => $this->handleEditNotesInput($session, $chatId, $text),
             default            => ['text' => "Use /newbooking to create a booking, /bookings to browse, or /help for all commands."],
         };
+    }
+
+    // ── Auth helpers ─────────────────────────────────────────────────────────
+
+    /**
+     * Returns an actor string for audit logging.
+     * Prefers telegram_user_id over chat_id so audit entries identify the person, not the chat.
+     */
+    private function actor(string $chatId): string
+    {
+        return $this->operator?->telegram_user_id ?? $chatId;
+    }
+
+    /**
+     * Guard helper. Returns a denial response array if the current operator lacks $permission,
+     * or null if the action is allowed.
+     *
+     * Usage (null-coalescing pattern):
+     *   return $this->checkPerm(BotOperator::PERM_MANAGE) ?? $this->opsConfirm(...);
+     */
+    private function checkPerm(string $permission, string $message = '🚫 You do not have permission for this action.'): ?array
+    {
+        if ($this->operator === null || ! $this->operator->can($permission)) {
+            return ['text' => $message];
+        }
+
+        return null;
     }
 
     // ── Browse: /bookings command ─────────────────────────────────────────────
@@ -500,27 +534,27 @@ class OperatorBookingFlow
         }
 
         return match (true) {
-            $suffix === 'menu'        => $this->buildActionMenu($session, $booking),
-            $suffix === 'new'         => $this->startNew($session),
-            $suffix === 'confirm'     => $this->opsConfirm($session, $booking, $chatId),
-            $suffix === 'cancel_ask'  => $this->buildCancelConfirm($booking),
-            $suffix === 'cancel_yes'  => $this->opsCancel($session, $booking, $chatId),
-            $suffix === 'drivers'     => $this->buildDriverList($booking),
-            $suffix === 'guides'      => $this->buildGuideList($booking),
-            $suffix === 'price'       => $this->promptSetPrice($session),
-            $suffix === 'pickup'      => $this->promptSetPickup($session),
-            $suffix === 'edit'        => $this->buildEditMenu($session, $booking),
-            $suffix === 'edit_name'   => $this->promptEditName($session),
-            $suffix === 'edit_phone'  => $this->promptEditPhone($session),
-            $suffix === 'edit_email'  => $this->promptEditEmail($session),
-            $suffix === 'edit_date'   => $this->promptEditDate($session),
-            $suffix === 'edit_pax'    => $this->promptEditPax($session),
-            $suffix === 'edit_notes'  => $this->promptEditNotes($session),
-            str_starts_with($suffix, 'driver:') => $this->opsAssignDriver(
-                $session, $booking, $chatId, (int) substr($suffix, 7)
+            $suffix === 'menu'       => $this->buildActionMenu($session, $booking),
+            $suffix === 'new'        => $this->checkPerm(BotOperator::PERM_CREATE, '🚫 You cannot create bookings.') ?? $this->startNew($session),
+            $suffix === 'confirm'    => $this->checkPerm(BotOperator::PERM_MANAGE, '🚫 Only managers can confirm bookings.') ?? $this->opsConfirm($session, $booking, $this->actor($chatId)),
+            $suffix === 'cancel_ask' => $this->checkPerm(BotOperator::PERM_MANAGE, '🚫 Only managers can cancel bookings.') ?? $this->buildCancelConfirm($booking),
+            $suffix === 'cancel_yes' => $this->checkPerm(BotOperator::PERM_MANAGE, '🚫 Only managers can cancel bookings.') ?? $this->opsCancel($session, $booking, $this->actor($chatId)),
+            $suffix === 'drivers'    => $this->checkPerm(BotOperator::PERM_EDIT, '🚫 You cannot assign drivers.') ?? $this->buildDriverList($booking),
+            $suffix === 'guides'     => $this->checkPerm(BotOperator::PERM_EDIT, '🚫 You cannot assign guides.') ?? $this->buildGuideList($booking),
+            $suffix === 'price'      => $this->checkPerm(BotOperator::PERM_MANAGE, '🚫 Only managers can set the price.') ?? $this->promptSetPrice($session),
+            $suffix === 'pickup'     => $this->checkPerm(BotOperator::PERM_EDIT, '🚫 You cannot set the pickup location.') ?? $this->promptSetPickup($session),
+            $suffix === 'edit'       => $this->checkPerm(BotOperator::PERM_EDIT, '🚫 You cannot edit booking details.') ?? $this->buildEditMenu($session, $booking),
+            $suffix === 'edit_name'  => $this->checkPerm(BotOperator::PERM_EDIT) ?? $this->promptEditName($session),
+            $suffix === 'edit_phone' => $this->checkPerm(BotOperator::PERM_EDIT) ?? $this->promptEditPhone($session),
+            $suffix === 'edit_email' => $this->checkPerm(BotOperator::PERM_EDIT) ?? $this->promptEditEmail($session),
+            $suffix === 'edit_date'  => $this->checkPerm(BotOperator::PERM_EDIT) ?? $this->promptEditDate($session),
+            $suffix === 'edit_pax'   => $this->checkPerm(BotOperator::PERM_EDIT) ?? $this->promptEditPax($session),
+            $suffix === 'edit_notes' => $this->checkPerm(BotOperator::PERM_EDIT) ?? $this->promptEditNotes($session),
+            str_starts_with($suffix, 'driver:') => $this->checkPerm(BotOperator::PERM_EDIT, '🚫 You cannot assign drivers.') ?? $this->opsAssignDriver(
+                $session, $booking, $this->actor($chatId), (int) substr($suffix, 7)
             ),
-            str_starts_with($suffix, 'guide:')  => $this->opsAssignGuide(
-                $session, $booking, $chatId, (int) substr($suffix, 6)
+            str_starts_with($suffix, 'guide:')  => $this->checkPerm(BotOperator::PERM_EDIT, '🚫 You cannot assign guides.') ?? $this->opsAssignGuide(
+                $session, $booking, $this->actor($chatId), (int) substr($suffix, 6)
             ),
             default => $this->buildActionMenu($session, $booking),
         };
@@ -614,8 +648,14 @@ class OperatorBookingFlow
             return ['text' => "⚠️ Please enter a valid price (e.g. 120 or 120.50):"];
         }
 
+        // Re-check permission at input step (guards against session replay after role change)
+        if ($deny = $this->checkPerm(BotOperator::PERM_MANAGE, '🚫 Only managers can set the price.')) {
+            $session->setState('booking_actions');
+            return $deny;
+        }
+
         try {
-            $this->opsService->setPrice($booking, $amount, $chatId);
+            $this->opsService->setPrice($booking, $amount, $this->actor($chatId));
             $booking->refresh();
         } catch (\RuntimeException $e) {
             $session->setState('booking_actions');
@@ -646,7 +686,7 @@ class OperatorBookingFlow
         }
 
         try {
-            $this->opsService->setPickupLocation($booking, $location, $chatId);
+            $this->opsService->setPickupLocation($booking, $location, $this->actor($chatId));
             $booking->refresh();
         } catch (\RuntimeException $e) {
             $session->setState('booking_actions');
@@ -826,8 +866,13 @@ class OperatorBookingFlow
         $firstName = $parts[0];
         $lastName  = $parts[1] ?? '';
 
+        if ($deny = $this->checkPerm(BotOperator::PERM_EDIT)) {
+            $session->setState('booking_actions');
+            return $deny;
+        }
+
         try {
-            $this->opsService->editGuestName($booking, $firstName, $lastName, $chatId);
+            $this->opsService->editGuestName($booking, $firstName, $lastName, $this->actor($chatId));
         } catch (\RuntimeException $e) {
             $session->setState('booking_actions');
             return ['text' => "⚠️ {$e->getMessage()}"];
@@ -855,8 +900,13 @@ class OperatorBookingFlow
             return ['text' => "⚠️ Phone number too short. Include the country code:"];
         }
 
+        if ($deny = $this->checkPerm(BotOperator::PERM_EDIT)) {
+            $session->setState('booking_actions');
+            return $deny;
+        }
+
         try {
-            $this->opsService->editGuestPhone($booking, $phone, $chatId);
+            $this->opsService->editGuestPhone($booking, $phone, $this->actor($chatId));
         } catch (\RuntimeException $e) {
             $session->setState('booking_actions');
             return ['text' => "⚠️ {$e->getMessage()}"];
@@ -884,8 +934,13 @@ class OperatorBookingFlow
             return ['text' => "⚠️ That doesn't look like a valid email. Try again:"];
         }
 
+        if ($deny = $this->checkPerm(BotOperator::PERM_EDIT)) {
+            $session->setState('booking_actions');
+            return $deny;
+        }
+
         try {
-            $this->opsService->editGuestEmail($booking, $email, $chatId);
+            $this->opsService->editGuestEmail($booking, $email, $this->actor($chatId));
         } catch (\RuntimeException $e) {
             $session->setState('booking_actions');
             return ['text' => "⚠️ {$e->getMessage()}"];
@@ -920,8 +975,13 @@ class OperatorBookingFlow
             return ['text' => "⚠️ Invalid format. Enter as YYYY-MM-DD (e.g. 2026-06-15):"];
         }
 
+        if ($deny = $this->checkPerm(BotOperator::PERM_EDIT)) {
+            $session->setState('booking_actions');
+            return $deny;
+        }
+
         try {
-            $this->opsService->editDate($booking, $date->format('Y-m-d 00:00:00'), $chatId);
+            $this->opsService->editDate($booking, $date->format('Y-m-d 00:00:00'), $this->actor($chatId));
             $booking->refresh();
         } catch (\RuntimeException $e) {
             $session->setState('booking_actions');
@@ -951,8 +1011,13 @@ class OperatorBookingFlow
             return ['text' => "⚠️ Please enter a number between 1 and 50:"];
         }
 
+        if ($deny = $this->checkPerm(BotOperator::PERM_EDIT)) {
+            $session->setState('booking_actions');
+            return $deny;
+        }
+
         try {
-            $this->opsService->editPax($booking, $n, $chatId);
+            $this->opsService->editPax($booking, $n, $this->actor($chatId));
         } catch (\RuntimeException $e) {
             $session->setState('booking_actions');
             return ['text' => "⚠️ {$e->getMessage()}"];
@@ -979,8 +1044,13 @@ class OperatorBookingFlow
         // A single dash clears the notes field
         $notes = ($notes === '-') ? '' : $notes;
 
+        if ($deny = $this->checkPerm(BotOperator::PERM_EDIT)) {
+            $session->setState('booking_actions');
+            return $deny;
+        }
+
         try {
-            $this->opsService->editNotes($booking, $notes, $chatId);
+            $this->opsService->editNotes($booking, $notes, $this->actor($chatId));
         } catch (\RuntimeException $e) {
             $session->setState('booking_actions');
             return ['text' => "⚠️ {$e->getMessage()}"];
@@ -1047,34 +1117,45 @@ class OperatorBookingFlow
             . "🚗 Driver: {$driver}  |  🧭 Guide: {$guide}\n"
             . "💰 {$price}  |  📍 {$pickup}";
 
-        // ── Action buttons ────────────────────────────────────────────────────
+        // ── Action buttons (filtered by role) ────────────────────────────────
+        $canManage = $this->operator?->can(BotOperator::PERM_MANAGE) ?? false;
+        $canEdit   = $this->operator?->can(BotOperator::PERM_EDIT)   ?? false;
+        $canCreate = $this->operator?->can(BotOperator::PERM_CREATE)  ?? false;
+
         $buttons = [];
 
         if ($status !== 'cancelled') {
             $row1 = [];
-            if ($status === 'pending') {
+            if ($status === 'pending' && $canManage) {
                 $row1[] = ['text' => '✅ Confirm', 'callback_data' => 'ops:confirm'];
             }
-            $row1[] = ['text' => '❌ Cancel booking', 'callback_data' => 'ops:cancel_ask'];
-            $buttons[] = $row1;
+            if ($canManage) {
+                $row1[] = ['text' => '❌ Cancel booking', 'callback_data' => 'ops:cancel_ask'];
+            }
+            if ($row1) {
+                $buttons[] = $row1;
+            }
 
-            $buttons[] = [['text' => '✏️ Edit booking', 'callback_data' => 'ops:edit']];
+            if ($canEdit) {
+                $buttons[] = [['text' => '✏️ Edit booking', 'callback_data' => 'ops:edit']];
 
-            $buttons[] = [
-                ['text' => '🚗 Assign driver', 'callback_data' => 'ops:drivers'],
-                ['text' => '🧭 Assign guide',  'callback_data' => 'ops:guides'],
-            ];
-            $buttons[] = [
-                ['text' => '💰 Set price',  'callback_data' => 'ops:price'],
-                ['text' => '📍 Set pickup', 'callback_data' => 'ops:pickup'],
-            ];
+                $buttons[] = [
+                    ['text' => '🚗 Assign driver', 'callback_data' => 'ops:drivers'],
+                    ['text' => '🧭 Assign guide',  'callback_data' => 'ops:guides'],
+                ];
+                $buttons[] = [['text' => '📍 Set pickup', 'callback_data' => 'ops:pickup']];
+            }
+
+            if ($canManage) {
+                $buttons[] = [['text' => '💰 Set price', 'callback_data' => 'ops:price']];
+            }
         }
 
         // "Back to list" if the operator came via /bookings
         $fromBrowse = $session->getData('browse_page') !== null;
         if ($fromBrowse) {
             $buttons[] = [['text' => '◀ Back to list', 'callback_data' => 'brs:back']];
-        } else {
+        } elseif ($canCreate) {
             $buttons[] = [['text' => '🔄 New booking', 'callback_data' => 'ops:new']];
         }
 
