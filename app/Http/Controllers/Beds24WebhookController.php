@@ -15,6 +15,7 @@ use App\Enums\TransactionType;
 use App\Enums\TransactionCategory;
 use App\Models\CashierShift;
 use App\Enums\CashTransactionSource;
+use App\Services\Beds24RoomMapService;
 use App\Services\Fx\WebhookReconciliationService;
 use App\Services\OwnerAlertService;
 use App\Services\Beds24BookingService;
@@ -29,6 +30,7 @@ class Beds24WebhookController extends Controller
     public function __construct(
         protected OwnerAlertService $alertService,
         protected Beds24BookingService $beds24Service,
+        protected Beds24RoomMapService $roomMap,
         protected ?WebhookReconciliationService $reconciliation = null,
     ) {}
 
@@ -393,44 +395,6 @@ class Beds24WebhookController extends Controller
         }
 
         return [$master, $size];
-    }
-
-    /**
-     * Resolve a human-readable room number from Beds24 roomId+unitId.
-     *
-     * Results are cached in Redis (TTL 24 h) so that a Beds24 token expiry at
-     * checkout time does not cause the room to appear as "?" in notifications.
-     * A successful API call always refreshes the cache for the whole property.
-     */
-    private function resolveRoomNumber(int $propertyId, int $roomId, int $unitId): ?string
-    {
-        $cacheKey = "beds24_room_map_{$propertyId}";
-
-        // Try fresh API call first (warms/refreshes the cache while token is valid)
-        try {
-            $rooms = $this->beds24Service->getRoomStatuses($propertyId);
-            // Build a flat map and persist it
-            $map = [];
-            foreach ($rooms as $room) {
-                $key       = $room['room_type_id'] . '_' . $room['unit_id'];
-                $map[$key] = $room['room_number'];
-            }
-            \Illuminate\Support\Facades\Cache::put($cacheKey, $map, now()->addHours(24));
-            return $map["{$roomId}_{$unitId}"] ?? null;
-        } catch (\Throwable $e) {
-            Log::warning('Beds24 Checkout: Live room lookup failed, trying cache', [
-                'property_id' => $propertyId,
-                'error'       => $e->getMessage(),
-            ]);
-        }
-
-        // Fall back to cached map
-        $cached = \Illuminate\Support\Facades\Cache::get($cacheKey);
-        if (is_array($cached)) {
-            return $cached["{$roomId}_{$unitId}"] ?? null;
-        }
-
-        return null;
     }
 
     // -------------------------------------------------------------------------
@@ -819,14 +783,20 @@ class Beds24WebhookController extends Controller
             return;
         }
 
-        // Resolve room number: try room_name, then cached map, then live API (which also refreshes the cache)
+        // Resolve room number: try room_name first, then delegate to the
+        // cache-first room map service (Redis → live API → null).
         $roomName = $booking->room_name;
         if (empty($roomName)) {
             $raw    = $booking->beds24_raw_data ?? [];
             $roomId = (int) ($raw['booking']['roomId'] ?? 0);
             $unitId = (int) ($raw['booking']['unitId'] ?? 0);
             if ($roomId && $unitId) {
-                $roomName = $this->resolveRoomNumber((int) $booking->property_id, $roomId, $unitId);
+                $roomName = $this->roomMap->resolve(
+                    (int) $booking->property_id,
+                    $roomId,
+                    $unitId,
+                    $booking->beds24_booking_id,
+                );
             }
         }
         $roomName = $roomName ?: '?';
