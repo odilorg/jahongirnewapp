@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Carbon\Carbon;
 use App\Models\Beds24Booking;
+use App\Models\DailyExchangeRate;
 
 class BookingFxSync extends Model
 {
@@ -17,6 +18,7 @@ class BookingFxSync extends Model
         'fx_rate_date',
         'printed_rate_date',
         'exchange_rate_id',
+        'daily_exchange_rate_id',
         'usd_amount_used',
         'arrival_date_used',
         'uzs_final',
@@ -52,6 +54,11 @@ class BookingFxSync extends Model
     public function exchangeRate(): BelongsTo
     {
         return $this->belongsTo(ExchangeRate::class, 'exchange_rate_id');
+    }
+
+    public function dailyExchangeRate(): BelongsTo
+    {
+        return $this->belongsTo(DailyExchangeRate::class, 'daily_exchange_rate_id');
     }
 
     public function cashTransactions(): HasMany
