@@ -151,6 +151,28 @@ class Kernel extends ConsoleKernel
                 \Illuminate\Support\Facades\Log::error('fx:repair-stuck-syncs scheduled run FAILED');
             });
 
+        // Retry permanently-failed Beds24 payment syncs within the push-attempt budget.
+        // Nightly cadence is intentional — failed syncs need cooling off, not spam-retry.
+        $schedule->command('beds24:repair-failed-syncs')
+            ->dailyAt('07:45')
+            ->timezone('Asia/Tashkent')
+            ->withoutOverlapping()
+            ->runInBackground()
+            ->onFailure(function () {
+                \Illuminate\Support\Facades\Log::error('beds24:repair-failed-syncs scheduled run FAILED');
+            });
+
+        // Defensive: detect cash transactions with no sync row and create/dispatch them.
+        // Runs daily alongside repair-failed so the two commands cover the full gap space.
+        $schedule->command('beds24:repair-missing-syncs')
+            ->dailyAt('07:50')
+            ->timezone('Asia/Tashkent')
+            ->withoutOverlapping()
+            ->runInBackground()
+            ->onFailure(function () {
+                \Illuminate\Support\Facades\Log::error('beds24:repair-missing-syncs scheduled run FAILED');
+            });
+
         // FX: nightly exception report — violations, unconfirmed syncs, failed syncs
         $schedule->command('fx:nightly-report')
             ->dailyAt('08:30')
