@@ -56,8 +56,19 @@ class FxNightlyExceptionReport extends Command
             ->orderBy('created_at')
             ->get(['id', 'beds24_booking_id', 'amount_usd', 'push_attempts', 'last_error', 'created_at']);
 
+        // ── 4. Stuck pending/pushing (repair job should have caught these) ────
+        // Rows older than 1 h that are still pending/pushing indicate the
+        // repair job itself is failing or not running. Flag as escalation.
+        $stuckPending = Beds24PaymentSync::whereIn('status', [
+                Beds24SyncStatus::Pending->value,
+                Beds24SyncStatus::Pushing->value,
+            ])
+            ->where('created_at', '<=', now()->subHour())
+            ->orderBy('created_at')
+            ->get(['id', 'beds24_booking_id', 'amount_usd', 'status', 'created_at']);
+
         // Nothing to report
-        if ($violations->isEmpty() && $unconfirmed->isEmpty() && $failed->isEmpty()) {
+        if ($violations->isEmpty() && $unconfirmed->isEmpty() && $failed->isEmpty() && $stuckPending->isEmpty()) {
             $this->info('fx:nightly-report: nothing to report.');
             return self::SUCCESS;
         }
@@ -95,6 +106,17 @@ class FxNightlyExceptionReport extends Command
             }
         }
 
+        // ── Stuck pending/pushing ─────────────────────────────────────────────
+        if ($stuckPending->isNotEmpty()) {
+            $lines[] = '';
+            $lines[] = "⏳ <b>Зависшие синхронизации ({$stuckPending->count()})</b> — очередь не обработала за >1ч:";
+            foreach ($stuckPending as $s) {
+                $age  = $s->created_at->diffForHumans(now(), true);
+                $lines[] = "  • ID#{$s->id} | {$s->beds24_booking_id} | \${$s->amount_usd} | {$s->status->value} | {$age}";
+            }
+            $lines[] = "  ℹ️ Запустите: <code>php artisan fx:repair-stuck-syncs</code>";
+        }
+
         $message = implode("\n", $lines);
 
         if ($this->option('dry-run')) {
@@ -105,9 +127,10 @@ class FxNightlyExceptionReport extends Command
         $this->alertService->sendOpsAlert($message);
 
         Log::info('fx:nightly-report sent', [
-            'violations'  => $violations->count(),
-            'unconfirmed' => $unconfirmed->count(),
-            'failed'      => $failed->count(),
+            'violations'   => $violations->count(),
+            'unconfirmed'  => $unconfirmed->count(),
+            'failed'       => $failed->count(),
+            'stuck_pending' => $stuckPending->count(),
         ]);
 
         return $violations->isNotEmpty() || $failed->isNotEmpty() ? self::FAILURE : self::SUCCESS;

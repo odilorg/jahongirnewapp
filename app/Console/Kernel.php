@@ -140,6 +140,17 @@ class Kernel extends ConsoleKernel
             ->withoutOverlapping()
             ->runInBackground();
 
+        // FX: repair Beds24 sync rows stuck in pending/pushing state
+        // Handles the case where DB::afterCommit() fired but the queue worker
+        // was down, or a job was killed mid-run (server restart, OOM, etc.)
+        $schedule->command('fx:repair-stuck-syncs')
+            ->everyThirtyMinutes()
+            ->withoutOverlapping()
+            ->runInBackground()
+            ->onFailure(function () {
+                \Illuminate\Support\Facades\Log::error('fx:repair-stuck-syncs scheduled run FAILED');
+            });
+
         // FX: nightly exception report — violations, unconfirmed syncs, failed syncs
         $schedule->command('fx:nightly-report')
             ->dailyAt('08:30')
