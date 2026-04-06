@@ -7,7 +7,9 @@ namespace App\Services;
 use App\Models\Guide;
 use App\Models\StaffAuditLog;
 use App\Support\PhoneNormalizer;
+use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Facades\DB;
 
 /**
  * CRUD and lifecycle management for Guide records.
@@ -207,6 +209,45 @@ class GuideService
                 }
             })
             ->get();
+    }
+
+    /**
+     * Return workload stats for a collection of guides in two batched queries.
+     *
+     * Result keyed by guide_id:
+     *   ['trips_today' => int, 'last_assigned_at' => string|null]
+     *
+     * No N+1 queries — uses GROUP BY over the bookings table.
+     */
+    public function getAssignmentStats(Collection $guides): array
+    {
+        if ($guides->isEmpty()) {
+            return [];
+        }
+
+        $ids   = $guides->pluck('id')->all();
+        $today = Carbon::today()->toDateString();
+
+        $rows = DB::table('bookings')
+            ->selectRaw(
+                'guide_id,'
+                . ' SUM(CASE WHEN DATE(booking_start_date_time) = ? AND booking_status NOT IN (\'cancelled\') THEN 1 ELSE 0 END) AS trips_today,'
+                . ' MAX(updated_at) AS last_assigned_at',
+                [$today]
+            )
+            ->whereIn('guide_id', $ids)
+            ->groupBy('guide_id')
+            ->get();
+
+        $stats = [];
+        foreach ($rows as $row) {
+            $stats[$row->guide_id] = [
+                'trips_today'     => (int) $row->trips_today,
+                'last_assigned_at' => $row->last_assigned_at,
+            ];
+        }
+
+        return $stats;
     }
 
     /**
