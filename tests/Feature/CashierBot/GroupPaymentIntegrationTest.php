@@ -5,6 +5,7 @@ namespace Tests\Feature\CashierBot;
 use App\DTO\PaymentPresentation;
 use App\DTO\RecordPaymentData;
 use App\Exceptions\DuplicateGroupPaymentException;
+use App\Exceptions\DuplicatePaymentException;
 use App\Models\Beds24Booking;
 use App\Models\BookingFxSync;
 use App\Models\CashTransaction;
@@ -236,6 +237,63 @@ class GroupPaymentIntegrationTest extends TestCase
         $this->expectException(DuplicateGroupPaymentException::class);
         $service->recordPayment(
             $this->makeRecordData('GRP_D2', $sync2->id, $shift->id, $cashier->id, $groupOverride)
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // (C2) Standalone duplicate guard — same booking submitted twice
+    // -------------------------------------------------------------------------
+
+    /** @test */
+    public function standalone_duplicate_payment_is_rejected(): void
+    {
+        $shift   = $this->openShift();
+        $cashier = User::factory()->create();
+        $this->makeBookingRow('SOLO_DUP');
+        $sync    = $this->makeFxSyncRow('SOLO_DUP');
+        $service = $this->makeBotPaymentService();
+
+        // First payment succeeds
+        $service->recordPayment(
+            $this->makeRecordData('SOLO_DUP', $sync->id, $shift->id, $cashier->id, [
+                'is_group_payment' => false,
+            ])
+        );
+
+        // Second attempt for the same booking must be blocked
+        $this->expectException(DuplicatePaymentException::class);
+        $service->recordPayment(
+            $this->makeRecordData('SOLO_DUP', $sync->id, $shift->id, $cashier->id, [
+                'is_group_payment' => false,
+            ])
+        );
+    }
+
+    /** @test */
+    public function standalone_duplicate_leaves_exactly_one_transaction(): void
+    {
+        $shift   = $this->openShift();
+        $cashier = User::factory()->create();
+        $this->makeBookingRow('SOLO_COUNT');
+        $sync    = $this->makeFxSyncRow('SOLO_COUNT');
+        $service = $this->makeBotPaymentService();
+
+        $service->recordPayment(
+            $this->makeRecordData('SOLO_COUNT', $sync->id, $shift->id, $cashier->id)
+        );
+
+        try {
+            $service->recordPayment(
+                $this->makeRecordData('SOLO_COUNT', $sync->id, $shift->id, $cashier->id)
+            );
+        } catch (DuplicatePaymentException) {
+            // expected
+        }
+
+        $this->assertSame(
+            1,
+            \App\Models\CashTransaction::where('beds24_booking_id', 'SOLO_COUNT')->count(),
+            'Exactly one CashTransaction must exist regardless of the duplicate attempt'
         );
     }
 
