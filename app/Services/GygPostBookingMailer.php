@@ -2,6 +2,8 @@
 
 namespace App\Services;
 
+use App\Enums\GygBookingType;
+use App\Services\GygPickupResolver;
 use App\Services\Messaging\GuestContactSender;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -18,6 +20,7 @@ class GygPostBookingMailer
 
     public function __construct(
         private GuestContactSender $sender,
+        private GygPickupResolver $pickupResolver = new GygPickupResolver(),
     ) {}
 
     /**
@@ -72,7 +75,7 @@ class GygPostBookingMailer
 
         $gygEmail = DB::table('gyg_inbound_emails')
             ->where('id', $gygEmailId)
-            ->select(['tour_name', 'option_title', 'pax', 'travel_date', 'tour_type'])
+            ->select(['tour_name', 'option_title', 'pax', 'travel_date', 'tour_type', 'tour_type_source'])
             ->first();
 
         if (! $gygEmail) {
@@ -88,10 +91,15 @@ class GygPostBookingMailer
         $ref       = $booking->booking_number;
         $phone     = $booking->phone;
 
-        // Classify using tour_type from DB (set by GygEmailParser: 'group' or 'private').
-        // Group tours have a fixed meeting point (Gur Emir Mausoleum) — never ask for hotel.
-        // Only private tours need a hotel pickup request.
-        $isPrivate     = ($gygEmail->tour_type === 'private');
+        // Classify via GygPickupResolver — same logic the applicator uses when writing
+        // pickup_location. Keeping both paths in sync avoids divergent classification.
+        $bookingType   = $this->pickupResolver->classify(
+            tourType:       $gygEmail->tour_type,
+            tourTypeSource: $gygEmail->tour_type_source ?? null,
+            optionTitle:    $gygEmail->option_title,
+            tourName:       $gygEmail->tour_name,
+        );
+        $isPrivate     = $bookingType->isPrivate();
         $isPrivateYurt = $isPrivate && $this->isYurtCampBooking($gygEmail->option_title, $gygEmail->tour_name);
         $selectedVariant = $isPrivateYurt ? 'route_request' : ($isPrivate ? 'pickup_request' : 'confirmation_only');
 
