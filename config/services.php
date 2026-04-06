@@ -104,6 +104,9 @@ return [
     ],
 
 
+    // Static API key used by mailer-tours.php to authenticate website booking submissions
+    'website_booking_api_key' => env('WEBSITE_BOOKING_API_KEY'),
+
     'gyg' => [
         'username'          => env('GYG_API_USERNAME', 'Jahongirtravel'),
         'password'          => env('GYG_API_PASSWORD'),
