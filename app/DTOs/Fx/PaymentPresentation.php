@@ -26,8 +26,8 @@ final class PaymentPresentation
         // The USD booking amount this was calculated from
         public readonly float    $usdBookingAmount,
 
-        // The exchange rate row ID used (for audit trail)
-        public readonly int      $exchangeRateId,
+        // The exchange rate row ID used (for audit trail) — nullable: booking_fx_syncs.exchange_rate_id is nullable
+        public readonly ?int     $exchangeRateId,
 
         // The rate effective date (matches booking_fx_syncs.fx_rate_date)
         public readonly Carbon   $rateDate,
