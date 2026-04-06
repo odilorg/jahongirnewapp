@@ -12,6 +12,7 @@ use App\Models\RoomPriority;
 use App\Models\TelegramPosSession;
 use App\Models\User;
 use App\Services\Beds24BookingService;
+use App\Services\Beds24RoomMapService;
 use App\Services\OwnerAlertService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
@@ -23,6 +24,7 @@ class HousekeepingBotController extends Controller
     protected int    $mgmtGroupId;
     protected OwnerAlertService $ownerAlert;
     protected Beds24BookingService $beds24;
+    protected Beds24RoomMapService $roomMap;
     protected BotResolverInterface $botResolver;
     protected TelegramTransportInterface $transport;
 
@@ -32,12 +34,14 @@ class HousekeepingBotController extends Controller
     public function __construct(
         OwnerAlertService $ownerAlert,
         Beds24BookingService $beds24,
+        Beds24RoomMapService $roomMap,
         BotResolverInterface $botResolver,
         TelegramTransportInterface $transport,
     ) {
         $this->mgmtGroupId = (int) config('services.housekeeping_bot.mgmt_group_id', 0);
         $this->ownerAlert  = $ownerAlert;
         $this->beds24      = $beds24;
+        $this->roomMap     = $roomMap;
         $this->botResolver = $botResolver;
         $this->transport   = $transport;
     }
@@ -830,13 +834,8 @@ class HousekeepingBotController extends Controller
 
         $dayLabel = $isToday ? 'Bugun' : ($isTomorrow ? 'Ertaga' : $dateObj->format('d.m (D)'));
 
-        // Build room map: roomTypeId + unitId → room number
-        $roomStatuses = $this->beds24->getRoomStatuses(self::PROPERTY_ID);
-        $roomMap = [];
-        foreach ($roomStatuses as $r) {
-            $key = $r['room_type_id'] . '_' . $r['unit_id'];
-            $roomMap[$key] = $r['room_number'];
-        }
+        // Build room map: roomTypeId + unitId → room number (cache-first via service)
+        $roomMap = $this->roomMap->getMap(self::PROPERTY_ID);
 
         // Fetch arrivals for this date
         $arrivalsResp = $this->beds24->getBookings([

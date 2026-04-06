@@ -306,4 +306,63 @@ class Beds24RoomMapServiceTest extends TestCase
 
         $this->assertNull(Cache::get($this->cacheKey(172793)));
     }
+
+    // -------------------------------------------------------------------------
+    // getMap — bulk room map retrieval used by daily plan builder
+    // -------------------------------------------------------------------------
+
+    /** @test */
+    public function get_map_returns_full_map_from_cache_without_api_call(): void
+    {
+        $map = ['377303_1' => '17', '377303_2' => '18', '377304_1' => '10'];
+        Cache::put($this->cacheKey(172793), $map, now()->addHours(24));
+
+        $beds24 = $this->createMock(Beds24BookingService::class);
+        $beds24->expects($this->never())->method('getRoomStatuses');
+
+        $service = new Beds24RoomMapService($beds24);
+        $result  = $service->getMap(172793);
+
+        $this->assertSame($map, $result);
+    }
+
+    /** @test */
+    public function get_map_fetches_live_and_populates_cache_on_miss(): void
+    {
+        Cache::flush();
+
+        $beds24 = $this->createMock(Beds24BookingService::class);
+        $beds24->expects($this->once())
+            ->method('getRoomStatuses')
+            ->willReturn($this->fakeRooms());
+
+        $service = new Beds24RoomMapService($beds24);
+        $result  = $service->getMap(172793);
+
+        $this->assertArrayHasKey('377303_1', $result);
+        $this->assertSame('17', $result['377303_1']);
+        $this->assertSame('10', $result['377304_1']);
+
+        // Cache should now be populated so a second call hits cache only
+        $beds24NoCall = $this->createMock(Beds24BookingService::class);
+        $beds24NoCall->expects($this->never())->method('getRoomStatuses');
+        $service2 = new Beds24RoomMapService($beds24NoCall);
+        $service2->getMap(172793); // must not call API
+    }
+
+    /** @test */
+    public function get_map_returns_empty_array_when_live_api_returns_empty(): void
+    {
+        Cache::flush();
+
+        $beds24 = $this->createMock(Beds24BookingService::class);
+        $beds24->method('getRoomStatuses')->willReturn([]);
+
+        $service = new Beds24RoomMapService($beds24);
+        $result  = $service->getMap(172793);
+
+        $this->assertSame([], $result);
+        // Must not have cached empty array
+        $this->assertNull(Cache::get($this->cacheKey(172793)));
+    }
 }

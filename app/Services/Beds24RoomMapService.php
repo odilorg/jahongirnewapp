@@ -80,6 +80,45 @@ class Beds24RoomMapService
     }
 
     /**
+     * Return the full room map for a property as an associative array:
+     *   [ "{roomTypeId}_{unitId}" => "{roomNumber}", ... ]
+     *
+     * Follows the same cache-first / live-fallback order as resolve().
+     * Callers that need to resolve many rooms in a single pass (e.g. daily
+     * plan builder) should use this rather than calling resolve() in a loop.
+     *
+     * Returns [] if both cache and live API are unavailable.
+     */
+    public function getMap(int $propertyId): array
+    {
+        $cacheKey = $this->cacheKey($propertyId);
+
+        // Cache-first hot path
+        $cached = Cache::get($cacheKey);
+        if (is_array($cached) && count($cached) > 0) {
+            return $cached;
+        }
+
+        // Live fallback on cache miss
+        $rooms = $this->beds24Service->getRoomStatuses($propertyId);
+        if (empty($rooms)) {
+            Log::warning('Beds24 room resolution: live API returned empty room list on cache miss (getMap)', [
+                'property_id' => $propertyId,
+            ]);
+            return [];
+        }
+
+        $map = [];
+        foreach ($rooms as $room) {
+            $key       = ((string) $room['room_type_id']) . '_' . ((string) $room['unit_id']);
+            $map[$key] = (string) ($room['room_number'] ?? '');
+        }
+        Cache::put($cacheKey, $map, now()->addHours(24));
+
+        return $map;
+    }
+
+    /**
      * Proactively warm (or refresh) the room map for a property.
      * Safe to call from scheduled tasks or after a successful token refresh.
      * Silently does nothing if the live call returns empty.
