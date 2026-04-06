@@ -40,6 +40,7 @@ class GuideServiceTest extends TestCase
             'phone01'     => '+998901111111',
             'email'       => 'aziz@example.com',
             'lang_spoken' => ['EN', 'RU'],
+            'booking_id'  => 1,
         ], $overrides);
     }
 

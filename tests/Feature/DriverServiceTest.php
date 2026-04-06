@@ -40,6 +40,7 @@ class DriverServiceTest extends TestCase
             'phone01'    => '+998901234567',
             'email'      => 'john@example.com',
             'fuel_type'  => 'Petrol',
+            'booking_id' => 1,
         ], $overrides);
     }
 

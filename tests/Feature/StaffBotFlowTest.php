@@ -73,6 +73,7 @@ class StaffBotFlowTest extends TestCase
             'email'      => 'ali@example.com',
             'fuel_type'  => 'Petrol',
             'is_active'  => true,
+            'booking_id' => 1,
         ], $overrides));
     }
 
@@ -85,6 +86,7 @@ class StaffBotFlowTest extends TestCase
             'email'       => 'dil@example.com',
             'lang_spoken' => ['EN', 'RU'],
             'is_active'   => true,
+            'booking_id'  => 1,
         ], $overrides));
     }
 
