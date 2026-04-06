@@ -75,10 +75,15 @@ class FxSyncService
      *   - FxSyncJob (queued, handles rate-limit backoff)
      *   - CalculateAndPushDailyPaymentOptions artisan command
      *   - Admin force-refresh endpoint
+     *   - BotPaymentService::preparePayment() when group-aware amount differs from stored
      *
+     * @param  float|null $usdAmountOverride  When set, use this USD total instead of
+     *                                         booking->effectiveUsdAmount(). Used by the cashier
+     *                                         bot for group bookings (sum of all siblings).
+     *                                         All other callers pass null (per-room behavior).
      * @throws Beds24RateLimitException  — re-thrown so FxSyncJob's backoff() fires
      */
-    public function pushNow(Beds24Booking $booking, string $trigger = 'manual'): BookingFxSync
+    public function pushNow(Beds24Booking $booking, string $trigger = 'manual', ?float $usdAmountOverride = null): BookingFxSync
     {
         $rate = DailyExchangeRate::where('rate_date', today())->first();
 
@@ -100,7 +105,9 @@ class FxSyncService
             ]);
         }
 
-        $usdAmount = $booking->effectiveUsdAmount();
+        // Use caller-supplied override when present (cashier group path),
+        // otherwise fall back to per-room amount (all other callers).
+        $usdAmount = $usdAmountOverride ?? $booking->effectiveUsdAmount();
         $options   = $this->calcService->calculate($usdAmount, $rate);
         $infoItems = $this->calcService->formatForBeds24($options, $rate->rate_date->toDateString());
 

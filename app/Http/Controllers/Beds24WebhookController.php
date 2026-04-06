@@ -134,6 +134,8 @@ class Beds24WebhookController extends Controller
 
     private function handleNew(string $bookingId, array $data, array $raw): void
     {
+        [$masterBookingId, $groupSize] = $this->extractGroupFields($raw);
+
         $booking = Beds24Booking::create([
             'beds24_booking_id' => $bookingId,
             'property_id'       => $data['property_id'] ?? '',
@@ -154,6 +156,8 @@ class Beds24WebhookController extends Controller
             'original_status'   => $data['status'] ?? null,
             'invoice_balance'   => (float) ($data['invoice_balance'] ?? 0),
             'beds24_raw_data'   => $raw,
+            'master_booking_id' => $masterBookingId,
+            'booking_group_size' => $groupSize,
         ]);
 
         $change = Beds24BookingChange::create([
@@ -287,20 +291,25 @@ class Beds24WebhookController extends Controller
         $amountChanged = ($newAmount > 0 && abs($newAmount - (float) $booking->total_amount) > 0.01);
 
         // Update the booking record
+        [$masterBookingId, $groupSize] = $this->extractGroupFields($raw);
+
         $updatePayload = [
-            'room_id'         => $data['room_id'] ?? $booking->room_id,
-            'room_name'       => $data['room_name'] ?? $booking->room_name,
-            'guest_name'      => $this->buildGuestName($data) ?: $booking->guest_name,
-            'guest_email'     => $data['guest_email'] ?? $booking->guest_email,
-            'guest_phone'     => $data['guest_phone'] ?? $booking->guest_phone,
-            'channel'         => $data['channel'] ?? $booking->channel,
-            'arrival_date'    => $data['arrival_date'] ?? $booking->arrival_date,
-            'departure_date'  => $data['departure_date'] ?? $booking->departure_date,
-            'num_adults'      => (int) ($data['num_adults'] ?? $booking->num_adults),
-            'num_children'    => (int) ($data['num_children'] ?? $booking->num_children),
-            'booking_status'  => $newStatus,
-            'invoice_balance' => (float) ($data['invoice_balance'] ?? $booking->invoice_balance),
-            'beds24_raw_data' => $raw,
+            'room_id'           => $data['room_id'] ?? $booking->room_id,
+            'room_name'         => $data['room_name'] ?? $booking->room_name,
+            'guest_name'        => $this->buildGuestName($data) ?: $booking->guest_name,
+            'guest_email'       => $data['guest_email'] ?? $booking->guest_email,
+            'guest_phone'       => $data['guest_phone'] ?? $booking->guest_phone,
+            'channel'           => $data['channel'] ?? $booking->channel,
+            'arrival_date'      => $data['arrival_date'] ?? $booking->arrival_date,
+            'departure_date'    => $data['departure_date'] ?? $booking->departure_date,
+            'num_adults'        => (int) ($data['num_adults'] ?? $booking->num_adults),
+            'num_children'      => (int) ($data['num_children'] ?? $booking->num_children),
+            'booking_status'    => $newStatus,
+            'invoice_balance'   => (float) ($data['invoice_balance'] ?? $booking->invoice_balance),
+            'beds24_raw_data'   => $raw,
+            // Group fields — update if payload carries group info; keep existing otherwise
+            'master_booking_id'  => $masterBookingId ?? $booking->master_booking_id,
+            'booking_group_size' => $groupSize ?? $booking->booking_group_size,
         ];
 
         if ($amountChanged) {
@@ -353,6 +362,37 @@ class Beds24WebhookController extends Controller
 
         // Send appropriate alert
         $this->dispatchAlert($booking, $change, $changeType, $oldData, $newAmount, $changedFields, $raw, $newCharges);
+    }
+
+    // -------------------------------------------------------------------------
+    // Group booking helpers
+    // -------------------------------------------------------------------------
+
+    /**
+     * Extract Beds24 group booking fields from the raw webhook payload.
+     *
+     * Returns [masterBookingId, groupSize] when the payload contains a valid
+     * bookingGroup (master > 0 and at least 2 sibling room IDs).
+     * Returns [null, null] for standalone bookings or malformed payloads.
+     *
+     * @return array{0: string|null, 1: int|null}
+     */
+    private function extractGroupFields(array $raw): array
+    {
+        $group = $raw['booking']['bookingGroup'] ?? null;
+
+        if (! $group || empty($group['ids']) || empty($group['master'])) {
+            return [null, null];
+        }
+
+        $master = (string) $group['master'];
+        $size   = count((array) $group['ids']);
+
+        if ((int) $master === 0 || $size < 2) {
+            return [null, null];
+        }
+
+        return [$master, $size];
     }
 
     // -------------------------------------------------------------------------

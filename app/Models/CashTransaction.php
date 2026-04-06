@@ -83,6 +83,12 @@ class CashTransaction extends Model
         'bot_session_id',
         'beds24_payment_sync_id',
         'beds24_payment_ref',
+
+        // Group booking audit (null for standalone bookings)
+        'group_master_booking_id',
+        'is_group_payment',
+        'group_size_expected',
+        'group_size_local',
     ];
 
     protected $casts = [
@@ -100,6 +106,9 @@ class CashTransaction extends Model
         'variance_pct'            => 'decimal:2',
         'is_override'             => 'boolean',
         'within_tolerance'        => 'boolean',
+        'is_group_payment'        => 'boolean',
+        'group_size_expected'     => 'integer',
+        'group_size_local'        => 'integer',
         'occurred_at'             => 'datetime',
         'presented_at'            => 'datetime',
         'recorded_at'             => 'datetime',
