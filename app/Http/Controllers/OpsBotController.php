@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers;
 
+use App\Services\BotOperatorAuth;
 use App\Services\OperatorBookingFlow;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -12,21 +13,19 @@ use Illuminate\Support\Facades\Log;
 /**
  * Webhook handler for @JahongirOpsBot — the operator-only manual booking bot.
  *
- * Only the owner chat ID (TELEGRAM_OWNER_CHAT_ID) can trigger the booking flow.
- * All other senders receive a silent 200 OK with no response.
+ * Authentication is based on telegram_user_id (from.id), NOT chat_id.
+ * Every update is authenticated via BotOperatorAuth before any routing occurs.
+ * Unrecognized or inactive users receive a denial message and no state is created.
  *
  * Telegram requires a 200 response within ~30 s or it will retry the update.
  * All processing is synchronous and fast (no queued jobs needed for this flow).
  */
 class OpsBotController extends Controller
 {
-    private string $ownerChatId;
-
     public function __construct(
         private readonly OperatorBookingFlow $flow,
-    ) {
-        $this->ownerChatId = config('services.ops_bot.owner_chat_id', '38738713');
-    }
+        private readonly BotOperatorAuth     $auth,
+    ) {}
 
     public function webhook(Request $request): JsonResponse
     {
@@ -43,20 +42,38 @@ class OpsBotController extends Controller
             return response()->json(['ok' => true]);
         }
 
-        // Silently ignore anyone who is not the owner
-        if ($chatId !== $this->ownerChatId) {
-            Log::warning('OpsBotController: message from non-owner ignored', ['chat_id' => $chatId]);
+        // ── Authenticate by telegram_user_id (from.id) — default deny ────────
+        $operator = $this->auth->fromUpdate($update);
+
+        if (! $operator) {
+            $userId = $this->auth->extractUserId($update);
+            Log::warning('OpsBotController: unauthorized access attempt', [
+                'telegram_user_id' => $userId,
+                'chat_id'          => $chatId,
+                'callback'         => $callbackData,
+            ]);
+            // Acknowledge callback to dismiss the spinner even on denial
+            if ($callbackId) {
+                $this->answerCallback($callbackId);
+            }
+            $this->sendMessage($chatId, "🚫 You are not authorized to use this bot.");
             return response()->json(['ok' => true]);
         }
 
-        Log::info('OpsBotController: update', ['chat_id' => $chatId, 'text' => $text, 'callback' => $callbackData]);
+        Log::info('OpsBotController: update', [
+            'telegram_user_id' => $operator->telegram_user_id,
+            'role'             => $operator->role,
+            'chat_id'          => $chatId,
+            'text'             => $text,
+            'callback'         => $callbackData,
+        ]);
 
         // Acknowledge callback queries immediately (removes the loading spinner)
         if ($callbackId) {
             $this->answerCallback($callbackId);
         }
 
-        $response = $this->flow->handle($chatId, $text, $callbackData);
+        $response = $this->flow->handle($chatId, $text, $callbackData, $operator);
 
         if (isset($response['reply_markup'])) {
             $this->sendMessage($chatId, $response['text'], $response['reply_markup']['inline_keyboard']);
