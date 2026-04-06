@@ -405,7 +405,254 @@ class OperatorBookingFlowTest extends TestCase
         $this->assertArrayHasKey('reply_markup', $response);
     }
 
+    // ── Edit menu ────────────────────────────────────────────────────────────
+
+    #[Test]
+    public function action_menu_includes_edit_booking_button_for_pending_booking(): void
+    {
+        $booking        = new Booking();
+        $booking->id    = 1;
+        $booking->booking_number = 'BOOK-2026-001';
+        $booking->booking_status = 'pending';
+        // Keep relations null — buildActionMenu handles null gracefully
+
+        $session = $this->mockSession('booking_actions');
+        $session->shouldReceive('getData')->with('active_booking_id')->andReturn(1);
+        $session->shouldReceive('getData')->with('browse_page')->andReturn(null);
+        $session->shouldReceive('getData')->andReturn(null);
+
+        // Replace activeBooking() resolution via mock session + anonymous subclass
+        // The anonymous subclass already injects the mock session; we need activeBooking to return $booking.
+        // We patch the flow further by overriding activeBooking as well.
+        $this->flow = new class (
+            $this->bookingService,
+            new BookingOpsService(),
+            new BookingBrowseService(),
+            $session,
+            $booking,
+        ) extends OperatorBookingFlow {
+            public function __construct(
+                WebsiteBookingService $bs,
+                BookingOpsService $os,
+                BookingBrowseService $brs,
+                private OperatorBookingSession $mockSession,
+                private Booking $mockBooking,
+            ) {
+                parent::__construct($bs, $os, $brs);
+            }
+
+            protected function getOrCreateSession(string $chatId): OperatorBookingSession
+            {
+                return $this->mockSession;
+            }
+
+            /** @phpstan-ignore-next-line */
+            private function activeBooking(OperatorBookingSession $session): ?Booking
+            {
+                return $this->mockBooking;
+            }
+        };
+
+        $response = $this->flow->handle('12345', null, 'ops:menu');
+
+        $encoded = json_encode($response['reply_markup']['inline_keyboard']);
+        $this->assertStringContainsString('ops:edit', $encoded);
+        $this->assertStringContainsString('Edit booking', $encoded);
+    }
+
+    #[Test]
+    public function ops_edit_callback_opens_edit_menu(): void
+    {
+        $booking         = new Booking();
+        $booking->id     = 1;
+        $booking->booking_number  = 'BOOK-2026-001';
+        $booking->booking_status  = 'pending';
+
+        $session = $this->mockSession('booking_actions');
+        $session->shouldReceive('getData')->with('active_booking_id')->andReturn(1);
+        $session->shouldReceive('getData')->andReturn(null);
+
+        $this->patchActiveBooking($session, $booking);
+
+        $response = $this->flow->handle('12345', null, 'ops:edit');
+
+        $this->assertStringContainsString('Edit', $response['text']);
+        $encoded = json_encode($response['reply_markup']['inline_keyboard']);
+        $this->assertStringContainsString('ops:edit_name',  $encoded);
+        $this->assertStringContainsString('ops:edit_phone', $encoded);
+        $this->assertStringContainsString('ops:edit_email', $encoded);
+        $this->assertStringContainsString('ops:edit_date',  $encoded);
+        $this->assertStringContainsString('ops:edit_pax',   $encoded);
+        $this->assertStringContainsString('ops:edit_notes', $encoded);
+    }
+
+    #[Test]
+    public function ops_edit_name_callback_sets_state_and_shows_prompt(): void
+    {
+        $booking         = new Booking();
+        $booking->id     = 1;
+        $booking->booking_status = 'pending';
+
+        $session = $this->mockSession('booking_actions');
+        $session->shouldReceive('getData')->with('active_booking_id')->andReturn(1);
+        $session->shouldReceive('getData')->andReturn(null);
+        $session->shouldReceive('setState')->with('edit_name_input')->once();
+
+        $this->patchActiveBooking($session, $booking);
+
+        $response = $this->flow->handle('12345', null, 'ops:edit_name');
+
+        $this->assertStringContainsString('full name', strtolower($response['text']));
+        $encoded = json_encode($response['reply_markup']['inline_keyboard']);
+        $this->assertStringContainsString('ops:edit', $encoded);
+    }
+
+    #[Test]
+    public function edit_date_prompt_warns_about_notification_reschedule(): void
+    {
+        $booking         = new Booking();
+        $booking->id     = 1;
+        $booking->booking_status = 'pending';
+
+        $session = $this->mockSession('booking_actions');
+        $session->shouldReceive('getData')->with('active_booking_id')->andReturn(1);
+        $session->shouldReceive('getData')->andReturn(null);
+        $session->shouldReceive('setState')->with('edit_date_input')->once();
+
+        $this->patchActiveBooking($session, $booking);
+
+        $response = $this->flow->handle('12345', null, 'ops:edit_date');
+
+        $this->assertStringContainsString('reschedule', strtolower($response['text']));
+    }
+
+    #[Test]
+    public function edit_email_input_rejects_invalid_email(): void
+    {
+        $booking        = new Booking();
+        $booking->id    = 1;
+        $booking->booking_status = 'confirmed';
+
+        $session = $this->mockSession('edit_email_input');
+        $session->shouldReceive('getData')->with('active_booking_id')->andReturn(1);
+        $session->shouldReceive('getData')->andReturn(null);
+
+        $this->patchActiveBooking($session, $booking);
+
+        $response = $this->flow->handle('12345', 'not-an-email', null);
+
+        $this->assertStringContainsString('valid email', strtolower($response['text']));
+    }
+
+    #[Test]
+    public function edit_date_input_rejects_past_date(): void
+    {
+        $booking        = new Booking();
+        $booking->id    = 1;
+        $booking->booking_status = 'pending';
+
+        $session = $this->mockSession('edit_date_input');
+        $session->shouldReceive('getData')->with('active_booking_id')->andReturn(1);
+        $session->shouldReceive('getData')->andReturn(null);
+
+        $this->patchActiveBooking($session, $booking);
+
+        $response = $this->flow->handle('12345', '2020-01-01', null);
+
+        $this->assertStringContainsString('future', strtolower($response['text']));
+    }
+
+    #[Test]
+    public function edit_date_input_rejects_invalid_format(): void
+    {
+        $booking        = new Booking();
+        $booking->id    = 1;
+        $booking->booking_status = 'pending';
+
+        $session = $this->mockSession('edit_date_input');
+        $session->shouldReceive('getData')->with('active_booking_id')->andReturn(1);
+        $session->shouldReceive('getData')->andReturn(null);
+
+        $this->patchActiveBooking($session, $booking);
+
+        $response = $this->flow->handle('12345', '15/06/2026', null);
+
+        $this->assertStringContainsString('YYYY-MM-DD', $response['text']);
+    }
+
+    #[Test]
+    public function edit_pax_input_rejects_zero(): void
+    {
+        $booking        = new Booking();
+        $booking->id    = 1;
+        $booking->booking_status = 'pending';
+
+        $session = $this->mockSession('edit_pax_input');
+        $session->shouldReceive('getData')->with('active_booking_id')->andReturn(1);
+        $session->shouldReceive('getData')->andReturn(null);
+
+        $this->patchActiveBooking($session, $booking);
+
+        $response = $this->flow->handle('12345', '0', null);
+
+        $this->assertStringContainsString('1 and 50', $response['text']);
+    }
+
+    #[Test]
+    public function edit_pax_input_rejects_over_fifty(): void
+    {
+        $booking        = new Booking();
+        $booking->id    = 1;
+        $booking->booking_status = 'pending';
+
+        $session = $this->mockSession('edit_pax_input');
+        $session->shouldReceive('getData')->with('active_booking_id')->andReturn(1);
+        $session->shouldReceive('getData')->andReturn(null);
+
+        $this->patchActiveBooking($session, $booking);
+
+        $response = $this->flow->handle('12345', '51', null);
+
+        $this->assertStringContainsString('1 and 50', $response['text']);
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────────
+
+    /**
+     * Replace the OperatorBookingFlow with an anonymous subclass that returns
+     * $booking from activeBooking(). Used only by edit-flow tests.
+     */
+    private function patchActiveBooking(Mockery\MockInterface $session, Booking $booking): void
+    {
+        $this->flow = new class (
+            $this->bookingService,
+            new BookingOpsService(),
+            new BookingBrowseService(),
+            $session,
+            $booking,
+        ) extends OperatorBookingFlow {
+            public function __construct(
+                WebsiteBookingService $bs,
+                BookingOpsService $os,
+                BookingBrowseService $brs,
+                private OperatorBookingSession $mockSession,
+                private Booking $mockBooking,
+            ) {
+                parent::__construct($bs, $os, $brs);
+            }
+
+            protected function getOrCreateSession(string $chatId): OperatorBookingSession
+            {
+                return $this->mockSession;
+            }
+
+            /** @phpstan-ignore-next-line */
+            private function activeBooking(OperatorBookingSession $session): ?Booking
+            {
+                return $this->mockBooking;
+            }
+        };
+    }
 
     private function mockSession(
         string $state,
