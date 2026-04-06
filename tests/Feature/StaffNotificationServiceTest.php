@@ -114,7 +114,7 @@ class StaffNotificationServiceTest extends TestCase
             'driver_id'               => 1,    // placeholder; FK checks disabled
             'guide_id'                => 1,    // placeholder; FK checks disabled
             'tour_id'                 => 1,
-            'guest_id'                => null,
+            'guest_id'                => 1,    // placeholder; FK checks disabled
             'grand_total'             => 100,
             'amount'                  => 100,
             'payment_method'          => 'cash',
