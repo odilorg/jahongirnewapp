@@ -26,9 +26,17 @@ use Illuminate\Database\Eloquent\Model;
  *   confirm         → summary shown, waiting for ✅ or ❌
  *
  * Post-creation states (active_booking_id stored in data):
- *   booking_actions → action menu hub
- *   set_price_input → waiting for price text input
- *   set_pickup_input→ waiting for pickup location text input
+ *   booking_actions  → action menu hub
+ *   set_price_input  → waiting for price text input
+ *   set_pickup_input → waiting for pickup location text input
+ *
+ * Edit states (booking_actions hub → field input → back to booking_actions):
+ *   edit_name_input  → waiting for new guest full name
+ *   edit_phone_input → waiting for new guest phone
+ *   edit_email_input → waiting for new guest email
+ *   edit_date_input  → waiting for new departure date (YYYY-MM-DD)
+ *   edit_pax_input   → waiting for new total pax count
+ *   edit_notes_input → waiting for new special requests / notes
  */
 class OperatorBookingSession extends Model
 {

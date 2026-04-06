@@ -28,9 +28,18 @@ use Illuminate\Support\Facades\Log;
  *   ◀ Back    → browse_list (restores last page)
  *
  * ── Post-creation / browse states ────────────────────────────────────────────
- *   booking_actions  → action menu hub (shared by creation and browse)
- *   set_price_input  → waiting for price text
- *   set_pickup_input → waiting for pickup location text
+ *   booking_actions   → action menu hub (shared by creation and browse)
+ *   set_price_input   → waiting for price text
+ *   set_pickup_input  → waiting for pickup location text
+ *
+ * ── Edit flow ─────────────────────────────────────────────────────────────────
+ *   ops:edit          → edit field-picker menu (state stays booking_actions)
+ *   ops:edit_name     → edit_name_input
+ *   ops:edit_phone    → edit_phone_input
+ *   ops:edit_email    → edit_email_input
+ *   ops:edit_date     → edit_date_input
+ *   ops:edit_pax      → edit_pax_input
+ *   ops:edit_notes    → edit_notes_input
  *
  * ── Callback prefixes ─────────────────────────────────────────────────────────
  *   ops: → booking mutation actions (state-independent)
@@ -117,11 +126,17 @@ class OperatorBookingFlow
             'enter_phone'     => $this->handlePhone($session, $text),
             'enter_hotel'     => $this->handleHotel($session, $text, $callback),
             'confirm'         => $this->handleConfirm($session, $callback),
-            'booking_actions' => $this->buildActionMenu($session),
-            'browse_list'     => $this->buildBookingList($session),
-            'set_price_input' => $this->handleSetPriceInput($session, $chatId, $text),
-            'set_pickup_input'=> $this->handleSetPickupInput($session, $chatId, $text),
-            default           => ['text' => "Use /newbooking to create a booking, /bookings to browse, or /help for all commands."],
+            'booking_actions'  => $this->buildActionMenu($session),
+            'browse_list'      => $this->buildBookingList($session),
+            'set_price_input'  => $this->handleSetPriceInput($session, $chatId, $text),
+            'set_pickup_input' => $this->handleSetPickupInput($session, $chatId, $text),
+            'edit_name_input'  => $this->handleEditNameInput($session, $chatId, $text),
+            'edit_phone_input' => $this->handleEditPhoneInput($session, $chatId, $text),
+            'edit_email_input' => $this->handleEditEmailInput($session, $chatId, $text),
+            'edit_date_input'  => $this->handleEditDateInput($session, $chatId, $text),
+            'edit_pax_input'   => $this->handleEditPaxInput($session, $chatId, $text),
+            'edit_notes_input' => $this->handleEditNotesInput($session, $chatId, $text),
+            default            => ['text' => "Use /newbooking to create a booking, /bookings to browse, or /help for all commands."],
         };
     }
 
@@ -495,6 +510,13 @@ class OperatorBookingFlow
             $suffix === 'guides'      => $this->buildGuideList($booking),
             $suffix === 'price'       => $this->promptSetPrice($session),
             $suffix === 'pickup'      => $this->promptSetPickup($session),
+            $suffix === 'edit'        => $this->buildEditMenu($session, $booking),
+            $suffix === 'edit_name'   => $this->promptEditName($session),
+            $suffix === 'edit_phone'  => $this->promptEditPhone($session),
+            $suffix === 'edit_email'  => $this->promptEditEmail($session),
+            $suffix === 'edit_date'   => $this->promptEditDate($session),
+            $suffix === 'edit_pax'    => $this->promptEditPax($session),
+            $suffix === 'edit_notes'  => $this->promptEditNotes($session),
             str_starts_with($suffix, 'driver:') => $this->opsAssignDriver(
                 $session, $booking, $chatId, (int) substr($suffix, 7)
             ),
@@ -663,6 +685,314 @@ class OperatorBookingFlow
         ];
     }
 
+    // ── Edit: field-picker menu ───────────────────────────────────────────────
+
+    /**
+     * Show a field-picker so the operator can choose which booking detail to edit.
+     * State stays at booking_actions — Back returns to the action menu via ops:menu.
+     */
+    private function buildEditMenu(OperatorBookingSession $session, Booking $booking): array
+    {
+        $guest = $booking->guest;
+        $name  = $guest?->full_name  ?? '—';
+        $phone = $guest?->phone      ?? '—';
+        $email = $guest?->email      ?? '—';
+        $date  = $booking->booking_start_date_time
+            ? Carbon::parse($booking->booking_start_date_time)->format('d M Y')
+            : '—';
+        $pax   = $guest?->number_of_people ?? '—';
+        $notes = $booking->special_requests ?: '—';
+
+        $info = "✏️ <b>Edit {$booking->booking_number}</b>\n\n"
+            . "👤 {$name}\n"
+            . "📱 {$phone}  |  📧 {$email}\n"
+            . "📅 {$date}  |  👥 {$pax} pax\n"
+            . "📝 {$notes}\n\n"
+            . "Tap a field to edit:";
+
+        return [
+            'text'         => $info,
+            'reply_markup' => [
+                'inline_keyboard' => [
+                    [
+                        ['text' => '✍️ Name',  'callback_data' => 'ops:edit_name'],
+                        ['text' => '📱 Phone', 'callback_data' => 'ops:edit_phone'],
+                        ['text' => '📧 Email', 'callback_data' => 'ops:edit_email'],
+                    ],
+                    [
+                        ['text' => '📅 Date',  'callback_data' => 'ops:edit_date'],
+                        ['text' => '👥 Pax',   'callback_data' => 'ops:edit_pax'],
+                        ['text' => '📝 Notes', 'callback_data' => 'ops:edit_notes'],
+                    ],
+                    [['text' => '◀ Back', 'callback_data' => 'ops:menu']],
+                ],
+            ],
+        ];
+    }
+
+    // ── Edit: prompt helpers ──────────────────────────────────────────────────
+
+    private function promptEditName(OperatorBookingSession $session): array
+    {
+        $session->setState('edit_name_input');
+
+        return [
+            'text'         => "✍️ Enter the new guest full name:",
+            'reply_markup' => [
+                'inline_keyboard' => [[['text' => '◀ Back', 'callback_data' => 'ops:edit']]],
+            ],
+        ];
+    }
+
+    private function promptEditPhone(OperatorBookingSession $session): array
+    {
+        $session->setState('edit_phone_input');
+
+        return [
+            'text'         => "📱 Enter the new phone number (with country code):",
+            'reply_markup' => [
+                'inline_keyboard' => [[['text' => '◀ Back', 'callback_data' => 'ops:edit']]],
+            ],
+        ];
+    }
+
+    private function promptEditEmail(OperatorBookingSession $session): array
+    {
+        $session->setState('edit_email_input');
+
+        return [
+            'text'         => "📧 Enter the new email address:",
+            'reply_markup' => [
+                'inline_keyboard' => [[['text' => '◀ Back', 'callback_data' => 'ops:edit']]],
+            ],
+        ];
+    }
+
+    private function promptEditDate(OperatorBookingSession $session): array
+    {
+        $session->setState('edit_date_input');
+
+        return [
+            'text'         => "📅 Enter the new departure date (YYYY-MM-DD):\n\n"
+                . "⚠️ Changing the date will reschedule all staff notifications.",
+            'reply_markup' => [
+                'inline_keyboard' => [[['text' => '◀ Back', 'callback_data' => 'ops:edit']]],
+            ],
+        ];
+    }
+
+    private function promptEditPax(OperatorBookingSession $session): array
+    {
+        $session->setState('edit_pax_input');
+
+        return [
+            'text'         => "👥 Enter the new total guest count (1–50):",
+            'reply_markup' => [
+                'inline_keyboard' => [[['text' => '◀ Back', 'callback_data' => 'ops:edit']]],
+            ],
+        ];
+    }
+
+    private function promptEditNotes(OperatorBookingSession $session): array
+    {
+        $session->setState('edit_notes_input');
+
+        return [
+            'text'         => "📝 Enter the new special requests / notes\n(or send a dash — to clear):",
+            'reply_markup' => [
+                'inline_keyboard' => [[['text' => '◀ Back', 'callback_data' => 'ops:edit']]],
+            ],
+        ];
+    }
+
+    // ── Edit: input handlers ──────────────────────────────────────────────────
+
+    private function handleEditNameInput(
+        OperatorBookingSession $session,
+        string $chatId,
+        ?string $text,
+    ): array {
+        $booking = $this->activeBooking($session);
+        if (! $booking) {
+            $session->reset();
+            return ['text' => "⚠️ Session lost. Use /newbooking or /bookings."];
+        }
+
+        $name = trim($text ?? '');
+        if (mb_strlen($name) < 2) {
+            return ['text' => "⚠️ Name too short. Enter the guest's full name:"];
+        }
+
+        $parts     = explode(' ', $name, 2);
+        $firstName = $parts[0];
+        $lastName  = $parts[1] ?? '';
+
+        try {
+            $this->opsService->editGuestName($booking, $firstName, $lastName, $chatId);
+        } catch (\RuntimeException $e) {
+            $session->setState('booking_actions');
+            return ['text' => "⚠️ {$e->getMessage()}"];
+        }
+
+        $session->setState('booking_actions');
+        $booking = $this->activeBooking($session); // fresh — relations re-loaded on next access
+
+        return $this->buildEditMenu($session, $booking);
+    }
+
+    private function handleEditPhoneInput(
+        OperatorBookingSession $session,
+        string $chatId,
+        ?string $text,
+    ): array {
+        $booking = $this->activeBooking($session);
+        if (! $booking) {
+            $session->reset();
+            return ['text' => "⚠️ Session lost. Use /newbooking or /bookings."];
+        }
+
+        $phone = trim($text ?? '');
+        if (mb_strlen($phone) < 7) {
+            return ['text' => "⚠️ Phone number too short. Include the country code:"];
+        }
+
+        try {
+            $this->opsService->editGuestPhone($booking, $phone, $chatId);
+        } catch (\RuntimeException $e) {
+            $session->setState('booking_actions');
+            return ['text' => "⚠️ {$e->getMessage()}"];
+        }
+
+        $session->setState('booking_actions');
+        $booking = $this->activeBooking($session);
+
+        return $this->buildEditMenu($session, $booking);
+    }
+
+    private function handleEditEmailInput(
+        OperatorBookingSession $session,
+        string $chatId,
+        ?string $text,
+    ): array {
+        $booking = $this->activeBooking($session);
+        if (! $booking) {
+            $session->reset();
+            return ['text' => "⚠️ Session lost. Use /newbooking or /bookings."];
+        }
+
+        $email = mb_strtolower(trim($text ?? ''));
+        if (! filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            return ['text' => "⚠️ That doesn't look like a valid email. Try again:"];
+        }
+
+        try {
+            $this->opsService->editGuestEmail($booking, $email, $chatId);
+        } catch (\RuntimeException $e) {
+            $session->setState('booking_actions');
+            return ['text' => "⚠️ {$e->getMessage()}"];
+        }
+
+        $session->setState('booking_actions');
+        $booking = $this->activeBooking($session);
+
+        return $this->buildEditMenu($session, $booking);
+    }
+
+    private function handleEditDateInput(
+        OperatorBookingSession $session,
+        string $chatId,
+        ?string $text,
+    ): array {
+        $booking = $this->activeBooking($session);
+        if (! $booking) {
+            $session->reset();
+            return ['text' => "⚠️ Session lost. Use /newbooking or /bookings."];
+        }
+
+        $raw = trim($text ?? '');
+
+        try {
+            $date = Carbon::createFromFormat('Y-m-d', $raw);
+
+            if ($date->isPast() && ! $date->isToday()) {
+                return ['text' => "⚠️ Date must be today or in the future (YYYY-MM-DD):"];
+            }
+        } catch (\Exception) {
+            return ['text' => "⚠️ Invalid format. Enter as YYYY-MM-DD (e.g. 2026-06-15):"];
+        }
+
+        try {
+            $this->opsService->editDate($booking, $date->format('Y-m-d 00:00:00'), $chatId);
+            $booking->refresh();
+        } catch (\RuntimeException $e) {
+            $session->setState('booking_actions');
+            return ['text' => "⚠️ {$e->getMessage()}"];
+        }
+
+        $session->setState('booking_actions');
+        $booking = $this->activeBooking($session);
+
+        return $this->buildEditMenu($session, $booking);
+    }
+
+    private function handleEditPaxInput(
+        OperatorBookingSession $session,
+        string $chatId,
+        ?string $text,
+    ): array {
+        $booking = $this->activeBooking($session);
+        if (! $booking) {
+            $session->reset();
+            return ['text' => "⚠️ Session lost. Use /newbooking or /bookings."];
+        }
+
+        $n = filter_var(trim($text ?? ''), FILTER_VALIDATE_INT);
+
+        if ($n === false || $n < 1 || $n > 50) {
+            return ['text' => "⚠️ Please enter a number between 1 and 50:"];
+        }
+
+        try {
+            $this->opsService->editPax($booking, $n, $chatId);
+        } catch (\RuntimeException $e) {
+            $session->setState('booking_actions');
+            return ['text' => "⚠️ {$e->getMessage()}"];
+        }
+
+        $session->setState('booking_actions');
+        $booking = $this->activeBooking($session);
+
+        return $this->buildEditMenu($session, $booking);
+    }
+
+    private function handleEditNotesInput(
+        OperatorBookingSession $session,
+        string $chatId,
+        ?string $text,
+    ): array {
+        $booking = $this->activeBooking($session);
+        if (! $booking) {
+            $session->reset();
+            return ['text' => "⚠️ Session lost. Use /newbooking or /bookings."];
+        }
+
+        $notes = trim($text ?? '');
+        // A single dash clears the notes field
+        $notes = ($notes === '-') ? '' : $notes;
+
+        try {
+            $this->opsService->editNotes($booking, $notes, $chatId);
+        } catch (\RuntimeException $e) {
+            $session->setState('booking_actions');
+            return ['text' => "⚠️ {$e->getMessage()}"];
+        }
+
+        $session->setState('booking_actions');
+        $booking = $this->activeBooking($session);
+
+        return $this->buildEditMenu($session, $booking);
+    }
+
     private function startNew(OperatorBookingSession $session): array
     {
         $session->reset();
@@ -728,6 +1058,8 @@ class OperatorBookingFlow
             }
             $row1[] = ['text' => '❌ Cancel booking', 'callback_data' => 'ops:cancel_ask'];
             $buttons[] = $row1;
+
+            $buttons[] = [['text' => '✏️ Edit booking', 'callback_data' => 'ops:edit']];
 
             $buttons[] = [
                 ['text' => '🚗 Assign driver', 'callback_data' => 'ops:drivers'],

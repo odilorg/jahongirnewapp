@@ -104,6 +104,112 @@ class BookingOpsService
         $this->log($booking, $actor, 'set_pickup', ['pickup_location' => ['old' => $old, 'new' => $location]]);
     }
 
+    // ── Edit actions (guest details, date, pax, notes) ───────────────────────
+
+    /**
+     * Edit the guest's full name.
+     * Updates first_name + last_name on the linked Guest record.
+     *
+     * @throws \RuntimeException if the booking has no linked guest.
+     */
+    public function editGuestName(Booking $booking, string $firstName, string $lastName, string $actor): void
+    {
+        $this->assertAllowed($booking, 'edit_guest_name');
+
+        $guest = $booking->guest;
+        if (! $guest) {
+            throw new \RuntimeException("Cannot edit guest name: booking has no linked guest.");
+        }
+
+        $old = trim($guest->first_name . ' ' . $guest->last_name);
+        $guest->update(['first_name' => $firstName, 'last_name' => $lastName]);
+        $new = trim($firstName . ' ' . $lastName);
+
+        $this->log($booking, $actor, 'edit_guest_name', ['guest_name' => ['old' => $old, 'new' => $new]]);
+    }
+
+    /** Edit the guest's phone number. */
+    public function editGuestPhone(Booking $booking, string $phone, string $actor): void
+    {
+        $this->assertAllowed($booking, 'edit_guest_phone');
+
+        $guest = $booking->guest;
+        if (! $guest) {
+            throw new \RuntimeException("Cannot edit guest phone: booking has no linked guest.");
+        }
+
+        $old = $guest->phone;
+        $guest->update(['phone' => $phone]);
+
+        $this->log($booking, $actor, 'edit_guest_phone', ['phone' => ['old' => $old, 'new' => $phone]]);
+    }
+
+    /** Edit the guest's email address. */
+    public function editGuestEmail(Booking $booking, string $email, string $actor): void
+    {
+        $this->assertAllowed($booking, 'edit_guest_email');
+
+        $guest = $booking->guest;
+        if (! $guest) {
+            throw new \RuntimeException("Cannot edit guest email: booking has no linked guest.");
+        }
+
+        $old = $guest->email;
+        $guest->update(['email' => $email]);
+
+        $this->log($booking, $actor, 'edit_guest_email', ['email' => ['old' => $old, 'new' => $email]]);
+    }
+
+    /**
+     * Edit the booking start date/time.
+     * Triggers notification reschedule automatically via Booking::updated boot hook.
+     *
+     * @param  string $dateTime  Format: 'Y-m-d H:i:s'
+     */
+    public function editDate(Booking $booking, string $dateTime, string $actor): void
+    {
+        $this->assertAllowed($booking, 'edit_date');
+
+        $old = $booking->booking_start_date_time;
+        $booking->update(['booking_start_date_time' => $dateTime]);
+
+        $this->log($booking, $actor, 'edit_date', [
+            'booking_start_date_time' => ['old' => $old, 'new' => $dateTime],
+        ]);
+    }
+
+    /**
+     * Edit the pax count.
+     * Updates number_of_people on the Guest record (the authoritative source)
+     * and on the Booking record for consistency.
+     */
+    public function editPax(Booking $booking, int $pax, string $actor): void
+    {
+        $this->assertAllowed($booking, 'edit_pax');
+
+        $guest = $booking->guest;
+        if (! $guest) {
+            throw new \RuntimeException("Cannot edit pax: booking has no linked guest.");
+        }
+
+        $old = $guest->number_of_people;
+        $guest->update(['number_of_people' => $pax]);
+        $booking->update(['number_of_people' => $pax]);
+
+        $this->log($booking, $actor, 'edit_pax', ['number_of_people' => ['old' => $old, 'new' => $pax]]);
+    }
+
+    /** Edit the special requests / notes field. */
+    public function editNotes(Booking $booking, string $notes, string $actor): void
+    {
+        $this->assertAllowed($booking, 'edit_notes');
+
+        $old = $booking->special_requests;
+        $booking->update(['special_requests' => $notes]);
+
+        $this->log($booking, $actor, 'edit_notes', ['special_requests' => ['old' => $old, 'new' => $notes]]);
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────────
 
     /**
@@ -116,8 +222,14 @@ class BookingOpsService
         $status = $booking->booking_status;
 
         $allowed = match ($status) {
-            'pending'   => ['confirm', 'cancel', 'assign_driver', 'assign_guide', 'set_price', 'set_pickup'],
-            'confirmed' => ['cancel', 'assign_driver', 'assign_guide', 'set_price', 'set_pickup'],
+            'pending'   => [
+                'confirm', 'cancel', 'assign_driver', 'assign_guide', 'set_price', 'set_pickup',
+                'edit_guest_name', 'edit_guest_phone', 'edit_guest_email', 'edit_date', 'edit_pax', 'edit_notes',
+            ],
+            'confirmed' => [
+                'cancel', 'assign_driver', 'assign_guide', 'set_price', 'set_pickup',
+                'edit_guest_name', 'edit_guest_phone', 'edit_guest_email', 'edit_date', 'edit_pax', 'edit_notes',
+            ],
             default     => [],  // cancelled, finished, etc. → read-only
         };
 
