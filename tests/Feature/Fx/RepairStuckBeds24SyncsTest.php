@@ -56,8 +56,10 @@ class RepairStuckBeds24SyncsTest extends TestCase
             'last_push_at'        => $lastPushAt,
         ]);
 
-        // Back-date created_at to simulate age
-        $sync->update(['created_at' => now()->subMinutes($minutesOld)]);
+        // Back-date created_at to simulate age (created_at is not fillable, use DB directly)
+        \Illuminate\Support\Facades\DB::table('beds24_payment_syncs')
+            ->where('id', $sync->id)
+            ->update(['created_at' => now()->subMinutes($minutesOld)]);
 
         return $sync->fresh();
     }
