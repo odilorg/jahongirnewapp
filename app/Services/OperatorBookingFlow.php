@@ -493,8 +493,7 @@ class OperatorBookingFlow
     ): array {
         $suffix = substr($callback, 4); // strip "ops:"
 
-        $bookingId = $session->getData('active_booking_id');
-        $booking   = $bookingId ? Booking::find($bookingId) : null;
+        $booking = $this->activeBooking($session);
 
         if (! $booking && $suffix !== 'new') {
             return ['text' => "⚠️ No active booking. Use /newbooking to create one or /bookings to browse."];
@@ -1179,7 +1178,7 @@ class OperatorBookingFlow
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private function activeBooking(OperatorBookingSession $session): ?Booking
+    protected function activeBooking(OperatorBookingSession $session): ?Booking
     {
         $id = $session->getData('active_booking_id');
         return $id ? Booking::find($id) : null;

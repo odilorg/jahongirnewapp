@@ -61,11 +61,13 @@ class BookingEditOpsTest extends TestCase
             'booking_status'         => $status,
             'booking_number'         => 'TEST-001',
             'grand_total'            => 200,
+            'amount'                 => 0,
             'payment_method'         => 'cash',
             'payment_status'         => 'unpaid',
             'group_name'             => 'Test Group',
             'booking_start_date_time'=> now()->addDays(10)->format('Y-m-d'),
             'dropoff_location'       => 'Registan',
+            'number_of_people'       => 2,
             'created_at'             => now(),
             'updated_at'             => now(),
         ]);

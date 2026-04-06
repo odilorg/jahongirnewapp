@@ -414,44 +414,11 @@ class OperatorBookingFlowTest extends TestCase
         $booking->id    = 1;
         $booking->booking_number = 'BOOK-2026-001';
         $booking->booking_status = 'pending';
-        // Keep relations null — buildActionMenu handles null gracefully
 
         $session = $this->mockSession('booking_actions');
-        $session->shouldReceive('getData')->with('active_booking_id')->andReturn(1);
-        $session->shouldReceive('getData')->with('browse_page')->andReturn(null);
         $session->shouldReceive('getData')->andReturn(null);
 
-        // Replace activeBooking() resolution via mock session + anonymous subclass
-        // The anonymous subclass already injects the mock session; we need activeBooking to return $booking.
-        // We patch the flow further by overriding activeBooking as well.
-        $this->flow = new class (
-            $this->bookingService,
-            new BookingOpsService(),
-            new BookingBrowseService(),
-            $session,
-            $booking,
-        ) extends OperatorBookingFlow {
-            public function __construct(
-                WebsiteBookingService $bs,
-                BookingOpsService $os,
-                BookingBrowseService $brs,
-                private OperatorBookingSession $mockSession,
-                private Booking $mockBooking,
-            ) {
-                parent::__construct($bs, $os, $brs);
-            }
-
-            protected function getOrCreateSession(string $chatId): OperatorBookingSession
-            {
-                return $this->mockSession;
-            }
-
-            /** @phpstan-ignore-next-line */
-            private function activeBooking(OperatorBookingSession $session): ?Booking
-            {
-                return $this->mockBooking;
-            }
-        };
+        $this->patchActiveBooking($session, $booking);
 
         $response = $this->flow->handle('12345', null, 'ops:menu');
 
@@ -621,6 +588,8 @@ class OperatorBookingFlowTest extends TestCase
     /**
      * Replace the OperatorBookingFlow with an anonymous subclass that returns
      * $booking from activeBooking(). Used only by edit-flow tests.
+     *
+     * Requires activeBooking() to be protected in OperatorBookingFlow.
      */
     private function patchActiveBooking(Mockery\MockInterface $session, Booking $booking): void
     {
@@ -646,8 +615,7 @@ class OperatorBookingFlowTest extends TestCase
                 return $this->mockSession;
             }
 
-            /** @phpstan-ignore-next-line */
-            private function activeBooking(OperatorBookingSession $session): ?Booking
+            protected function activeBooking(OperatorBookingSession $session): ?Booking
             {
                 return $this->mockBooking;
             }
