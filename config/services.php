@@ -103,6 +103,12 @@ return [
         'session_timeout' => env('KITCHEN_SESSION_TIMEOUT', 480), // minutes (8h shift)
     ],
 
+    // Operator-only bot for manual tour booking entry (/newbooking command)
+    'ops_bot' => [
+        'token'          => env('OPS_BOT_TOKEN', ''),
+        'webhook_secret' => env('OPS_BOT_WEBHOOK_SECRET', ''),
+        'owner_chat_id'  => env('TELEGRAM_OWNER_CHAT_ID', '38738713'),
+    ],
 
     // Static API key used by mailer-tours.php to authenticate website booking submissions
     'website_booking_api_key' => env('WEBSITE_BOOKING_API_KEY'),
