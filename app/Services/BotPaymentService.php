@@ -9,6 +9,7 @@ use App\Enums\Currency;
 use App\Enums\OverrideTier;
 use App\Exceptions\BookingNotPayableException;
 use App\Exceptions\DuplicateGroupPaymentException;
+use App\Exceptions\DuplicatePaymentException;
 use App\Exceptions\IncompleteGroupSyncException;
 use App\Services\Fx\OverridePolicyEvaluator as FxOverridePolicyEvaluator;
 use App\Exceptions\ManagerApprovalRequiredException;
@@ -108,6 +109,7 @@ class BotPaymentService
      * @throws PaymentBlockedException
      * @throws ManagerApprovalRequiredException
      * @throws BookingNotPayableException
+     * @throws DuplicatePaymentException
      * @throws DuplicateGroupPaymentException
      */
     public function recordPayment(RecordPaymentData $data): CashTransaction
@@ -137,23 +139,31 @@ class BotPaymentService
             );
         }
 
-        // 3. Duplicate group payment guard (before entering DB transaction)
-        $this->guardAgainstDuplicateGroupPayment($data->presentation);
-
         // Soft guard — log if booking already fully paid (does not block)
         $this->warnIfAlreadyFullyPaid($data->presentation, $data->currencyPaid);
 
         return DB::transaction(function () use ($data, $tier, $presented): CashTransaction {
             $p = $data->presentation; // frozen — never re-reads live sync
 
-            // 4. Booking still payable (check inside transaction)
-            // Query by beds24_booking_id, NOT by local PK
-            $booking = Beds24Booking::where('beds24_booking_id', $p->beds24BookingId)->first();
+            // 3+4. Lock the booking row to serialize concurrent payment attempts.
+            //
+            // With lockForUpdate, a second request for the same booking waits until
+            // the first transaction commits before acquiring the lock. At that point
+            // the duplicate-payment guard below sees the committed row and throws,
+            // preventing both standalone double-pays and group-payment races.
+            $booking = Beds24Booking::where('beds24_booking_id', $p->beds24BookingId)
+                ->lockForUpdate()
+                ->first();
+
             if (! $booking || ! $booking->isPayable()) {
                 throw new BookingNotPayableException(
                     "Booking #{$p->beds24BookingId} is no longer in a payable state."
                 );
             }
+
+            // Duplicate payment guard — runs under the booking row lock so it is
+            // race-safe for both standalone and group payments.
+            $this->guardAgainstDuplicatePayment($p);
 
             // 5. Consume manager approval atomically (lockForUpdate inside consume())
             if ($data->managerApproval) {
@@ -235,30 +245,47 @@ class BotPaymentService
     // -------------------------------------------------------------------------
 
     /**
-     * Guard against duplicate group payment.
+     * Guard against duplicate cashier-bot payments.
      *
-     * If the presentation carries a group_master_booking_id, check whether a
-     * group payment already exists for that master — regardless of which sibling
-     * booking ID was used to enter the payment. Blocks with DuplicateGroupPaymentException.
+     * Must be called INSIDE a DB::transaction() after a lockForUpdate() on the
+     * booking row so the check is race-safe under concurrent requests.
      *
-     * Standalone bookings: no-op (guard only applies to grouped payments).
+     * Two tiers:
+     *
+     *  1. Standalone — any prior cashier_bot payment for this exact booking ID
+     *     → DuplicatePaymentException
+     *
+     *  2. Group — any prior group payment sharing the same group_master_booking_id
+     *     (catches sibling attempts even when a different booking ID was entered)
+     *     → DuplicateGroupPaymentException
      */
-    private function guardAgainstDuplicateGroupPayment(PaymentPresentation $p): void
+    private function guardAgainstDuplicatePayment(PaymentPresentation $p): void
     {
-        if (! $p->isGroupPayment || $p->groupMasterBookingId === null) {
-            return;
-        }
-
-        $exists = CashTransaction::where('group_master_booking_id', $p->groupMasterBookingId)
-            ->where('is_group_payment', true)
+        // Tier 1: standalone guard (applies to all bookings, grouped or not)
+        $standaloneDuplicate = CashTransaction::where('beds24_booking_id', $p->beds24BookingId)
             ->where('source_trigger', 'cashier_bot')
             ->exists();
 
-        if ($exists) {
-            throw new DuplicateGroupPaymentException(
-                "A group payment has already been recorded for group master booking #{$p->groupMasterBookingId}. " .
-                "Check the payment history before proceeding."
+        if ($standaloneDuplicate) {
+            throw new DuplicatePaymentException(
+                "A cashier payment has already been recorded for booking #{$p->beds24BookingId}."
             );
+        }
+
+        // Tier 2: group sibling guard — catches the case where a different sibling
+        // of the same group was already paid (different beds24_booking_id, same master)
+        if ($p->isGroupPayment && $p->groupMasterBookingId !== null) {
+            $groupDuplicate = CashTransaction::where('group_master_booking_id', $p->groupMasterBookingId)
+                ->where('is_group_payment', true)
+                ->where('source_trigger', 'cashier_bot')
+                ->exists();
+
+            if ($groupDuplicate) {
+                throw new DuplicateGroupPaymentException(
+                    "A group payment has already been recorded for group master booking #{$p->groupMasterBookingId}. " .
+                    "Check the payment history before proceeding."
+                );
+            }
         }
     }
 
