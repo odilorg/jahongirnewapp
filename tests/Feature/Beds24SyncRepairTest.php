@@ -50,6 +50,13 @@ class Beds24SyncRepairTest extends TestCase
         Queue::fake();
         // Disable FK checks so test fixtures don't need real cashier_shifts / users
         DB::statement('SET FOREIGN_KEY_CHECKS=0');
+        // Purge both tables within this test's transaction scope.
+        // RefreshDatabase wraps each test in a transaction (rolled back in tearDown),
+        // so these deletes are invisible outside this test. This also hides any stale
+        // rows that were committed outside a test transaction (e.g. from manual artisan
+        // runs against the test DB), so tests always see a clean slate.
+        DB::table('beds24_payment_syncs')->delete();
+        DB::table('cash_transactions')->delete();
     }
 
     protected function tearDown(): void
