@@ -98,13 +98,13 @@ class GroupPaymentIntegrationTest extends TestCase
         return BookingFxSync::updateOrCreate(
             ['beds24_booking_id' => $bookingId],
             [
-                'id'                 => $syncId,
                 'usd_final'          => 100.0,
                 'uzs_final'          => 1_280_000,
                 'eur_final'          => 100,
                 'rub_final'          => 9000,
                 'usd_amount_used'    => 100.0,
                 'fx_rate_date'       => today(),
+                'arrival_date_used'  => today(),
                 'push_status'        => 'pushed',
                 'fx_last_pushed_at'  => now(),
             ]
