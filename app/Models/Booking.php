@@ -77,7 +77,22 @@ class Booking extends Model
         
 
         static::updated(function ($booking) {
-            $booking->updateScheduledNotifications();
+            // Fix 2: delete all queued notifications immediately when a booking is cancelled
+            // so staff never receive alerts for a tour that won't run.
+            if ($booking->wasChanged('booking_status') && $booking->booking_status === 'cancelled') {
+                $deleted = \App\Models\ScheduledMessage::where('booking_id', $booking->id)->delete();
+                Log::info("Booking #{$booking->id}: deleted {$deleted} scheduled message(s) on cancellation");
+                return; // nothing left to reschedule
+            }
+
+            // Wrap in try/catch — same reason as the created hook:
+            // infrastructure failures (missing chats table etc.) must never
+            // roll back a successfully saved booking update.
+            try {
+                $booking->updateScheduledNotifications();
+            } catch (\Throwable $e) {
+                Log::error("Booking #{$booking->id}: updateScheduledNotifications failed — {$e->getMessage()}");
+            }
         });
     }
 
@@ -86,9 +101,22 @@ class Booking extends Model
      * - Advance Notification at 48 hours before the tour.
      * - Final Countdown Alerts at 24 hours and 1 hour before the tour.
      * - If none of these times are in the future, send an immediate notification.
+     *
+     * Only runs for confirmed bookings. Pending bookings (website/manual entries
+     * awaiting operator confirmation) must not generate staff alerts — the operator
+     * hasn't verified them yet. Notifications are scheduled when the operator
+     * confirms (status → confirmed triggers updateScheduledNotifications()).
      */
     public function scheduleNotifications()
     {
+        // Fix 1: guard — only confirmed bookings generate notifications.
+        // pending  → operator has not confirmed yet, tour may not run
+        // cancelled → tour will not run, notifications would be ghost alerts
+        if ($this->booking_status !== 'confirmed') {
+            Log::info("Booking #{$this->id}: skipping notifications — status is '{$this->booking_status}', not 'confirmed'");
+            return;
+        }
+
         // Ensure the booking has a tour, a guest, and a start date.
         if (!$this->tour || !$this->guest || !$this->booking_start_date_time) {
             Log::warning("Missing tour, guest, or start date for Booking #{$this->id}.");
