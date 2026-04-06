@@ -18,6 +18,8 @@ class Beds24Booking extends Model
 
     protected $fillable = [
         'beds24_booking_id',
+        'master_booking_id',   // group support: Beds24 master booking ID (null = standalone)
+        'booking_group_size',  // group support: total rooms in group (null = standalone)
         'property_id',
         'room_id',
         'room_name',
@@ -48,6 +50,7 @@ class Beds24Booking extends Model
         'invoice_balance'    => 'decimal:2',
         'num_adults'         => 'integer',
         'num_children'       => 'integer',
+        'booking_group_size' => 'integer',
         'arrival_date'       => 'date',
         'departure_date'     => 'date',
         'beds24_raw_data'    => 'array',

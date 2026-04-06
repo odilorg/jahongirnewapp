@@ -10,6 +10,7 @@ use App\Services\BotPaymentService;
 use App\Services\Fx\Beds24PaymentSyncService;
 use App\Services\Fx\OverridePolicyEvaluator;
 use App\Services\FxManagerApprovalService;
+use App\Services\Cashier\GroupAwareCashierAmountResolver;
 use App\Services\FxSyncService;
 use Tests\TestCase;
 
@@ -46,7 +47,8 @@ class BotPaymentServiceOverrideTest extends TestCase
         $approvals  = $this->createMock(FxManagerApprovalService::class);
         $syncSvc    = $this->createMock(Beds24PaymentSyncService::class);
 
-        $service = new BotPaymentService($fxSync, $evaluator, $approvals, $syncSvc);
+        $groupResolver = $this->createMock(GroupAwareCashierAmountResolver::class);
+        $service = new BotPaymentService($fxSync, $evaluator, $approvals, $syncSvc, $groupResolver);
 
         // Build a presentation showing 1,000,000 UZS; cashier tries to pay 500,000 (50% under)
         $presentation = PaymentPresentation::fromArray([
@@ -88,7 +90,8 @@ class BotPaymentServiceOverrideTest extends TestCase
         $approvals = $this->createMock(FxManagerApprovalService::class);
         $syncSvc   = $this->createMock(Beds24PaymentSyncService::class);
 
-        $service = new BotPaymentService($fxSync, $evaluator, $approvals, $syncSvc);
+        $groupResolver = $this->createMock(GroupAwareCashierAmountResolver::class);
+        $service = new BotPaymentService($fxSync, $evaluator, $approvals, $syncSvc, $groupResolver);
 
         $presentation = PaymentPresentation::fromArray([
             'beds24_booking_id' => 'B_WITHIN_TOLERANCE',
