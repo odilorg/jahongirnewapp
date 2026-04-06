@@ -4,8 +4,10 @@ namespace App\Services;
 
 use App\DTO\PaymentPresentation;
 use App\DTO\RecordPaymentData;
+use App\Enums\Currency;
 use App\Enums\OverrideTier;
 use App\Exceptions\BookingNotPayableException;
+use App\Services\Fx\OverridePolicyEvaluator as FxOverridePolicyEvaluator;
 use App\Exceptions\ManagerApprovalRequiredException;
 use App\Exceptions\PaymentBlockedException;
 use App\Exceptions\StalePaymentSessionException;
@@ -31,8 +33,8 @@ use Illuminate\Support\Facades\Log;
 class BotPaymentService
 {
     public function __construct(
-        private readonly FxSyncService            $fxSync,
-        private readonly OverridePolicyEvaluator   $overridePolicy,
+        private readonly FxSyncService             $fxSync,
+        private readonly FxOverridePolicyEvaluator $overridePolicy,
         private readonly FxManagerApprovalService  $approvalService,
         private readonly Beds24PaymentSyncService  $syncService,
     ) {}
@@ -88,11 +90,13 @@ class BotPaymentService
             );
         }
 
-        // 2. Override policy
-        $presented = $data->presentation->presentedAmountFor($data->currencyPaid);
-        $tier = $this->overridePolicy->evaluate($presented, $data->amountPaid);
+        // 2. Override policy — use canonical Fx evaluator (returns Blocked when threshold exceeded)
+        $presented  = $data->presentation->presentedAmountFor($data->currencyPaid);
+        $currency   = Currency::tryFrom(strtoupper($data->currencyPaid)) ?? Currency::UZS;
+        $evaluation = $this->overridePolicy->evaluate($currency, $presented, $data->amountPaid);
+        $tier       = $evaluation->tier;
 
-        if ($tier === OverrideTier::Blocked) {
+        if ($evaluation->isBlocked()) {
             throw new PaymentBlockedException(
                 'Variance exceeds maximum allowed. Escalate to management offline.'
             );

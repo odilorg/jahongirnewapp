@@ -108,25 +108,41 @@ class FxManagerApprovalService
 
     /**
      * Mark an approval as consumed (called inside the BotPaymentService transaction).
-     * Must be called within an existing DB::transaction with a FOR UPDATE lock held.
+     * Must be called within an existing DB::transaction.
+     *
+     * Re-locks the row with SELECT FOR UPDATE so concurrent payment requests for the
+     * same booking cannot both consume the same manager approval (double-consume race).
+     * The caller's $approval may be stale (fetched before the transaction) — this lock
+     * guarantees we act on the current committed state.
      *
      * @throws ManagerApprovalAlreadyUsedException
+     * @throws ManagerApprovalNotFoundException
      */
     public function consume(FxManagerApproval $approval, int $cashTransactionId): void
     {
-        if ($approval->status === ManagerApprovalStatus::Consumed) {
+        // Re-fetch under a write lock — prevents two concurrent transactions from both
+        // passing the status check using a stale in-memory copy of the model.
+        $locked = FxManagerApproval::where('id', $approval->id)->lockForUpdate()->first();
+
+        if (! $locked) {
+            throw new ManagerApprovalNotFoundException(
+                "Approval #{$approval->id} not found during consume lock."
+            );
+        }
+
+        if ($locked->status === ManagerApprovalStatus::Consumed) {
             throw new ManagerApprovalAlreadyUsedException(
                 "Approval #{$approval->id} has already been consumed."
             );
         }
 
-        if (! $approval->canBeConsumed()) {
+        if (! $locked->canBeConsumed()) {
             throw new ManagerApprovalNotFoundException(
-                "Approval #{$approval->id} cannot be consumed (status: {$approval->status->value})."
+                "Approval #{$approval->id} cannot be consumed (status: {$locked->status->value})."
             );
         }
 
-        $approval->update([
+        $locked->update([
             'status'                      => ManagerApprovalStatus::Consumed->value,
             'resolved_at'                 => now(),
             'used_in_cash_transaction_id' => $cashTransactionId,
