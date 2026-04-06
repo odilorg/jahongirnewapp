@@ -193,8 +193,8 @@ class BookingOpsService
         }
 
         $old = $guest->number_of_people;
+        // Pax count is stored on the Guest record (bookings table has no number_of_people column).
         $guest->update(['number_of_people' => $pax]);
-        $booking->update(['number_of_people' => $pax]);
 
         $this->log($booking, $actor, 'edit_pax', ['number_of_people' => ['old' => $old, 'new' => $pax]]);
     }
