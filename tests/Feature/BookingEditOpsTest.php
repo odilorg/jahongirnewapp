@@ -67,7 +67,6 @@ class BookingEditOpsTest extends TestCase
             'group_name'             => 'Test Group',
             'booking_start_date_time'=> now()->addDays(10)->format('Y-m-d'),
             'dropoff_location'       => 'Registan',
-            'number_of_people'       => 2,
             'created_at'             => now(),
             'updated_at'             => now(),
         ]);
@@ -180,8 +179,8 @@ class BookingEditOpsTest extends TestCase
 
         $this->service->editPax($booking, 5, 'test_actor');
 
+        // Pax count lives on the Guest record; bookings table has no number_of_people column.
         $this->assertSame(5, $booking->guest->fresh()->number_of_people);
-        $this->assertSame(5, (int) $booking->fresh()->number_of_people);
         $this->assertAuditLog($booking, 'edit_pax');
     }
 
