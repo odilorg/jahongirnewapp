@@ -357,9 +357,19 @@ class Beds24WebhookController extends Controller
             'change_type' => $changeType,
         ]);
 
-        // Fix 3 — re-push infoItems if amount or arrival date changed
+        // Fix 3 — re-push infoItems if amount or arrival date changed.
+        // Wrapped in try-catch: FxSync failures must not block checkout notifications
+        // or other alerts (especially critical with QUEUE_CONNECTION=sync where the
+        // job runs inline and a crash would propagate here before dispatchAlert).
         if ($changeType !== 'cancelled') {
-            $this->pushFxInfoItems($booking);
+            try {
+                $this->pushFxInfoItems($booking);
+            } catch (\Throwable $e) {
+                Log::warning('Beds24 Webhook: FxSync failed, proceeding with alert dispatch', [
+                    'booking_id' => $booking->beds24_booking_id,
+                    'error'      => $e->getMessage(),
+                ]);
+            }
         }
 
         // Send appropriate alert
