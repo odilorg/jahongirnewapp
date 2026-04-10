@@ -117,7 +117,12 @@ class FxSyncService
             $infoItems
         );
 
-        // Upsert local record — done after successful push to stay consistent
+        // Upsert local record — done after successful push to stay consistent.
+        // Increment push_attempts in PHP (not DB::raw) — DB::raw breaks Eloquent's
+        // isDirty() dirty-tracking when the queue runs synchronously (QUEUE_CONNECTION=sync).
+        $existing     = BookingFxSync::where('beds24_booking_id', (string) $booking->beds24_booking_id)->first();
+        $pushAttempts = ($existing?->push_attempts ?? 0) + 1;
+
         return BookingFxSync::updateOrCreate(
             ['beds24_booking_id' => (string) $booking->beds24_booking_id],
             [
@@ -132,7 +137,7 @@ class FxSyncService
                 'push_status'            => 'pushed',
                 'fx_last_pushed_at'      => now(),
                 'last_push_error'        => null,
-                'push_attempts'          => DB::raw('COALESCE(push_attempts, 0) + 1'),
+                'push_attempts'          => $pushAttempts,
                 'last_source_trigger'    => $trigger,
                 'infoitems_version'      => (int) config('fx.infoitems_version', 1),
             ]
