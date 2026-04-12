@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -54,14 +55,14 @@ class Beds24Setup extends Command
         // Store in cache (60-day TTL — scheduler will keep it alive via daily rotation)
         Cache::put(self::CACHE_KEY_REFRESH_TOKEN, $refreshToken, now()->addDays(60));
 
+        // Persist to .env — durable floor so Redis loss never leaves a stale fallback
+        $this->writeToEnv($refreshToken);
+
         // Clear any stale access tokens so next request uses the new refresh token
         Cache::forget(self::CACHE_KEY);
         Cache::forget(self::CACHE_KEY_FALLBACK);
 
-        $this->info('✓ Refresh token obtained and cached.');
-        $this->line('');
-        $this->warn('IMPORTANT: Also update BEDS24_API_V2_REFRESH_TOKEN in .env as a fallback:');
-        $this->line($refreshToken);
+        $this->info('✓ Refresh token obtained, cached in Redis, and written to .env.');
         $this->line('');
 
         // Immediately verify by getting an access token
@@ -87,12 +88,34 @@ class Beds24Setup extends Command
         // Beds24 may rotate the refresh token even here
         if (!empty($verifyResult['refreshToken'])) {
             Cache::put(self::CACHE_KEY_REFRESH_TOKEN, $verifyResult['refreshToken'], now()->addDays(60));
-            $this->line('Refresh token rotated after verification — new token cached.');
+            $this->writeToEnv($verifyResult['refreshToken']);
+            $this->line('Refresh token rotated after verification — new token cached and written to .env.');
         }
 
         Log::info('beds24:setup completed — new refresh token bootstrapped');
 
         $this->info("✓ Access token valid for {$expiresIn}s. Beds24 API is ready.");
         return self::SUCCESS;
+    }
+
+    private function writeToEnv(string $token): void
+    {
+        $envPath = app()->environmentFilePath();
+
+        if (! File::exists($envPath) || ! File::isWritable($envPath)) {
+            $this->warn('.env not writable — skipping disk persistence. Update BEDS24_API_V2_REFRESH_TOKEN manually: ' . $token);
+            return;
+        }
+
+        $current = File::get($envPath);
+        $key     = 'BEDS24_API_V2_REFRESH_TOKEN';
+
+        if (str_contains($current, $key . '=')) {
+            $updated = preg_replace('/^' . preg_quote($key, '/') . '=.*/m', $key . '=' . $token, $current);
+        } else {
+            $updated = $current . PHP_EOL . $key . '=' . $token . PHP_EOL;
+        }
+
+        File::put($envPath, $updated);
     }
 }

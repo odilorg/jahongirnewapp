@@ -5,6 +5,7 @@ namespace App\Services;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\File;
 
 class Beds24BookingService
 {
@@ -132,8 +133,11 @@ class Beds24BookingService
 
             // Persist rotated refresh token (Beds24 rotates on each use)
             if (isset($result['refreshToken'])) {
-                Cache::put(self::CACHE_KEY_REFRESH_TOKEN, $result['refreshToken'], now()->addDays(60));
-                $this->refreshToken = $result['refreshToken'];
+                $rotatedToken = $result['refreshToken'];
+                Cache::put(self::CACHE_KEY_REFRESH_TOKEN, $rotatedToken, now()->addDays(60));
+                $this->refreshToken = $rotatedToken;
+                // Write back to .env so Redis loss never leaves us with a stale fallback
+                $this->persistRefreshTokenToEnv($rotatedToken);
                 Log::info('Beds24 refresh token rotated and cached');
             }
 
@@ -974,6 +978,40 @@ class Beds24BookingService
             Log::error('Beds24 updateRoomStatusBatch error', ['error' => $e->getMessage()]);
             return false;
         }
+    }
+
+    /**
+     * Write the rotated refresh token back to .env so that Redis loss never leaves
+     * the service with a stale fallback. Redis is the fast path; .env is the durable floor.
+     *
+     * Uses a simple line-replacement — safe because the key is a single-line scalar.
+     * Silently skips if .env is missing or not writable (e.g. read-only deployments).
+     */
+    private function persistRefreshTokenToEnv(string $token): void
+    {
+        $envPath = app()->environmentFilePath();
+
+        if (! File::exists($envPath) || ! File::isWritable($envPath)) {
+            Log::warning('Beds24: .env not writable — rotated refresh token NOT persisted to disk');
+            return;
+        }
+
+        $current = File::get($envPath);
+        $key     = 'BEDS24_API_V2_REFRESH_TOKEN';
+
+        if (str_contains($current, $key . '=')) {
+            $updated = preg_replace(
+                '/^' . preg_quote($key, '/') . '=.*/m',
+                $key . '=' . $token,
+                $current
+            );
+        } else {
+            $updated = $current . PHP_EOL . $key . '=' . $token . PHP_EOL;
+        }
+
+        File::put($envPath, $updated);
+
+        Log::info('Beds24 rotated refresh token persisted to .env');
     }
 
 }
