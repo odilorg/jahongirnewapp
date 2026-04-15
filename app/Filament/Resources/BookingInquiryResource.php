@@ -696,11 +696,21 @@ class BookingInquiryResource extends Resource
                         }),
                     Infolists\Components\TextEntry::make('pickup_time')->label('Pickup time')->placeholder('—'),
                     Infolists\Components\TextEntry::make('pickup_point')->label('Pickup point')->placeholder('—'),
+                    // Driver/guide — tap the name to open WhatsApp with a
+                    // short assignment message prefilled. Phone is appended
+                    // inline via formatStateUsing because Infolist TextEntry
+                    // has no description() method (only Table columns do).
                     Infolists\Components\TextEntry::make('driver.full_name')
                         ->label('Driver')
                         ->placeholder('—')
-                        ->description(fn ($record) => $record->driver?->phone01)
-                        // Tap → WhatsApp with a short assignment message prefilled.
+                        ->formatStateUsing(function ($state, $record): string {
+                            if (! $state || ! $record->driver) {
+                                return $state ?? '—';
+                            }
+                            $phone = (string) $record->driver->phone01;
+
+                            return $phone ? "{$state} · {$phone}" : $state;
+                        })
                         ->url(fn ($record): ?string => $record->driver
                             ? 'https://wa.me/'
                                 . preg_replace('/[^0-9]/', '', (string) $record->driver->phone01)
@@ -709,7 +719,14 @@ class BookingInquiryResource extends Resource
                     Infolists\Components\TextEntry::make('guide.full_name')
                         ->label('Guide')
                         ->placeholder('—')
-                        ->description(fn ($record) => $record->guide?->phone01)
+                        ->formatStateUsing(function ($state, $record): string {
+                            if (! $state || ! $record->guide) {
+                                return $state ?? '—';
+                            }
+                            $phone = (string) $record->guide->phone01;
+
+                            return $phone ? "{$state} · {$phone}" : $state;
+                        })
                         ->url(fn ($record): ?string => $record->guide
                             ? 'https://wa.me/'
                                 . preg_replace('/[^0-9]/', '', (string) $record->guide->phone01)
