@@ -28,41 +28,78 @@ class DriverDispatchNotifier
      */
     public function dispatchDriver(BookingInquiry $inquiry): array
     {
+        return $this->dispatchSupplier($inquiry, 'driver');
+    }
+
+    /**
+     * @return array{ok: bool, reason?: string, msg_id?: int}
+     */
+    public function dispatchGuide(BookingInquiry $inquiry): array
+    {
+        return $this->dispatchSupplier($inquiry, 'guide');
+    }
+
+    /**
+     * Dispatch to whichever suppliers are assigned. Reports per-recipient
+     * results so the operator's UI can show partial successes ("driver
+     * sent, guide failed") rather than a single all-or-nothing flag.
+     *
+     * @return array{
+     *   driver: ?array{ok: bool, reason?: string, msg_id?: int},
+     *   guide:  ?array{ok: bool, reason?: string, msg_id?: int},
+     * }
+     */
+    public function dispatchAssigned(BookingInquiry $inquiry): array
+    {
+        return [
+            'driver' => $inquiry->driver_id ? $this->dispatchDriver($inquiry) : null,
+            'guide'  => $inquiry->guide_id  ? $this->dispatchGuide($inquiry)  : null,
+        ];
+    }
+
+    /**
+     * Single-supplier dispatch worker. Identical Uzbek brief is sent to
+     * whoever is named — driver and guide use the same template because
+     * they need the same operational context.
+     */
+    private function dispatchSupplier(BookingInquiry $inquiry, string $role): array
+    {
         if (! (bool) config('services.tg_direct.enabled', true)) {
             return ['ok' => false, 'reason' => 'tg_direct_disabled'];
         }
 
-        $driver = $inquiry->driver;
+        $supplier = $role === 'driver' ? $inquiry->driver : $inquiry->guide;
 
-        if (! $driver) {
-            return ['ok' => false, 'reason' => 'no_driver_assigned'];
+        if (! $supplier) {
+            return ['ok' => false, 'reason' => "no_{$role}_assigned"];
         }
 
-        $phone = (string) $driver->phone01;
+        $phone = (string) $supplier->phone01;
 
         if ($phone === '') {
-            return ['ok' => false, 'reason' => 'driver_missing_phone'];
+            return ['ok' => false, 'reason' => "{$role}_missing_phone"];
         }
 
         $message = $this->buildMessage($inquiry);
-
-        $result = $this->tgDirect->send($phone, $message);
+        $result  = $this->tgDirect->send($phone, $message);
 
         if (! ($result['ok'] ?? false)) {
             Log::warning('DriverDispatchNotifier: send failed', [
-                'reference' => $inquiry->reference,
-                'driver_id' => $driver->id,
-                'phone'     => $phone,
-                'result'    => $result,
+                'reference'   => $inquiry->reference,
+                'role'        => $role,
+                'supplier_id' => $supplier->id,
+                'phone'       => $phone,
+                'result'      => $result,
             ]);
 
             return ['ok' => false, 'reason' => $result['error'] ?? 'send_failed'];
         }
 
         Log::info('DriverDispatchNotifier: dispatch sent', [
-            'reference' => $inquiry->reference,
-            'driver_id' => $driver->id,
-            'msg_id'    => $result['msg_id'] ?? null,
+            'reference'   => $inquiry->reference,
+            'role'        => $role,
+            'supplier_id' => $supplier->id,
+            'msg_id'      => $result['msg_id'] ?? null,
         ]);
 
         return [
