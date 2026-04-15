@@ -15,8 +15,9 @@ use Filament\Tables\Table;
 /**
  * Accommodation supplier admin — yurt camps, homestays, hotels.
  *
- * Lives under the same "Bookings" navigation group as the inquiry
- * resource so operators have a single place to manage suppliers.
+ * Lives in the consolidated "Suppliers" navigation group alongside
+ * Drivers, Guides, Cars and Ratings — operators have a single place
+ * to manage all the people/places we contract with for tours.
  * Phase 6 will add a Rate Cards relation manager here for tiered
  * per-occupancy pricing.
  */
@@ -26,8 +27,8 @@ class AccommodationResource extends Resource
 
     protected static ?string $navigationIcon  = 'heroicon-o-home-modern';
     protected static ?string $navigationLabel = 'Accommodations';
-    protected static ?string $navigationGroup = 'Bookings';
-    protected static ?int    $navigationSort  = 5;
+    protected static ?string $navigationGroup = 'Suppliers';
+    protected static ?int    $navigationSort  = 30;
 
     public static function form(Form $form): Form
     {
