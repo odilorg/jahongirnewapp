@@ -1158,10 +1158,20 @@ class BookingInquiryResource extends Resource
                         ->url(fn ($record): ?string => $record->tourProduct
                             ? route('filament.admin.resources.tour-products.edit', ['record' => $record->tourProduct])
                             : null),
+                    // Infolist TextEntry has no description() method
+                    // (that's a Table column API). Inline the code into
+                    // the state so direction reads 'Samarkand → Bukhara (sam-bukhara)'.
                     Infolists\Components\TextEntry::make('tourProductDirection.name')
                         ->label('Direction')
                         ->placeholder('—')
-                        ->description(fn ($record): ?string => $record->tourProductDirection?->code),
+                        ->formatStateUsing(function ($state, $record): string {
+                            if (! $state || ! $record->tourProductDirection) {
+                                return $state ?? '—';
+                            }
+                            $code = $record->tourProductDirection->code;
+
+                            return $code ? "{$state} ({$code})" : $state;
+                        }),
                     Infolists\Components\TextEntry::make('tour_type')
                         ->label('Type')
                         ->badge()
