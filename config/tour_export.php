@@ -34,4 +34,9 @@ return [
     // Rollout tag used for backup filenames during 8.3b-2a rollout.
     // Backups are named <page>.php.<rollout_backup_tag>.
     'rollout_backup_tag' => env('TOUR_EXPORT_ROLLOUT_BACKUP_TAG', 'bak-pricing-loader-20260415'),
+
+    // Global kill switch for the auto-export pipeline (Phase 8.3b-2b).
+    // Defaults to true. Set TOUR_AUTO_EXPORT=false in .env to pause
+    // observer-driven auto-exports without reverting code.
+    'auto_export_enabled' => env('TOUR_AUTO_EXPORT', true),
 ];
