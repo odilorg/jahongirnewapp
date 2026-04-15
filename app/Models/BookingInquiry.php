@@ -40,6 +40,20 @@ class BookingInquiry extends Model
     public const PAYMENT_CASH        = 'cash';
     public const PAYMENT_CARD_OFFICE = 'card_office';
 
+    // Operational lifecycle — parallel to commercial `status`.
+    // A confirmed sale moves through these prep states independently.
+    public const PREP_NOT_PREPARED = 'not_prepared';
+    public const PREP_PREPARED     = 'prepared';
+    public const PREP_DISPATCHED   = 'dispatched';
+    public const PREP_COMPLETED    = 'completed';
+
+    public const PREP_STATUSES = [
+        self::PREP_NOT_PREPARED,
+        self::PREP_PREPARED,
+        self::PREP_DISPATCHED,
+        self::PREP_COMPLETED,
+    ];
+
     protected $fillable = [
         'reference',
         'source',
@@ -63,6 +77,12 @@ class BookingInquiry extends Model
         'paid_at',
         'octo_transaction_id',
         'booking_id',
+        'assigned_driver_name',
+        'assigned_guide_name',
+        'pickup_time',
+        'pickup_point',
+        'operational_notes',
+        'prep_status',
         'status',
         'internal_notes',
         'contacted_at',
