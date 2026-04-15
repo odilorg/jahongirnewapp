@@ -508,9 +508,11 @@ class ImportToursFromStatic extends Command
         $cell = null;
         foreach ($labelVariants as $label) {
             $lower = mb_strtolower($label);
+            // Match <strong> OR <b> — newer multi-day package pages
+            // use <b class=...> while older pages use <strong>.
             $nodes = $xpath->query(sprintf(
                 '//table[contains(@class, "tours-tabs_table")]'
-                . '//td[./strong[translate(normalize-space(text()), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz")=%s]]'
+                . '//td[./*[(self::strong or self::b) and translate(normalize-space(text()), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz")=%s]]'
                 . '/following-sibling::td[1]',
                 $this->xpathLiteral($lower)
             ));
