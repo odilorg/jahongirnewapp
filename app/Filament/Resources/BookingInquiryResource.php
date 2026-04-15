@@ -174,16 +174,9 @@ class BookingInquiryResource extends Resource
                     ])
                     ->multiple(),
 
-                Filter::make('created_at')
-                    ->form([
-                        Forms\Components\DatePicker::make('from')->label('Received from'),
-                        Forms\Components\DatePicker::make('until')->label('Received until'),
-                    ])
-                    ->query(function (Builder $query, array $data): Builder {
-                        return $query
-                            ->when($data['from']  ?? null, fn (Builder $q, $d) => $q->whereDate('created_at', '>=', $d))
-                            ->when($data['until'] ?? null, fn (Builder $q, $d) => $q->whereDate('created_at', '<=', $d));
-                    }),
+                // Custom date-range filter removed temporarily while we
+                // diagnose a getModel() null issue inside filter form init.
+                // Status + source filters are sufficient for v1.
             ])
             ->actions([
                 Tables\Actions\ViewAction::make(),
