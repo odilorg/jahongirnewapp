@@ -30,4 +30,8 @@ return [
 
     // Hard timeout for any child process (php -l, etc), seconds.
     'process_timeout' => 15,
+
+    // Rollout tag used for backup filenames during 8.3b-2a rollout.
+    // Backups are named <page>.php.<rollout_backup_tag>.
+    'rollout_backup_tag' => env('TOUR_EXPORT_ROLLOUT_BACKUP_TAG', 'bak-pricing-loader-20260415'),
 ];
