@@ -461,14 +461,22 @@ class BookingInquiryResource extends Resource
                         ->label('Dispatch via Telegram')
                         ->icon('heroicon-o-paper-airplane')
                         ->color('primary')
-                        ->visible(fn (BookingInquiry $record): bool => $record->driver_id !== null
+                        ->visible(fn (BookingInquiry $record): bool => ($record->driver_id !== null || $record->guide_id !== null)
                             && $record->status === BookingInquiry::STATUS_CONFIRMED)
                         ->requiresConfirmation()
-                        ->modalHeading('Send dispatch to driver')
+                        ->modalHeading('Send dispatch via Telegram')
                         ->modalDescription(function (BookingInquiry $record): string {
-                            $driver = $record->driver;
-                            $warnings = [];
+                            $recipients = [];
+                            if ($record->driver) {
+                                $recipients[] = '🚐 Driver: ' . $record->driver->full_name . ' · ' . ($record->driver->phone01 ?: 'no phone');
+                            }
+                            if ($record->guide) {
+                                $recipients[] = '🧑‍✈️ Guide: ' . $record->guide->full_name . ' · ' . ($record->guide->phone01 ?: 'no phone');
+                            }
 
+                            $desc = "Recipients:\n" . implode("\n", $recipients);
+
+                            $warnings = [];
                             if (blank($record->pickup_time)) {
                                 $warnings[] = '⚠️ Pickup time is empty';
                             }
@@ -476,42 +484,62 @@ class BookingInquiryResource extends Resource
                                 $warnings[] = '⚠️ Pickup point is empty';
                             }
 
-                            $desc = 'Destination: ' . ($driver?->full_name ?? '—')
-                                . ' · ' . ($driver?->phone01 ?? 'no phone');
-
                             if ($warnings !== []) {
                                 $desc .= "\n\n" . implode("\n", $warnings)
-                                    . "\n\nYou can still send — the driver will see '—' where the info is missing.";
+                                    . "\n\nYou can still send — placeholders will show '—' where info is missing.";
                             }
 
                             return $desc;
                         })
                         ->modalSubmitActionLabel('Send dispatch')
                         ->action(function (BookingInquiry $record): void {
-                            $result = app(DriverDispatchNotifier::class)->dispatchDriver($record);
+                            $results = app(DriverDispatchNotifier::class)->dispatchAssigned($record);
 
-                            $stamp    = now()->format('Y-m-d H:i');
+                            $stamp     = now()->format('Y-m-d H:i');
+                            $auditLines = [];
+                            $okCount    = 0;
+                            $failCount  = 0;
+
+                            foreach (['driver', 'guide'] as $role) {
+                                $r = $results[$role] ?? null;
+                                if ($r === null) {
+                                    continue; // not assigned, skip
+                                }
+
+                                $supplier = $role === 'driver' ? $record->driver : $record->guide;
+                                $name     = $supplier?->full_name ?? $role;
+
+                                if ($r['ok']) {
+                                    $auditLines[] = "TG → {$role} {$name} ok (msg_id={$r['msg_id']})";
+                                    $okCount++;
+                                } else {
+                                    $auditLines[] = "⚠️ TG → {$role} {$name} FAILED: " . ($r['reason'] ?? 'unknown');
+                                    $failCount++;
+                                }
+                            }
+
                             $existing = $record->internal_notes ? $record->internal_notes . "\n\n" : '';
+                            $record->update([
+                                'internal_notes' => $existing . "[{$stamp}] " . implode("\n[{$stamp}] ", $auditLines),
+                            ]);
 
-                            if ($result['ok']) {
-                                $record->update([
-                                    'internal_notes' => $existing . "[{$stamp}] TG dispatch sent to driver {$record->driver?->full_name} (msg_id={$result['msg_id']})",
-                                ]);
-
+                            if ($failCount === 0 && $okCount > 0) {
                                 Notification::make()
-                                    ->title('Dispatch sent via Telegram')
-                                    ->body('Message delivered to ' . ($record->driver?->full_name ?? 'driver'))
+                                    ->title('Dispatch sent')
+                                    ->body("Sent to {$okCount} recipient(s) via Telegram.")
                                     ->success()
                                     ->send();
+                            } elseif ($okCount > 0) {
+                                Notification::make()
+                                    ->title('Partial dispatch')
+                                    ->body("{$okCount} sent, {$failCount} failed. Check operator notes for details.")
+                                    ->warning()
+                                    ->persistent()
+                                    ->send();
                             } else {
-                                $reason = $result['reason'] ?? 'unknown';
-                                $record->update([
-                                    'internal_notes' => $existing . "[{$stamp}] ⚠️ TG dispatch to driver FAILED: {$reason}",
-                                ]);
-
                                 Notification::make()
                                     ->title('Dispatch failed')
-                                    ->body("Reason: {$reason}. Check storage/logs/laravel.log for details.")
+                                    ->body('No recipients were reached. Check operator notes / laravel.log.')
                                     ->danger()
                                     ->persistent()
                                     ->send();
