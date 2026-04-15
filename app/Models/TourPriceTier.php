@@ -22,6 +22,8 @@ class TourPriceTier extends Model
 
     protected $fillable = [
         'tour_product_id',
+        'tour_product_direction_id',
+        'tour_type',
         'group_size',
         'price_per_person_usd',
         'notes',
@@ -48,6 +50,11 @@ class TourPriceTier extends Model
     public function tourProduct(): BelongsTo
     {
         return $this->belongsTo(TourProduct::class);
+    }
+
+    public function direction(): BelongsTo
+    {
+        return $this->belongsTo(TourProductDirection::class, 'tour_product_direction_id');
     }
 
     public function totalForGroup(): float

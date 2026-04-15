@@ -73,6 +73,11 @@ class TourProduct extends Model
         return $this->hasMany(TourPriceTier::class)->orderBy('group_size');
     }
 
+    public function directions(): HasMany
+    {
+        return $this->hasMany(TourProductDirection::class)->orderBy('sort_order');
+    }
+
     public function bookingInquiries(): HasMany
     {
         // Phase 8.2 will add tour_product_id FK on booking_inquiries
@@ -81,33 +86,60 @@ class TourProduct extends Model
     }
 
     /**
-     * Find the price-per-person for the given group size.
-     * Falls back to the next-larger tier when no exact match exists,
-     * because pricing is usually generous on group size (a 5-person
-     * group can usually get a 4-person tier price if 5 isn't listed).
+     * Find the best-matching price tier for (pax, direction, type).
+     *
+     * Resolution order:
+     *   1. Direction-specific tier with exact group_size for the given type
+     *   2. Global (direction=null) tier with exact group_size for the given type
+     *   3. Direction-specific tier with largest group_size ≤ pax
+     *   4. Global tier with largest group_size ≤ pax
+     *
+     * Direction-specific tiers always beat global tiers at the same
+     * level. Pricing is generous on group size (a 5-person group
+     * qualifies for the 4-person tier rate if 5 isn't listed).
      */
-    public function priceFor(int $groupSize): ?TourPriceTier
+    public function priceFor(int $groupSize, ?string $directionCode = null, string $type = self::TYPE_PRIVATE): ?TourPriceTier
     {
         if ($groupSize < 1) {
             return null;
         }
 
-        // Exact match first.
-        $exact = $this->priceTiers
-            ->where('is_active', true)
-            ->firstWhere('group_size', $groupSize);
-
-        if ($exact) {
-            return $exact;
+        $directionId = null;
+        if ($directionCode !== null) {
+            $directionId = $this->directions
+                ->where('is_active', true)
+                ->firstWhere('code', $directionCode)?->id;
         }
 
-        // Fallback: largest tier <= group size (usually the cheapest
-        // tier the group qualifies for).
-        return $this->priceTiers
+        $candidates = $this->priceTiers
             ->where('is_active', true)
+            ->where('tour_type', $type)
+            ->filter(function (TourPriceTier $tier) use ($directionId): bool {
+                // Match this direction, or global (null) if no direction
+                // was asked for OR as a fallback.
+                return $tier->tour_product_direction_id === $directionId
+                    || $tier->tour_product_direction_id === null;
+            });
+
+        $pick = function ($collection) use ($directionId) {
+            // Prefer direction-specific (non-null) over global (null).
+            return $collection->sortByDesc(
+                fn (TourPriceTier $t) => $t->tour_product_direction_id === $directionId ? 1 : 0
+            )->first();
+        };
+
+        // 1/2: exact match
+        $exact = $candidates->where('group_size', $groupSize);
+        if ($exact->isNotEmpty()) {
+            return $pick($exact);
+        }
+
+        // 3/4: largest tier ≤ pax
+        $fallback = $candidates
             ->where('group_size', '<=', $groupSize)
-            ->sortByDesc('group_size')
-            ->first();
+            ->sortByDesc('group_size');
+
+        return $pick($fallback);
     }
 
     /**

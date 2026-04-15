@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Filament\Resources\TourProductResource\RelationManagers;
 
+use App\Models\TourProduct;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\RelationManagers\RelationManager;
@@ -11,11 +12,18 @@ use Filament\Tables;
 use Filament\Tables\Table;
 
 /**
- * Inline price tier editor on the Tour Product edit page.
+ * Price tiers on a tour product — scoped by direction + type + group size.
  *
- * Operators add one row per group size with the per-person USD price.
- * Saving a tier triggers TourPriceTier::booted() → recalculates the
- * parent's cached starting_from_usd so list views stay accurate.
+ * Direction is nullable: a NULL direction means "applies to all directions
+ * of this product" (a global tier). A specific direction takes precedence
+ * over a global tier for that direction when pricing is resolved.
+ *
+ * Type is private or group — a tour product can carry both sets of tiers
+ * simultaneously and TourProduct::priceFor() picks the right one at
+ * quote time based on the inquiry's type.
+ *
+ * Saving a tier triggers the parent's recalculateStartingPrice() so the
+ * cached "starting from" value on the product row stays accurate.
  */
 class PriceTiersRelationManager extends RelationManager
 {
@@ -28,6 +36,31 @@ class PriceTiersRelationManager extends RelationManager
     public function form(Form $form): Form
     {
         return $form->schema([
+            Forms\Components\Select::make('tour_product_direction_id')
+                ->label('Direction')
+                ->options(function () {
+                    /** @var TourProduct $tour */
+                    $tour = $this->getOwnerRecord();
+
+                    return $tour->directions()
+                        ->orderBy('sort_order')
+                        ->get()
+                        ->mapWithKeys(fn ($d) => [$d->id => "{$d->name} ({$d->code})"]);
+                })
+                ->placeholder('All directions (global tier)')
+                ->helperText('Leave blank for a price that applies to every direction.')
+                ->native(false),
+
+            Forms\Components\Select::make('tour_type')
+                ->label('Type')
+                ->options([
+                    TourProduct::TYPE_PRIVATE => 'Private',
+                    TourProduct::TYPE_GROUP   => 'Group',
+                ])
+                ->default(TourProduct::TYPE_PRIVATE)
+                ->required()
+                ->native(false),
+
             Forms\Components\TextInput::make('group_size')
                 ->label('Group size')
                 ->numeric()
@@ -56,6 +89,15 @@ class PriceTiersRelationManager extends RelationManager
         return $table
             ->defaultSort('group_size')
             ->columns([
+                Tables\Columns\TextColumn::make('direction.code')
+                    ->label('Direction')
+                    ->placeholder('all')
+                    ->fontFamily('mono')
+                    ->sortable(),
+                Tables\Columns\TextColumn::make('tour_type')
+                    ->label('Type')
+                    ->badge()
+                    ->color(fn (string $state) => $state === TourProduct::TYPE_GROUP ? 'info' : 'gray'),
                 Tables\Columns\TextColumn::make('group_size')
                     ->label('Group')
                     ->alignCenter()
@@ -70,7 +112,8 @@ class PriceTiersRelationManager extends RelationManager
                     ->state(fn ($record): float => $record->totalForGroup()),
                 Tables\Columns\TextColumn::make('notes')
                     ->wrap()
-                    ->limit(60),
+                    ->limit(60)
+                    ->toggleable(),
                 Tables\Columns\IconColumn::make('is_active')
                     ->boolean(),
             ])

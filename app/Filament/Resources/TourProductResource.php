@@ -219,6 +219,7 @@ class TourProductResource extends Resource
     public static function getRelations(): array
     {
         return [
+            RelationManagers\DirectionsRelationManager::class,
             RelationManagers\PriceTiersRelationManager::class,
         ];
     }
