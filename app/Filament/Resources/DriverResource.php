@@ -42,7 +42,7 @@ class DriverResource extends Resource
 
     protected static ?string $navigationIcon = 'heroicon-o-cube-transparent';
 
-    protected static ?string $navigationGroup = 'Suppliers';
+    protected static ?string $navigationGroup = 'Tours';
     protected static ?int    $navigationSort  = 10;
 
     public static function form(Form $form): Form
