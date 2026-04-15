@@ -21,8 +21,8 @@ class Kernel extends ConsoleKernel
      */
     protected function schedule(Schedule $schedule): void
     {
-        // Existing: run scheduled messages every minute
-        $schedule->command('app:send-scheduled-messages')->everyMinute();
+        // Removed 2026-04-15: app:send-scheduled-messages scheduler disabled
+        // (scheduled_messages table unused; feature deprecated)
 
         // Beds24 token refresh - every 20 hours (well before 24h expiry)
         $schedule->command('beds24:refresh-token')
