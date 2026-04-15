@@ -46,7 +46,10 @@ class StoreBookingInquiryRequest extends FormRequest
             'people_adults'   => ['required', 'integer', 'min:1', 'max:50'],
             'people_children' => ['nullable', 'integer', 'min:0', 'max:50'],
 
-            'travel_date'    => ['nullable', 'date', 'after_or_equal:today'],
+            // Deliberately accept past dates: an inquiry for "last weekend" is
+            // still a valid lead an operator should see. We'd rather capture
+            // a quirky date and let the operator clarify than reject the row.
+            'travel_date'    => ['nullable', 'date'],
             'flexible_dates' => ['nullable', 'boolean'],
 
             'message' => ['nullable', 'string', 'max:5000'],
