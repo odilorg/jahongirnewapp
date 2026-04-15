@@ -19,6 +19,7 @@ use Filament\Infolists;
 use Filament\Infolists\Infolist;
 use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
+use Illuminate\Support\HtmlString;
 use Filament\Support\Enums\Alignment;
 use Filament\Support\Enums\FontWeight;
 use Filament\Tables;
@@ -596,6 +597,12 @@ class BookingInquiryResource extends Resource
                             && $record->status !== BookingInquiry::STATUS_SPAM
                             && $record->status !== BookingInquiry::STATUS_CANCELLED
                             && blank($record->payment_link))
+                        // Prefill from price_quoted (Phase 8.3a) so a catalog-calculated
+                        // quote flows straight through to Octo without retyping.
+                        // Operator can still override in the modal.
+                        ->fillForm(fn (BookingInquiry $record): array => [
+                            'price' => $record->price_quoted ? (string) $record->price_quoted : '',
+                        ])
                         ->form([
                             Forms\Components\TextInput::make('price')
                                 ->label('Total price for group (USD)')
@@ -693,6 +700,141 @@ class BookingInquiryResource extends Resource
                                 'contacted_at' => $record->contacted_at ?: now(),
                             ]);
                             Notification::make()->title('Marked as contacted')->success()->send();
+                        }),
+
+                    // ── Phase 8.3a: Calculate quote from tour catalog ──
+                    //
+                    // Strict rules (per handoff):
+                    //  - Modal ONLY opens on successful tier resolution.
+                    //  - No silent default for tour_type — operator must
+                    //    have set it on the inquiry first.
+                    //  - No "apply without a matched tier" path — if
+                    //    priceFor() returns null, we fire a danger toast
+                    //    and cancel the modal mount so there is a hard
+                    //    separation between "calculated from catalog"
+                    //    and "manual override".
+                    //  - Audit note explicitly records exact-vs-fallback
+                    //    so later debugging/trust is easy.
+                    Tables\Actions\Action::make('calculateQuote')
+                        ->label('Calculate quote')
+                        ->icon('heroicon-o-calculator')
+                        ->color('success')
+                        ->visible(fn (BookingInquiry $record): bool => $record->tour_product_id !== null
+                            && $record->status !== BookingInquiry::STATUS_SPAM
+                            && $record->status !== BookingInquiry::STATUS_CANCELLED)
+                        ->mountUsing(function (Tables\Actions\Action $action, BookingInquiry $record): void {
+                            $ctx = static::resolveQuoteContext($record);
+
+                            if (! $ctx['ok']) {
+                                Notification::make()
+                                    ->title('Cannot calculate quote')
+                                    ->body($ctx['error'])
+                                    ->danger()
+                                    ->persistent()
+                                    ->send();
+
+                                $action->halt();
+                            }
+                        })
+                        ->fillForm(function (BookingInquiry $record): array {
+                            $ctx = static::resolveQuoteContext($record);
+
+                            return [
+                                'price' => $ctx['ok'] ? (string) $ctx['total'] : '',
+                            ];
+                        })
+                        ->form([
+                            Forms\Components\Placeholder::make('quote_preview')
+                                ->label('Matched tier')
+                                ->content(function (BookingInquiry $record): HtmlString {
+                                    $ctx = static::resolveQuoteContext($record);
+
+                                    if (! $ctx['ok']) {
+                                        return new HtmlString(
+                                            '<span style="color:#dc2626;">⚠ ' . e($ctx['error']) . '</span>'
+                                        );
+                                    }
+
+                                    $tier = $ctx['tier'];
+                                    $kind = $ctx['is_fallback']
+                                        ? '<span style="color:#d97706;">fallback</span>'
+                                        : '<span style="color:#059669;">exact match</span>';
+
+                                    $lines = [
+                                        '<strong>' . e($record->tourProduct->title) . '</strong>',
+                                        'Direction: <code>' . e($ctx['direction_code'] ?? '(global)') . '</code>',
+                                        'Type: <code>' . e($record->tour_type) . '</code>',
+                                        'Pax: ' . $record->people_adults . ' adults + ' . (int) $record->people_children . ' children = <strong>' . $ctx['pax'] . ' total</strong>',
+                                        '',
+                                        'Tier: <strong>group_size=' . $tier->group_size . ' @ $' . number_format((float) $tier->price_per_person_usd, 2) . '/person</strong> ' . $kind,
+                                        'Computed total: <strong>$' . number_format($ctx['total'], 2) . '</strong>',
+                                    ];
+
+                                    return new HtmlString(implode('<br>', $lines));
+                                })
+                                ->columnSpanFull(),
+
+                            Forms\Components\TextInput::make('price')
+                                ->label('Quote (USD)')
+                                ->prefix('$')
+                                ->numeric()
+                                ->step('0.01')
+                                ->minValue(0)
+                                ->required()
+                                ->helperText('Prefilled from the matched tier. You can override before applying.'),
+                        ])
+                        ->modalHeading('Calculate quote from tour rates')
+                        ->modalSubmitActionLabel('Apply quote')
+                        ->action(function (BookingInquiry $record, array $data): void {
+                            // Re-resolve at apply time so the audit note
+                            // reflects the state we actually wrote against,
+                            // not what was shown when the modal opened.
+                            $ctx = static::resolveQuoteContext($record);
+
+                            if (! $ctx['ok']) {
+                                Notification::make()
+                                    ->title('Cannot apply quote')
+                                    ->body($ctx['error'])
+                                    ->danger()
+                                    ->send();
+
+                                return;
+                            }
+
+                            $tier = $ctx['tier'];
+                            $finalPrice = (float) $data['price'];
+                            $overrode = abs($finalPrice - (float) $ctx['total']) > 0.005;
+
+                            $record->update([
+                                'price_quoted' => $finalPrice,
+                                'currency'     => $record->currency ?? 'USD',
+                            ]);
+
+                            $stamp = now()->format('Y-m-d H:i');
+                            $note = sprintf(
+                                '[%s] Quote calculated from catalog: product=%s dir=%s type=%s pax=%d → %s group_size=%d @ $%s → total $%s%s',
+                                $stamp,
+                                $record->tourProduct->slug,
+                                $ctx['direction_code'] ?? '(global)',
+                                $record->tour_type,
+                                $ctx['pax'],
+                                $ctx['is_fallback'] ? 'fallback tier' : 'exact tier',
+                                $tier->group_size,
+                                number_format((float) $tier->price_per_person_usd, 2),
+                                number_format($finalPrice, 2),
+                                $overrode ? ' (operator override from $' . number_format($ctx['total'], 2) . ')' : '',
+                            );
+
+                            $existing = $record->internal_notes ? $record->internal_notes . "\n\n" : '';
+                            $record->update([
+                                'internal_notes' => $existing . $note,
+                            ]);
+
+                            Notification::make()
+                                ->title('Quote applied')
+                                ->body('price_quoted = $' . number_format($finalPrice, 2) . ($overrode ? ' (overridden)' : ''))
+                                ->success()
+                                ->send();
                         }),
 
                     // ── Operations quick actions (prep lifecycle) ───────
@@ -872,6 +1014,12 @@ class BookingInquiryResource extends Resource
                         ->visible(fn (BookingInquiry $record): bool => $record->status !== BookingInquiry::STATUS_CONFIRMED
                             && $record->status !== BookingInquiry::STATUS_SPAM
                             && $record->status !== BookingInquiry::STATUS_CANCELLED)
+                        // Prefill the amount from price_quoted (Phase 8.3a)
+                        // so cash/card confirmations inherit the calculator
+                        // result without retyping.
+                        ->fillForm(fn (BookingInquiry $record): array => [
+                            'price' => $record->price_quoted ? (string) $record->price_quoted : null,
+                        ])
                         ->form([
                             Forms\Components\Radio::make('payment_method')
                                 ->label('Payment method')
@@ -1260,5 +1408,89 @@ class BookingInquiryResource extends Resource
             ->body('Message prefilled — review and send from WhatsApp.')
             ->success()
             ->send();
+    }
+
+    /**
+     * Phase 8.3a — resolve a quote context from an inquiry + catalog.
+     *
+     * Returns a structured array used by the Calculate Quote action to
+     * gate modal mount, render the Placeholder preview, and write the
+     * audit note. Never throws — always returns a result with ok=false
+     * and a human error string when any precondition fails.
+     *
+     * Preconditions enforced (strict — no silent defaults):
+     *   1. tour_product_id must be set (operator linked the inquiry)
+     *   2. tour_type must be set (no fallback to private, operator must pick)
+     *   3. people_adults + people_children >= 1
+     *   4. tourProduct's priceFor() must return a non-null tier
+     *
+     * @return array{
+     *   ok: bool,
+     *   error: ?string,
+     *   tier: ?\App\Models\TourPriceTier,
+     *   pax: int,
+     *   total: float,
+     *   is_fallback: bool,
+     *   direction_code: ?string,
+     * }
+     */
+    protected static function resolveQuoteContext(BookingInquiry $record): array
+    {
+        $empty = [
+            'ok'             => false,
+            'error'          => null,
+            'tier'           => null,
+            'pax'            => 0,
+            'total'          => 0.0,
+            'is_fallback'    => false,
+            'direction_code' => null,
+        ];
+
+        if ($record->tour_product_id === null) {
+            return array_merge($empty, ['error' => 'No tour product linked. Edit the inquiry and pick a product from the catalog first.']);
+        }
+
+        if ($record->tour_type === null) {
+            return array_merge($empty, ['error' => 'Tour type is not set. Edit the inquiry → Trip section → Type (private/group) before calculating.']);
+        }
+
+        $pax = (int) $record->people_adults + (int) ($record->people_children ?? 0);
+        if ($pax < 1) {
+            return array_merge($empty, ['error' => 'Traveller count is zero. Set at least 1 adult on the inquiry.']);
+        }
+
+        $product = $record->tourProduct;
+        if (! $product) {
+            return array_merge($empty, ['error' => 'Linked tour product not found in catalog (may have been deleted).']);
+        }
+
+        // Eager-load what priceFor() walks so we don't hit N+1 inside a loop.
+        $product->loadMissing(['priceTiers', 'directions']);
+
+        $directionCode = $record->tourProductDirection?->code;
+        $tier = $product->priceFor($pax, $directionCode, $record->tour_type);
+
+        if (! $tier) {
+            $directionLabel = $directionCode ?? '(any)';
+
+            return array_merge($empty, [
+                'pax'            => $pax,
+                'direction_code' => $directionCode,
+                'error'          => "No matching price tier for {$pax} pax · type={$record->tour_type} · direction={$directionLabel}. Add a tier in Tour Products → {$product->slug} → Price tiers.",
+            ]);
+        }
+
+        $isFallback = (int) $tier->group_size !== $pax;
+        $total = round((float) $tier->price_per_person_usd * $pax, 2);
+
+        return [
+            'ok'             => true,
+            'error'          => null,
+            'tier'           => $tier,
+            'pax'            => $pax,
+            'total'          => $total,
+            'is_fallback'    => $isFallback,
+            'direction_code' => $directionCode,
+        ];
     }
 }
