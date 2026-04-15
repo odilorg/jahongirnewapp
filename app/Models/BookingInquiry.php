@@ -21,6 +21,7 @@ class BookingInquiry extends Model
     public const STATUS_NEW               = 'new';
     public const STATUS_CONTACTED         = 'contacted';
     public const STATUS_AWAITING_CUSTOMER = 'awaiting_customer';
+    public const STATUS_AWAITING_PAYMENT  = 'awaiting_payment';
     public const STATUS_CONFIRMED         = 'confirmed';
     public const STATUS_CANCELLED         = 'cancelled';
     public const STATUS_SPAM              = 'spam';
@@ -29,10 +30,15 @@ class BookingInquiry extends Model
         self::STATUS_NEW,
         self::STATUS_CONTACTED,
         self::STATUS_AWAITING_CUSTOMER,
+        self::STATUS_AWAITING_PAYMENT,
         self::STATUS_CONFIRMED,
         self::STATUS_CANCELLED,
         self::STATUS_SPAM,
     ];
+
+    public const PAYMENT_ONLINE      = 'online';
+    public const PAYMENT_CASH        = 'cash';
+    public const PAYMENT_CARD_OFFICE = 'card_office';
 
     protected $fillable = [
         'reference',
@@ -49,6 +55,14 @@ class BookingInquiry extends Model
         'travel_date',
         'flexible_dates',
         'message',
+        'price_quoted',
+        'currency',
+        'payment_method',
+        'payment_link',
+        'payment_link_sent_at',
+        'paid_at',
+        'octo_transaction_id',
+        'booking_id',
         'status',
         'internal_notes',
         'contacted_at',
@@ -60,12 +74,15 @@ class BookingInquiry extends Model
     ];
 
     protected $casts = [
-        'travel_date'    => 'date',
-        'flexible_dates' => 'boolean',
-        'contacted_at'   => 'datetime',
-        'confirmed_at'   => 'datetime',
-        'cancelled_at'   => 'datetime',
-        'submitted_at'   => 'datetime',
+        'travel_date'          => 'date',
+        'flexible_dates'       => 'boolean',
+        'price_quoted'         => 'decimal:2',
+        'payment_link_sent_at' => 'datetime',
+        'paid_at'              => 'datetime',
+        'contacted_at'         => 'datetime',
+        'confirmed_at'         => 'datetime',
+        'cancelled_at'         => 'datetime',
+        'submitted_at'         => 'datetime',
     ];
 
     /**

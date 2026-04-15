@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use App\Models\Booking;
+use App\Models\BookingInquiry;
 
 class OctoPaymentService
 {
@@ -206,5 +207,101 @@ class OctoPaymentService
         }
 
         return $json['data']['octo_pay_url'];
+    }
+
+    /**
+     * Create an Octo one-stage payment link for a website booking inquiry.
+     *
+     * Parallel to createPaymentLink() but decoupled from the legacy Booking /
+     * Guest / tours schema. Uses `inquiry_{id}_{random}` as the transaction
+     * prefix so OctoCallbackController can route the webhook to the inquiry
+     * pipeline instead of the legacy booking pipeline.
+     *
+     * @return array{url: string, transaction_id: string, uzs_amount: int}
+     *   The payment URL to send to the customer, the shop_transaction_id
+     *   persisted on the inquiry for webhook lookup, and the UZS amount
+     *   actually charged (for the operator's records).
+     *
+     * @throws \Exception If the Octo request fails or the response is malformed.
+     */
+    public function createPaymentLinkForInquiry(BookingInquiry $inquiry, float $usdAmount): array
+    {
+        $exchangeRate = $this->getExchangeRate();
+        $uzsAmount    = (int) round($usdAmount * $exchangeRate);
+
+        $transactionId = 'inquiry_' . $inquiry->id . '_' . Str::random(6);
+
+        $description = "Jahongir Travel {$inquiry->reference} — "
+            . mb_strimwidth((string) $inquiry->tour_name_snapshot, 0, 120, '…');
+
+        $payload = [
+            'octo_shop_id'        => (int) $this->shopId,
+            'octo_secret'         => $this->secret,
+            'shop_transaction_id' => $transactionId,
+            'auto_capture'        => true,
+            'init_time'           => now()->format('Y-m-d H:i:s'),
+            'test'                => false,
+            'user_data'           => [
+                // Embed reference + human context so Octo's dashboard / logs
+                // show something recognisable when reconciling payments.
+                'user_id' => $inquiry->reference . ' / ' . $inquiry->customer_name,
+                'phone'   => (string) $inquiry->customer_phone,
+                'email'   => (string) $inquiry->customer_email,
+            ],
+            'total_sum'   => $uzsAmount,
+            'currency'    => 'UZS',
+            'description' => $description,
+            'basket'      => [
+                [
+                    'position_desc' => $description,
+                    'count'         => 1,
+                    'price'         => $uzsAmount,
+                    'spic'          => 'N/A',
+                ],
+            ],
+            'payment_methods' => [
+                ['method' => 'bank_card'],
+            ],
+            'tsp_id'     => $this->tspId ? (int) $this->tspId : null,
+            'return_url' => url('/payment/success'),
+            'notify_url' => route('octo.callback'),
+            'language'   => 'en',
+            'ttl'        => 5000,
+        ];
+
+        if (! $payload['tsp_id']) {
+            unset($payload['tsp_id']);
+        }
+
+        Log::info('Octo Payment Request Payload (inquiry)', [
+            'reference'     => $inquiry->reference,
+            'transaction'   => $transactionId,
+            'usd'           => $usdAmount,
+            'uzs'           => $uzsAmount,
+            'exchange_rate' => $exchangeRate,
+        ]);
+
+        $response = Http::post($this->apiUrl, $payload);
+
+        Log::info('Octo Payment Response (inquiry)', [
+            'reference' => $inquiry->reference,
+            'status'    => $response->status(),
+            'body'      => $response->body(),
+        ]);
+
+        if (! $response->successful()) {
+            throw new \Exception('Octo payment link creation failed: ' . $response->body());
+        }
+
+        $json = $response->json();
+        if (! isset($json['data']['octo_pay_url'])) {
+            throw new \Exception('No "octo_pay_url" in Octo response: ' . $response->body());
+        }
+
+        return [
+            'url'            => $json['data']['octo_pay_url'],
+            'transaction_id' => $transactionId,
+            'uzs_amount'     => $uzsAmount,
+        ];
     }
 }
