@@ -42,6 +42,18 @@ class BookingInquiry extends Model
     public const PAYMENT_CASH        = 'cash';
     public const PAYMENT_CARD_OFFICE = 'card_office';
 
+    // Tour type (private / group) — matches TourProduct::TYPE_*.
+    // Stored on the inquiry so the quote calculator can resolve the
+    // correct pricing tier even if the underlying tour product later
+    // shifts its default type.
+    public const TOUR_TYPE_PRIVATE = 'private';
+    public const TOUR_TYPE_GROUP   = 'group';
+
+    public const TOUR_TYPES = [
+        self::TOUR_TYPE_PRIVATE,
+        self::TOUR_TYPE_GROUP,
+    ];
+
     // Operational lifecycle — parallel to commercial `status`.
     // A confirmed sale moves through these prep states independently.
     public const PREP_NOT_PREPARED = 'not_prepared';
@@ -61,6 +73,9 @@ class BookingInquiry extends Model
         'source',
         'tour_slug',
         'tour_name_snapshot',
+        'tour_product_id',
+        'tour_product_direction_id',
+        'tour_type',
         'page_url',
         'customer_name',
         'customer_email',
@@ -117,6 +132,27 @@ class BookingInquiry extends Model
     public function guide(): BelongsTo
     {
         return $this->belongsTo(Guide::class);
+    }
+
+    /**
+     * Catalog link — the tour PRODUCT this inquiry corresponds to.
+     * Nullable: inquiries for tours not yet in the catalog, or
+     * historical rows where no match was found at backfill time,
+     * still work via tour_slug/tour_name_snapshot fallback.
+     */
+    public function tourProduct(): BelongsTo
+    {
+        return $this->belongsTo(TourProduct::class);
+    }
+
+    /**
+     * Catalog link — the route variant (sam-bukhara, sam-sam, etc.)
+     * within the tour product. Backfill leaves this null for any
+     * tour product with multiple directions (ambiguous route).
+     */
+    public function tourProductDirection(): BelongsTo
+    {
+        return $this->belongsTo(TourProductDirection::class);
     }
 
     public function stays(): HasMany
