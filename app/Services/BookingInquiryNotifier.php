@@ -22,6 +22,21 @@ class BookingInquiryNotifier
 {
     public function notify(BookingInquiry $inquiry): void
     {
+        $this->send($inquiry, $this->buildMessage($inquiry));
+    }
+
+    /**
+     * Send a 💰 "payment received" Telegram notification when Octo's
+     * webhook confirms a successful payment for an inquiry. Called from
+     * OctoCallbackController::handleInquiryCallback().
+     */
+    public function notifyPaid(BookingInquiry $inquiry, string $uzsAmount = ''): void
+    {
+        $this->send($inquiry, $this->buildPaidMessage($inquiry, $uzsAmount));
+    }
+
+    private function send(BookingInquiry $inquiry, string $text): void
+    {
         $token  = (string) config('services.ops_bot.token');
         $chatId = (string) config('services.ops_bot.owner_chat_id');
 
@@ -32,8 +47,6 @@ class BookingInquiryNotifier
 
             return;
         }
-
-        $text = $this->buildMessage($inquiry);
 
         $response = Http::timeout(5)
             ->connectTimeout(3)
@@ -51,6 +64,31 @@ class BookingInquiryNotifier
                 'body'      => mb_substr($response->body(), 0, 300),
             ]);
         }
+    }
+
+    private function buildPaidMessage(BookingInquiry $inquiry, string $uzsAmount): string
+    {
+        $quoted = $inquiry->price_quoted
+            ? '$' . number_format((float) $inquiry->price_quoted, 2)
+            : '—';
+
+        $lines = [
+            '💰 <b>Payment received</b>',
+            "<code>{$inquiry->reference}</code>",
+            '',
+            '🧳 <b>Tour:</b> ' . htmlspecialchars((string) $inquiry->tour_name_snapshot, ENT_QUOTES, 'UTF-8'),
+            '👤 <b>Customer:</b> ' . htmlspecialchars((string) $inquiry->customer_name, ENT_QUOTES, 'UTF-8'),
+            "💵 <b>Quoted:</b> {$quoted} USD",
+        ];
+
+        if ($uzsAmount !== '' && $uzsAmount !== null) {
+            $lines[] = '🧾 <b>Paid:</b> ' . number_format((float) $uzsAmount) . ' UZS';
+        }
+
+        $lines[] = '';
+        $lines[] = '✅ Inquiry marked confirmed. Ready for booking handoff.';
+
+        return implode("\n", $lines);
     }
 
     private function buildMessage(BookingInquiry $inquiry): string

@@ -7,6 +7,7 @@ namespace App\Filament\Resources;
 use App\Filament\Resources\BookingInquiryResource\Pages;
 use App\Models\BookingInquiry;
 use App\Services\InquiryTemplateRenderer;
+use App\Services\OctoPaymentService;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Infolists;
@@ -69,6 +70,7 @@ class BookingInquiryResource extends Resource
                             BookingInquiry::STATUS_NEW               => 'New',
                             BookingInquiry::STATUS_CONTACTED         => 'Contacted',
                             BookingInquiry::STATUS_AWAITING_CUSTOMER => 'Awaiting customer',
+                            BookingInquiry::STATUS_AWAITING_PAYMENT  => 'Awaiting payment',
                             BookingInquiry::STATUS_CONFIRMED         => 'Confirmed',
                             BookingInquiry::STATUS_CANCELLED         => 'Cancelled',
                             BookingInquiry::STATUS_SPAM              => 'Spam',
@@ -142,6 +144,7 @@ class BookingInquiryResource extends Resource
                                 BookingInquiry::STATUS_NEW               => 'New',
                                 BookingInquiry::STATUS_CONTACTED         => 'Contacted',
                                 BookingInquiry::STATUS_AWAITING_CUSTOMER => 'Awaiting',
+                                BookingInquiry::STATUS_AWAITING_PAYMENT  => 'Awaiting pay',
                                 BookingInquiry::STATUS_CONFIRMED         => 'Confirmed',
                                 BookingInquiry::STATUS_CANCELLED         => 'Cancelled',
                                 BookingInquiry::STATUS_SPAM              => 'Spam',
@@ -151,6 +154,7 @@ class BookingInquiryResource extends Resource
                                 BookingInquiry::STATUS_NEW               => 'warning',
                                 BookingInquiry::STATUS_CONTACTED         => 'info',
                                 BookingInquiry::STATUS_AWAITING_CUSTOMER => 'primary',
+                                BookingInquiry::STATUS_AWAITING_PAYMENT  => 'warning',
                                 BookingInquiry::STATUS_CONFIRMED         => 'success',
                                 BookingInquiry::STATUS_CANCELLED         => 'gray',
                                 BookingInquiry::STATUS_SPAM              => 'danger',
@@ -171,6 +175,7 @@ class BookingInquiryResource extends Resource
                         BookingInquiry::STATUS_NEW               => 'New',
                         BookingInquiry::STATUS_CONTACTED         => 'Contacted',
                         BookingInquiry::STATUS_AWAITING_CUSTOMER => 'Awaiting customer',
+                        BookingInquiry::STATUS_AWAITING_PAYMENT  => 'Awaiting payment',
                         BookingInquiry::STATUS_CONFIRMED         => 'Confirmed',
                         BookingInquiry::STATUS_CANCELLED         => 'Cancelled',
                         BookingInquiry::STATUS_SPAM              => 'Spam',
@@ -240,12 +245,18 @@ class BookingInquiryResource extends Resource
                         ->label('WA: Payment link')
                         ->icon('heroicon-o-link')
                         ->color('success')
+                        ->fillForm(fn (BookingInquiry $record): array => [
+                            // Prefill the Octo-generated link if one exists
+                            // so the operator doesn't paste it manually.
+                            'link' => (string) $record->payment_link,
+                        ])
                         ->form([
                             Forms\Components\TextInput::make('link')
                                 ->label('Secure payment link')
                                 ->url()
                                 ->required()
-                                ->placeholder('https://pay.example.com/...'),
+                                ->placeholder('https://pay.example.com/...')
+                                ->helperText('Prefilled from Octo if already generated.'),
                         ])
                         ->modalSubmitActionLabel('Open WhatsApp')
                         ->action(function (BookingInquiry $record, array $data, $livewire): void {
@@ -282,19 +293,108 @@ class BookingInquiryResource extends Resource
                             Notification::make()->title('Marked as contacted')->success()->send();
                         }),
 
-                    Tables\Actions\Action::make('markConfirmed')
-                        ->label('Mark confirmed')
-                        ->icon('heroicon-o-check-badge')
+                    // ── Online path: Octobank payment link ──────────────
+                    Tables\Actions\Action::make('generatePaymentLink')
+                        ->label('Generate payment link')
+                        ->icon('heroicon-o-credit-card')
                         ->color('success')
                         ->visible(fn (BookingInquiry $record): bool => $record->status !== BookingInquiry::STATUS_CONFIRMED
-                            && $record->status !== BookingInquiry::STATUS_SPAM)
-                        ->requiresConfirmation()
-                        ->action(function (BookingInquiry $record): void {
+                            && $record->status !== BookingInquiry::STATUS_SPAM
+                            && $record->status !== BookingInquiry::STATUS_CANCELLED)
+                        ->form([
+                            Forms\Components\TextInput::make('price')
+                                ->label('Total price for group (USD)')
+                                ->prefix('$')
+                                ->required()
+                                ->numeric()
+                                ->step('0.01')
+                                ->helperText('Operator enters the total. USD is converted to UZS at the current rate by Octo.'),
+                        ])
+                        ->modalSubmitActionLabel('Generate')
+                        ->action(function (BookingInquiry $record, array $data): void {
+                            try {
+                                $result = app(OctoPaymentService::class)
+                                    ->createPaymentLinkForInquiry($record, (float) $data['price']);
+                            } catch (\Throwable $e) {
+                                Notification::make()
+                                    ->title('Octo payment link failed')
+                                    ->body(mb_substr($e->getMessage(), 0, 300))
+                                    ->danger()
+                                    ->persistent()
+                                    ->send();
+
+                                return;
+                            }
+
                             $record->update([
-                                'status'       => BookingInquiry::STATUS_CONFIRMED,
-                                'confirmed_at' => now(),
+                                'price_quoted'         => $data['price'],
+                                'currency'             => 'USD',
+                                'payment_method'       => BookingInquiry::PAYMENT_ONLINE,
+                                'payment_link'         => $result['url'],
+                                'payment_link_sent_at' => now(),
+                                'octo_transaction_id'  => $result['transaction_id'],
+                                'status'               => BookingInquiry::STATUS_AWAITING_PAYMENT,
                             ]);
-                            Notification::make()->title('Marked as confirmed')->success()->send();
+
+                            $stamp    = now()->format('Y-m-d H:i');
+                            $existing = $record->internal_notes ? $record->internal_notes . "\n\n" : '';
+                            $record->update([
+                                'internal_notes' => $existing . "[{$stamp}] Payment link generated ("
+                                    . '$' . number_format((float) $data['price'], 2) . ', txn ' . $result['transaction_id'] . ')',
+                            ]);
+
+                            Notification::make()
+                                ->title('Payment link ready')
+                                ->body('Use "WA: Payment link" to send — the link is prefilled.')
+                                ->success()
+                                ->send();
+                        }),
+
+                    // ── Offline path: cash or card at the office ────────
+                    Tables\Actions\Action::make('markPaidOffline')
+                        ->label('Mark paid (cash / card)')
+                        ->icon('heroicon-o-banknotes')
+                        ->color('success')
+                        ->visible(fn (BookingInquiry $record): bool => $record->status !== BookingInquiry::STATUS_CONFIRMED
+                            && $record->status !== BookingInquiry::STATUS_SPAM
+                            && $record->status !== BookingInquiry::STATUS_CANCELLED)
+                        ->form([
+                            Forms\Components\Radio::make('payment_method')
+                                ->label('Payment method')
+                                ->options([
+                                    BookingInquiry::PAYMENT_CASH        => 'Cash in office',
+                                    BookingInquiry::PAYMENT_CARD_OFFICE => 'Card in office',
+                                ])
+                                ->required()
+                                ->inline(),
+                            Forms\Components\TextInput::make('price')
+                                ->label('Amount paid (USD)')
+                                ->prefix('$')
+                                ->numeric()
+                                ->step('0.01')
+                                ->helperText('Optional — leave blank if you only want to mark the status without recording an amount.'),
+                        ])
+                        ->modalSubmitActionLabel('Confirm payment')
+                        ->action(function (BookingInquiry $record, array $data): void {
+                            $updates = [
+                                'status'         => BookingInquiry::STATUS_CONFIRMED,
+                                'payment_method' => $data['payment_method'],
+                                'paid_at'        => now(),
+                                'confirmed_at'   => $record->confirmed_at ?: now(),
+                            ];
+
+                            if (filled($data['price'] ?? null)) {
+                                $updates['price_quoted'] = $data['price'];
+                                $updates['currency']     = 'USD';
+                            }
+
+                            $record->update($updates);
+
+                            Notification::make()
+                                ->title('Marked as paid')
+                                ->body('Inquiry confirmed.')
+                                ->success()
+                                ->send();
                         }),
 
                     Tables\Actions\Action::make('markCancelled')
@@ -375,6 +475,7 @@ class BookingInquiryResource extends Resource
                             BookingInquiry::STATUS_NEW               => 'warning',
                             BookingInquiry::STATUS_CONTACTED         => 'info',
                             BookingInquiry::STATUS_AWAITING_CUSTOMER => 'primary',
+                            BookingInquiry::STATUS_AWAITING_PAYMENT  => 'warning',
                             BookingInquiry::STATUS_CONFIRMED         => 'success',
                             BookingInquiry::STATUS_CANCELLED         => 'gray',
                             BookingInquiry::STATUS_SPAM              => 'danger',
@@ -423,6 +524,32 @@ class BookingInquiryResource extends Resource
                     Infolists\Components\TextEntry::make('message')->label('Message')->columnSpanFull()->placeholder('—'),
                 ])
                 ->columns(4),
+
+            Infolists\Components\Section::make('Payment')
+                ->schema([
+                    Infolists\Components\TextEntry::make('price_quoted')
+                        ->label('Quoted (USD)')
+                        ->money('USD')
+                        ->placeholder('—'),
+                    Infolists\Components\TextEntry::make('payment_method')
+                        ->label('Method')
+                        ->formatStateUsing(fn (?string $state): string => match ($state) {
+                            BookingInquiry::PAYMENT_ONLINE      => 'Online (Octobank)',
+                            BookingInquiry::PAYMENT_CASH        => 'Cash in office',
+                            BookingInquiry::PAYMENT_CARD_OFFICE => 'Card in office',
+                            default                             => '—',
+                        }),
+                    Infolists\Components\TextEntry::make('payment_link')
+                        ->label('Payment link')
+                        ->copyable()
+                        ->url(fn ($state): ?string => $state ? (string) $state : null, true)
+                        ->placeholder('—')
+                        ->columnSpanFull(),
+                    Infolists\Components\TextEntry::make('payment_link_sent_at')->label('Link generated')->dateTime('M j, Y H:i')->placeholder('—'),
+                    Infolists\Components\TextEntry::make('paid_at')->label('Paid at')->dateTime('M j, Y H:i')->placeholder('—'),
+                    Infolists\Components\TextEntry::make('octo_transaction_id')->label('Octo txn id')->copyable()->placeholder('—')->columnSpanFull(),
+                ])
+                ->columns(2),
 
             Infolists\Components\Section::make('Operator notes')
                 ->schema([

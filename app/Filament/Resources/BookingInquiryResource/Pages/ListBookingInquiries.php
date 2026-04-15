@@ -39,6 +39,11 @@ class ListBookingInquiries extends ListRecords
                 ->badge(fn () => BookingInquiry::where('status', BookingInquiry::STATUS_AWAITING_CUSTOMER)->count())
                 ->badgeColor('primary'),
 
+            'awaiting_payment' => Tab::make('Awaiting payment')
+                ->modifyQueryUsing(fn (Builder $query) => $query->where('status', BookingInquiry::STATUS_AWAITING_PAYMENT))
+                ->badge(fn () => BookingInquiry::where('status', BookingInquiry::STATUS_AWAITING_PAYMENT)->count())
+                ->badgeColor('warning'),
+
             'confirmed' => Tab::make('Confirmed')
                 ->modifyQueryUsing(fn (Builder $query) => $query->where('status', BookingInquiry::STATUS_CONFIRMED))
                 ->badge(fn () => BookingInquiry::where('status', BookingInquiry::STATUS_CONFIRMED)->count())
