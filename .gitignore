@@ -24,6 +24,5 @@ storage/fonts/
 /.version
 /.deploy-history
 
-# Tour export (Phase 8.3b) — SSH keys and staged temp files are never committed.
-/storage/app/ssh/
+# Tour export (Phase 8.3b) — staged temp files are never committed.
 /storage/app/tours-export/
