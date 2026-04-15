@@ -66,4 +66,15 @@ Once payment is completed, your booking will be fully confirmed.
 Please let me know after payment 🙂
 TXT,
 
+    'wa_generate_and_send' => <<<TXT
+Perfect 👍
+
+Here is your secure payment link for {price}:
+{link}
+
+Once payment is completed, your booking will be fully confirmed.
+
+Please let me know after payment 🙂
+TXT,
+
 ];

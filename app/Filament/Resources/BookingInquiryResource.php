@@ -241,13 +241,74 @@ class BookingInquiryResource extends Resource
                             );
                         }),
 
+                    // ── One-tap: generate Octo link AND open WhatsApp ──
+                    // The daily-driver action for closing a sale. Replaces
+                    // the two-step "Generate payment link" → "WA: Payment
+                    // link" flow with a single modal. Link is still saved
+                    // to the inquiry even if the operator cancels the
+                    // WhatsApp tab, so nothing is lost.
+                    Tables\Actions\Action::make('waGenerateAndSend')
+                        ->label('WA: Generate & send payment')
+                        ->icon('heroicon-o-credit-card')
+                        ->color('success')
+                        ->visible(fn (BookingInquiry $record): bool => $record->status !== BookingInquiry::STATUS_CONFIRMED
+                            && $record->status !== BookingInquiry::STATUS_SPAM
+                            && $record->status !== BookingInquiry::STATUS_CANCELLED)
+                        ->form([
+                            Forms\Components\TextInput::make('price')
+                                ->label('Total price for group (USD)')
+                                ->prefix('$')
+                                ->required()
+                                ->numeric()
+                                ->step('0.01')
+                                ->helperText('Generates Octo link, saves it to the inquiry, and opens WhatsApp prefilled with the message.'),
+                        ])
+                        ->modalSubmitActionLabel('Generate & open WhatsApp')
+                        ->action(function (BookingInquiry $record, array $data, $livewire): void {
+                            try {
+                                $result = app(OctoPaymentService::class)
+                                    ->createPaymentLinkForInquiry($record, (float) $data['price']);
+                            } catch (\Throwable $e) {
+                                Notification::make()
+                                    ->title('Octo payment link failed')
+                                    ->body(mb_substr($e->getMessage(), 0, 300))
+                                    ->danger()
+                                    ->persistent()
+                                    ->send();
+
+                                return;
+                            }
+
+                            $priceFormatted = '$' . number_format((float) $data['price'], 2);
+
+                            $record->update([
+                                'price_quoted'         => $data['price'],
+                                'currency'             => 'USD',
+                                'payment_method'       => BookingInquiry::PAYMENT_ONLINE,
+                                'payment_link'         => $result['url'],
+                                'payment_link_sent_at' => now(),
+                                'octo_transaction_id'  => $result['transaction_id'],
+                                'status'               => BookingInquiry::STATUS_AWAITING_PAYMENT,
+                            ]);
+
+                            static::openWhatsApp(
+                                $record,
+                                $livewire,
+                                'wa_generate_and_send',
+                                [
+                                    'price' => $priceFormatted,
+                                    'link'  => $result['url'],
+                                ],
+                                "Payment link generated & sent ({$priceFormatted})",
+                            );
+                        }),
+
                     Tables\Actions\Action::make('waPaymentLink')
-                        ->label('WA: Payment link')
+                        ->label('WA: Resend existing link')
                         ->icon('heroicon-o-link')
                         ->color('success')
+                        ->visible(fn (BookingInquiry $record): bool => filled($record->payment_link))
                         ->fillForm(fn (BookingInquiry $record): array => [
-                            // Prefill the Octo-generated link if one exists
-                            // so the operator doesn't paste it manually.
                             'link' => (string) $record->payment_link,
                         ])
                         ->form([
@@ -255,8 +316,7 @@ class BookingInquiryResource extends Resource
                                 ->label('Secure payment link')
                                 ->url()
                                 ->required()
-                                ->placeholder('https://pay.example.com/...')
-                                ->helperText('Prefilled from Octo if already generated.'),
+                                ->helperText('Prefilled from the previously generated Octo link.'),
                         ])
                         ->modalSubmitActionLabel('Open WhatsApp')
                         ->action(function (BookingInquiry $record, array $data, $livewire): void {
@@ -265,7 +325,7 @@ class BookingInquiryResource extends Resource
                                 $livewire,
                                 'wa_payment_link',
                                 ['link' => $data['link']],
-                                'Payment link sent',
+                                'Payment link re-sent',
                             );
                         }),
                 ])
@@ -291,63 +351,6 @@ class BookingInquiryResource extends Resource
                                 'contacted_at' => $record->contacted_at ?: now(),
                             ]);
                             Notification::make()->title('Marked as contacted')->success()->send();
-                        }),
-
-                    // ── Online path: Octobank payment link ──────────────
-                    Tables\Actions\Action::make('generatePaymentLink')
-                        ->label('Generate payment link')
-                        ->icon('heroicon-o-credit-card')
-                        ->color('success')
-                        ->visible(fn (BookingInquiry $record): bool => $record->status !== BookingInquiry::STATUS_CONFIRMED
-                            && $record->status !== BookingInquiry::STATUS_SPAM
-                            && $record->status !== BookingInquiry::STATUS_CANCELLED)
-                        ->form([
-                            Forms\Components\TextInput::make('price')
-                                ->label('Total price for group (USD)')
-                                ->prefix('$')
-                                ->required()
-                                ->numeric()
-                                ->step('0.01')
-                                ->helperText('Operator enters the total. USD is converted to UZS at the current rate by Octo.'),
-                        ])
-                        ->modalSubmitActionLabel('Generate')
-                        ->action(function (BookingInquiry $record, array $data): void {
-                            try {
-                                $result = app(OctoPaymentService::class)
-                                    ->createPaymentLinkForInquiry($record, (float) $data['price']);
-                            } catch (\Throwable $e) {
-                                Notification::make()
-                                    ->title('Octo payment link failed')
-                                    ->body(mb_substr($e->getMessage(), 0, 300))
-                                    ->danger()
-                                    ->persistent()
-                                    ->send();
-
-                                return;
-                            }
-
-                            $record->update([
-                                'price_quoted'         => $data['price'],
-                                'currency'             => 'USD',
-                                'payment_method'       => BookingInquiry::PAYMENT_ONLINE,
-                                'payment_link'         => $result['url'],
-                                'payment_link_sent_at' => now(),
-                                'octo_transaction_id'  => $result['transaction_id'],
-                                'status'               => BookingInquiry::STATUS_AWAITING_PAYMENT,
-                            ]);
-
-                            $stamp    = now()->format('Y-m-d H:i');
-                            $existing = $record->internal_notes ? $record->internal_notes . "\n\n" : '';
-                            $record->update([
-                                'internal_notes' => $existing . "[{$stamp}] Payment link generated ("
-                                    . '$' . number_format((float) $data['price'], 2) . ', txn ' . $result['transaction_id'] . ')',
-                            ]);
-
-                            Notification::make()
-                                ->title('Payment link ready')
-                                ->body('Use "WA: Payment link" to send — the link is prefilled.')
-                                ->success()
-                                ->send();
                         }),
 
                     // ── Offline path: cash or card at the office ────────
