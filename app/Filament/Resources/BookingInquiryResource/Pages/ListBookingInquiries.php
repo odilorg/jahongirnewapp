@@ -6,6 +6,7 @@ namespace App\Filament\Resources\BookingInquiryResource\Pages;
 
 use App\Filament\Resources\BookingInquiryResource;
 use App\Models\BookingInquiry;
+use Filament\Actions;
 use Filament\Resources\Components\Tab;
 use Filament\Resources\Pages\ListRecords;
 use Illuminate\Database\Eloquent\Builder;
@@ -13,6 +14,14 @@ use Illuminate\Database\Eloquent\Builder;
 class ListBookingInquiries extends ListRecords
 {
     protected static string $resource = BookingInquiryResource::class;
+
+    protected function getHeaderActions(): array
+    {
+        return [
+            Actions\CreateAction::make()
+                ->label('+ New booking inquiry'),
+        ];
+    }
 
     /**
      * Status-based tab navigation. "All" is first so operators can see the

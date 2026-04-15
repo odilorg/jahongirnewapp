@@ -62,12 +62,117 @@ class BookingInquiryResource extends Resource
 
     public static function form(Form $form): Form
     {
-        // Edit form is only used for the internal_notes field + manual status
-        // override. All customer-submitted fields are read-only on the detail
-        // page (via Infolist below).
+        // Form is shared between Edit and Create (manual entry from
+        // WhatsApp / phone / walk-in). Sections are collapsible so the
+        // edit experience stays scannable while the create experience
+        // has every field within easy reach.
         return $form->schema([
+            Forms\Components\Section::make('Source & customer')
+                ->description('Where did this inquiry come from + who is the guest?')
+                ->schema([
+                    Forms\Components\Select::make('source')
+                        ->options([
+                            'website'  => 'Website form',
+                            'whatsapp' => 'WhatsApp',
+                            'telegram' => 'Telegram',
+                            'phone'    => 'Phone',
+                            'email'    => 'Email',
+                            'walk_in'  => 'Walk-in',
+                            'manual'   => 'Manual',
+                            'gyg'      => 'GetYourGuide',
+                        ])
+                        ->default('whatsapp')
+                        ->required()
+                        ->native(false),
+
+                    Forms\Components\TextInput::make('customer_name')
+                        ->required()
+                        ->maxLength(191)
+                        ->placeholder('Lara Smith'),
+
+                    Forms\Components\TextInput::make('customer_phone')
+                        ->label('Phone')
+                        ->tel()
+                        ->required()
+                        ->maxLength(64)
+                        ->placeholder('+1 555 123 4567'),
+
+                    Forms\Components\TextInput::make('customer_email')
+                        ->label('Email')
+                        ->email()
+                        ->maxLength(191)
+                        ->helperText('Optional for manual entries — required when guest submits via website.'),
+
+                    Forms\Components\TextInput::make('customer_country')
+                        ->label('Country')
+                        ->maxLength(100)
+                        ->placeholder('USA'),
+
+                    Forms\Components\Select::make('preferred_contact')
+                        ->options([
+                            'email'    => 'Email',
+                            'phone'    => 'Phone',
+                            'whatsapp' => 'WhatsApp',
+                            'telegram' => 'Telegram',
+                        ])
+                        ->placeholder('No preference')
+                        ->native(false),
+                ])
+                ->columns(2)
+                ->collapsible(),
+
+            Forms\Components\Section::make('Trip')
+                ->description('Tour, dates, group size, message from the guest.')
+                ->schema([
+                    Forms\Components\TextInput::make('tour_name_snapshot')
+                        ->label('Tour name')
+                        ->required()
+                        ->maxLength(255)
+                        ->placeholder('Nuratau Homestay 3 Days 2 Nights')
+                        ->columnSpanFull(),
+
+                    Forms\Components\TextInput::make('tour_slug')
+                        ->label('Tour slug')
+                        ->maxLength(191)
+                        ->placeholder('nuratau-homestay-3-days')
+                        ->helperText('Optional — links the inquiry to a website tour page.'),
+
+                    Forms\Components\TextInput::make('page_url')
+                        ->label('Source URL')
+                        ->url()
+                        ->maxLength(500)
+                        ->placeholder('https://jahongir-travel.uz/...'),
+
+                    Forms\Components\TextInput::make('people_adults')
+                        ->label('Adults')
+                        ->numeric()
+                        ->required()
+                        ->minValue(1)
+                        ->default(1),
+
+                    Forms\Components\TextInput::make('people_children')
+                        ->label('Children')
+                        ->numeric()
+                        ->minValue(0)
+                        ->default(0),
+
+                    Forms\Components\DatePicker::make('travel_date')
+                        ->label('Travel date'),
+
+                    Forms\Components\Toggle::make('flexible_dates')
+                        ->label('Flexible dates'),
+
+                    Forms\Components\Textarea::make('message')
+                        ->label('Customer message / notes')
+                        ->rows(3)
+                        ->columnSpanFull(),
+                ])
+                ->columns(2)
+                ->collapsible(),
+
             Forms\Components\Section::make('Operator')
                 ->description('Internal fields — not visible to the customer.')
+                ->collapsible()
                 ->schema([
                     Forms\Components\Select::make('status')
                         ->options([
@@ -997,9 +1102,10 @@ class BookingInquiryResource extends Resource
     public static function getPages(): array
     {
         return [
-            'index' => Pages\ListBookingInquiries::route('/'),
-            'view'  => Pages\ViewBookingInquiry::route('/{record}'),
-            'edit'  => Pages\EditBookingInquiry::route('/{record}/edit'),
+            'index'  => Pages\ListBookingInquiries::route('/'),
+            'create' => Pages\CreateBookingInquiry::route('/create'),
+            'view'   => Pages\ViewBookingInquiry::route('/{record}'),
+            'edit'   => Pages\EditBookingInquiry::route('/{record}/edit'),
         ];
     }
 
