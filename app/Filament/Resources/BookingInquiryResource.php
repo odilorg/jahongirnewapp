@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\BookingInquiryResource\Pages;
+use App\Models\Accommodation;
 use App\Models\BookingInquiry;
 use App\Models\Driver;
 use App\Models\Guide;
@@ -165,6 +166,75 @@ class BookingInquiryResource extends Resource
                         ->columnSpanFull(),
                 ])
                 ->columns(2),
+
+            // Multi-stay accommodation assignment. A Nuratau 3-day tour
+            // typically has yurt night + homestay night, so we use a
+            // Repeater bound to the InquiryStay relation rather than a
+            // single accommodation_id field.
+            Forms\Components\Section::make('Lodging (stays)')
+                ->description('Add one row per night/leg. e.g. yurt camp night 1 + village homestay night 2.')
+                ->schema([
+                    Forms\Components\Repeater::make('stays')
+                        ->relationship()
+                        ->schema([
+                            Forms\Components\Select::make('accommodation_id')
+                                ->label('Accommodation')
+                                ->relationship('accommodation', 'name')
+                                ->searchable(['name', 'location', 'contact_name'])
+                                ->preload()
+                                ->required()
+                                ->createOptionForm([
+                                    Forms\Components\TextInput::make('name')->required()->maxLength(191),
+                                    Forms\Components\Select::make('type')->options([
+                                        'yurt' => 'Yurt camp', 'homestay' => 'Homestay',
+                                        'hotel' => 'Hotel', 'guesthouse' => 'Guesthouse',
+                                    ])->native(false),
+                                    Forms\Components\TextInput::make('location')->maxLength(191),
+                                    Forms\Components\TextInput::make('contact_name')->label('Manager')->maxLength(191),
+                                    Forms\Components\TextInput::make('phone_primary')->label('Phone')->tel()->required()->maxLength(64),
+                                    Forms\Components\Toggle::make('is_active')->default(true),
+                                ])
+                                ->createOptionUsing(function (array $data): int {
+                                    return Accommodation::create($data)->id;
+                                }),
+
+                            Forms\Components\TextInput::make('sort_order')
+                                ->numeric()
+                                ->default(0)
+                                ->label('#'),
+
+                            Forms\Components\DatePicker::make('stay_date')
+                                ->label('Check-in'),
+
+                            Forms\Components\TextInput::make('nights')
+                                ->numeric()
+                                ->minValue(1)
+                                ->default(1),
+
+                            Forms\Components\TextInput::make('guest_count')
+                                ->numeric()
+                                ->placeholder('defaults to inquiry pax'),
+
+                            Forms\Components\TextInput::make('meal_plan')
+                                ->placeholder('B+D, HB, FB, etc.')
+                                ->maxLength(100),
+
+                            Forms\Components\Textarea::make('notes')
+                                ->rows(2)
+                                ->columnSpanFull(),
+                        ])
+                        ->columns(3)
+                        ->orderColumn('sort_order')
+                        ->reorderable()
+                        ->collapsible()
+                        ->cloneable()
+                        ->itemLabel(fn (array $state): ?string => filled($state['accommodation_id'] ?? null)
+                            ? (\App\Models\Accommodation::find($state['accommodation_id'])?->name . ' (#' . ($state['sort_order'] ?? '?') . ')')
+                            : 'New stay')
+                        ->addActionLabel('+ Add stay')
+                        ->defaultItems(0),
+                ])
+                ->collapsible(),
         ]);
     }
 
@@ -461,17 +531,30 @@ class BookingInquiryResource extends Resource
                         ->label('Dispatch via Telegram')
                         ->icon('heroicon-o-paper-airplane')
                         ->color('primary')
-                        ->visible(fn (BookingInquiry $record): bool => ($record->driver_id !== null || $record->guide_id !== null)
+                        ->visible(fn (BookingInquiry $record): bool => ($record->driver_id !== null
+                            || $record->guide_id !== null
+                            || $record->stays()->exists())
                             && $record->status === BookingInquiry::STATUS_CONFIRMED)
                         ->requiresConfirmation()
                         ->modalHeading('Send dispatch via Telegram')
                         ->modalDescription(function (BookingInquiry $record): string {
+                            $record->loadMissing(['driver', 'guide', 'stays.accommodation']);
+
                             $recipients = [];
                             if ($record->driver) {
                                 $recipients[] = '🚐 Driver: ' . $record->driver->full_name . ' · ' . ($record->driver->phone01 ?: 'no phone');
                             }
                             if ($record->guide) {
                                 $recipients[] = '🧑‍✈️ Guide: ' . $record->guide->full_name . ' · ' . ($record->guide->phone01 ?: 'no phone');
+                            }
+                            foreach ($record->stays as $stay) {
+                                if (! $stay->accommodation) {
+                                    continue;
+                                }
+                                $night = $stay->stay_date ? $stay->stay_date->format('M j') : '?';
+                                $recipients[] = '🏕 Stay #' . $stay->sort_order . ' ' . $night
+                                    . ': ' . $stay->accommodation->name
+                                    . ' · ' . ($stay->accommodation->phone_primary ?: 'no phone');
                             }
 
                             $desc = "Recipients:\n" . implode("\n", $recipients);
@@ -514,6 +597,16 @@ class BookingInquiryResource extends Resource
                                     $okCount++;
                                 } else {
                                     $auditLines[] = "⚠️ TG → {$role} {$name} FAILED: " . ($r['reason'] ?? 'unknown');
+                                    $failCount++;
+                                }
+                            }
+
+                            foreach ($results['stays'] ?? [] as $sr) {
+                                if ($sr['ok']) {
+                                    $auditLines[] = "TG → stay {$sr['accommodation']} ok (msg_id={$sr['msg_id']})";
+                                    $okCount++;
+                                } else {
+                                    $auditLines[] = "⚠️ TG → stay {$sr['accommodation']} FAILED: " . ($sr['reason'] ?? 'unknown');
                                     $failCount++;
                                 }
                             }
@@ -852,6 +945,25 @@ class BookingInquiryResource extends Resource
                         ->columnSpanFull(),
                 ])
                 ->columns(2),
+
+            Infolists\Components\Section::make('Lodging (stays)')
+                ->schema([
+                    Infolists\Components\RepeatableEntry::make('stays')
+                        ->label('')
+                        ->schema([
+                            Infolists\Components\TextEntry::make('sort_order')->label('#'),
+                            Infolists\Components\TextEntry::make('accommodation.name')->label('Accommodation'),
+                            Infolists\Components\TextEntry::make('accommodation.phone_primary')->label('Phone')->copyable()->placeholder('—'),
+                            Infolists\Components\TextEntry::make('stay_date')->date('M j, Y')->label('Check-in')->placeholder('—'),
+                            Infolists\Components\TextEntry::make('nights')->label('Nights'),
+                            Infolists\Components\TextEntry::make('meal_plan')->label('Meals')->placeholder('—'),
+                            Infolists\Components\TextEntry::make('notes')->columnSpanFull()->placeholder('—'),
+                        ])
+                        ->columns(3)
+                        ->grid(1),
+                ])
+                ->visible(fn ($record): bool => $record->stays()->exists())
+                ->collapsible(),
 
             Infolists\Components\Section::make('Operator notes')
                 ->schema([

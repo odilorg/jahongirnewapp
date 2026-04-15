@@ -7,6 +7,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
  * Website booking inquiry — a lead, not a confirmed booking.
@@ -116,6 +117,11 @@ class BookingInquiry extends Model
     public function guide(): BelongsTo
     {
         return $this->belongsTo(Guide::class);
+    }
+
+    public function stays(): HasMany
+    {
+        return $this->hasMany(InquiryStay::class)->orderBy('sort_order');
     }
 
     /**
