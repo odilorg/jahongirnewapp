@@ -297,41 +297,30 @@ class ImportToursFromStatic extends Command
      */
     private function parseTourContent(string $raw, string $slug, string $region, string $path): ?array
     {
-        // Title: prefer <h1>, fallback to $title PHP variable, fallback to $meta $title suffix stripped
-        $h1 = null;
-        if (preg_match('/<h1[^>]*>(.*?)<\/h1>/si', $raw, $m)) {
-            $h1 = trim(strip_tags($m[1]));
-            $h1 = html_entity_decode($h1, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $dom = $this->loadDom($raw);
+        $xpath = $dom ? new \DOMXPath($dom) : null;
+
+        // Title: prefer <h1>, fallback to $title PHP variable
+        $title = null;
+        if ($xpath) {
+            $h1Node = $xpath->query('//h1')->item(0);
+            if ($h1Node) {
+                $title = $this->cleanString($h1Node->textContent);
+            }
         }
 
-        $phpTitle = null;
-        if (preg_match('/\$title\s*=\s*[\'"]([^\'"]+)[\'"]/', $raw, $m)) {
-            $phpTitle = trim($m[1]);
+        if (! $title && preg_match('/\$title\s*=\s*[\'"]([^\'"]+)[\'"]/', $raw, $m)) {
+            $title = preg_replace('/\s*\|\s*Jahongir\s+Travel\s*$/iu', '', trim($m[1]));
         }
-
-        $title = $h1 ?: ($phpTitle ? preg_replace('/\s*\|\s*Jahongir\s+Travel\s*$/iu', '', $phpTitle) : null);
 
         if (! $title) {
             return null;
         }
 
-        // Meta description
+        // Meta description from PHP var
         $metaDescription = null;
         if (preg_match('/\$meta_description\s*=\s*[\'"]([^\'"]+)[\'"]/', $raw, $m)) {
             $metaDescription = trim($m[1]);
-        }
-
-        // Description: collect first few <p> tags after the opening <h1>
-        $description = '';
-        if (preg_match('/<h1[^>]*>.*?<\/h1>(.*?)(?:<div[^>]+price|<table[^>]+tours-tabs|<h2)/is', $raw, $m)) {
-            $after = $m[1];
-            preg_match_all('/<p[^>]*>(.*?)<\/p>/si', $after, $pm);
-            $paras = array_map(
-                fn ($p) => trim(html_entity_decode(strip_tags($p), ENT_QUOTES | ENT_HTML5, 'UTF-8')),
-                $pm[1] ?? []
-            );
-            $paras = array_filter($paras, fn ($p) => mb_strlen($p) > 20);
-            $description = implode("\n\n", array_slice($paras, 0, 5));
         }
 
         // Hero image — prefer JSON-LD schema
@@ -339,6 +328,11 @@ class ImportToursFromStatic extends Command
         if (preg_match('/"image"\s*:\s*"([^"]+)"/', $raw, $m)) {
             $heroImage = $m[1];
         }
+
+        // Description — look inside the #tab-description pane (the real
+        // content), NOT the generic "first <p> after <h1>" area which
+        // tends to match intro copy + tab nav text.
+        $description = $this->extractDescription($xpath);
 
         // Duration: look for "N-Day" / "N Day" / "N Days N Nights" patterns in the title
         $durationDays   = 1;
@@ -363,14 +357,200 @@ class ImportToursFromStatic extends Command
             'duration_days'    => $durationDays,
             'duration_nights'  => $durationNights,
             'currency'         => 'USD',
-            'description'      => $description ?: null,
-            'highlights'       => $this->parseHighlights($raw),
-            'includes'         => $this->parseIncludesExcludes($raw, 'INCLUDED'),
-            'excludes'         => $this->parseIncludesExcludes($raw, 'NOT INCLUDED'),
+            'description'      => $description,
+            'highlights'       => $this->extractHighlights($xpath),
+            'includes'         => $this->extractIncludesExcludes($xpath, 'INCLUDED'),
+            'excludes'         => $this->extractIncludesExcludes($xpath, 'NOT INCLUDED'),
             'hero_image_url'   => $heroImage,
             'page_url'         => $pageUrl,
             'meta_description' => $metaDescription,
         ];
+    }
+
+    /**
+     * Load HTML into DOMDocument, tolerating PHP tags and malformed markup.
+     */
+    private function loadDom(string $raw): ?\DOMDocument
+    {
+        // Strip PHP blocks so DOMDocument doesn't choke on them.
+        $html = preg_replace('/<\\?php.*?\\?>/s', '', $raw) ?? $raw;
+
+        $dom = new \DOMDocument();
+        $prevErrors = libxml_use_internal_errors(true);
+        $ok = $dom->loadHTML(
+            '<?xml encoding="UTF-8"?>' . $html,
+            LIBXML_NOERROR | LIBXML_NOWARNING | LIBXML_NONET
+        );
+        libxml_clear_errors();
+        libxml_use_internal_errors($prevErrors);
+
+        return $ok ? $dom : null;
+    }
+
+    private function extractDescription(?\DOMXPath $xpath): ?string
+    {
+        if (! $xpath) {
+            return null;
+        }
+
+        // The static tour pages put prose inside #tab-description (or
+        // a div with class containing "tab-description"). Grab its
+        // <p> children and skip the leading <h2>Tour Description</h2>.
+        $paneQueries = [
+            '//div[@id="tab-description"]//p',
+            '//*[contains(@class, "tab-description")]//p',
+        ];
+
+        foreach ($paneQueries as $q) {
+            $nodes = $xpath->query($q);
+            if ($nodes && $nodes->length > 0) {
+                $paras = [];
+                foreach ($nodes as $node) {
+                    $text = $this->cleanString($node->textContent);
+                    if (mb_strlen($text) >= 25) {
+                        $paras[] = $text;
+                    }
+                    if (count($paras) >= 6) {
+                        break;
+                    }
+                }
+                if ($paras !== []) {
+                    return implode("\n\n", $paras);
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @return array<int, string>|null
+     */
+    private function extractHighlights(?\DOMXPath $xpath): ?array
+    {
+        if (! $xpath) {
+            return null;
+        }
+
+        // Bad sources to ignore (tab navigation, breadcrumbs, share
+        // buttons, related tours, footer menus).
+        $bannedClassFragments = ['tab', 'breadcrumb', 'share', 'menu', 'social', 'related', 'nav', 'footer'];
+
+        // Preferred targets: ULs inside the description pane, NOT at
+        // the top of the page.
+        $ulNodes = $xpath->query('//div[@id="tab-description"]//ul')
+            ?: $xpath->query('//*[contains(@class, "tab-description")]//ul');
+
+        if ($ulNodes === false || $ulNodes->length === 0) {
+            return null;
+        }
+
+        foreach ($ulNodes as $ul) {
+            // Skip ULs whose class (or any ancestor class) contains a
+            // banned fragment — avoids tab lists, nav bars, etc.
+            $isBanned = false;
+            for ($node = $ul; $node && $node->nodeType === XML_ELEMENT_NODE; $node = $node->parentNode) {
+                $cls = strtolower((string) ($node->getAttribute('class') ?? ''));
+                foreach ($bannedClassFragments as $frag) {
+                    if (str_contains($cls, $frag)) {
+                        $isBanned = true;
+                        break 2;
+                    }
+                }
+            }
+            if ($isBanned) {
+                continue;
+            }
+
+            $items = [];
+            foreach ($ul->getElementsByTagName('li') as $li) {
+                $text = $this->cleanString($li->textContent);
+                // Real highlights are longer than tab nav labels.
+                if (mb_strlen($text) >= 20 && mb_strlen($text) <= 240) {
+                    $items[] = $text;
+                }
+            }
+
+            if (count($items) >= 3) {
+                return array_slice($items, 0, 8);
+            }
+        }
+
+        return null;
+    }
+
+    private function extractIncludesExcludes(?\DOMXPath $xpath, string $label): ?string
+    {
+        if (! $xpath) {
+            return null;
+        }
+
+        // Find a <td> whose child <strong> text matches our label, then
+        // grab the SIBLING <td> that holds the nested items. Using XPath
+        // handles arbitrary nesting inside the sibling cell.
+        $strongs = $xpath->query(sprintf(
+            '//table[contains(@class, "tours-tabs_table")]//td[./strong[normalize-space(text())=%s]]/following-sibling::td[1]',
+            $this->xpathLiteral($label)
+        ));
+
+        if ($strongs === false || $strongs->length === 0) {
+            return null;
+        }
+
+        $cell = $strongs->item(0);
+        if (! $cell) {
+            return null;
+        }
+
+        // Each item is in a leaf <td> inside the nested table. Pull
+        // text from the innermost <td>s and discard empties.
+        $innerTds = $xpath->query('.//td', $cell);
+        $items = [];
+
+        if ($innerTds && $innerTds->length > 0) {
+            foreach ($innerTds as $td) {
+                // Only leaf cells — skip wrappers that contain another table.
+                $hasNestedTd = $xpath->query('.//td', $td);
+                if ($hasNestedTd && $hasNestedTd->length > 0) {
+                    continue;
+                }
+
+                $text = $this->cleanString($td->textContent);
+                if (mb_strlen($text) >= 3) {
+                    $items[] = '• ' . $text;
+                }
+            }
+        }
+
+        if ($items === []) {
+            // Nested-table detection failed — fall back to the cell's
+            // full text split on common delimiters.
+            $text = $this->cleanString($cell->textContent);
+            if (mb_strlen($text) >= 3) {
+                return $text;
+            }
+
+            return null;
+        }
+
+        return implode("\n", $items);
+    }
+
+    /**
+     * XPath-safe literal (handles single AND double quotes in the input).
+     */
+    private function xpathLiteral(string $value): string
+    {
+        if (! str_contains($value, "'")) {
+            return "'" . $value . "'";
+        }
+        if (! str_contains($value, '"')) {
+            return '"' . $value . '"';
+        }
+
+        $parts = explode("'", $value);
+
+        return "concat('" . implode("',\"'\",'", $parts) . "')";
     }
 
     /**
@@ -424,62 +604,6 @@ class ImportToursFromStatic extends Command
         }
 
         return $tiers;
-    }
-
-    /**
-     * @return array<int, string>|null
-     */
-    private function parseHighlights(string $raw): ?array
-    {
-        // Heuristic: first <ul> after the main h1 often holds "Practical tips"
-        // or "Highlights". Take short bullet items only, max 8.
-        if (! preg_match('/<h1[^>]*>.*?<\/h1>(.*)/is', $raw, $m)) {
-            return null;
-        }
-
-        if (! preg_match_all('/<ul[^>]*>(.*?)<\/ul>/si', $m[1], $uls)) {
-            return null;
-        }
-
-        foreach ($uls[1] as $ul) {
-            preg_match_all('/<li[^>]*>(.*?)<\/li>/si', $ul, $lis);
-            $items = array_map(
-                fn ($li) => trim(html_entity_decode(strip_tags($li), ENT_QUOTES | ENT_HTML5, 'UTF-8')),
-                $lis[1] ?? []
-            );
-            $items = array_values(array_filter(
-                $items,
-                fn ($item) => mb_strlen($item) > 5 && mb_strlen($item) < 200
-            ));
-
-            if (count($items) >= 3 && count($items) <= 12) {
-                return array_slice($items, 0, 8);
-            }
-        }
-
-        return null;
-    }
-
-    private function parseIncludesExcludes(string $raw, string $label): ?string
-    {
-        if (! preg_match('/<td[^>]*>\s*<strong>\s*' . preg_quote($label, '/') . '\s*<\/strong>\s*<\/td>\s*<td[^>]*>(.*?)<\/td>/si', $raw, $m)) {
-            return null;
-        }
-
-        $cell = $m[1];
-        // Strip nested tables, extract item text
-        $cell = preg_replace('/<(script|style)[^>]*>.*?<\/\1>/si', '', $cell);
-        $items = [];
-        if (preg_match_all('/<td[^>]*>(.*?)<\/td>/si', $cell, $tdm)) {
-            foreach ($tdm[1] as $td) {
-                $text = trim(html_entity_decode(strip_tags($td), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
-                if (mb_strlen($text) > 3 && mb_strlen($text) < 200) {
-                    $items[] = '• ' . $text;
-                }
-            }
-        }
-
-        return $items ? implode("\n", $items) : null;
     }
 
     private function cleanString(string $s): string
