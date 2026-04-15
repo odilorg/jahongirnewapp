@@ -77,4 +77,43 @@ Once payment is completed, your booking will be fully confirmed.
 Please let me know after payment 🙂
 TXT,
 
+    /*
+     * Driver dispatch template — sent via tg-direct (Odil's personal
+     * Telegram) when an operator hits "Dispatch via Telegram" in the
+     * admin. Uzbek by default since dispatch goes to local drivers.
+     *
+     * Placeholders (all from App\Services\DriverDispatchNotifier):
+     *   {reference}       INQ-YYYY-NNNNNN
+     *   {tour}            tour_name_snapshot
+     *   {travel_date}     Y-m-d
+     *   {pickup_time}     H:i or "—"
+     *   {pickup_point}    free text or "—"
+     *   {pax}             "2 adults" / "2 adults, 1 child"
+     *   {customer_name}
+     *   {customer_phone}
+     *   {notes}           operational_notes or ""
+     */
+    /*
+     * Driver dispatch — Uzbek. Matches the format Jahongir Travel ops
+     * already uses when dispatching drivers manually. Placeholders are
+     * filled by DriverDispatchNotifier::buildMessage().
+     *
+     * Fields without data render as "—" so the operator sees gaps and
+     * can follow up; we deliberately do not silently hide missing info.
+     */
+    'driver_dispatch_uz' => <<<TXT
+🏕 Sayohat turi: {tour}
+👤 Mehmon: {customer_name_with_country}
+🕐 Vaqti: {pickup_time}
+📅 Sana: {travel_date}
+👥 Odam soni: {pax}
+📱 Mehmon telefoni: {customer_phone}
+🏨 Mehmonxona / olib ketish: {pickup_point}
+🏁 Tushirish joyi: {dropoff_point}
+
+{notes}
+
+🤝 Jahongir Travel — {reference}
+TXT,
+
 ];

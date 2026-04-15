@@ -119,6 +119,15 @@ return [
     // Static API key used by mailer-tours.php to authenticate website booking submissions
     'website_booking_api_key' => env('WEBSITE_BOOKING_API_KEY'),
 
+    // tg-direct: Telegram DM service running on vps-main (127.0.0.1:8766)
+    // reached locally via the systemd-managed autossh reverse tunnel
+    // (tg-direct-tunnel.service on jahongir VPS).
+    'tg_direct' => [
+        'url'     => env('TG_DIRECT_URL', 'http://127.0.0.1:8766'),
+        'timeout' => (int) env('TG_DIRECT_TIMEOUT', 5),
+        'enabled' => (bool) env('TG_DIRECT_ENABLED', true),
+    ],
+
     'gyg' => [
         'username'          => env('GYG_API_USERNAME', 'Jahongirtravel'),
         'password'          => env('GYG_API_PASSWORD'),

@@ -45,6 +45,7 @@ class StoreBookingInquiryRequest extends FormRequest
             'customer_name'     => ['required', 'string', 'min:2', 'max:191'],
             'customer_email'    => ['required', 'email', 'max:191'],
             'customer_phone'    => ['required', 'string', 'min:5', 'max:64'],
+            'customer_country'  => ['nullable', 'string', 'max:100'],
             'preferred_contact' => ['nullable', Rule::in(['email', 'phone', 'whatsapp', 'telegram'])],
 
             'people_adults'   => ['required', 'integer', 'min:1', 'max:50'],
@@ -90,6 +91,7 @@ class StoreBookingInquiryRequest extends FormRequest
             'customer_name'     => trim($v['customer_name']),
             'customer_email'    => mb_strtolower(trim($v['customer_email'])),
             'customer_phone'    => trim($v['customer_phone']),
+            'customer_country'  => $v['customer_country'] ?? null,
             'preferred_contact' => $v['preferred_contact'] ?? null,
 
             'people_adults'   => (int) $v['people_adults'],

@@ -8,6 +8,7 @@ use App\Filament\Resources\BookingInquiryResource\Pages;
 use App\Models\BookingInquiry;
 use App\Models\Driver;
 use App\Models\Guide;
+use App\Services\DriverDispatchNotifier;
 use App\Services\InquiryTemplateRenderer;
 use App\Services\OctoPaymentService;
 use Filament\Forms;
@@ -136,6 +137,16 @@ class BookingInquiryResource extends Resource
                         ->label('Pickup point')
                         ->maxLength(255)
                         ->placeholder('Hotel name or landmark'),
+
+                    Forms\Components\TextInput::make('dropoff_point')
+                        ->label('Dropoff point')
+                        ->maxLength(255)
+                        ->placeholder('End of tour handoff location'),
+
+                    Forms\Components\TextInput::make('customer_country')
+                        ->label('Guest country')
+                        ->maxLength(100)
+                        ->placeholder('e.g. France, USA'),
 
                     Forms\Components\Textarea::make('operational_notes')
                         ->rows(4)
@@ -434,6 +445,79 @@ class BookingInquiryResource extends Resource
                     // Separate from commercial status; only meaningful after
                     // sale is confirmed. The state machine is strict:
                     //   (null | not_prepared) → prepared → dispatched → completed
+                    // ── Dispatch driver via Telegram DM (tg-direct) ─────
+                    // Sends an Uzbek dispatch brief to the assigned
+                    // driver's phone number using Odil's personal Telethon
+                    // session via the autossh tunnel to vps-main. Driver
+                    // does not need to have started any bot — raw phone
+                    // number works.
+                    //
+                    // Safety: confirmation modal shows the destination phone
+                    // so the operator visually verifies before send. A
+                    // warning is displayed if pickup_time or pickup_point
+                    // are empty, but the send is not blocked — operator
+                    // decides whether to proceed with partial info.
+                    Tables\Actions\Action::make('dispatchDriver')
+                        ->label('Dispatch via Telegram')
+                        ->icon('heroicon-o-paper-airplane')
+                        ->color('primary')
+                        ->visible(fn (BookingInquiry $record): bool => $record->driver_id !== null
+                            && $record->status === BookingInquiry::STATUS_CONFIRMED)
+                        ->requiresConfirmation()
+                        ->modalHeading('Send dispatch to driver')
+                        ->modalDescription(function (BookingInquiry $record): string {
+                            $driver = $record->driver;
+                            $warnings = [];
+
+                            if (blank($record->pickup_time)) {
+                                $warnings[] = '⚠️ Pickup time is empty';
+                            }
+                            if (blank($record->pickup_point)) {
+                                $warnings[] = '⚠️ Pickup point is empty';
+                            }
+
+                            $desc = 'Destination: ' . ($driver?->full_name ?? '—')
+                                . ' · ' . ($driver?->phone01 ?? 'no phone');
+
+                            if ($warnings !== []) {
+                                $desc .= "\n\n" . implode("\n", $warnings)
+                                    . "\n\nYou can still send — the driver will see '—' where the info is missing.";
+                            }
+
+                            return $desc;
+                        })
+                        ->modalSubmitActionLabel('Send dispatch')
+                        ->action(function (BookingInquiry $record): void {
+                            $result = app(DriverDispatchNotifier::class)->dispatchDriver($record);
+
+                            $stamp    = now()->format('Y-m-d H:i');
+                            $existing = $record->internal_notes ? $record->internal_notes . "\n\n" : '';
+
+                            if ($result['ok']) {
+                                $record->update([
+                                    'internal_notes' => $existing . "[{$stamp}] TG dispatch sent to driver {$record->driver?->full_name} (msg_id={$result['msg_id']})",
+                                ]);
+
+                                Notification::make()
+                                    ->title('Dispatch sent via Telegram')
+                                    ->body('Message delivered to ' . ($record->driver?->full_name ?? 'driver'))
+                                    ->success()
+                                    ->send();
+                            } else {
+                                $reason = $result['reason'] ?? 'unknown';
+                                $record->update([
+                                    'internal_notes' => $existing . "[{$stamp}] ⚠️ TG dispatch to driver FAILED: {$reason}",
+                                ]);
+
+                                Notification::make()
+                                    ->title('Dispatch failed')
+                                    ->body("Reason: {$reason}. Check storage/logs/laravel.log for details.")
+                                    ->danger()
+                                    ->persistent()
+                                    ->send();
+                            }
+                        }),
+
                     Tables\Actions\Action::make('markPrepared')
                         ->label('Mark prepared')
                         ->icon('heroicon-o-clipboard-document-check')
@@ -636,6 +720,7 @@ class BookingInquiryResource extends Resource
                         ->url(fn ($state): ?string => $state
                             ? 'https://wa.me/' . preg_replace('/[^0-9]/', '', (string) $state)
                             : null, true),
+                    Infolists\Components\TextEntry::make('customer_country')->label('Country')->placeholder('—'),
                     Infolists\Components\TextEntry::make('preferred_contact')->label('Preferred contact')->placeholder('—'),
                 ])
                 ->columns(2),
@@ -696,6 +781,7 @@ class BookingInquiryResource extends Resource
                         }),
                     Infolists\Components\TextEntry::make('pickup_time')->label('Pickup time')->placeholder('—'),
                     Infolists\Components\TextEntry::make('pickup_point')->label('Pickup point')->placeholder('—'),
+                    Infolists\Components\TextEntry::make('dropoff_point')->label('Dropoff point')->placeholder('—'),
                     // Driver/guide — tap the name to open WhatsApp with a
                     // short assignment message prefilled. Phone is appended
                     // inline via formatStateUsing because Infolist TextEntry
