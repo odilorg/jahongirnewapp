@@ -101,6 +101,27 @@ TXT,
      * Fields without data render as "—" so the operator sees gaps and
      * can follow up; we deliberately do not silently hide missing info.
      */
+    /*
+     * Accommodation dispatch — Russian. Camp managers / homestay hosts
+     * across Uzbekistan are typically more comfortable in Russian than
+     * Uzbek for written booking confirmations. Sent per stay (one
+     * message per InquiryStay row), so {stay_date} / {nights} /
+     * {guest_count} reference THIS leg of the tour, not the whole
+     * inquiry.
+     */
+    'accommodation_dispatch_ru' => <<<TXT
+🏕 Размещение: {accommodation}
+👤 Гость: {customer_name_with_country}
+📅 Дата заселения: {stay_date}
+🌙 Ночей: {nights}
+👨‍👩‍👧 Количество гостей: {guest_count}
+📞 Тел. гостя: {customer_phone}
+🍽 Питание: {meal_plan}
+📝 Примечания: {notes}
+
+🤝 Jahongir Travel — {reference}
+TXT,
+
     'driver_dispatch_uz' => <<<TXT
 🏕 Sayohat turi: {tour}
 👤 Mehmon: {customer_name_with_country}
