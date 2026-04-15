@@ -25,30 +25,30 @@ class ListBookingInquiries extends ListRecords
                 ->badge(fn () => BookingInquiry::count()),
 
             'new' => Tab::make('New')
-                ->modifyQueryUsing(fn (Builder $q) => $q->where('status', BookingInquiry::STATUS_NEW))
+                ->modifyQueryUsing(fn (Builder $query) => $query->where('status', BookingInquiry::STATUS_NEW))
                 ->badge(fn () => BookingInquiry::where('status', BookingInquiry::STATUS_NEW)->count())
                 ->badgeColor('warning'),
 
             'contacted' => Tab::make('Contacted')
-                ->modifyQueryUsing(fn (Builder $q) => $q->where('status', BookingInquiry::STATUS_CONTACTED))
+                ->modifyQueryUsing(fn (Builder $query) => $query->where('status', BookingInquiry::STATUS_CONTACTED))
                 ->badge(fn () => BookingInquiry::where('status', BookingInquiry::STATUS_CONTACTED)->count())
                 ->badgeColor('info'),
 
             'awaiting_customer' => Tab::make('Awaiting customer')
-                ->modifyQueryUsing(fn (Builder $q) => $q->where('status', BookingInquiry::STATUS_AWAITING_CUSTOMER))
+                ->modifyQueryUsing(fn (Builder $query) => $query->where('status', BookingInquiry::STATUS_AWAITING_CUSTOMER))
                 ->badge(fn () => BookingInquiry::where('status', BookingInquiry::STATUS_AWAITING_CUSTOMER)->count())
                 ->badgeColor('primary'),
 
             'confirmed' => Tab::make('Confirmed')
-                ->modifyQueryUsing(fn (Builder $q) => $q->where('status', BookingInquiry::STATUS_CONFIRMED))
+                ->modifyQueryUsing(fn (Builder $query) => $query->where('status', BookingInquiry::STATUS_CONFIRMED))
                 ->badge(fn () => BookingInquiry::where('status', BookingInquiry::STATUS_CONFIRMED)->count())
                 ->badgeColor('success'),
 
             'cancelled' => Tab::make('Cancelled')
-                ->modifyQueryUsing(fn (Builder $q) => $q->where('status', BookingInquiry::STATUS_CANCELLED)),
+                ->modifyQueryUsing(fn (Builder $query) => $query->where('status', BookingInquiry::STATUS_CANCELLED)),
 
             'spam' => Tab::make('Spam')
-                ->modifyQueryUsing(fn (Builder $q) => $q->where('status', BookingInquiry::STATUS_SPAM))
+                ->modifyQueryUsing(fn (Builder $query) => $query->where('status', BookingInquiry::STATUS_SPAM))
                 ->badgeColor('danger'),
         ];
     }
