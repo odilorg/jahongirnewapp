@@ -251,9 +251,15 @@ class BookingInquiryResource extends Resource
                         ->label('WA: Generate & send payment')
                         ->icon('heroicon-o-credit-card')
                         ->color('success')
+                        // Only visible when there is NO existing payment_link.
+                        // Once a link exists, operators must use "Resend
+                        // existing link" — regenerating a new one would
+                        // orphan the old Octo transaction and break webhook
+                        // lookup if the customer pays the first link.
                         ->visible(fn (BookingInquiry $record): bool => $record->status !== BookingInquiry::STATUS_CONFIRMED
                             && $record->status !== BookingInquiry::STATUS_SPAM
-                            && $record->status !== BookingInquiry::STATUS_CANCELLED)
+                            && $record->status !== BookingInquiry::STATUS_CANCELLED
+                            && blank($record->payment_link))
                         ->form([
                             Forms\Components\TextInput::make('price')
                                 ->label('Total price for group (USD)')
