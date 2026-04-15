@@ -26,7 +26,8 @@ class CarResource extends Resource
 
     protected static ?string $navigationIcon = 'heroicon-o-truck';
 
-    protected static ?string $navigationGroup = 'Driver and Guide Details';
+    protected static ?string $navigationGroup = 'Suppliers';
+    protected static ?int    $navigationSort  = 40;
 
     public static function form(Form $form): Form
     {
