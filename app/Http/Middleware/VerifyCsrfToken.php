@@ -15,5 +15,8 @@ class VerifyCsrfToken extends Middleware
         'api/telegram/*',
         'api/booking/bot/webhook',
         '1/*',
+        // Octobank server-to-server payment callback. Protected by the
+        // shared OCTO_SECRET check inside OctoCallbackController, not CSRF.
+        'octo/callback',
     ];
 }
