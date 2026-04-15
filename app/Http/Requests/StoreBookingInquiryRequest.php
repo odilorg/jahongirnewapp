@@ -60,7 +60,10 @@ class StoreBookingInquiryRequest extends FormRequest
             'message' => ['nullable', 'string', 'max:5000'],
 
             // Source override — default to 'website' if not provided.
-            'source' => ['nullable', 'string', Rule::in(['website', 'telegram', 'manual', 'gyg'])],
+            'source' => ['nullable', 'string', Rule::in([
+                'website', 'whatsapp', 'telegram', 'phone',
+                'email', 'walk_in', 'manual', 'gyg',
+            ])],
         ];
     }
 
