@@ -24,7 +24,10 @@ class TourCalendar extends Page
     protected static ?string $navigationIcon  = 'heroicon-o-calendar-days';
     protected static ?string $navigationLabel = 'Tour Calendar';
     protected static ?string $navigationGroup = 'Tours';
-    protected static ?int    $navigationSort  = 1;
+    // Sits at the top of the Tours nav group — same spot the old
+    // TourCalendarWidgetPage used to occupy. Negative sort to ensure
+    // it stays above Website Inquiries (sort 0).
+    protected static ?int    $navigationSort  = -10;
 
     protected static string $view = 'filament.pages.tour-calendar';
 
