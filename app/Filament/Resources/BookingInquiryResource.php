@@ -6,6 +6,8 @@ namespace App\Filament\Resources;
 
 use App\Filament\Resources\BookingInquiryResource\Pages;
 use App\Models\BookingInquiry;
+use App\Models\Driver;
+use App\Models\Guide;
 use App\Services\InquiryTemplateRenderer;
 use App\Services\OctoPaymentService;
 use Filament\Forms;
@@ -87,15 +89,44 @@ class BookingInquiryResource extends Resource
             Forms\Components\Section::make('Operations')
                 ->description('Tour dispatch — driver, guide, pickup details. Separate from the commercial status above.')
                 ->schema([
-                    Forms\Components\TextInput::make('assigned_driver_name')
+                    // Driver / Guide pull from the normalised drivers/guides
+                    // catalog tables. createOptionForm lets operators add a
+                    // new supplier inline without leaving the inquiry detail.
+                    Forms\Components\Select::make('driver_id')
                         ->label('Driver')
-                        ->maxLength(191)
-                        ->placeholder('e.g. Akmal — +998 90 123 45 67'),
+                        ->relationship('driver', 'full_name')
+                        ->searchable(['first_name', 'last_name', 'phone01'])
+                        ->preload()
+                        ->createOptionForm([
+                            Forms\Components\TextInput::make('first_name')->required()->maxLength(255),
+                            Forms\Components\TextInput::make('last_name')->required()->maxLength(255),
+                            Forms\Components\TextInput::make('phone01')->label('Phone')->tel()->required()->maxLength(255),
+                            Forms\Components\TextInput::make('email')->email()->required()->maxLength(255),
+                            Forms\Components\Select::make('fuel_type')
+                                ->options(['petrol' => 'Petrol', 'diesel' => 'Diesel', 'methane' => 'Methane', 'propane' => 'Propane', 'hybrid' => 'Hybrid', 'electric' => 'Electric'])
+                                ->default('petrol')
+                                ->required(),
+                            Forms\Components\Toggle::make('is_active')->default(true),
+                        ])
+                        ->createOptionUsing(function (array $data): int {
+                            return Driver::create($data)->id;
+                        }),
 
-                    Forms\Components\TextInput::make('assigned_guide_name')
+                    Forms\Components\Select::make('guide_id')
                         ->label('Guide')
-                        ->maxLength(191)
-                        ->placeholder('e.g. Dilshod (EN)'),
+                        ->relationship('guide', 'full_name')
+                        ->searchable(['first_name', 'last_name', 'phone01'])
+                        ->preload()
+                        ->createOptionForm([
+                            Forms\Components\TextInput::make('first_name')->required()->maxLength(255),
+                            Forms\Components\TextInput::make('last_name')->required()->maxLength(255),
+                            Forms\Components\TextInput::make('phone01')->label('Phone')->tel()->required()->maxLength(255),
+                            Forms\Components\TextInput::make('email')->email()->required()->maxLength(255),
+                            Forms\Components\Toggle::make('is_active')->default(true),
+                        ])
+                        ->createOptionUsing(function (array $data): int {
+                            return Guide::create($data)->id;
+                        }),
 
                     Forms\Components\TimePicker::make('pickup_time')
                         ->label('Pickup time')
@@ -665,8 +696,14 @@ class BookingInquiryResource extends Resource
                         }),
                     Infolists\Components\TextEntry::make('pickup_time')->label('Pickup time')->placeholder('—'),
                     Infolists\Components\TextEntry::make('pickup_point')->label('Pickup point')->placeholder('—'),
-                    Infolists\Components\TextEntry::make('assigned_driver_name')->label('Driver')->placeholder('—'),
-                    Infolists\Components\TextEntry::make('assigned_guide_name')->label('Guide')->placeholder('—'),
+                    Infolists\Components\TextEntry::make('driver.full_name')
+                        ->label('Driver')
+                        ->placeholder('—')
+                        ->description(fn ($record) => $record->driver?->phone01),
+                    Infolists\Components\TextEntry::make('guide.full_name')
+                        ->label('Guide')
+                        ->placeholder('—')
+                        ->description(fn ($record) => $record->guide?->phone01),
                     Infolists\Components\TextEntry::make('operational_notes')
                         ->label('Operational notes')
                         ->placeholder('—')

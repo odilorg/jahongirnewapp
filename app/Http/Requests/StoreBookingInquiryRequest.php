@@ -37,6 +37,10 @@ class StoreBookingInquiryRequest extends FormRequest
             'tour_slug'          => ['nullable', 'string', 'max:191'],
             'tour_name_snapshot' => ['required', 'string', 'max:255'],
             'page_url'           => ['nullable', 'url', 'max:500'],
+            // Operator-editable pickup_point can arrive prefilled from the
+            // public form's hotel_to_pickup field so it goes straight into
+            // the operational record (not buried in the message blob).
+            'pickup_point'       => ['nullable', 'string', 'max:255'],
 
             'customer_name'     => ['required', 'string', 'min:2', 'max:191'],
             'customer_email'    => ['required', 'email', 'max:191'],
@@ -81,6 +85,7 @@ class StoreBookingInquiryRequest extends FormRequest
             'tour_slug'          => $v['tour_slug'] ?? null,
             'tour_name_snapshot' => $v['tour_name_snapshot'],
             'page_url'           => $v['page_url'] ?? null,
+            'pickup_point'       => $v['pickup_point'] ?? null,
 
             'customer_name'     => trim($v['customer_name']),
             'customer_email'    => mb_strtolower(trim($v['customer_email'])),
