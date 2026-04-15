@@ -48,12 +48,15 @@ class StaticSiteEditor
         if ($schemaLine === null) {
             $errors[] = 'no $schema_json assignment found on its own line';
         } else {
-            $offersCount = substr_count($schemaLine, '"offers":');
+            $offersCount = preg_match_all('/"offers"\s*:/', $schemaLine);
             if ($offersCount !== 1) {
                 $errors[] = "schema_json has {$offersCount} offers blocks (expected 1)";
             }
 
-            if (! preg_match('/"offers":\{[^}]*"price":"(\d+(?:\.\d+)?)"/', $schemaLine)) {
+            // Tolerate optional whitespace around : and inside the offers
+            // object — the static site has a mix of minified and pretty-
+            // printed JSON-LD.
+            if (! preg_match('/"offers"\s*:\s*\{[^}]*"price"\s*:\s*"(\d+(?:\.\d+)?)"/', $schemaLine)) {
                 $errors[] = 'schema_json offers.price is not a simple numeric string literal';
             }
         }
@@ -178,7 +181,7 @@ PHP;
             throw new RuntimeException('no $schema_json line found');
         }
 
-        if (substr_count($line, '"offers":') !== 1) {
+        if (preg_match_all('/"offers"\s*:/', $line) !== 1) {
             throw new RuntimeException('$schema_json has != 1 offers blocks');
         }
 
@@ -187,7 +190,7 @@ PHP;
             : (string) (float) $newPrice;
 
         $newLine = preg_replace_callback(
-            '/("offers":\{[^}]*"price":")(\d+(?:\.\d+)?)(")/',
+            '/("offers"\s*:\s*\{[^}]*"price"\s*:\s*")(\d+(?:\.\d+)?)(")/',
             fn (array $m): string => $m[1] . $priceStr . $m[3],
             $line,
             1,
