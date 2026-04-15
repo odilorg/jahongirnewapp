@@ -699,11 +699,22 @@ class BookingInquiryResource extends Resource
                     Infolists\Components\TextEntry::make('driver.full_name')
                         ->label('Driver')
                         ->placeholder('—')
-                        ->description(fn ($record) => $record->driver?->phone01),
+                        ->description(fn ($record) => $record->driver?->phone01)
+                        // Tap → WhatsApp with a short assignment message prefilled.
+                        ->url(fn ($record): ?string => $record->driver
+                            ? 'https://wa.me/'
+                                . preg_replace('/[^0-9]/', '', (string) $record->driver->phone01)
+                                . '?text=' . rawurlencode('Hi ' . $record->driver->first_name . ', you have been assigned to a tour via Jahongir Travel. I will send details shortly.')
+                            : null, true),
                     Infolists\Components\TextEntry::make('guide.full_name')
                         ->label('Guide')
                         ->placeholder('—')
-                        ->description(fn ($record) => $record->guide?->phone01),
+                        ->description(fn ($record) => $record->guide?->phone01)
+                        ->url(fn ($record): ?string => $record->guide
+                            ? 'https://wa.me/'
+                                . preg_replace('/[^0-9]/', '', (string) $record->guide->phone01)
+                                . '?text=' . rawurlencode('Hi ' . $record->guide->first_name . ', you have been assigned to a tour via Jahongir Travel. I will send details shortly.')
+                            : null, true),
                     Infolists\Components\TextEntry::make('operational_notes')
                         ->label('Operational notes')
                         ->placeholder('—')

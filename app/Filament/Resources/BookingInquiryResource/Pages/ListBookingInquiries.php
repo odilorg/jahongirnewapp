@@ -60,6 +60,17 @@ class ListBookingInquiries extends ListRecords
                     ->count())
                 ->badgeColor('success'),
 
+            // Prep view: confirmed sales leaving tomorrow — finalise
+            // driver/guide/pickup details today while there is still time.
+            'tomorrow' => Tab::make('Tomorrow')
+                ->modifyQueryUsing(fn (Builder $query) => $query
+                    ->where('status', BookingInquiry::STATUS_CONFIRMED)
+                    ->whereDate('travel_date', today()->addDay()))
+                ->badge(fn () => BookingInquiry::where('status', BookingInquiry::STATUS_CONFIRMED)
+                    ->whereDate('travel_date', today()->addDay())
+                    ->count())
+                ->badgeColor('primary'),
+
             // Archive: tours that have actually run to completion.
             'completed' => Tab::make('Completed')
                 ->modifyQueryUsing(fn (Builder $query) => $query
