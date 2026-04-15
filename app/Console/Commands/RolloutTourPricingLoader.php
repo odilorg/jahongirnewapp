@@ -107,10 +107,39 @@ class RolloutTourPricingLoader extends Command
             }
         }
 
+        if (! $dryRun && $ok > 0) {
+            $this->purgeNginxFastcgiCache();
+        }
+
         $this->line('');
         $this->info("Done. ok={$ok} skipped={$skipped} failed={$failed}");
 
         return $failed === 0 ? self::SUCCESS : self::FAILURE;
+    }
+
+    /**
+     * Purge the nginx fastcgi cache. The jahongir-travel.uz nginx vhost
+     * uses fastcgi_cache with a 5-minute TTL, which means the just-edited
+     * pages would otherwise keep serving pre-conversion bytecode for up
+     * to 5 minutes. Purging here is a no-op when the cache dir is absent
+     * or unwriteable.
+     */
+    private function purgeNginxFastcgiCache(): void
+    {
+        $cacheDir = '/var/cache/nginx/php';
+        if (! is_dir($cacheDir)) {
+            return;
+        }
+
+        // Use shell so we can glob-wipe quickly. Process would need a
+        // recursive walker and this script already runs as root in prod.
+        exec('rm -rf ' . escapeshellarg($cacheDir) . '/* 2>/dev/null', $_, $rc);
+        if ($rc === 0) {
+            $this->line('');
+            $this->info('Purged nginx fastcgi cache.');
+        } else {
+            $this->warn('Could not purge nginx fastcgi cache — purge manually: rm -rf /var/cache/nginx/php/*');
+        }
     }
 
     /**
