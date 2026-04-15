@@ -124,4 +124,24 @@ HTML;
         $out  = $this->editor->syncOffersPrice($html, 75.5);
         $this->assertStringContainsString('"price":"75.5"', $out);
     }
+
+    public function test_preflight_and_sync_tolerate_pretty_printed_json_ld(): void
+    {
+        $pretty = <<<HTML
+<?php \$schema_json = '<script type="application/ld+json">{"@context": "https://schema.org", "@type": "TouristTrip", "name": "Pretty", "offers": {"@type": "Offer", "price": "48", "priceCurrency": "USD"}, "provider": {"@type": "TravelAgency"}}</script>'; ?>
+<html>
+<body>
+<table class="yurt-price-card">
+<tbody><tr><td>1 person</td><td>\$48</td></tr></tbody>
+</table>
+</body>
+</html>
+HTML;
+
+        $this->assertSame([], $this->editor->preflight($pretty), 'pretty-printed JSON-LD should preflight clean');
+        $out = $this->editor->syncOffersPrice($pretty, 60);
+        $this->assertStringContainsString('"price": "60"', $out);
+        // No accidental double-substitution
+        $this->assertSame(1, preg_match_all('/"price"\s*:\s*"\d+"/', $out));
+    }
 }
