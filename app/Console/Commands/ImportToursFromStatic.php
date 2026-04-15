@@ -359,8 +359,12 @@ class ImportToursFromStatic extends Command
             'currency'         => 'USD',
             'description'      => $description,
             'highlights'       => $this->extractHighlights($xpath),
-            'includes'         => $this->extractIncludesExcludes($xpath, 'INCLUDED'),
-            'excludes'         => $this->extractIncludesExcludes($xpath, 'NOT INCLUDED'),
+            'includes'         => $this->extractIncludesExcludes($xpath, [
+                'included', 'includes', 'inclusion', 'inclusions',
+            ]),
+            'excludes'         => $this->extractIncludesExcludes($xpath, [
+                'not included', 'excluded', 'excludes', 'exclusion', 'exclusions',
+            ]),
             'hero_image_url'   => $heroImage,
             'page_url'         => $pageUrl,
             'meta_description' => $metaDescription,
@@ -488,25 +492,35 @@ class ImportToursFromStatic extends Command
         return null;
     }
 
-    private function extractIncludesExcludes(?\DOMXPath $xpath, string $label): ?string
+    /**
+     * @param  array<int, string>  $labelVariants  lowercase label strings to try in order
+     */
+    private function extractIncludesExcludes(?\DOMXPath $xpath, array $labelVariants): ?string
     {
         if (! $xpath) {
             return null;
         }
 
-        // Find a <td> whose child <strong> text matches our label, then
-        // grab the SIBLING <td> that holds the nested items. Using XPath
-        // handles arbitrary nesting inside the sibling cell.
-        $strongs = $xpath->query(sprintf(
-            '//table[contains(@class, "tours-tabs_table")]//td[./strong[normalize-space(text())=%s]]/following-sibling::td[1]',
-            $this->xpathLiteral($label)
-        ));
+        // Use XPath translate() for case-insensitive matching. We also
+        // try each label variant in order and take the first hit so
+        // pages using 'Not included', 'EXCLUDED', or 'Excludes' all
+        // resolve to the same field.
+        $cell = null;
+        foreach ($labelVariants as $label) {
+            $lower = mb_strtolower($label);
+            $nodes = $xpath->query(sprintf(
+                '//table[contains(@class, "tours-tabs_table")]'
+                . '//td[./strong[translate(normalize-space(text()), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz")=%s]]'
+                . '/following-sibling::td[1]',
+                $this->xpathLiteral($lower)
+            ));
 
-        if ($strongs === false || $strongs->length === 0) {
-            return null;
+            if ($nodes && $nodes->length > 0) {
+                $cell = $nodes->item(0);
+                break;
+            }
         }
 
-        $cell = $strongs->item(0);
         if (! $cell) {
             return null;
         }
