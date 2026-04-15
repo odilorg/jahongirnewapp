@@ -6,6 +6,7 @@ namespace App\Filament\Resources;
 
 use App\Filament\Resources\BookingInquiryResource\Pages;
 use App\Models\BookingInquiry;
+use App\Services\InquiryTemplateRenderer;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Infolists;
@@ -180,6 +181,78 @@ class BookingInquiryResource extends Resource
             ])
             ->actions([
                 Tables\Actions\ViewAction::make(),
+
+                // ── WhatsApp quick-reply templates ──────────────────────
+                // Grouped under a single dropdown to keep the row compact.
+                // Each action opens WhatsApp in a new tab with a prefilled,
+                // rendered template. No server-side WA send in v1 — deep
+                // links only, operator stays in control of the actual
+                // message (they can edit before hitting send on WhatsApp).
+                Tables\Actions\ActionGroup::make([
+                    Tables\Actions\Action::make('waInitial')
+                        ->label('WA: Initial reply')
+                        ->icon('heroicon-o-chat-bubble-left-ellipsis')
+                        ->color('success')
+                        ->action(function (BookingInquiry $record, $livewire): void {
+                            static::openWhatsApp(
+                                $record,
+                                $livewire,
+                                'wa_initial',
+                                [],
+                                'Initial reply',
+                            );
+                        }),
+
+                    Tables\Actions\Action::make('waOffer')
+                        ->label('WA: Offer + payment')
+                        ->icon('heroicon-o-currency-dollar')
+                        ->color('success')
+                        ->form([
+                            Forms\Components\TextInput::make('price')
+                                ->label('Total price for the group')
+                                ->prefix('$')
+                                ->required()
+                                ->numeric()
+                                ->step('0.01')
+                                ->helperText('Enter the total, not per-person — e.g. 560 for 2 pax at $280.'),
+                        ])
+                        ->modalSubmitActionLabel('Open WhatsApp')
+                        ->action(function (BookingInquiry $record, array $data, $livewire): void {
+                            static::openWhatsApp(
+                                $record,
+                                $livewire,
+                                'wa_offer_payment',
+                                ['price' => '$' . number_format((float) $data['price'], 2)],
+                                'Offer + payment (price: $' . $data['price'] . ')',
+                            );
+                        }),
+
+                    Tables\Actions\Action::make('waPaymentLink')
+                        ->label('WA: Payment link')
+                        ->icon('heroicon-o-link')
+                        ->color('success')
+                        ->form([
+                            Forms\Components\TextInput::make('link')
+                                ->label('Secure payment link')
+                                ->url()
+                                ->required()
+                                ->placeholder('https://pay.example.com/...'),
+                        ])
+                        ->modalSubmitActionLabel('Open WhatsApp')
+                        ->action(function (BookingInquiry $record, array $data, $livewire): void {
+                            static::openWhatsApp(
+                                $record,
+                                $livewire,
+                                'wa_payment_link',
+                                ['link' => $data['link']],
+                                'Payment link sent',
+                            );
+                        }),
+                ])
+                    ->label('WhatsApp')
+                    ->icon('heroicon-o-chat-bubble-left-right')
+                    ->color('success')
+                    ->button(),
 
                 Tables\Actions\Action::make('markContacted')
                     ->label('Mark contacted')
@@ -368,5 +441,55 @@ class BookingInquiryResource extends Resource
             'view'  => Pages\ViewBookingInquiry::route('/{record}'),
             'edit'  => Pages\EditBookingInquiry::route('/{record}/edit'),
         ];
+    }
+
+    /**
+     * Build a wa.me deep link with a pre-rendered template, open it in a new
+     * tab via Livewire JS, append an audit entry to internal_notes, and show
+     * a confirmation notification.
+     *
+     * Keeps all three WA actions DRY. Fails soft on missing phone — the
+     * operator gets a danger notification but the row is unchanged.
+     *
+     * @param  array<string, string|int|float|null>  $extras
+     */
+    protected static function openWhatsApp(
+        BookingInquiry $record,
+        mixed $livewire,
+        string $templateKey,
+        array $extras,
+        string $auditLabel,
+    ): void {
+        $phoneDigits = preg_replace('/[^0-9]/', '', (string) $record->customer_phone);
+
+        if ($phoneDigits === '' || $phoneDigits === null) {
+            Notification::make()
+                ->title('No phone number on record')
+                ->body('Cannot open WhatsApp without a valid phone.')
+                ->danger()
+                ->send();
+
+            return;
+        }
+
+        $text = app(InquiryTemplateRenderer::class)->render($templateKey, $record, $extras);
+        $url  = 'https://wa.me/' . $phoneDigits . '?text=' . rawurlencode($text);
+
+        // Append timestamped audit entry so operators see WA send history
+        // in the detail page without needing a separate events table (Phase 5).
+        $stamp    = now()->format('Y-m-d H:i');
+        $existing = $record->internal_notes ? $record->internal_notes . "\n\n" : '';
+        $record->update([
+            'internal_notes' => $existing . "[{$stamp}] WA: {$auditLabel}",
+        ]);
+
+        // Open WhatsApp in a new tab — keeps the operator on the admin page.
+        $livewire->js('window.open(' . json_encode($url) . ", '_blank');");
+
+        Notification::make()
+            ->title('WhatsApp opened')
+            ->body('Message prefilled — review and send from WhatsApp.')
+            ->success()
+            ->send();
     }
 }
