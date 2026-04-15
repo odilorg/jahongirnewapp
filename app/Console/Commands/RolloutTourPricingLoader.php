@@ -155,7 +155,12 @@ class RolloutTourPricingLoader extends Command
         if ($product->priceTiers()->count() === 0) {
             throw new PageSkipped('TourProduct has zero price tiers');
         }
-        $startingFrom = $product->starting_from_usd;
+        // starting_from_usd is a decimal cast → string; normalize for the
+        // editor's strict int|float signature.
+        $startingFromRaw = (float) $product->starting_from_usd;
+        $startingFrom = (int) $startingFromRaw == $startingFromRaw
+            ? (int) $startingFromRaw
+            : $startingFromRaw;
 
         $original = file_get_contents($absolute);
         if ($original === false) {
