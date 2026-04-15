@@ -13,7 +13,12 @@ use Filament\Infolists;
 use Filament\Infolists\Infolist;
 use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
+use Filament\Support\Enums\Alignment;
+use Filament\Support\Enums\FontWeight;
 use Filament\Tables;
+use Filament\Tables\Columns\Layout\Split;
+use Filament\Tables\Columns\Layout\Stack;
+use Filament\Tables\Columns\TextColumn\TextColumnSize;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
@@ -83,76 +88,82 @@ class BookingInquiryResource extends Resource
     {
         return $table
             ->defaultSort('created_at', 'desc')
+            // Row click → detail page. Removes the need for a row-level
+            // View/Edit action button and makes the whole card tappable
+            // on mobile, which is how operators actually use this.
+            ->recordUrl(fn (BookingInquiry $record): string => static::getUrl('view', ['record' => $record]))
             ->columns([
-                Tables\Columns\TextColumn::make('reference')
-                    ->label('Ref')
-                    ->searchable()
-                    ->copyable()
-                    ->copyMessage('Reference copied')
-                    ->fontFamily('mono')
-                    ->size(Tables\Columns\TextColumn\TextColumnSize::Small),
+                // Mobile-first card layout: on < md this stacks into a
+                // single vertical card per row; on md+ it becomes a
+                // conventional horizontal table row.
+                Split::make([
+                    Stack::make([
+                        Tables\Columns\TextColumn::make('reference')
+                            ->label('Ref')
+                            ->fontFamily('mono')
+                            ->size(TextColumnSize::Small)
+                            ->color('gray')
+                            ->searchable()
+                            ->copyable()
+                            ->copyMessage('Reference copied'),
 
-                Tables\Columns\TextColumn::make('tour_name_snapshot')
-                    ->label('Tour')
-                    ->searchable()
-                    ->limit(40)
-                    ->tooltip(fn (BookingInquiry $record): string => (string) $record->tour_name_snapshot)
-                    ->wrap(),
+                        Tables\Columns\TextColumn::make('tour_name_snapshot')
+                            ->label('Tour')
+                            ->weight(FontWeight::Medium)
+                            ->searchable()
+                            ->wrap(),
 
-                Tables\Columns\TextColumn::make('customer_name')
-                    ->label('Customer')
-                    ->searchable()
-                    ->description(fn (BookingInquiry $record): string => (string) $record->customer_email),
+                        // Combined customer line: name (searchable) with
+                        // pax + travel date in the description slot so the
+                        // card stays compact but readable.
+                        Tables\Columns\TextColumn::make('customer_name')
+                            ->label('Customer')
+                            ->searchable(['customer_name', 'customer_email', 'customer_phone'])
+                            ->size(TextColumnSize::Small)
+                            ->description(function (BookingInquiry $record): string {
+                                $pax = $record->people_children > 0
+                                    ? "{$record->people_adults}+{$record->people_children} pax"
+                                    : ($record->people_adults === 1
+                                        ? '1 pax'
+                                        : "{$record->people_adults} pax");
 
-                Tables\Columns\TextColumn::make('customer_phone')
-                    ->label('Phone')
-                    ->searchable()
-                    ->copyable()
-                    ->toggleable(),
+                                $date = $record->travel_date
+                                    ? $record->travel_date->format('M j, Y')
+                                    : 'no date';
 
-                Tables\Columns\TextColumn::make('people_adults')
-                    ->label('Pax')
-                    ->formatStateUsing(fn (BookingInquiry $record): string => $record->people_children > 0
-                        ? "{$record->people_adults}+{$record->people_children}"
-                        : (string) $record->people_adults)
-                    ->alignCenter(),
+                                return $pax . ' · ' . $date;
+                            }),
+                    ]),
 
-                Tables\Columns\TextColumn::make('travel_date')
-                    ->label('Travel')
-                    ->date('M j, Y')
-                    ->placeholder('—')
-                    ->sortable(),
+                    Stack::make([
+                        Tables\Columns\TextColumn::make('status')
+                            ->badge()
+                            ->formatStateUsing(fn (string $state): string => match ($state) {
+                                BookingInquiry::STATUS_NEW               => 'New',
+                                BookingInquiry::STATUS_CONTACTED         => 'Contacted',
+                                BookingInquiry::STATUS_AWAITING_CUSTOMER => 'Awaiting',
+                                BookingInquiry::STATUS_CONFIRMED         => 'Confirmed',
+                                BookingInquiry::STATUS_CANCELLED         => 'Cancelled',
+                                BookingInquiry::STATUS_SPAM              => 'Spam',
+                                default                                  => $state,
+                            })
+                            ->color(fn (string $state): string => match ($state) {
+                                BookingInquiry::STATUS_NEW               => 'warning',
+                                BookingInquiry::STATUS_CONTACTED         => 'info',
+                                BookingInquiry::STATUS_AWAITING_CUSTOMER => 'primary',
+                                BookingInquiry::STATUS_CONFIRMED         => 'success',
+                                BookingInquiry::STATUS_CANCELLED         => 'gray',
+                                BookingInquiry::STATUS_SPAM              => 'danger',
+                                default                                  => 'gray',
+                            }),
 
-                Tables\Columns\TextColumn::make('status')
-                    ->badge()
-                    ->formatStateUsing(fn (string $state): string => match ($state) {
-                        BookingInquiry::STATUS_NEW               => 'New',
-                        BookingInquiry::STATUS_CONTACTED         => 'Contacted',
-                        BookingInquiry::STATUS_AWAITING_CUSTOMER => 'Awaiting customer',
-                        BookingInquiry::STATUS_CONFIRMED         => 'Confirmed',
-                        BookingInquiry::STATUS_CANCELLED         => 'Cancelled',
-                        BookingInquiry::STATUS_SPAM              => 'Spam',
-                        default                                  => $state,
-                    })
-                    ->color(fn (string $state): string => match ($state) {
-                        BookingInquiry::STATUS_NEW               => 'warning',
-                        BookingInquiry::STATUS_CONTACTED         => 'info',
-                        BookingInquiry::STATUS_AWAITING_CUSTOMER => 'primary',
-                        BookingInquiry::STATUS_CONFIRMED         => 'success',
-                        BookingInquiry::STATUS_CANCELLED         => 'gray',
-                        BookingInquiry::STATUS_SPAM              => 'danger',
-                        default                                  => 'gray',
-                    }),
-
-                Tables\Columns\TextColumn::make('source')
-                    ->badge()
-                    ->color('gray')
-                    ->toggleable(isToggledHiddenByDefault: true),
-
-                Tables\Columns\TextColumn::make('created_at')
-                    ->label('Received')
-                    ->dateTime('M j, H:i')
-                    ->sortable(),
+                        Tables\Columns\TextColumn::make('created_at')
+                            ->since()
+                            ->size(TextColumnSize::Small)
+                            ->color('gray')
+                            ->sortable(),
+                    ])->alignment(Alignment::End),
+                ])->from('md'),
             ])
             ->filters([
                 SelectFilter::make('status')
@@ -180,8 +191,6 @@ class BookingInquiryResource extends Resource
                 // Status + source filters are sufficient for v1.
             ])
             ->actions([
-                Tables\Actions\ViewAction::make(),
-
                 // ── WhatsApp quick-reply templates ──────────────────────
                 // Grouped under a single dropdown to keep the row compact.
                 // Each action opens WhatsApp in a new tab with a prefilled,
@@ -254,81 +263,91 @@ class BookingInquiryResource extends Resource
                     ->color('success')
                     ->button(),
 
-                Tables\Actions\Action::make('markContacted')
-                    ->label('Mark contacted')
-                    ->icon('heroicon-o-phone-arrow-up-right')
-                    ->color('info')
-                    ->visible(fn (BookingInquiry $record): bool => $record->status === BookingInquiry::STATUS_NEW
-                        || $record->status === BookingInquiry::STATUS_AWAITING_CUSTOMER)
-                    ->action(function (BookingInquiry $record): void {
-                        $record->update([
-                            'status'       => BookingInquiry::STATUS_CONTACTED,
-                            'contacted_at' => $record->contacted_at ?: now(),
-                        ]);
-                        Notification::make()->title('Marked as contacted')->success()->send();
-                    }),
+                // ── Everything else collapses into a single "⋮" dropdown.
+                //    Keeps the row clean on mobile and puts WhatsApp as
+                //    the dominant green button, which is the primary
+                //    operator action for conversion.
+                Tables\Actions\ActionGroup::make([
+                    Tables\Actions\Action::make('markContacted')
+                        ->label('Mark contacted')
+                        ->icon('heroicon-o-phone-arrow-up-right')
+                        ->color('info')
+                        ->visible(fn (BookingInquiry $record): bool => $record->status === BookingInquiry::STATUS_NEW
+                            || $record->status === BookingInquiry::STATUS_AWAITING_CUSTOMER)
+                        ->action(function (BookingInquiry $record): void {
+                            $record->update([
+                                'status'       => BookingInquiry::STATUS_CONTACTED,
+                                'contacted_at' => $record->contacted_at ?: now(),
+                            ]);
+                            Notification::make()->title('Marked as contacted')->success()->send();
+                        }),
 
-                Tables\Actions\Action::make('markConfirmed')
-                    ->label('Mark confirmed')
-                    ->icon('heroicon-o-check-badge')
-                    ->color('success')
-                    ->visible(fn (BookingInquiry $record): bool => $record->status !== BookingInquiry::STATUS_CONFIRMED
-                        && $record->status !== BookingInquiry::STATUS_SPAM)
-                    ->requiresConfirmation()
-                    ->action(function (BookingInquiry $record): void {
-                        $record->update([
-                            'status'       => BookingInquiry::STATUS_CONFIRMED,
-                            'confirmed_at' => now(),
-                        ]);
-                        Notification::make()->title('Marked as confirmed')->success()->send();
-                    }),
+                    Tables\Actions\Action::make('markConfirmed')
+                        ->label('Mark confirmed')
+                        ->icon('heroicon-o-check-badge')
+                        ->color('success')
+                        ->visible(fn (BookingInquiry $record): bool => $record->status !== BookingInquiry::STATUS_CONFIRMED
+                            && $record->status !== BookingInquiry::STATUS_SPAM)
+                        ->requiresConfirmation()
+                        ->action(function (BookingInquiry $record): void {
+                            $record->update([
+                                'status'       => BookingInquiry::STATUS_CONFIRMED,
+                                'confirmed_at' => now(),
+                            ]);
+                            Notification::make()->title('Marked as confirmed')->success()->send();
+                        }),
 
-                Tables\Actions\Action::make('markCancelled')
-                    ->label('Cancel')
-                    ->icon('heroicon-o-x-circle')
+                    Tables\Actions\Action::make('markCancelled')
+                        ->label('Cancel')
+                        ->icon('heroicon-o-x-circle')
+                        ->color('gray')
+                        ->visible(fn (BookingInquiry $record): bool => $record->status !== BookingInquiry::STATUS_CANCELLED
+                            && $record->status !== BookingInquiry::STATUS_SPAM)
+                        ->requiresConfirmation()
+                        ->action(function (BookingInquiry $record): void {
+                            $record->update([
+                                'status'       => BookingInquiry::STATUS_CANCELLED,
+                                'cancelled_at' => now(),
+                            ]);
+                            Notification::make()->title('Marked as cancelled')->warning()->send();
+                        }),
+
+                    Tables\Actions\Action::make('markSpam')
+                        ->label('Spam')
+                        ->icon('heroicon-o-no-symbol')
+                        ->color('danger')
+                        ->visible(fn (BookingInquiry $record): bool => $record->status !== BookingInquiry::STATUS_SPAM)
+                        ->requiresConfirmation()
+                        ->action(function (BookingInquiry $record): void {
+                            $record->update(['status' => BookingInquiry::STATUS_SPAM]);
+                            Notification::make()->title('Marked as spam')->danger()->send();
+                        }),
+
+                    Tables\Actions\Action::make('addNote')
+                        ->label('Add note')
+                        ->icon('heroicon-o-pencil-square')
+                        ->color('gray')
+                        ->form([
+                            Forms\Components\Textarea::make('note')
+                                ->label('Append to internal notes')
+                                ->rows(4)
+                                ->required(),
+                        ])
+                        ->action(function (BookingInquiry $record, array $data): void {
+                            $existing = $record->internal_notes ? $record->internal_notes . "\n\n" : '';
+                            $stamp    = now()->format('Y-m-d H:i');
+                            $record->update([
+                                'internal_notes' => $existing . "[{$stamp}] " . $data['note'],
+                            ]);
+                            Notification::make()->title('Note added')->success()->send();
+                        }),
+
+                    Tables\Actions\EditAction::make(),
+                ])
+                    ->label('Actions')
+                    ->icon('heroicon-m-ellipsis-vertical')
                     ->color('gray')
-                    ->visible(fn (BookingInquiry $record): bool => $record->status !== BookingInquiry::STATUS_CANCELLED
-                        && $record->status !== BookingInquiry::STATUS_SPAM)
-                    ->requiresConfirmation()
-                    ->action(function (BookingInquiry $record): void {
-                        $record->update([
-                            'status'       => BookingInquiry::STATUS_CANCELLED,
-                            'cancelled_at' => now(),
-                        ]);
-                        Notification::make()->title('Marked as cancelled')->warning()->send();
-                    }),
-
-                Tables\Actions\Action::make('markSpam')
-                    ->label('Spam')
-                    ->icon('heroicon-o-no-symbol')
-                    ->color('danger')
-                    ->visible(fn (BookingInquiry $record): bool => $record->status !== BookingInquiry::STATUS_SPAM)
-                    ->requiresConfirmation()
-                    ->action(function (BookingInquiry $record): void {
-                        $record->update(['status' => BookingInquiry::STATUS_SPAM]);
-                        Notification::make()->title('Marked as spam')->danger()->send();
-                    }),
-
-                Tables\Actions\Action::make('addNote')
-                    ->label('Note')
-                    ->icon('heroicon-o-pencil-square')
-                    ->color('gray')
-                    ->form([
-                        Forms\Components\Textarea::make('note')
-                            ->label('Append to internal notes')
-                            ->rows(4)
-                            ->required(),
-                    ])
-                    ->action(function (BookingInquiry $record, array $data): void {
-                        $existing = $record->internal_notes ? $record->internal_notes . "\n\n" : '';
-                        $stamp    = now()->format('Y-m-d H:i');
-                        $record->update([
-                            'internal_notes' => $existing . "[{$stamp}] " . $data['note'],
-                        ]);
-                        Notification::make()->title('Note added')->success()->send();
-                    }),
-
-                Tables\Actions\EditAction::make(),
+                    ->button(),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
