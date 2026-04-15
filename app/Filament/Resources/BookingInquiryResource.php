@@ -83,6 +83,46 @@ class BookingInquiryResource extends Resource
                         ->helperText('Free-form notes for the operator team.'),
                 ])
                 ->columns(1),
+
+            Forms\Components\Section::make('Operations')
+                ->description('Tour dispatch — driver, guide, pickup details. Separate from the commercial status above.')
+                ->schema([
+                    Forms\Components\TextInput::make('assigned_driver_name')
+                        ->label('Driver')
+                        ->maxLength(191)
+                        ->placeholder('e.g. Akmal — +998 90 123 45 67'),
+
+                    Forms\Components\TextInput::make('assigned_guide_name')
+                        ->label('Guide')
+                        ->maxLength(191)
+                        ->placeholder('e.g. Dilshod (EN)'),
+
+                    Forms\Components\TimePicker::make('pickup_time')
+                        ->label('Pickup time')
+                        ->seconds(false),
+
+                    Forms\Components\TextInput::make('pickup_point')
+                        ->label('Pickup point')
+                        ->maxLength(255)
+                        ->placeholder('Hotel name or landmark'),
+
+                    Forms\Components\Textarea::make('operational_notes')
+                        ->rows(4)
+                        ->columnSpanFull()
+                        ->helperText('Driver brief, dietary needs, languages, special requests.'),
+
+                    Forms\Components\Select::make('prep_status')
+                        ->label('Prep status')
+                        ->options([
+                            BookingInquiry::PREP_NOT_PREPARED => 'Not prepared',
+                            BookingInquiry::PREP_PREPARED     => 'Prepared',
+                            BookingInquiry::PREP_DISPATCHED   => 'Dispatched',
+                            BookingInquiry::PREP_COMPLETED    => 'Completed',
+                        ])
+                        ->placeholder('Not set')
+                        ->columnSpanFull(),
+                ])
+                ->columns(2),
         ]);
     }
 
@@ -359,6 +399,51 @@ class BookingInquiryResource extends Resource
                             Notification::make()->title('Marked as contacted')->success()->send();
                         }),
 
+                    // ── Operations quick actions (prep lifecycle) ───────
+                    // Separate from commercial status; only meaningful after
+                    // sale is confirmed. The state machine is strict:
+                    //   (null | not_prepared) → prepared → dispatched → completed
+                    Tables\Actions\Action::make('markPrepared')
+                        ->label('Mark prepared')
+                        ->icon('heroicon-o-clipboard-document-check')
+                        ->color('info')
+                        ->visible(fn (BookingInquiry $record): bool => $record->status === BookingInquiry::STATUS_CONFIRMED
+                            && ! in_array($record->prep_status, [
+                                BookingInquiry::PREP_PREPARED,
+                                BookingInquiry::PREP_DISPATCHED,
+                                BookingInquiry::PREP_COMPLETED,
+                            ], true))
+                        ->action(function (BookingInquiry $record): void {
+                            $record->update(['prep_status' => BookingInquiry::PREP_PREPARED]);
+                            Notification::make()->title('Marked as prepared')->success()->send();
+                        }),
+
+                    Tables\Actions\Action::make('markDispatched')
+                        ->label('Mark dispatched')
+                        ->icon('heroicon-o-truck')
+                        ->color('primary')
+                        ->visible(fn (BookingInquiry $record): bool => $record->status === BookingInquiry::STATUS_CONFIRMED
+                            && $record->prep_status === BookingInquiry::PREP_PREPARED)
+                        ->action(function (BookingInquiry $record): void {
+                            $record->update(['prep_status' => BookingInquiry::PREP_DISPATCHED]);
+                            Notification::make()->title('Dispatched')->success()->send();
+                        }),
+
+                    Tables\Actions\Action::make('markCompleted')
+                        ->label('Mark completed')
+                        ->icon('heroicon-o-flag')
+                        ->color('success')
+                        ->visible(fn (BookingInquiry $record): bool => $record->status === BookingInquiry::STATUS_CONFIRMED
+                            && in_array($record->prep_status, [
+                                BookingInquiry::PREP_PREPARED,
+                                BookingInquiry::PREP_DISPATCHED,
+                            ], true))
+                        ->requiresConfirmation()
+                        ->action(function (BookingInquiry $record): void {
+                            $record->update(['prep_status' => BookingInquiry::PREP_COMPLETED]);
+                            Notification::make()->title('Tour completed 🎉')->success()->send();
+                        }),
+
                     // ── Offline path: cash or card at the office ────────
                     Tables\Actions\Action::make('markPaidOffline')
                         ->label('Mark paid (cash / card)')
@@ -557,6 +642,35 @@ class BookingInquiryResource extends Resource
                     Infolists\Components\TextEntry::make('payment_link_sent_at')->label('Link generated')->dateTime('M j, Y H:i')->placeholder('—'),
                     Infolists\Components\TextEntry::make('paid_at')->label('Paid at')->dateTime('M j, Y H:i')->placeholder('—'),
                     Infolists\Components\TextEntry::make('octo_transaction_id')->label('Octo txn id')->copyable()->placeholder('—')->columnSpanFull(),
+                ])
+                ->columns(2),
+
+            Infolists\Components\Section::make('Operations')
+                ->schema([
+                    Infolists\Components\TextEntry::make('prep_status')
+                        ->label('Prep status')
+                        ->badge()
+                        ->formatStateUsing(fn (?string $state): string => match ($state) {
+                            BookingInquiry::PREP_NOT_PREPARED => 'Not prepared',
+                            BookingInquiry::PREP_PREPARED     => 'Prepared',
+                            BookingInquiry::PREP_DISPATCHED   => 'Dispatched',
+                            BookingInquiry::PREP_COMPLETED    => 'Completed',
+                            default                            => 'Not set',
+                        })
+                        ->color(fn (?string $state): string => match ($state) {
+                            BookingInquiry::PREP_PREPARED   => 'info',
+                            BookingInquiry::PREP_DISPATCHED => 'primary',
+                            BookingInquiry::PREP_COMPLETED  => 'success',
+                            default                         => 'gray',
+                        }),
+                    Infolists\Components\TextEntry::make('pickup_time')->label('Pickup time')->placeholder('—'),
+                    Infolists\Components\TextEntry::make('pickup_point')->label('Pickup point')->placeholder('—'),
+                    Infolists\Components\TextEntry::make('assigned_driver_name')->label('Driver')->placeholder('—'),
+                    Infolists\Components\TextEntry::make('assigned_guide_name')->label('Guide')->placeholder('—'),
+                    Infolists\Components\TextEntry::make('operational_notes')
+                        ->label('Operational notes')
+                        ->placeholder('—')
+                        ->columnSpanFull(),
                 ])
                 ->columns(2),
 
