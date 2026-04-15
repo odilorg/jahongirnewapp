@@ -118,10 +118,13 @@ class TourProduct extends Model
      */
     public function recalculateStartingPrice(): void
     {
+        // Use min() aggregate rather than orderBy + value() because the
+        // priceTiers() relation has a built-in orderBy('group_size') that
+        // would clobber an explicit price order and return the cheapest
+        // by group size instead of by price.
         $cheapest = $this->priceTiers()
             ->where('is_active', true)
-            ->orderBy('price_per_person_usd')
-            ->value('price_per_person_usd');
+            ->min('price_per_person_usd');
 
         $this->forceFill(['starting_from_usd' => $cheapest])->saveQuietly();
     }
