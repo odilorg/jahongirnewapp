@@ -9,6 +9,7 @@ use App\Models\Accommodation;
 use App\Models\BookingInquiry;
 use App\Models\Driver;
 use App\Models\Guide;
+use App\Models\TourProduct;
 use App\Services\DriverDispatchNotifier;
 use App\Services\InquiryTemplateRenderer;
 use App\Services\OctoPaymentService;
@@ -124,18 +125,96 @@ class BookingInquiryResource extends Resource
             Forms\Components\Section::make('Trip')
                 ->description('Tour, dates, group size, message from the guest.')
                 ->schema([
+                    // ── Tour catalog link (structure) ─────────────────
+                    // Preferred path: operator picks a TourProduct from
+                    // the catalog. Selecting one fills the snapshot
+                    // fields below ONLY if they're currently empty, so
+                    // historical inquiries never get their original
+                    // "as submitted" title overwritten.
+                    Forms\Components\Select::make('tour_product_id')
+                        ->label('Tour product (catalog)')
+                        ->relationship('tourProduct', 'title', fn ($query) => $query->where('is_active', true)->orderBy('title'))
+                        ->searchable(['title', 'slug'])
+                        ->preload()
+                        ->live()
+                        ->afterStateUpdated(function ($state, callable $set, callable $get): void {
+                            // Reset direction whenever product changes — a direction
+                            // from the old product doesn't belong on the new one.
+                            $set('tour_product_direction_id', null);
+
+                            if (! $state) {
+                                return;
+                            }
+
+                            $product = TourProduct::find($state);
+                            if (! $product) {
+                                return;
+                            }
+
+                            // Only auto-fill snapshots when blank. Never
+                            // clobber an existing historical snapshot.
+                            if (blank($get('tour_slug'))) {
+                                $set('tour_slug', $product->slug);
+                            }
+                            if (blank($get('tour_name_snapshot'))) {
+                                $set('tour_name_snapshot', $product->title);
+                            }
+                            if (blank($get('tour_type'))) {
+                                $set('tour_type', $product->tour_type);
+                            }
+                        })
+                        ->placeholder('— not in catalog / free-text only —')
+                        ->helperText('Catalog link. Leave empty for tours not yet catalogued.')
+                        ->columnSpanFull(),
+
+                    Forms\Components\Select::make('tour_product_direction_id')
+                        ->label('Direction (route variant)')
+                        ->options(function (callable $get): array {
+                            $productId = $get('tour_product_id');
+                            if (! $productId) {
+                                return [];
+                            }
+
+                            return TourProduct::find($productId)
+                                ?->directions()
+                                ->where('is_active', true)
+                                ->orderBy('sort_order')
+                                ->get()
+                                ->mapWithKeys(fn ($d) => [$d->id => "{$d->name} ({$d->code})"])
+                                ->all() ?? [];
+                        })
+                        ->disabled(fn (callable $get): bool => blank($get('tour_product_id')))
+                        ->placeholder('— all directions / unspecified —')
+                        ->helperText('Only populated when a tour product is selected.')
+                        ->native(false),
+
+                    Forms\Components\Select::make('tour_type')
+                        ->label('Type')
+                        ->options([
+                            BookingInquiry::TOUR_TYPE_PRIVATE => 'Private',
+                            BookingInquiry::TOUR_TYPE_GROUP   => 'Group',
+                        ])
+                        ->placeholder('— unspecified —')
+                        ->native(false)
+                        ->helperText('Affects which price tier applies when a quote is calculated.'),
+
+                    // ── Snapshot fields (historical truth) ────────────
+                    // These are the values as they appeared at the time
+                    // the inquiry was captured. They are preserved even
+                    // if the catalog tour is renamed/re-slugged later.
                     Forms\Components\TextInput::make('tour_name_snapshot')
-                        ->label('Tour name')
+                        ->label('Tour name (as submitted)')
                         ->required()
                         ->maxLength(255)
                         ->placeholder('Nuratau Homestay 3 Days 2 Nights')
+                        ->helperText('Historical snapshot — preserved for audit. Not overwritten by catalog changes.')
                         ->columnSpanFull(),
 
                     Forms\Components\TextInput::make('tour_slug')
-                        ->label('Tour slug')
+                        ->label('Tour slug (as submitted)')
                         ->maxLength(191)
                         ->placeholder('nuratau-homestay-3-days')
-                        ->helperText('Optional — links the inquiry to a website tour page.'),
+                        ->helperText('Historical snapshot. Auto-filled from catalog when the product field is set and this is blank.'),
 
                     Forms\Components\TextInput::make('page_url')
                         ->label('Source URL')
@@ -922,16 +1001,40 @@ class BookingInquiryResource extends Resource
                 ])
                 ->columns(4),
 
-            Infolists\Components\Section::make('Tour')
+            Infolists\Components\Section::make('Tour catalog (structure)')
+                ->description('FK links to the tour product catalog. Blank when the tour is not yet in the catalog.')
                 ->schema([
-                    Infolists\Components\TextEntry::make('tour_name_snapshot')->label('Tour name (as submitted)'),
+                    Infolists\Components\TextEntry::make('tourProduct.title')
+                        ->label('Tour product')
+                        ->placeholder('— not linked —')
+                        ->url(fn ($record): ?string => $record->tourProduct
+                            ? route('filament.admin.resources.tour-products.edit', ['record' => $record->tourProduct])
+                            : null),
+                    Infolists\Components\TextEntry::make('tourProductDirection.name')
+                        ->label('Direction')
+                        ->placeholder('—')
+                        ->description(fn ($record): ?string => $record->tourProductDirection?->code),
+                    Infolists\Components\TextEntry::make('tour_type')
+                        ->label('Type')
+                        ->badge()
+                        ->placeholder('—')
+                        ->color(fn (?string $state): string => $state === BookingInquiry::TOUR_TYPE_GROUP ? 'info' : 'gray'),
+                ])
+                ->columns(3)
+                ->collapsible(),
+
+            Infolists\Components\Section::make('Tour (as submitted)')
+                ->description('Historical snapshot of what the guest saw / typed. Preserved even if the catalog is later renamed.')
+                ->schema([
+                    Infolists\Components\TextEntry::make('tour_name_snapshot')->label('Tour name'),
                     Infolists\Components\TextEntry::make('tour_slug')->label('Slug')->placeholder('—'),
                     Infolists\Components\TextEntry::make('page_url')
                         ->label('Page')
                         ->url(fn ($state): ?string => $state ? (string) $state : null, true)
                         ->placeholder('—'),
                 ])
-                ->columns(1),
+                ->columns(1)
+                ->collapsible(),
 
             Infolists\Components\Section::make('Customer')
                 ->schema([

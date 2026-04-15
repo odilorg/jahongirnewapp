@@ -41,21 +41,47 @@ class TourCalendarBuilder
             ->whereIn('status', $statuses)
             ->whereNotNull('travel_date')
             ->whereBetween('travel_date', [$from->toDateString(), $to->toDateString()])
-            ->with(['driver', 'guide', 'stays.accommodation'])
+            ->with(['driver', 'guide', 'stays.accommodation', 'tourProduct', 'tourProductDirection'])
             ->orderBy('travel_date')
             ->get();
 
-        // Group by tour_slug; fall back to a normalised snapshot name when
-        // slug is missing so two inquiries for the same tour still merge
-        // even if one was submitted without a slug.
-        $grouped = $inquiries->groupBy(function (BookingInquiry $i): string {
-            return $i->tour_slug
-                ?: 'snap:' . md5(mb_strtolower(trim((string) $i->tour_name_snapshot)));
+        // Build a secondary map: slug → product_id, so that legacy inquiries
+        // (no FK but matching slug) collapse into the same row as FK-linked
+        // ones. Without this merge, a post-backfill linked inquiry and a
+        // freshly-manual inquiry with the same slug would appear on two
+        // different rows.
+        $slugToProductId = $inquiries
+            ->filter(fn ($i) => $i->tour_product_id && $i->tour_slug)
+            ->mapWithKeys(fn ($i) => [$i->tour_slug => $i->tour_product_id])
+            ->all();
+
+        // Group by tour_product_id when present; otherwise by tour_slug
+        // (promoted to product_id when the slug matches a known catalog
+        // row); otherwise by a hashed snapshot name as last resort.
+        $grouped = $inquiries->groupBy(function (BookingInquiry $i) use ($slugToProductId): string {
+            if ($i->tour_product_id) {
+                return 'product:' . $i->tour_product_id;
+            }
+
+            if ($i->tour_slug && isset($slugToProductId[$i->tour_slug])) {
+                return 'product:' . $slugToProductId[$i->tour_slug];
+            }
+
+            if ($i->tour_slug) {
+                return 'slug:' . $i->tour_slug;
+            }
+
+            return 'snap:' . md5(mb_strtolower(trim((string) $i->tour_name_snapshot)));
         });
 
         $rows = [];
         foreach ($grouped as $key => $group) {
-            $first = $group->first();
+            // Prefer the linked tourProduct on any chip in the group for
+            // the row label; otherwise fall back to snapshot.
+            $linked = $group->first(fn ($i) => $i->tourProduct !== null);
+            $rowName = $linked?->tourProduct?->title
+                ?? (string) $group->first()->tour_name_snapshot
+                ?? (string) $group->first()->tour_slug;
 
             $chips = [];
             foreach ($group as $inq) {
@@ -63,8 +89,8 @@ class TourCalendarBuilder
             }
 
             $rows[] = [
-                'slug'     => $first->tour_slug,
-                'name'     => $this->cleanTourName((string) $first->tour_name_snapshot),
+                'slug'     => $group->first()->tour_slug,
+                'name'     => $this->cleanTourName($rowName),
                 'earliest' => $group->min('travel_date')->toDateString(),
                 'chips'    => $chips,
             ];
