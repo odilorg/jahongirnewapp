@@ -84,10 +84,26 @@ class OctoCallbackController extends Controller
      * New BookingInquiry payment path.
      *
      * Lookup by octo_transaction_id (indexed) — no regex parsing needed.
-     * On success: mark confirmed, stamp paid_at, fire Telegram notification.
-     * On failure: keep inquiry in awaiting_payment so operator can resend
-     * a link or follow up. We do NOT auto-cancel — a failed first attempt
-     * often becomes a successful retry.
+     *
+     * Safety guards (in order):
+     *  1. Idempotency: if paid_at is already set, this is a duplicate
+     *     webhook retry. Return 200 immediately without re-updating or
+     *     re-notifying. Octo retries unacknowledged callbacks; without
+     *     this guard we would double-stamp paid_at and fire a second
+     *     "💰 Payment received" Telegram message.
+     *  2. Terminal-status guard: if the inquiry is already cancelled or
+     *     spam, a successful payment is UNEXPECTED and needs a human.
+     *     We store the payment fields so nothing is lost, but we do NOT
+     *     silently revive the status — we fire a red-flag notification
+     *     so ops can investigate.
+     *
+     * On the happy path:
+     *   success → mark confirmed, stamp paid_at, fire Telegram notification.
+     *
+     * On payment failure:
+     *   Keep inquiry in awaiting_payment so operator can resend a link or
+     *   follow up. We do NOT auto-cancel — a failed first attempt often
+     *   becomes a successful retry.
      */
     private function handleInquiryCallback(string $transactionId, string $status, $paidSum)
     {
@@ -101,7 +117,57 @@ class OctoCallbackController extends Controller
             return response()->json(['error' => 'Inquiry not found'], 404);
         }
 
+        // Guard 1: idempotency — duplicate webhook retry.
+        if ($inquiry->paid_at !== null) {
+            Log::info('BookingInquiry: duplicate webhook ignored (already paid)', [
+                'reference'       => $inquiry->reference,
+                'transaction_id'  => $transactionId,
+                'already_paid_at' => $inquiry->paid_at->toIso8601String(),
+                'incoming_status' => $status,
+            ]);
+
+            return response()->json(['status' => 'ok', 'note' => 'already_paid']);
+        }
+
         if ($status === 'success') {
+            // Guard 2: terminal-status check — don't silently revive a
+            // cancelled or spam-marked inquiry. Store payment info for
+            // the audit trail, then ping ops for human review.
+            if (in_array($inquiry->status, [
+                BookingInquiry::STATUS_CANCELLED,
+                BookingInquiry::STATUS_SPAM,
+            ], true)) {
+                $priorStatus = $inquiry->status;
+
+                $inquiry->update([
+                    // DO NOT change status — human review required.
+                    'payment_method'      => BookingInquiry::PAYMENT_ONLINE,
+                    'paid_at'             => now(),
+                    'internal_notes'      => ($inquiry->internal_notes ? $inquiry->internal_notes . "\n\n" : '')
+                        . '[' . now()->format('Y-m-d H:i') . '] ⚠️ PAYMENT RECEIVED ON ' . mb_strtoupper($priorStatus)
+                        . " INQUIRY — human review required. txn={$transactionId}",
+                ]);
+
+                Log::error('BookingInquiry: payment received on terminal-status inquiry', [
+                    'reference'      => $inquiry->reference,
+                    'prior_status'   => $priorStatus,
+                    'transaction_id' => $transactionId,
+                    'uzs_paid'       => $paidSum,
+                ]);
+
+                try {
+                    app(BookingInquiryNotifier::class)
+                        ->notifyPaidOnTerminalStatus($inquiry, $priorStatus, (string) $paidSum);
+                } catch (\Throwable $e) {
+                    Log::warning('BookingInquiryNotifier::notifyPaidOnTerminalStatus failed', [
+                        'reference' => $inquiry->reference,
+                        'error'     => $e->getMessage(),
+                    ]);
+                }
+
+                return response()->json(['status' => 'ok', 'note' => 'terminal_status_review_required']);
+            }
+
             $inquiry->update([
                 'status'         => BookingInquiry::STATUS_CONFIRMED,
                 'payment_method' => BookingInquiry::PAYMENT_ONLINE,

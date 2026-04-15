@@ -35,6 +35,34 @@ class BookingInquiryNotifier
         $this->send($inquiry, $this->buildPaidMessage($inquiry, $uzsAmount));
     }
 
+    /**
+     * Red-flag notification: a successful payment arrived for an inquiry
+     * that was already marked cancelled or spam. Do not auto-confirm —
+     * the operator needs to investigate and decide what to do (refund,
+     * honour the booking, etc.). This message is deliberately alarming
+     * so it doesn't get mistaken for a routine "paid" ping.
+     */
+    public function notifyPaidOnTerminalStatus(BookingInquiry $inquiry, string $priorStatus, string $uzsAmount = ''): void
+    {
+        $lines = [
+            '🚨 <b>PAYMENT ON ' . mb_strtoupper($priorStatus) . ' INQUIRY — REVIEW NEEDED</b>',
+            "<code>{$inquiry->reference}</code>",
+            '',
+            '🧳 <b>Tour:</b> ' . htmlspecialchars((string) $inquiry->tour_name_snapshot, ENT_QUOTES, 'UTF-8'),
+            '👤 <b>Customer:</b> ' . htmlspecialchars((string) $inquiry->customer_name, ENT_QUOTES, 'UTF-8'),
+            '📱 ' . htmlspecialchars((string) $inquiry->customer_phone, ENT_QUOTES, 'UTF-8'),
+            '',
+            '⚠️ This inquiry was in <b>' . $priorStatus . '</b> status when the payment arrived.',
+            '⚠️ Status has NOT been auto-confirmed. <b>Human decision required:</b>',
+            '   • Honour the booking? → mark confirmed manually',
+            '   • Refund the customer? → contact Octobank',
+            '',
+            '💵 Paid: ' . ($uzsAmount !== '' ? number_format((float) $uzsAmount) . ' UZS' : 'see Octo dashboard'),
+        ];
+
+        $this->send($inquiry, implode("\n", $lines));
+    }
+
     private function send(BookingInquiry $inquiry, string $text): void
     {
         $token  = (string) config('services.ops_bot.token');
