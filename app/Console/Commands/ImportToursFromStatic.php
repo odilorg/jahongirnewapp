@@ -432,33 +432,42 @@ class ImportToursFromStatic extends Command
             return null;
         }
 
-        // Bad sources to ignore (tab navigation, breadcrumbs, share
-        // buttons, related tours, footer menus).
-        $bannedClassFragments = ['tab', 'breadcrumb', 'share', 'menu', 'social', 'related', 'nav', 'footer'];
+        // Ban the UL's OWN class (not ancestors — the description
+        // pane itself has 'tab-pane' in its class, which would
+        // otherwise reject every nested list). We target specific
+        // tab-nav / breadcrumb / share-button / related-tours list
+        // patterns, not every element that happens to contain 'tab'.
+        $bannedSelfClassFragments = [
+            'wc-tabs', 'tabs ', 'nav-tabs',
+            'breadcrumb', 'phys-breadcrumb',
+            'share', 'social',
+            'related', 'menu', 'footer',
+        ];
 
-        // Preferred targets: ULs inside the description pane, NOT at
-        // the top of the page.
-        $ulNodes = $xpath->query('//div[@id="tab-description"]//ul')
-            ?: $xpath->query('//*[contains(@class, "tab-description")]//ul');
+        // Preferred targets: ULs inside the description pane.
+        $ulNodes = $xpath->query('//div[@id="tab-description"]//ul');
+        if ($ulNodes === false || $ulNodes->length === 0) {
+            $ulNodes = $xpath->query('//*[contains(@class, "tab-description")]//ul');
+        }
 
         if ($ulNodes === false || $ulNodes->length === 0) {
             return null;
         }
 
         foreach ($ulNodes as $ul) {
-            // Skip ULs whose class (or any ancestor class) contains a
-            // banned fragment — avoids tab lists, nav bars, etc.
-            $isBanned = false;
-            for ($node = $ul; $node && $node->nodeType === XML_ELEMENT_NODE; $node = $node->parentNode) {
-                $cls = strtolower((string) ($node->getAttribute('class') ?? ''));
-                foreach ($bannedClassFragments as $frag) {
-                    if (str_contains($cls, $frag)) {
-                        $isBanned = true;
-                        break 2;
-                    }
+            // Reject ULs with role="tablist" or a banned class of their own.
+            if (strtolower((string) $ul->getAttribute('role')) === 'tablist') {
+                continue;
+            }
+            $ulCls = ' ' . strtolower((string) $ul->getAttribute('class')) . ' ';
+            $banned = false;
+            foreach ($bannedSelfClassFragments as $frag) {
+                if (str_contains($ulCls, $frag)) {
+                    $banned = true;
+                    break;
                 }
             }
-            if ($isBanned) {
+            if ($banned) {
                 continue;
             }
 
