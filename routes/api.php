@@ -8,6 +8,7 @@ use App\Http\Controllers\TelegramDriverGuideSignUpController;
 use App\Http\Controllers\WebhookController;
 use App\Http\Controllers\OpsBotController;
 use App\Http\Controllers\WebsiteBookingController;
+use App\Http\Controllers\Api\BookingInquiryController;
 
 
 /*
@@ -46,10 +47,18 @@ Route::post('/telegram/driver_guide_signup', [TelegramDriverGuideSignUpControlle
 
 Route::post('/webhook/tour-booking', [WebhookController::class, 'handleTourBooking']);
 
-// Website booking form → DB pipeline
+// Website booking form → DB pipeline (LEGACY — kept for reference, not called)
 Route::post('/bookings/website', [WebsiteBookingController::class, 'store'])
     ->middleware(['website.api_key', 'throttle:30,1'])
     ->name('bookings.website');
+
+// Website inquiry pipeline (new, decoupled from legacy tours/bookings)
+// Called by jahongir-travel.uz mailer-tours.php. Throttle = 10/min per IP.
+Route::prefix('v1')->group(function () {
+    Route::post('/inquiries', [BookingInquiryController::class, 'store'])
+        ->middleware('throttle:10,1')
+        ->name('inquiries.store');
+});
 
 
 // Telegram Bot Availability Routes
