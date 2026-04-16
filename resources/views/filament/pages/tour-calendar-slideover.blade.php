@@ -162,7 +162,44 @@
                     </div>
                 @endif
                 @if ($inquiry->driver_cost)
-                    <div class="text-xs mt-0.5" style="color: #16a34a;">${{ number_format((float) $inquiry->driver_cost, 2) }}</div>
+                    @php
+                        $driverPaid = (float) \App\Models\SupplierPayment::forSupplier('driver', $inquiry->driver_id)->where('booking_inquiry_id', $inquiry->id)->sum('amount');
+                        $driverRemaining = (float) $inquiry->driver_cost - $driverPaid;
+                    @endphp
+                    <div class="text-xs" style="margin-top: 2px; color: {{ $driverRemaining > 0 ? '#dc2626' : '#16a34a' }};">
+                        ${{ number_format((float) $inquiry->driver_cost, 2) }}
+                        @if ($driverPaid > 0)
+                            · paid ${{ number_format($driverPaid, 2) }}
+                        @endif
+                        @if ($driverRemaining > 0)
+                            · <strong>${{ number_format($driverRemaining, 2) }} due</strong>
+                        @else
+                            · ✅ settled
+                        @endif
+                    </div>
+                    @if ($driverRemaining > 0)
+                        <div style="margin-top: 4px;" x-data="{ open: false }">
+                            <button @click="open = !open" type="button"
+                                class="text-[10px] font-medium rounded px-2 py-1 text-white"
+                                style="background: #7c3aed;">💰 Pay</button>
+                            <div x-show="open" x-cloak style="margin-top: 6px; display: flex; gap: 4px; align-items: flex-end;">
+                                <input type="number" wire:model="payAmount" step="0.01"
+                                    class="text-xs rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+                                    style="width: 80px; padding: 4px 6px;"
+                                    x-init="$wire.set('payAmount', '{{ $driverRemaining }}'); $wire.set('paySupplierType', 'driver'); $wire.set('paySupplierIdVal', {{ $inquiry->driver_id }});">
+                                <select wire:model="payMethod"
+                                    class="text-xs rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+                                    style="padding: 4px 6px;">
+                                    <option value="cash">Cash</option>
+                                    <option value="bank_transfer">Transfer</option>
+                                    <option value="card">Card</option>
+                                </select>
+                                <button type="button" wire:click="quickPay" @click="open = false"
+                                    class="text-[10px] font-medium rounded px-2 py-1 text-white"
+                                    style="background: #16a34a;">Confirm</button>
+                            </div>
+                        </div>
+                    @endif
                 @endif
             @else
                 <div class="text-danger-500 text-xs font-medium">⚠ Not assigned</div>
@@ -180,7 +217,44 @@
                     </div>
                 @endif
                 @if ($inquiry->guide_cost)
-                    <div class="text-xs mt-0.5" style="color: #16a34a;">${{ number_format((float) $inquiry->guide_cost, 2) }}</div>
+                    @php
+                        $guidePaid = (float) \App\Models\SupplierPayment::forSupplier('guide', $inquiry->guide_id)->where('booking_inquiry_id', $inquiry->id)->sum('amount');
+                        $guideRemaining = (float) $inquiry->guide_cost - $guidePaid;
+                    @endphp
+                    <div class="text-xs" style="margin-top: 2px; color: {{ $guideRemaining > 0 ? '#dc2626' : '#16a34a' }};">
+                        ${{ number_format((float) $inquiry->guide_cost, 2) }}
+                        @if ($guidePaid > 0)
+                            · paid ${{ number_format($guidePaid, 2) }}
+                        @endif
+                        @if ($guideRemaining > 0)
+                            · <strong>${{ number_format($guideRemaining, 2) }} due</strong>
+                        @else
+                            · ✅ settled
+                        @endif
+                    </div>
+                    @if ($guideRemaining > 0)
+                        <div style="margin-top: 4px;" x-data="{ open: false }">
+                            <button @click="open = !open" type="button"
+                                class="text-[10px] font-medium rounded px-2 py-1 text-white"
+                                style="background: #7c3aed;">💰 Pay</button>
+                            <div x-show="open" x-cloak style="margin-top: 6px; display: flex; gap: 4px; align-items: flex-end;">
+                                <input type="number" wire:model="payAmount" step="0.01"
+                                    class="text-xs rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+                                    style="width: 80px; padding: 4px 6px;"
+                                    x-init="$wire.set('payAmount', '{{ $guideRemaining }}'); $wire.set('paySupplierType', 'guide'); $wire.set('paySupplierIdVal', {{ $inquiry->guide_id }});">
+                                <select wire:model="payMethod"
+                                    class="text-xs rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+                                    style="padding: 4px 6px;">
+                                    <option value="cash">Cash</option>
+                                    <option value="bank_transfer">Transfer</option>
+                                    <option value="card">Card</option>
+                                </select>
+                                <button type="button" wire:click="quickPay" @click="open = false"
+                                    class="text-[10px] font-medium rounded px-2 py-1 text-white"
+                                    style="background: #16a34a;">Confirm</button>
+                            </div>
+                        </div>
+                    @endif
                 @endif
             @else
                 <div class="text-gray-500 dark:text-gray-400">—</div>
@@ -286,13 +360,43 @@
                     · {{ $stay->guest_count }} guests
                 </div>
                 @if ($stay->total_accommodation_cost)
-                    <div class="text-xs ml-5" style="color: {{ $stay->cost_override ? '#d97706' : '#16a34a' }};">
-                        💰 ${{ number_format((float) $stay->total_accommodation_cost, 2) }}
+                    @php
+                        $accPaid = $stay->accommodation_id
+                            ? (float) \App\Models\SupplierPayment::forSupplier('accommodation', $stay->accommodation_id)
+                                ->where('booking_inquiry_id', $inquiry->id)->sum('amount')
+                            : 0;
+                        $accRemaining = (float) $stay->total_accommodation_cost - $accPaid;
+                    @endphp
+                    <div class="text-xs ml-5" style="color: {{ $accRemaining > 0 ? '#dc2626' : '#16a34a' }};">
+                        ${{ number_format((float) $stay->total_accommodation_cost, 2) }}
                         ({{ $stay->cost_per_unit_usd ? '$' . number_format((float) $stay->cost_per_unit_usd, 2) . '/person' : '' }})
-                        @if ($stay->cost_override)
-                            — override
-                        @endif
+                        @if ($accPaid > 0) · paid ${{ number_format($accPaid, 2) }} @endif
+                        @if ($accRemaining > 0) · <strong>${{ number_format($accRemaining, 2) }} due</strong>
+                        @else · ✅ settled @endif
                     </div>
+                    @if ($accRemaining > 0 && $stay->accommodation_id)
+                        <div class="ml-5" style="margin-top: 4px;" x-data="{ open: false }">
+                            <button @click="open = !open" type="button"
+                                class="text-[10px] font-medium rounded px-2 py-1 text-white"
+                                style="background: #7c3aed;">💰 Pay</button>
+                            <div x-show="open" x-cloak style="margin-top: 6px; display: flex; gap: 4px; align-items: flex-end;">
+                                <input type="number" wire:model="payAmount" step="0.01"
+                                    class="text-xs rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+                                    style="width: 80px; padding: 4px 6px;"
+                                    x-init="$wire.set('payAmount', '{{ $accRemaining }}'); $wire.set('paySupplierType', 'accommodation'); $wire.set('paySupplierIdVal', {{ $stay->accommodation_id }});">
+                                <select wire:model="payMethod"
+                                    class="text-xs rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+                                    style="padding: 4px 6px;">
+                                    <option value="cash">Cash</option>
+                                    <option value="bank_transfer">Transfer</option>
+                                    <option value="card">Card</option>
+                                </select>
+                                <button type="button" wire:click="quickPay" @click="open = false"
+                                    class="text-[10px] font-medium rounded px-2 py-1 text-white"
+                                    style="background: #16a34a;">Confirm</button>
+                            </div>
+                        </div>
+                    @endif
                 @endif
             @endforeach
             @php $totalAccCost = $inquiry->stays->sum('total_accommodation_cost'); @endphp
