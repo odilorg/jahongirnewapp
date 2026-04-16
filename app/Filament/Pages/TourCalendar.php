@@ -280,9 +280,15 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
                 });
         }
 
-        // Open full inquiry page
+        // Open full inquiry pages
+        $actions[] = Action::make('editFull')
+            ->label('Edit booking')
+            ->icon('heroicon-o-pencil-square')
+            ->color('warning')
+            ->url(\App\Filament\Resources\BookingInquiryResource::getUrl('edit', ['record' => $inquiry->id]), shouldOpenInNewTab: true);
+
         $actions[] = Action::make('openFull')
-            ->label('Open full details')
+            ->label('View details')
             ->icon('heroicon-o-arrow-top-right-on-square')
             ->color('gray')
             ->url(\App\Filament\Resources\BookingInquiryResource::getUrl('view', ['record' => $inquiry->id]), shouldOpenInNewTab: true);
