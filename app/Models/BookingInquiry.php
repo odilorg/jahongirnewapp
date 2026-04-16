@@ -68,9 +68,44 @@ class BookingInquiry extends Model
         self::PREP_COMPLETED,
     ];
 
+    // Booking sources — centralized for StoreBookingInquiryRequest, Filament
+    // form, and Filament list filter. OTA_SOURCES gates the "external ref"
+    // field visibility.
+    public const SOURCE_WEBSITE  = 'website';
+    public const SOURCE_WHATSAPP = 'whatsapp';
+    public const SOURCE_TELEGRAM = 'telegram';
+    public const SOURCE_PHONE    = 'phone';
+    public const SOURCE_EMAIL    = 'email';
+    public const SOURCE_WALK_IN  = 'walk_in';
+    public const SOURCE_MANUAL   = 'manual';
+    public const SOURCE_GYG      = 'gyg';
+    public const SOURCE_VIATOR   = 'viator';
+
+    public const SOURCES = [
+        self::SOURCE_WEBSITE, self::SOURCE_WHATSAPP, self::SOURCE_TELEGRAM,
+        self::SOURCE_PHONE, self::SOURCE_EMAIL, self::SOURCE_WALK_IN,
+        self::SOURCE_MANUAL, self::SOURCE_GYG, self::SOURCE_VIATOR,
+    ];
+
+    public const SOURCE_LABELS = [
+        self::SOURCE_WEBSITE  => 'Website form',
+        self::SOURCE_WHATSAPP => 'WhatsApp',
+        self::SOURCE_TELEGRAM => 'Telegram',
+        self::SOURCE_PHONE    => 'Phone',
+        self::SOURCE_EMAIL    => 'Email',
+        self::SOURCE_WALK_IN  => 'Walk-in',
+        self::SOURCE_MANUAL   => 'Manual',
+        self::SOURCE_GYG      => 'GetYourGuide',
+        self::SOURCE_VIATOR   => 'Viator',
+    ];
+
+    /** Sources that represent OTA / third-party bookings with external IDs. */
+    public const OTA_SOURCES = [self::SOURCE_GYG, self::SOURCE_VIATOR];
+
     protected $fillable = [
         'reference',
         'source',
+        'external_reference',
         'tour_slug',
         'tour_name_snapshot',
         'tour_product_id',
