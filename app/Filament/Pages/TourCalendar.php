@@ -57,8 +57,10 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
             $statuses[] = BookingInquiry::STATUS_AWAITING_CUSTOMER;
         }
 
+        $startFromAnchor = $anchor->isToday();
+
         return [
-            'data' => app(TourCalendarBuilder::class)->buildWeek($anchor, $statuses),
+            'data' => app(TourCalendarBuilder::class)->buildWeek($anchor, $statuses, $startFromAnchor),
         ];
     }
 
@@ -74,7 +76,14 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
 
     public function thisWeek(): void
     {
+        // Set to today — the builder will use today as the first column
+        // instead of rewinding to Monday.
         $this->week = Carbon::today()->toDateString();
+    }
+
+    public function isToday(): bool
+    {
+        return Carbon::parse($this->week)->isToday();
     }
 
     /**
