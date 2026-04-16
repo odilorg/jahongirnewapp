@@ -16,15 +16,14 @@
         onclick="
             navigator.clipboard.writeText('{{ e($value) }}').then(() => {
                 const btn = document.querySelector('#{{ $uniqueId }} .copy-btn');
-                const orig = btn.textContent;
-                btn.textContent = '✓';
-                btn.classList.add('text-success-500');
-                setTimeout(() => { btn.textContent = orig; btn.classList.remove('text-success-500'); }, 1500);
+                btn.textContent = '✓ Copied';
+                btn.classList.add('text-success-400');
+                setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('text-success-400'); }, 1500);
             });
         "
-        class="copy-btn opacity-0 group-hover:opacity-100 transition-opacity text-xs cursor-pointer hover:scale-110"
+        class="copy-btn opacity-0 group-hover:opacity-100 transition-opacity text-[10px] cursor-pointer px-1.5 py-0.5 rounded bg-gray-200 dark:bg-gray-600 text-gray-800 dark:text-gray-100 hover:bg-gray-300 dark:hover:bg-gray-500"
         title="Copy to clipboard">
-        {{ $icon }}
+        Copy
     </button>
 </span>
 @endif
