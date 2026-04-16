@@ -56,7 +56,7 @@
         @if ($inquiry->customer_phone)
             @php $waPhone = preg_replace('/[^0-9]/', '', $inquiry->customer_phone); @endphp
             <div class="flex items-center gap-2">
-                <span class="text-gray-700 dark:text-gray-300">📱 {{ $inquiry->customer_phone }}</span>
+                <span class="text-gray-800 dark:text-gray-100">📱 {{ $inquiry->customer_phone }}</span>
                 @if ($waPhone)
                     <a href="https://wa.me/{{ $waPhone }}" target="_blank"
                         class="text-success-600 hover:text-success-500 text-xs font-medium">WhatsApp →</a>
@@ -64,10 +64,10 @@
             </div>
         @endif
         @if ($inquiry->customer_email)
-            <div class="text-gray-700 dark:text-gray-300">📧 {{ $inquiry->customer_email }}</div>
+            <div class="text-gray-800 dark:text-gray-100">📧 {{ $inquiry->customer_email }}</div>
         @endif
         @if ($inquiry->customer_country)
-            <div class="text-gray-700 dark:text-gray-300">🌍 {{ $inquiry->customer_country }}</div>
+            <div class="text-gray-800 dark:text-gray-100">🌍 {{ $inquiry->customer_country }}</div>
         @endif
     </div>
 
@@ -89,7 +89,7 @@
             <div class="text-xs text-gray-500 dark:text-gray-400">Driver</div>
             @if ($inquiry->driver)
                 <div class="text-gray-900 dark:text-gray-100">🚗 {{ $inquiry->driver->full_name }}</div>
-                <div class="text-xs text-gray-600 dark:text-gray-400">{{ $inquiry->driver->phone01 }}</div>
+                <div class="text-xs text-gray-700 dark:text-gray-200">{{ $inquiry->driver->phone01 }}</div>
             @else
                 <div class="text-danger-500">Not assigned</div>
             @endif
@@ -98,7 +98,7 @@
             <div class="text-xs text-gray-500 dark:text-gray-400">Guide</div>
             @if ($inquiry->guide)
                 <div class="text-gray-900 dark:text-gray-100">🧭 {{ $inquiry->guide->full_name }}</div>
-                <div class="text-xs text-gray-600 dark:text-gray-400">{{ $inquiry->guide->phone01 }}</div>
+                <div class="text-xs text-gray-700 dark:text-gray-200">{{ $inquiry->guide->phone01 }}</div>
             @else
                 <div class="text-gray-500 dark:text-gray-400">—</div>
             @endif
