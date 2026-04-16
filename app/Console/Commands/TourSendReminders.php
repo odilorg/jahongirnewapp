@@ -189,8 +189,10 @@ class TourSendReminders extends Command
             $pickupTime = $inquiry->pickup_time ?? '09:00';
             $tourTitle  = $inquiry->tourProduct?->title
                 ?? preg_replace('/\s*\|\s*Jahongir\s+Travel\s*$/iu', '', (string) $inquiry->tour_name_snapshot);
-            $driverName = $inquiry->driver?->full_name;
-            $driverPhone = $inquiry->driver?->phone;
+            $driverName  = $inquiry->driver?->full_name;
+            $driverPhone = $inquiry->driver?->phone01;
+            $guideName   = $inquiry->guide?->full_name;
+            $guidePhone  = $inquiry->guide?->phone01;
 
             $message = $this->buildGuestMessage(
                 $this->firstName($inquiry->customer_name),
@@ -200,6 +202,8 @@ class TourSendReminders extends Command
                 $pickupTime,
                 $driverName,
                 $driverPhone,
+                $guideName,
+                $guidePhone,
             );
 
             $this->info("  📱 WhatsApp → {$phone} ({$inquiry->customer_name})");
@@ -246,6 +250,8 @@ class TourSendReminders extends Command
         string $pickupTime,
         ?string $driverName,
         ?string $driverPhone,
+        ?string $guideName,
+        ?string $guidePhone,
     ): string {
         $lines = [
             "Hi {$firstName}! 👋",
@@ -262,6 +268,10 @@ class TourSendReminders extends Command
 
         if ($driverName) {
             $lines[] = "🚗 Driver: {$driverName}" . ($driverPhone ? " ({$driverPhone})" : '');
+        }
+
+        if ($guideName) {
+            $lines[] = "🧭 Guide: {$guideName}" . ($guidePhone ? " ({$guidePhone})" : '');
         }
 
         $lines[] = '';
