@@ -89,7 +89,7 @@
         </div>
     </div>
 
-    {{-- Driver + Guide --}}
+    {{-- Driver + Guide: current assignment + quick-assign --}}
     <div class="grid grid-cols-2 gap-3">
         <div>
             <div class="text-xs text-gray-500 dark:text-gray-400">Driver</div>
@@ -102,8 +102,11 @@
                             :display="\App\Support\PhoneFormatter::format($inquiry->driver->phone01)" />
                     </div>
                 @endif
+                @if ($inquiry->driver_cost)
+                    <div class="text-xs mt-0.5" style="color: #16a34a;">${{ number_format((float) $inquiry->driver_cost, 2) }}</div>
+                @endif
             @else
-                <div class="text-danger-500">Not assigned</div>
+                <div class="text-danger-500 text-xs font-medium">⚠ Not assigned</div>
             @endif
         </div>
         <div>
@@ -117,11 +120,97 @@
                             :display="\App\Support\PhoneFormatter::format($inquiry->guide->phone01)" />
                     </div>
                 @endif
+                @if ($inquiry->guide_cost)
+                    <div class="text-xs mt-0.5" style="color: #16a34a;">${{ number_format((float) $inquiry->guide_cost, 2) }}</div>
+                @endif
             @else
                 <div class="text-gray-500 dark:text-gray-400">—</div>
             @endif
         </div>
     </div>
+
+    {{-- Quick Assign --}}
+    @if ($inquiry->status === 'confirmed' || $inquiry->status === 'awaiting_payment')
+        @php
+            $allDrivers = \App\Models\Driver::where('is_active', true)->orderBy('first_name')->get();
+            $allGuides  = \App\Models\Guide::where('is_active', true)->orderBy('first_name')->get();
+        @endphp
+        <div class="rounded-lg p-3 space-y-3" style="background: rgba(0,0,0,0.03);">
+            <div class="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider">Quick Assign</div>
+
+            {{-- Driver assign --}}
+            <div class="space-y-1.5">
+                <div class="text-xs font-medium text-gray-700 dark:text-gray-300">🚗 Driver</div>
+                <select wire:model.live="assignDriverId"
+                    class="w-full text-xs rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100">
+                    <option value="">Select driver...</option>
+                    @foreach ($allDrivers as $d)
+                        <option value="{{ $d->id }}">{{ $d->full_name }}</option>
+                    @endforeach
+                </select>
+
+                @if ($this->assignDriverId)
+                    @php
+                        $driverRates = \App\Models\DriverRate::where('driver_id', $this->assignDriverId)
+                            ->where('is_active', true)->orderBy('sort_order')->orderBy('label')->get();
+                    @endphp
+                    @if ($driverRates->isNotEmpty())
+                        <select wire:model.live="assignDriverRateId"
+                            class="w-full text-xs rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100">
+                            <option value="">Select rate...</option>
+                            @foreach ($driverRates as $r)
+                                <option value="{{ $r->id }}">{{ $r->label }} — ${{ $r->cost_usd }}</option>
+                            @endforeach
+                        </select>
+                    @else
+                        <div class="text-xs text-warning-600">No rates configured for this driver</div>
+                    @endif
+                    <button type="button" wire:click="quickAssignDriver"
+                        class="w-full text-xs font-medium rounded-md px-3 py-1.5 text-white transition"
+                        style="background: #16a34a;"
+                        onmouseover="this.style.background='#15803d'" onmouseout="this.style.background='#16a34a'">
+                        Assign driver{{ $this->assignDriverRateId ? '' : ' (no rate)' }}
+                    </button>
+                @endif
+            </div>
+
+            {{-- Guide assign --}}
+            <div class="space-y-1.5">
+                <div class="text-xs font-medium text-gray-700 dark:text-gray-300">🧭 Guide</div>
+                <select wire:model.live="assignGuideId"
+                    class="w-full text-xs rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100">
+                    <option value="">Select guide...</option>
+                    @foreach ($allGuides as $g)
+                        <option value="{{ $g->id }}">{{ $g->full_name }}</option>
+                    @endforeach
+                </select>
+
+                @if ($this->assignGuideId)
+                    @php
+                        $guideRates = \App\Models\GuideRate::where('guide_id', $this->assignGuideId)
+                            ->where('is_active', true)->orderBy('sort_order')->orderBy('label')->get();
+                    @endphp
+                    @if ($guideRates->isNotEmpty())
+                        <select wire:model.live="assignGuideRateId"
+                            class="w-full text-xs rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100">
+                            <option value="">Select rate...</option>
+                            @foreach ($guideRates as $r)
+                                <option value="{{ $r->id }}">{{ $r->label }} — ${{ $r->cost_usd }}</option>
+                            @endforeach
+                        </select>
+                    @else
+                        <div class="text-xs text-warning-600">No rates configured for this guide</div>
+                    @endif
+                    <button type="button" wire:click="quickAssignGuide"
+                        class="w-full text-xs font-medium rounded-md px-3 py-1.5 text-white transition"
+                        style="background: #16a34a;"
+                        onmouseover="this.style.background='#15803d'" onmouseout="this.style.background='#16a34a'">
+                        Assign guide{{ $this->assignGuideRateId ? '' : ' (no rate)' }}
+                    </button>
+                @endif
+            </div>
+        </div>
+    @endif
 
     {{-- Accommodations --}}
     @if ($inquiry->stays->isNotEmpty())
