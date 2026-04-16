@@ -153,13 +153,65 @@
         </div>
     @endif
 
-    {{-- Price --}}
-    @if ($inquiry->price_quoted)
-        <div>
-            <div class="text-xs text-gray-500 dark:text-gray-400">Price quoted</div>
-            <div class="font-semibold text-gray-900 dark:text-gray-100">${{ number_format((float) $inquiry->price_quoted, 2) }} {{ $inquiry->currency }}</div>
-        </div>
-    @endif
+    {{-- Costs + Margin --}}
+    @php
+        $accCost    = (float) $inquiry->stays->sum('total_accommodation_cost');
+        $driverCost = (float) ($inquiry->driver_cost ?? 0);
+        $guideCost  = (float) ($inquiry->guide_cost ?? 0);
+        $otherCosts = (float) ($inquiry->other_costs ?? 0);
+        $totalCost  = $accCost + $driverCost + $guideCost + $otherCosts;
+        $revenue    = (float) ($inquiry->price_quoted ?? 0);
+        $margin     = $revenue - $totalCost;
+        $marginPct  = $revenue > 0 ? round($margin / $revenue * 100) : 0;
+    @endphp
+
+    <div class="rounded-lg p-3 space-y-1" style="background: rgba(0,0,0,0.03);">
+        <div class="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider">Financials</div>
+
+        @if ($revenue > 0)
+            <div class="flex justify-between text-sm text-gray-900 dark:text-gray-100">
+                <span>Revenue</span>
+                <span class="font-semibold">${{ number_format($revenue, 2) }}</span>
+            </div>
+        @endif
+
+        @if ($accCost > 0)
+            <div class="flex justify-between text-xs text-gray-800 dark:text-gray-200">
+                <span>Accommodation</span>
+                <span>${{ number_format($accCost, 2) }}</span>
+            </div>
+        @endif
+
+        @if ($driverCost > 0)
+            <div class="flex justify-between text-xs text-gray-800 dark:text-gray-200">
+                <span>Driver{{ $inquiry->driver_cost_override ? ' (override)' : '' }}</span>
+                <span>${{ number_format($driverCost, 2) }}</span>
+            </div>
+        @endif
+
+        @if ($guideCost > 0)
+            <div class="flex justify-between text-xs text-gray-800 dark:text-gray-200">
+                <span>Guide</span>
+                <span>${{ number_format($guideCost, 2) }}</span>
+            </div>
+        @endif
+
+        @if ($otherCosts > 0)
+            <div class="flex justify-between text-xs text-gray-800 dark:text-gray-200">
+                <span>Other</span>
+                <span>${{ number_format($otherCosts, 2) }}</span>
+            </div>
+        @endif
+
+        @if ($totalCost > 0 && $revenue > 0)
+            <div class="border-t border-gray-200 dark:border-gray-700 pt-1 mt-1 flex justify-between text-sm font-semibold" style="color: {{ $marginPct >= 40 ? '#16a34a' : ($marginPct >= 20 ? '#d97706' : '#dc2626') }};">
+                <span>Margin</span>
+                <span>${{ number_format($margin, 2) }} ({{ $marginPct }}%)</span>
+            </div>
+        @elseif ($revenue > 0)
+            <div class="text-xs text-gray-500 dark:text-gray-400 mt-1">No costs entered yet</div>
+        @endif
+    </div>
 
     {{-- Notes (last 3 lines) --}}
     @if ($inquiry->internal_notes)
