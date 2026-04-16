@@ -37,7 +37,7 @@
             </div>
             @foreach ($data['days'] as $day)
                 <div @class([
-                    'bg-gray-50 dark:bg-gray-800 px-2 py-2 text-center text-xs font-semibold border-b border-l-2 border-gray-200 dark:border-gray-700 border-l-gray-300 dark:border-l-gray-600',
+                    'bg-gray-50 dark:bg-gray-800 px-2 py-2 text-center text-xs font-semibold border-b border-gray-200 dark:border-gray-700 border-l-[3px] border-l-gray-300 dark:border-l-gray-500',
                     'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300' => $day->isToday(),
                     'text-gray-500 dark:text-gray-400' => ! $day->isToday(),
                 ])>
@@ -52,7 +52,7 @@
                     {{ $row['name'] }}
                 </div>
                 @for ($i = 0; $i < 7; $i++)
-                    <div class="border-b border-l-2 border-gray-200 dark:border-gray-700 border-l-gray-300 dark:border-l-gray-600 p-1.5 min-h-[88px] space-y-1.5">
+                    <div class="border-b border-gray-200 dark:border-gray-700 p-1.5 min-h-[88px] space-y-1.5 border-l-[3px] border-l-gray-300 dark:border-l-gray-500">
                         @foreach ($row['chips'] as $chip)
                             @if ($chip['day_index'] === $i)
                                 @php
@@ -75,7 +75,7 @@
                                         $chip['paid_at'] ? '💰 Paid ' . $chip['paid_at'] : null,
                                     ])->filter()->implode("\n");
                                 @endphp
-                                <a href="{{ $chip['detail_url'] }}" target="_blank" rel="noopener"
+                                <div wire:click="openInquiry({{ $chip['id'] }})"
                                     title="{{ $tooltip }}"
                                     class="block rounded-md border px-2 py-1.5 text-xs cursor-pointer transition relative {{ $bgClass }}">
                                     {{-- Row 1: Name + pax + source --}}
@@ -124,7 +124,7 @@
                                             title="{{ implode(', ', $chip['warnings']) }}">
                                         </span>
                                     @endif
-                                </a>
+                                </div>
                             @endif
                         @endforeach
                     </div>
@@ -139,6 +139,9 @@
     </div>
 
     <p class="mt-3 text-xs text-gray-500 dark:text-gray-400">
-        Click any chip to open the inquiry detail in a new tab. Hover for full tour info.
+        Click any chip to inspect details and take action. Hover for quick info.
     </p>
+
+    {{-- Filament action modals (slide-over) render here --}}
+    <x-filament-actions::modals />
 </x-filament-panels::page>
