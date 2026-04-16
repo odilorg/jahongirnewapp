@@ -101,27 +101,27 @@ class Kernel extends ConsoleKernel
             ->timezone('Asia/Tashkent')
             ->withoutOverlapping();
 
-        // GYG email ingestion — fetch and persist booking emails every 5 minutes
+        // GYG email pipeline — 3 independent stages, each processes only its
+        // own state slice (fetch→fetched, process→parsed, apply→applied).
+        // withoutOverlapping() prevents concurrent runs of the same stage.
         $schedule->command('gyg:fetch-emails')
-            ->everyFiveMinutes()
+            ->everyFifteenMinutes()
             ->withoutOverlapping()
             ->runInBackground()
             ->onFailure(function () {
                 \Illuminate\Support\Facades\Log::error('Scheduled gyg:fetch-emails FAILED');
             });
 
-        // GYG email processing — classify and extract fields from fetched emails
         $schedule->command('gyg:process-emails')
-            ->everyFiveMinutes()
+            ->everyFifteenMinutes()
             ->withoutOverlapping()
             ->runInBackground()
             ->onFailure(function () {
                 \Illuminate\Support\Facades\Log::error('Scheduled gyg:process-emails FAILED');
             });
 
-        // GYG booking application — create bookings from parsed emails
         $schedule->command('gyg:apply-bookings')
-            ->everyFiveMinutes()
+            ->everyFifteenMinutes()
             ->withoutOverlapping()
             ->runInBackground()
             ->onFailure(function () {
