@@ -57,7 +57,9 @@
                     {{ $row['name'] }}
                 </div>
                 @for ($i = 0; $i < 7; $i++)
-                    <div class="border-b border-gray-200 dark:border-gray-700 p-1.5 min-h-[88px] space-y-1.5" style="border-left: 3px solid rgba(156, 163, 175, 0.5);">
+                    @php $isToday = $data['days'][$i]->isToday(); @endphp
+                    <div class="border-b border-gray-200 dark:border-gray-700 p-1.5 min-h-[88px] space-y-1.5"
+                         style="border-left: 3px solid rgba(156, 163, 175, 0.5); {{ $isToday ? 'background: rgba(249, 115, 22, 0.06);' : '' }}">
                         @foreach ($row['chips'] as $chip)
                             @if ($chip['day_index'] === $i)
                                 @php

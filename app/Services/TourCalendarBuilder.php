@@ -22,6 +22,8 @@ use Carbon\Carbon;
  */
 class TourCalendarBuilder
 {
+    private Carbon $windowFrom;
+
     /**
      * @param  array<int, string>  $statuses  inquiry statuses to include
      * @return array{
@@ -31,11 +33,21 @@ class TourCalendarBuilder
      *   rows: array<int, array{slug: ?string, name: string, earliest: string, chips: array}>,
      * }
      */
-    public function buildWeek(?Carbon $anchor = null, array $statuses = ['confirmed']): array
+    public function buildWeek(?Carbon $anchor = null, array $statuses = ['confirmed'], bool $startFromAnchor = false): array
     {
         $anchor = $anchor ?? Carbon::today();
-        $from   = $anchor->copy()->startOfWeek(Carbon::MONDAY);
-        $to     = $anchor->copy()->endOfWeek(Carbon::SUNDAY);
+
+        if ($startFromAnchor) {
+            // "Today" mode: 7 days starting from the anchor date
+            $from = $anchor->copy()->startOfDay();
+            $to   = $anchor->copy()->addDays(6)->endOfDay();
+        } else {
+            // Standard Mon–Sun week containing the anchor
+            $from = $anchor->copy()->startOfWeek(Carbon::MONDAY);
+            $to   = $anchor->copy()->endOfWeek(Carbon::SUNDAY);
+        }
+
+        $this->windowFrom = $from;
 
         $inquiries = BookingInquiry::query()
             ->whereIn('status', $statuses)
@@ -149,8 +161,9 @@ class TourCalendarBuilder
             ? "{$inq->people_adults}+{$inq->people_children}"
             : (string) $inq->people_adults;
 
-        // 0 = Monday, 6 = Sunday — matches the column order in the grid.
-        $dayIndex = (int) $inq->travel_date->format('N') - 1;
+        // Day index relative to the window start date (not always Monday).
+        // Stored in $this->windowFrom which is set during buildWeek().
+        $dayIndex = (int) $this->windowFrom->diffInDays($inq->travel_date);
 
         // Readiness: what's missing for this booking to be fully operational?
         $warnings = [];
