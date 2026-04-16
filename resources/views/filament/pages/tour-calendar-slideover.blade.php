@@ -77,16 +77,34 @@
         @endif
     </div>
 
-    {{-- Pickup + Dropoff --}}
-    <div class="grid grid-cols-2 gap-3">
-        <div>
-            <div class="text-xs text-gray-500 dark:text-gray-400">Pickup point</div>
-            <div class="text-gray-900 dark:text-gray-100">{{ $inquiry->pickup_point ?: '—' }}</div>
+    {{-- Pickup (editable) + Dropoff --}}
+    <div class="rounded-lg p-3 space-y-2" style="background: rgba(0,0,0,0.03);">
+        <div class="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider">Pickup</div>
+        <div class="grid grid-cols-2 gap-2">
+            <div>
+                <label class="text-[10px] text-gray-500 dark:text-gray-400">Time</label>
+                <input type="time" wire:model="editPickupTime"
+                    class="w-full text-xs rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 px-2 py-1.5">
+            </div>
+            <div>
+                <label class="text-[10px] text-gray-500 dark:text-gray-400">Location</label>
+                <input type="text" wire:model="editPickupPoint"
+                    placeholder="Hotel name or landmark"
+                    class="w-full text-xs rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 px-2 py-1.5">
+            </div>
         </div>
-        <div>
-            <div class="text-xs text-gray-500 dark:text-gray-400">Dropoff</div>
-            <div class="text-gray-900 dark:text-gray-100">{{ $inquiry->dropoff_point ?: '—' }}</div>
-        </div>
+        <button type="button" wire:click="quickSavePickup"
+            class="w-full text-xs font-medium rounded-md px-3 py-1.5 text-white transition"
+            style="background: #3b82f6;"
+            onmouseover="this.style.background='#2563eb'" onmouseout="this.style.background='#3b82f6'">
+            Save pickup
+        </button>
+
+        @if ($inquiry->dropoff_point)
+            <div class="text-xs text-gray-500 dark:text-gray-400 pt-1">
+                Dropoff: <span class="text-gray-900 dark:text-gray-100">{{ $inquiry->dropoff_point }}</span>
+            </div>
+        @endif
     </div>
 
     {{-- Driver + Guide: current assignment + quick-assign --}}

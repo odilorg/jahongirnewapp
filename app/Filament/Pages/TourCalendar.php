@@ -91,6 +91,8 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
     public ?int $assignDriverRateId = null;
     public ?int $assignGuideId = null;
     public ?int $assignGuideRateId = null;
+    public ?string $editPickupTime = null;
+    public ?string $editPickupPoint = null;
 
     /**
      * Quick-assign driver + rate from the slide-over.
@@ -150,11 +152,35 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
     }
 
     /**
+     * Quick-save pickup time + location from the slide-over.
+     */
+    public function quickSavePickup(): void
+    {
+        $inquiry = BookingInquiry::find($this->selectedInquiryId);
+        if (! $inquiry) {
+            return;
+        }
+
+        $inquiry->update([
+            'pickup_time'  => $this->editPickupTime ?: null,
+            'pickup_point' => $this->editPickupPoint ?: null,
+        ]);
+
+        Notification::make()->title('Pickup info saved')->success()->send();
+    }
+
+    /**
      * Called from Blade when a chip is clicked. Opens the slide-over.
      */
     public function openInquiry(int $id): void
     {
         $this->selectedInquiryId = $id;
+
+        // Pre-fill pickup fields from the inquiry
+        $inquiry = BookingInquiry::find($id);
+        $this->editPickupTime  = $inquiry?->pickup_time;
+        $this->editPickupPoint = $inquiry?->pickup_point;
+
         $this->mountAction('viewInquiry');
     }
 
