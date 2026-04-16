@@ -29,11 +29,6 @@ class SupplierPaymentsRelationManager extends RelationManager
     // Subclasses set these
     protected string $supplierType = 'driver';
 
-    public static function make(array $properties = []): static
-    {
-        return parent::make($properties);
-    }
-
     protected function getTableQuery(): Builder
     {
         return SupplierPayment::query()
