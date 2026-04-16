@@ -21,7 +21,7 @@
                 setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('text-success-400'); }, 1500);
             });
         "
-        class="copy-btn opacity-0 group-hover:opacity-100 transition-opacity text-[10px] cursor-pointer px-1.5 py-0.5 rounded bg-gray-200 dark:bg-gray-600 text-gray-800 dark:text-gray-100 hover:bg-gray-300 dark:hover:bg-gray-500"
+        class="copy-btn text-[10px] cursor-pointer px-1.5 py-0.5 rounded bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-100 hover:bg-primary-100 hover:text-primary-700 dark:hover:bg-primary-800 dark:hover:text-primary-200 transition-colors"
         title="Copy to clipboard">
         Copy
     </button>
