@@ -51,7 +51,7 @@ class WebsiteAutoReplyService
         try {
             $result = $this->whatsApp->send($phone, $message);
 
-            if ($result->ok) {
+            if ($result->success) {
                 $this->appendNote($inquiry, 'Auto-confirmation sent via WhatsApp');
 
                 Log::info('WebsiteAutoReply: sent', [
