@@ -263,6 +263,78 @@
         </div>
     @endif
 
+    {{-- Quick Add Accommodation --}}
+    @if ($inquiry->status === 'confirmed' || $inquiry->status === 'awaiting_payment')
+        @php
+            $allAccommodations = \App\Models\Accommodation::where('is_active', true)->orderBy('name')->get();
+        @endphp
+        <div class="rounded-lg p-3" style="background: rgba(0,0,0,0.03); margin-top: 12px;">
+            <div class="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider" style="margin-bottom: 8px;">Add Accommodation</div>
+            <div class="rounded-lg bg-white dark:bg-gray-800 p-2.5">
+                <select wire:model.live="assignAccommodationId" style="margin-bottom: 8px;"
+                    class="w-full text-xs rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100">
+                    <option value="">Select accommodation...</option>
+                    @foreach ($allAccommodations as $acc)
+                        <option value="{{ $acc->id }}">{{ $acc->full_name }}</option>
+                    @endforeach
+                </select>
+
+                @if ($this->assignAccommodationId)
+                    <div style="display: flex; gap: 6px; margin-bottom: 8px;">
+                        <div style="flex: 1;">
+                            <label class="text-[10px] text-gray-500 dark:text-gray-400">Guests</label>
+                            <input type="number" wire:model.live="assignAccGuests" min="1"
+                                class="w-full text-xs rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 px-2 py-1.5">
+                        </div>
+                        <div style="flex: 1;">
+                            <label class="text-[10px] text-gray-500 dark:text-gray-400">Nights</label>
+                            <input type="number" wire:model.live="assignAccNights" min="1"
+                                class="w-full text-xs rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 px-2 py-1.5">
+                        </div>
+                        <div style="flex: 1;">
+                            <label class="text-[10px] text-gray-500 dark:text-gray-400">Date</label>
+                            <input type="date" wire:model="assignAccDate"
+                                class="w-full text-xs rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 px-2 py-1.5">
+                        </div>
+                    </div>
+
+                    @php
+                        $previewAcc = \App\Models\Accommodation::find($this->assignAccommodationId);
+                        $previewGuests = max(1, (int) ($this->assignAccGuests ?: $inquiry->people_adults));
+                        $previewNights = max(1, (int) $this->assignAccNights);
+                        $previewRate = $previewAcc?->costForGuests($previewGuests);
+                    @endphp
+
+                    @if ($previewRate)
+                        <div class="text-xs" style="color: #16a34a; margin-bottom: 8px;">
+                            → ${{ number_format((float) $previewRate->cost_usd, 2) }}/person × {{ $previewGuests }} × {{ $previewNights }}N = <strong>${{ number_format((float) $previewRate->cost_usd * $previewGuests * $previewNights, 2) }}</strong>
+                        </div>
+                        <button type="button" wire:click="quickAddStay"
+                            class="w-full text-xs font-medium rounded-md px-3 py-1.5 text-white transition"
+                            style="background: #16a34a;"
+                            onmouseover="this.style.background='#15803d'" onmouseout="this.style.background='#16a34a'">
+                            Add stay — ${{ number_format((float) $previewRate->cost_usd * $previewGuests * $previewNights, 2) }}
+                        </button>
+                    @elseif ($previewAcc && !$previewAcc->isPerPersonPricing())
+                        <div class="text-xs" style="color: #d97706; margin-bottom: 8px;">
+                            Per-room pricing — use full edit page for hotel stays
+                        </div>
+                    @else
+                        <div class="text-xs" style="color: #dc2626; margin-bottom: 8px;">
+                            No active rate found for {{ $previewGuests }} guests
+                        </div>
+                        <button type="button" wire:click="quickAddStay"
+                            class="w-full text-xs font-medium rounded-md px-3 py-1.5 text-white transition"
+                            style="background: #6b7280;"
+                            onmouseover="this.style.background='#4b5563'" onmouseout="this.style.background='#6b7280'">
+                            Add stay (no rate)
+                        </button>
+                    @endif
+                @endif
+            </div>
+        </div>
+    @endif
+
     {{-- Costs + Margin --}}
     @php
         $accCost       = (float) $inquiry->stays->sum('total_accommodation_cost');

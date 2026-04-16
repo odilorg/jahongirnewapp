@@ -93,6 +93,10 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
     public ?int $assignGuideRateId = null;
     public ?string $editPickupTime = null;
     public ?string $editPickupPoint = null;
+    public ?int $assignAccommodationId = null;
+    public ?int $assignAccGuests = null;
+    public int $assignAccNights = 1;
+    public ?string $assignAccDate = null;
 
     /**
      * Quick-assign driver + rate from the slide-over.
@@ -152,6 +156,47 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
     }
 
     /**
+     * Quick-add an accommodation stay from the slide-over.
+     */
+    public function quickAddStay(): void
+    {
+        $inquiry = BookingInquiry::find($this->selectedInquiryId);
+        if (! $inquiry || ! $this->assignAccommodationId) {
+            return;
+        }
+
+        $guests = max(1, (int) ($this->assignAccGuests ?: $inquiry->people_adults));
+        $nights = max(1, (int) $this->assignAccNights);
+
+        $stay = \App\Models\InquiryStay::create([
+            'booking_inquiry_id' => $inquiry->id,
+            'accommodation_id'   => $this->assignAccommodationId,
+            'sort_order'         => $inquiry->stays()->count() + 1,
+            'stay_date'          => $this->assignAccDate ?: $inquiry->travel_date,
+            'nights'             => $nights,
+            'guest_count'        => $guests,
+            'meal_plan'          => 'dinner + breakfast',
+        ]);
+
+        $stay->calculateCost();
+        $stay->save();
+
+        $accName = $stay->accommodation?->name ?? 'accommodation';
+        $cost    = $stay->total_accommodation_cost ? '$' . number_format((float) $stay->total_accommodation_cost, 2) : 'no rate';
+
+        Notification::make()
+            ->title("Stay added: {$accName} — {$cost}")
+            ->success()
+            ->send();
+
+        // Reset
+        $this->assignAccommodationId = null;
+        $this->assignAccGuests = null;
+        $this->assignAccNights = 1;
+        $this->assignAccDate = null;
+    }
+
+    /**
      * Quick-save pickup time + location from the slide-over.
      */
     public function quickSavePickup(): void
@@ -184,6 +229,10 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
         $this->assignDriverRateId = $inquiry?->driver_rate_id;
         $this->assignGuideId     = $inquiry?->guide_id;
         $this->assignGuideRateId = $inquiry?->guide_rate_id;
+        $this->assignAccommodationId = null;
+        $this->assignAccGuests   = $inquiry?->people_adults;
+        $this->assignAccNights   = 1;
+        $this->assignAccDate     = $inquiry?->travel_date?->toDateString();
 
         $this->mountAction('viewInquiry');
     }
