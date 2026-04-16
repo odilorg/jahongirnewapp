@@ -38,10 +38,17 @@ class GygInboundEmail extends Model
         return $this->processing_status === 'applied';
     }
 
-    // ── Relationships (Phase 5) ─────────────────────
+    // ── Relationships ───────────────────────────────
 
+    /** Legacy link — points to the dead `bookings` table. Kept for audit. */
     public function booking()
     {
-        return $this->belongsTo(\App\Models\Booking::class ?? Model::class);
+        return $this->belongsTo(\App\Models\Booking::class);
+    }
+
+    /** Live link — points to the booking_inquiries table (Phase 8.5). */
+    public function bookingInquiry()
+    {
+        return $this->belongsTo(BookingInquiry::class);
     }
 }

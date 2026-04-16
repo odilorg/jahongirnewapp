@@ -1,26 +1,34 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Console\Commands;
 
 use App\Models\GygInboundEmail;
-use App\Services\GygBookingApplicator;
+use App\Services\Gyg\GygInquiryWriter;
 use App\Services\GygNotifier;
-use App\Services\GygPostBookingMailer;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
 
+/**
+ * Stage 3 of the GYG email pipeline — apply parsed emails into
+ * booking_inquiries via GygInquiryWriter.
+ *
+ * Replaces the legacy GygBookingApplicator which wrote into the dead
+ * `bookings` + `guests` tables. Now targets the live booking_inquiries
+ * table exclusively.
+ */
 class GygApplyBookings extends Command
 {
     protected $signature = 'gyg:apply-bookings
         {--limit=50 : Maximum emails to apply per run}
         {--dry-run : Show what would be applied without persisting}';
 
-    protected $description = 'Apply parsed GYG emails (bookings, cancellations, amendments) and send owner notifications';
+    protected $description = 'Apply parsed GYG emails into booking_inquiries';
 
     public function __construct(
-        private GygBookingApplicator $applicator,
+        private GygInquiryWriter $writer,
         private GygNotifier $notifier,
-        private GygPostBookingMailer $mailer,
     ) {
         parent::__construct();
     }
@@ -32,7 +40,6 @@ class GygApplyBookings extends Command
 
         $this->info('[gyg:apply-bookings] Starting...');
 
-        // Fetch parsable emails: new_booking (parsed) + cancellation (parsed) + amendment (parsed)
         $emails = GygInboundEmail::whereIn('email_type', ['new_booking', 'cancellation', 'amendment'])
             ->where('processing_status', 'parsed')
             ->orderBy('email_date')
@@ -45,7 +52,7 @@ class GygApplyBookings extends Command
             return self::SUCCESS;
         }
 
-        $stats = ['applied' => 0, 'cancelled' => 0, 'review' => 0, 'idempotent' => 0, 'failed' => 0];
+        $stats = ['created' => 0, 'cancelled' => 0, 'review' => 0, 'duplicate' => 0, 'failed' => 0];
 
         foreach ($emails as $email) {
             try {
@@ -64,16 +71,12 @@ class GygApplyBookings extends Command
                         'processing_status' => 'failed',
                         'apply_error'       => $e->getMessage(),
                     ]);
-
-                    $this->notifier->notifyIfNeeded($email, 'apply_failure', [
-                        'error' => $e->getMessage(),
-                    ]);
                 }
                 $stats['failed']++;
             }
         }
 
-        // Also notify for any existing needs_review emails that haven't been notified yet
+        // Notify for any needs_review emails that haven't been notified yet
         if (! $dryRun) {
             $this->notifyPendingReviews();
         }
@@ -96,17 +99,12 @@ class GygApplyBookings extends Command
 
         if ($dryRun) {
             $this->line("  🆕 [DRY-RUN] Would apply {$type}: {$ref} — {$email->guest_name}");
-            $stats['applied']++;
+            $stats['created']++;
+
             return;
         }
 
-        // Reset notification state so reprocessed emails get fresh notifications
-        // (prevents failure notification from blocking success notification on retry)
-        if ($email->notified_at !== null) {
-            $email->update(['notified_at' => null]);
-        }
-
-        $result = match ($type) {
+        match ($type) {
             'new_booking'  => $this->applyNewBooking($email, $ref, $stats),
             'cancellation' => $this->applyCancellation($email, $ref, $stats),
             'amendment'    => $this->applyAmendment($email, $ref, $stats),
@@ -116,32 +114,23 @@ class GygApplyBookings extends Command
 
     private function applyNewBooking(GygInboundEmail $email, string $ref, array &$stats): void
     {
-        $result = $this->applicator->applyNewBooking($email);
+        $result = $this->writer->createFromInboundEmail($email);
 
-        if ($result['applied']) {
-            if ($result['skipped_reason'] === 'already_exists') {
-                $this->line("  ⏭ Idempotent: {$ref} — booking #{$result['booking_id']}");
-                $stats['idempotent']++;
-            } else {
-                $this->line("  ✅ Applied: {$ref} → booking #{$result['booking_id']}");
-                $stats['applied']++;
+        if ($result['created']) {
+            $this->line("  ✅ Created: {$ref} → inquiry #{$result['inquiry_id']}");
+            $stats['created']++;
 
-                $this->notifier->notifyIfNeeded($email, 'new_booking', [
-                    'booking_id' => $result['booking_id'],
-                ]);
-
-                // Send guest emails (confirmation + pickup/route request)
-                $this->mailer->handleAppliedBooking($result['booking_id'], $email->id);
-            }
+            $this->notifier->notifyIfNeeded($email, 'new_booking', [
+                'inquiry_id' => $result['inquiry_id'],
+            ]);
+        } elseif ($result['skipped_reason']) {
+            $this->line("  ⏭ Duplicate: {$ref} ({$result['skipped_reason']})");
+            $stats['duplicate']++;
         } else {
             $this->error("  ❌ Failed: {$ref} — " . ($result['error'] ?? 'Unknown'));
             $email->update([
                 'processing_status' => 'failed',
                 'apply_error'       => $result['error'],
-            ]);
-
-            $this->notifier->notifyIfNeeded($email, 'apply_failure', [
-                'error' => $result['error'],
             ]);
             $stats['failed']++;
         }
@@ -149,49 +138,39 @@ class GygApplyBookings extends Command
 
     private function applyCancellation(GygInboundEmail $email, string $ref, array &$stats): void
     {
-        $result = $this->applicator->applyCancellation($email);
+        $result = $this->writer->cancelFromInboundEmail($email);
 
-        if ($result['applied']) {
+        if ($result['cancelled']) {
             if ($result['skipped_reason'] === 'already_cancelled') {
                 $this->line("  ⏭ Already cancelled: {$ref}");
-                $stats['idempotent']++;
+                $stats['duplicate']++;
             } else {
-                $this->line("  ❌ Cancelled: {$ref} → booking #{$result['booking_id']}");
+                $this->line("  🚫 Cancelled: {$ref} → inquiry #{$result['inquiry_id']}");
                 $stats['cancelled']++;
 
                 $this->notifier->notifyIfNeeded($email, 'cancellation', [
-                    'booking_id' => $result['booking_id'],
+                    'inquiry_id' => $result['inquiry_id'],
                 ]);
             }
         } else {
-            $errorMsg = $result['error'] ?? 'Unknown';
-            $this->warn("  ⚠️ Cancel failed: {$ref} — {$errorMsg}");
-
-            $this->notifier->notifyIfNeeded($email, 'needs_review', [
-                'reason' => "Cancellation failed: {$errorMsg}",
-            ]);
+            $this->warn("  ⚠️ Cancel target not found: {$ref}");
             $stats['review']++;
         }
     }
 
     private function applyAmendment(GygInboundEmail $email, string $ref, array &$stats): void
     {
-        $result = $this->applicator->handleAmendment($email);
+        $this->writer->flagAmendmentForReview($email);
 
         $this->warn("  ✏️ Amendment → needs review: {$ref}");
 
         $this->notifier->notifyIfNeeded($email, 'amendment', [
-            'booking_id' => $result['booking_id'],
+            'inquiry_id' => $email->booking_inquiry_id,
             'reason'     => 'Amendment requires manual review',
         ]);
         $stats['review']++;
     }
 
-    /**
-     * Notify owner about any needs_review emails that haven't been notified yet.
-     * This catches emails that were marked needs_review by the parser (Phase 4)
-     * but never had a notification sent.
-     */
     private function notifyPendingReviews(): void
     {
         $pending = GygInboundEmail::where('processing_status', 'needs_review')
