@@ -92,4 +92,32 @@ class Accommodation extends Model
             ? "{$this->name} · {$this->location}"
             : (string) $this->name;
     }
+
+    public function supplierPayments(): HasMany
+    {
+        return $this->hasMany(SupplierPayment::class, 'supplier_id')
+            ->where('supplier_type', 'accommodation');
+    }
+
+    public function payments()
+    {
+        return SupplierPayment::forSupplier('accommodation', $this->id)->recorded();
+    }
+
+    public function totalOwed(): float
+    {
+        return (float) InquiryStay::where('accommodation_id', $this->id)
+            ->whereNotNull('total_accommodation_cost')
+            ->sum('total_accommodation_cost');
+    }
+
+    public function totalPaid(): float
+    {
+        return (float) $this->payments()->sum('amount');
+    }
+
+    public function outstandingBalance(): float
+    {
+        return $this->totalOwed() - $this->totalPaid();
+    }
 }

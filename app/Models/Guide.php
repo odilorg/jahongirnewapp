@@ -47,4 +47,32 @@ class Guide extends Model
     {
         return $this->hasMany(GuideRate::class)->orderBy('sort_order')->orderBy('label');
     }
+
+    public function supplierPayments(): HasMany
+    {
+        return $this->hasMany(SupplierPayment::class, 'supplier_id')
+            ->where('supplier_type', 'guide');
+    }
+
+    public function payments()
+    {
+        return SupplierPayment::forSupplier('guide', $this->id)->recorded();
+    }
+
+    public function totalOwed(): float
+    {
+        return (float) BookingInquiry::where('guide_id', $this->id)
+            ->whereNotNull('guide_cost')
+            ->sum('guide_cost');
+    }
+
+    public function totalPaid(): float
+    {
+        return (float) $this->payments()->sum('amount');
+    }
+
+    public function outstandingBalance(): float
+    {
+        return $this->totalOwed() - $this->totalPaid();
+    }
 }
