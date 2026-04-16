@@ -192,8 +192,11 @@
                 @endif
             </div>
 
+            {{-- Separator --}}
+            <hr style="margin: 16px 0; border: none; border-top: 1px solid rgba(156,163,175,0.3);">
+
             {{-- Guide assign --}}
-            <div class="space-y-1.5 rounded-lg bg-white dark:bg-gray-800 p-2.5" style="margin-top: 14px;">
+            <div class="space-y-1.5 rounded-lg bg-white dark:bg-gray-800 p-2.5">
                 <div class="text-xs font-medium text-gray-700 dark:text-gray-300">🧭 Guide</div>
                 <select wire:model.live="assignGuideId"
                     class="w-full text-xs rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100">
