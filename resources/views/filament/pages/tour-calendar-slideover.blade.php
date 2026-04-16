@@ -54,9 +54,13 @@
         <div class="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider">Guest</div>
         <div class="font-semibold text-gray-900 dark:text-gray-100">{{ $inquiry->customer_name }}</div>
         @if ($inquiry->customer_phone)
-            @php $waPhone = preg_replace('/[^0-9]/', '', $inquiry->customer_phone); @endphp
-            <div class="flex items-center gap-2">
-                <span class="text-gray-800 dark:text-gray-100">📱 {{ $inquiry->customer_phone }}</span>
+            @php
+                $waPhone = preg_replace('/[^0-9]/', '', $inquiry->customer_phone);
+                $formattedPhone = \App\Support\PhoneFormatter::format($inquiry->customer_phone);
+                $rawPhone = \App\Support\PhoneFormatter::normalizeForCopy($inquiry->customer_phone);
+            @endphp
+            <div class="flex items-center gap-2 text-gray-800 dark:text-gray-100">
+                📱 <x-copyable-field :value="$rawPhone" :display="$formattedPhone" />
                 @if ($waPhone)
                     <a href="https://wa.me/{{ $waPhone }}" target="_blank"
                         class="text-success-600 hover:text-success-500 text-xs font-medium">WhatsApp →</a>
@@ -64,7 +68,9 @@
             </div>
         @endif
         @if ($inquiry->customer_email)
-            <div class="text-gray-800 dark:text-gray-100">📧 {{ $inquiry->customer_email }}</div>
+            <div class="flex items-center gap-1 text-gray-800 dark:text-gray-100">
+                📧 <x-copyable-field :value="$inquiry->customer_email" />
+            </div>
         @endif
         @if ($inquiry->customer_country)
             <div class="text-gray-800 dark:text-gray-100">🌍 {{ $inquiry->customer_country }}</div>
@@ -89,7 +95,13 @@
             <div class="text-xs text-gray-500 dark:text-gray-400">Driver</div>
             @if ($inquiry->driver)
                 <div class="text-gray-900 dark:text-gray-100">🚗 {{ $inquiry->driver->full_name }}</div>
-                <div class="text-xs text-gray-700 dark:text-gray-200">{{ $inquiry->driver->phone01 }}</div>
+                @if ($inquiry->driver->phone01)
+                    <div class="text-xs text-gray-800 dark:text-gray-100">
+                        <x-copyable-field
+                            :value="\App\Support\PhoneFormatter::normalizeForCopy($inquiry->driver->phone01)"
+                            :display="\App\Support\PhoneFormatter::format($inquiry->driver->phone01)" />
+                    </div>
+                @endif
             @else
                 <div class="text-danger-500">Not assigned</div>
             @endif
@@ -98,7 +110,13 @@
             <div class="text-xs text-gray-500 dark:text-gray-400">Guide</div>
             @if ($inquiry->guide)
                 <div class="text-gray-900 dark:text-gray-100">🧭 {{ $inquiry->guide->full_name }}</div>
-                <div class="text-xs text-gray-700 dark:text-gray-200">{{ $inquiry->guide->phone01 }}</div>
+                @if ($inquiry->guide->phone01)
+                    <div class="text-xs text-gray-800 dark:text-gray-100">
+                        <x-copyable-field
+                            :value="\App\Support\PhoneFormatter::normalizeForCopy($inquiry->guide->phone01)"
+                            :display="\App\Support\PhoneFormatter::format($inquiry->guide->phone01)" />
+                    </div>
+                @endif
             @else
                 <div class="text-gray-500 dark:text-gray-400">—</div>
             @endif
