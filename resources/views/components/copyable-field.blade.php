@@ -16,14 +16,11 @@
         onclick="
             navigator.clipboard.writeText('{{ e($value) }}').then(() => {
                 const btn = document.querySelector('#{{ $uniqueId }} .copy-btn');
-                btn.textContent = '✓ Copied';
-                btn.classList.add('text-success-400');
-                setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('text-success-400'); }, 1500);
+                btn.innerHTML = '✓';
+                setTimeout(() => { btn.innerHTML = '📋'; }, 1200);
             });
         "
-        class="copy-btn text-[10px] cursor-pointer px-1.5 py-0.5 rounded bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-100 hover:bg-primary-100 hover:text-primary-700 dark:hover:bg-primary-800 dark:hover:text-primary-200 transition-colors"
-        title="Copy to clipboard">
-        Copy
-    </button>
+        class="copy-btn cursor-pointer opacity-60 hover:opacity-100 transition-opacity text-[11px] leading-none"
+        title="Copy">📋</button>
 </span>
 @endif
