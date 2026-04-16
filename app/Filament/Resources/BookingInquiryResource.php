@@ -73,19 +73,17 @@ class BookingInquiryResource extends Resource
                 ->description('Where did this inquiry come from + who is the guest?')
                 ->schema([
                     Forms\Components\Select::make('source')
-                        ->options([
-                            'website'  => 'Website form',
-                            'whatsapp' => 'WhatsApp',
-                            'telegram' => 'Telegram',
-                            'phone'    => 'Phone',
-                            'email'    => 'Email',
-                            'walk_in'  => 'Walk-in',
-                            'manual'   => 'Manual',
-                            'gyg'      => 'GetYourGuide',
-                        ])
+                        ->options(BookingInquiry::SOURCE_LABELS)
                         ->default('whatsapp')
                         ->required()
-                        ->native(false),
+                        ->native(false)
+                        ->live(),
+
+                    Forms\Components\TextInput::make('external_reference')
+                        ->label('OTA booking reference')
+                        ->placeholder('e.g. GYGX7NLH94W8')
+                        ->maxLength(64)
+                        ->visible(fn (Forms\Get $get): bool => in_array($get('source'), BookingInquiry::OTA_SOURCES)),
 
                     Forms\Components\TextInput::make('customer_name')
                         ->required()
@@ -520,12 +518,7 @@ class BookingInquiryResource extends Resource
                     ->multiple(),
 
                 SelectFilter::make('source')
-                    ->options([
-                        'website'  => 'Website',
-                        'telegram' => 'Telegram',
-                        'manual'   => 'Manual',
-                        'gyg'      => 'GYG',
-                    ])
+                    ->options(BookingInquiry::SOURCE_LABELS)
                     ->multiple(),
 
                 // Custom date-range filter removed temporarily while we
@@ -1144,7 +1137,12 @@ class BookingInquiryResource extends Resource
                             default                                  => 'gray',
                         }),
 
-                    Infolists\Components\TextEntry::make('source')->badge()->color('gray'),
+                    Infolists\Components\TextEntry::make('source')->badge()->color('gray')
+                        ->formatStateUsing(fn (string $state): string => BookingInquiry::SOURCE_LABELS[$state] ?? $state),
+                    Infolists\Components\TextEntry::make('external_reference')
+                        ->label('OTA ref')
+                        ->visible(fn ($record): bool => $record->external_reference !== null)
+                        ->copyable(),
                     Infolists\Components\TextEntry::make('created_at')->label('Received at')->dateTime('M j, Y H:i'),
                 ])
                 ->columns(4),
