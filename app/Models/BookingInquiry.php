@@ -124,6 +124,9 @@ class BookingInquiry extends Model
         'message',
         'price_quoted',
         'currency',
+        'commission_rate',
+        'commission_amount',
+        'net_revenue',
         'payment_method',
         'payment_link',
         'payment_link_sent_at',
@@ -167,6 +170,9 @@ class BookingInquiry extends Model
         'hotel_request_sent_at'     => 'datetime',
         'payment_reminder_sent_at'  => 'datetime',
         'submitted_at'              => 'datetime',
+        'commission_rate'           => 'decimal:2',
+        'commission_amount'         => 'decimal:2',
+        'net_revenue'               => 'decimal:2',
         'driver_cost'               => 'decimal:2',
         'driver_cost_override'      => 'boolean',
         'guide_cost'                => 'decimal:2',
@@ -202,6 +208,19 @@ class BookingInquiry extends Model
     public function tourProductDirection(): BelongsTo
     {
         return $this->belongsTo(TourProductDirection::class);
+    }
+
+    /**
+     * What we actually receive after OTA commission.
+     * Direct sources = price_quoted. OTA sources = net_revenue.
+     */
+    public function effectiveRevenue(): float
+    {
+        if ($this->net_revenue !== null) {
+            return (float) $this->net_revenue;
+        }
+
+        return (float) ($this->price_quoted ?? 0);
     }
 
     public function driverRate(): BelongsTo

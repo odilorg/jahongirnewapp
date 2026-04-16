@@ -103,6 +103,12 @@ class GygInquiryWriter
             $inquiry->pickup_point           = $this->pickupResolver->resolveFromEmail($email);
             $inquiry->price_quoted           = $email->price;
             $inquiry->currency               = $email->currency ?: 'USD';
+
+            // GYG takes ~30% commission. Store both the rate and computed amounts.
+            $gross = (float) ($email->price ?? 0);
+            $inquiry->commission_rate   = 30.00;
+            $inquiry->commission_amount = round($gross * 0.30, 2);
+            $inquiry->net_revenue       = round($gross * 0.70, 2);
             $inquiry->payment_method         = BookingInquiry::PAYMENT_ONLINE;
             $inquiry->paid_at                = $email->email_date;
             $inquiry->status                 = BookingInquiry::STATUS_CONFIRMED;

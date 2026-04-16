@@ -155,23 +155,37 @@
 
     {{-- Costs + Margin --}}
     @php
-        $accCost    = (float) $inquiry->stays->sum('total_accommodation_cost');
-        $driverCost = (float) ($inquiry->driver_cost ?? 0);
-        $guideCost  = (float) ($inquiry->guide_cost ?? 0);
-        $otherCosts = (float) ($inquiry->other_costs ?? 0);
-        $totalCost  = $accCost + $driverCost + $guideCost + $otherCosts;
-        $revenue    = (float) ($inquiry->price_quoted ?? 0);
-        $margin     = $revenue - $totalCost;
-        $marginPct  = $revenue > 0 ? round($margin / $revenue * 100) : 0;
+        $accCost       = (float) $inquiry->stays->sum('total_accommodation_cost');
+        $driverCost    = (float) ($inquiry->driver_cost ?? 0);
+        $guideCost     = (float) ($inquiry->guide_cost ?? 0);
+        $otherCosts    = (float) ($inquiry->other_costs ?? 0);
+        $totalCost     = $accCost + $driverCost + $guideCost + $otherCosts;
+        $gross         = (float) ($inquiry->price_quoted ?? 0);
+        $commission    = (float) ($inquiry->commission_amount ?? 0);
+        $netRevenue    = $inquiry->effectiveRevenue();
+        $margin        = $netRevenue - $totalCost;
+        $marginPct     = $netRevenue > 0 ? round($margin / $netRevenue * 100) : 0;
+        $hasCommission = $commission > 0;
     @endphp
 
     <div class="rounded-lg p-3 space-y-1" style="background: rgba(0,0,0,0.03);">
         <div class="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider">Financials</div>
 
-        @if ($revenue > 0)
+        @if ($gross > 0)
             <div class="flex justify-between text-sm text-gray-900 dark:text-gray-100">
-                <span>Revenue</span>
-                <span class="font-semibold">${{ number_format($revenue, 2) }}</span>
+                <span>{{ $hasCommission ? 'Gross (guest paid)' : 'Revenue' }}</span>
+                <span class="font-semibold">${{ number_format($gross, 2) }}</span>
+            </div>
+        @endif
+
+        @if ($hasCommission)
+            <div class="flex justify-between text-xs" style="color: #dc2626;">
+                <span>{{ $inquiry->source === 'gyg' ? 'GYG' : 'OTA' }} commission ({{ (int) $inquiry->commission_rate }}%)</span>
+                <span>−${{ number_format($commission, 2) }}</span>
+            </div>
+            <div class="flex justify-between text-sm text-gray-900 dark:text-gray-100 font-semibold">
+                <span>Net revenue</span>
+                <span>${{ number_format($netRevenue, 2) }}</span>
             </div>
         @endif
 
@@ -203,12 +217,12 @@
             </div>
         @endif
 
-        @if ($totalCost > 0 && $revenue > 0)
+        @if ($totalCost > 0 && $netRevenue > 0)
             <div class="border-t border-gray-200 dark:border-gray-700 pt-1 mt-1 flex justify-between text-sm font-semibold" style="color: {{ $marginPct >= 40 ? '#16a34a' : ($marginPct >= 20 ? '#d97706' : '#dc2626') }};">
                 <span>Margin</span>
                 <span>${{ number_format($margin, 2) }} ({{ $marginPct }}%)</span>
             </div>
-        @elseif ($revenue > 0)
+        @elseif ($netRevenue > 0)
             <div class="text-xs text-gray-500 dark:text-gray-400 mt-1">No costs entered yet</div>
         @endif
     </div>
