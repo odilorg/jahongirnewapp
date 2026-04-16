@@ -128,6 +128,15 @@ class Kernel extends ConsoleKernel
                 \Illuminate\Support\Facades\Log::error('Scheduled gyg:apply-bookings FAILED');
             });
 
+        // Payment follow-up: nudge guests with unpaid links (4+ hours old)
+        $schedule->command('inquiry:send-payment-reminders')
+            ->hourly()
+            ->withoutOverlapping()
+            ->runInBackground()
+            ->onFailure(function () {
+                \Illuminate\Support\Facades\Log::error('Scheduled inquiry:send-payment-reminders FAILED');
+            });
+
         // Queue health: alert if jobs stuck >10 min (catches dead workers)
         $schedule->command('queue:health-check')
             ->everyFiveMinutes()
