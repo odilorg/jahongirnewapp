@@ -157,7 +157,7 @@
             <div class="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider">Quick Assign</div>
 
             {{-- Driver assign --}}
-            <div class="space-y-1.5">
+            <div class="space-y-1.5 rounded-lg bg-white dark:bg-gray-800 p-2.5">
                 <div class="text-xs font-medium text-gray-700 dark:text-gray-300">🚗 Driver</div>
                 <select wire:model.live="assignDriverId"
                     class="w-full text-xs rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100">
@@ -193,7 +193,7 @@
             </div>
 
             {{-- Guide assign --}}
-            <div class="space-y-1.5">
+            <div class="space-y-1.5 rounded-lg bg-white dark:bg-gray-800 p-2.5">
                 <div class="text-xs font-medium text-gray-700 dark:text-gray-300">🧭 Guide</div>
                 <select wire:model.live="assignGuideId"
                     class="w-full text-xs rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100">
