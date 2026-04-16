@@ -228,6 +228,16 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
                 ->url("https://wa.me/{$waPhone}", shouldOpenInNewTab: true);
         }
 
+        // Email guest
+        if (filled($inquiry->customer_email)) {
+            $subject = rawurlencode("Your {$inquiry->tour_name_snapshot} — {$inquiry->reference}");
+            $actions[] = Action::make('emailGuest')
+                ->label('Email')
+                ->icon('heroicon-o-envelope')
+                ->color('info')
+                ->url("mailto:{$inquiry->customer_email}?subject={$subject}", shouldOpenInNewTab: true);
+        }
+
         // Dispatch driver
         if ($inquiry->driver_id && $inquiry->status === BookingInquiry::STATUS_CONFIRMED) {
             $actions[] = Action::make('dispatchDriver')
