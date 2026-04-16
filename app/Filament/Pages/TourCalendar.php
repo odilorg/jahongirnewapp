@@ -280,6 +280,56 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
                 });
         }
 
+        // Dispatch accommodation stays
+        if ($inquiry->stays->isNotEmpty() && $inquiry->status === BookingInquiry::STATUS_CONFIRMED) {
+            $actions[] = Action::make('dispatchAccommodation')
+                ->label('Dispatch accommodation')
+                ->icon('heroicon-o-home-modern')
+                ->color('primary')
+                ->requiresConfirmation()
+                ->modalDescription(function () use ($inquiry): string {
+                    return $inquiry->stays
+                        ->map(fn ($s) => '🏕 ' . ($s->accommodation?->name ?? '—') . ' · ' . $s->stay_date?->format('M j'))
+                        ->implode("\n");
+                })
+                ->action(function () use ($inquiry): void {
+                    $notifier = app(DriverDispatchNotifier::class);
+                    $ok = 0;
+                    $fail = 0;
+                    $stamp = now()->format('Y-m-d H:i');
+                    $auditLines = [];
+
+                    foreach ($inquiry->stays as $stay) {
+                        if (! $stay->accommodation) {
+                            continue;
+                        }
+                        $result = $notifier->dispatchStay($inquiry, $stay);
+                        $name = $stay->accommodation->name;
+                        if ($result['ok']) {
+                            $auditLines[] = "[{$stamp}] Calendar dispatch TG → stay {$name} ok (msg_id={$result['msg_id']})";
+                            $ok++;
+                        } else {
+                            $auditLines[] = "[{$stamp}] ⚠️ Calendar dispatch TG → stay {$name} FAILED: " . ($result['reason'] ?? 'unknown');
+                            $fail++;
+                        }
+                    }
+
+                    if (! empty($auditLines)) {
+                        $inquiry->update([
+                            'internal_notes' => ($inquiry->internal_notes ? $inquiry->internal_notes . "\n" : '') . implode("\n", $auditLines),
+                        ]);
+                    }
+
+                    if ($fail === 0 && $ok > 0) {
+                        Notification::make()->title("Accommodation dispatch sent ({$ok})")->success()->send();
+                    } elseif ($ok > 0) {
+                        Notification::make()->title("Partial: {$ok} sent, {$fail} failed")->warning()->persistent()->send();
+                    } else {
+                        Notification::make()->title('Accommodation dispatch failed')->danger()->persistent()->send();
+                    }
+                });
+        }
+
         // Open full inquiry pages
         $actions[] = Action::make('editFull')
             ->label('Edit booking')
