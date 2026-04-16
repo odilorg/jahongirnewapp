@@ -121,6 +121,13 @@ class AccommodationResource extends Resource
             ]);
     }
 
+    public static function getRelations(): array
+    {
+        return [
+            AccommodationResource\RelationManagers\RatesRelationManager::class,
+        ];
+    }
+
     public static function getPages(): array
     {
         return [
