@@ -157,9 +157,9 @@
             <div class="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider" style="margin-bottom: 12px;">Quick Assign</div>
 
             {{-- Driver assign --}}
-            <div class="space-y-1.5 rounded-lg bg-white dark:bg-gray-800 p-2.5">
-                <div class="text-xs font-medium text-gray-700 dark:text-gray-300">🚗 Driver</div>
-                <select wire:model.live="assignDriverId"
+            <div class="rounded-lg bg-white dark:bg-gray-800 p-2.5">
+                <div class="text-xs font-medium text-gray-700 dark:text-gray-300" style="margin-bottom: 6px;">🚗 Driver</div>
+                <select wire:model.live="assignDriverId" style="margin-bottom: 8px;"
                     class="w-full text-xs rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100">
                     <option value="">Select driver...</option>
                     @foreach ($allDrivers as $d)
@@ -173,7 +173,7 @@
                             ->where('is_active', true)->orderBy('sort_order')->orderBy('label')->get();
                     @endphp
                     @if ($driverRates->isNotEmpty())
-                        <select wire:model.live="assignDriverRateId"
+                        <select wire:model.live="assignDriverRateId" style="margin-bottom: 8px;"
                             class="w-full text-xs rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100">
                             <option value="">Select rate...</option>
                             @foreach ($driverRates as $r)
@@ -196,9 +196,9 @@
             <hr style="margin: 16px 0; border: none; border-top: 1px solid rgba(156,163,175,0.3);">
 
             {{-- Guide assign --}}
-            <div class="space-y-1.5 rounded-lg bg-white dark:bg-gray-800 p-2.5">
-                <div class="text-xs font-medium text-gray-700 dark:text-gray-300">🧭 Guide</div>
-                <select wire:model.live="assignGuideId"
+            <div class="rounded-lg bg-white dark:bg-gray-800 p-2.5">
+                <div class="text-xs font-medium text-gray-700 dark:text-gray-300" style="margin-bottom: 6px;">🧭 Guide</div>
+                <select wire:model.live="assignGuideId" style="margin-bottom: 8px;"
                     class="w-full text-xs rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100">
                     <option value="">Select guide...</option>
                     @foreach ($allGuides as $g)
@@ -212,7 +212,7 @@
                             ->where('is_active', true)->orderBy('sort_order')->orderBy('label')->get();
                     @endphp
                     @if ($guideRates->isNotEmpty())
-                        <select wire:model.live="assignGuideRateId"
+                        <select wire:model.live="assignGuideRateId" style="margin-bottom: 8px;"
                             class="w-full text-xs rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100">
                             <option value="">Select rate...</option>
                             @foreach ($guideRates as $r)
