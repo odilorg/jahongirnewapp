@@ -227,6 +227,7 @@ class TourCalendarBuilder
             'guide_phone'       => $inq->guide?->phone01,
             'accommodations'    => $accommodations,
             'day_index'         => $dayIndex,
+            'tour_type'         => $inq->tour_type,
             'source_badge'      => $sourceBadge,
             'display_state'     => $displayState,
             'readiness'         => $readiness,

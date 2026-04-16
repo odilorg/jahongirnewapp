@@ -152,7 +152,7 @@ class DriverDispatchNotifier
             return ['ok' => false, 'reason' => "{$role}_no_telegram_or_phone"];
         }
 
-        $inquiry->loadMissing(['driver', 'guide']);
+        $inquiry->loadMissing(['driver', 'guide', 'tourProductDirection']);
         $message = $this->buildMessage($inquiry, $role);
         $result  = $this->tgDirect->send($destination, $message);
 
@@ -245,6 +245,8 @@ class DriverDispatchNotifier
             '{customer_name}'              => (string) $inquiry->customer_name,
             '{customer_name_with_country}' => $customerWithCountry,
             '{customer_phone}'             => (string) $inquiry->customer_phone,
+            '{direction}'                  => $inquiry->tourProductDirection?->name ?? '—',
+            '{tour_type}'                  => $inquiry->tour_type ? ucfirst($inquiry->tour_type) : '—',
             '{driver_name}'                => $inquiry->driver?->full_name ?? '—',
             '{driver_phone}'               => $inquiry->driver?->phone01 ?? '—',
             '{guide_name}'                 => $inquiry->guide?->full_name ?? '—',
