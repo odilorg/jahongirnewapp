@@ -176,10 +176,14 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
     {
         $this->selectedInquiryId = $id;
 
-        // Pre-fill pickup fields from the inquiry
+        // Pre-fill fields from the inquiry
         $inquiry = BookingInquiry::find($id);
-        $this->editPickupTime  = $inquiry?->pickup_time;
-        $this->editPickupPoint = $inquiry?->pickup_point;
+        $this->editPickupTime    = $inquiry?->pickup_time;
+        $this->editPickupPoint   = $inquiry?->pickup_point;
+        $this->assignDriverId    = $inquiry?->driver_id;
+        $this->assignDriverRateId = $inquiry?->driver_rate_id;
+        $this->assignGuideId     = $inquiry?->guide_id;
+        $this->assignGuideRateId = $inquiry?->guide_rate_id;
 
         $this->mountAction('viewInquiry');
     }
