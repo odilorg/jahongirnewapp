@@ -153,10 +153,12 @@ class BookingInquiry extends Model
         'price_quoted'         => 'decimal:2',
         'payment_link_sent_at' => 'datetime',
         'paid_at'              => 'datetime',
-        'contacted_at'         => 'datetime',
-        'confirmed_at'         => 'datetime',
-        'cancelled_at'         => 'datetime',
-        'submitted_at'         => 'datetime',
+        'contacted_at'              => 'datetime',
+        'confirmed_at'              => 'datetime',
+        'cancelled_at'              => 'datetime',
+        'review_request_sent_at'    => 'datetime',
+        'hotel_request_sent_at'     => 'datetime',
+        'submitted_at'              => 'datetime',
     ];
 
     public function driver(): BelongsTo
