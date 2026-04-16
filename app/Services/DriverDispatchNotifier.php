@@ -152,7 +152,8 @@ class DriverDispatchNotifier
             return ['ok' => false, 'reason' => "{$role}_no_telegram_or_phone"];
         }
 
-        $message = $this->buildMessage($inquiry);
+        $inquiry->loadMissing(['driver', 'guide']);
+        $message = $this->buildMessage($inquiry, $role);
         $result  = $this->tgDirect->send($destination, $message);
 
         if (! ($result['ok'] ?? false)) {
@@ -160,7 +161,7 @@ class DriverDispatchNotifier
                 'reference'   => $inquiry->reference,
                 'role'        => $role,
                 'supplier_id' => $supplier->id,
-                'phone'       => $phone,
+                'destination' => $destination,
                 'result'      => $result,
             ]);
 
@@ -185,9 +186,18 @@ class DriverDispatchNotifier
      * filled. Unknown placeholders are left in place so the operator
      * sees them and can clarify before hitting send.
      */
-    private function buildMessage(BookingInquiry $inquiry): string
+    private function buildMessage(BookingInquiry $inquiry, string $role = 'driver'): string
     {
-        $template = (string) config('inquiry_templates.driver_dispatch_uz', '');
+        $templateKey = $role === 'guide'
+            ? 'inquiry_templates.guide_dispatch_uz'
+            : 'inquiry_templates.driver_dispatch_uz';
+
+        $template = (string) config($templateKey, '');
+
+        if ($template === '') {
+            // Fall back to driver template if guide-specific doesn't exist yet
+            $template = (string) config('inquiry_templates.driver_dispatch_uz', '');
+        }
 
         if ($template === '') {
             return 'Dispatch template missing';
@@ -235,6 +245,10 @@ class DriverDispatchNotifier
             '{customer_name}'              => (string) $inquiry->customer_name,
             '{customer_name_with_country}' => $customerWithCountry,
             '{customer_phone}'             => (string) $inquiry->customer_phone,
+            '{driver_name}'                => $inquiry->driver?->full_name ?? '—',
+            '{driver_phone}'               => $inquiry->driver?->phone01 ?? '—',
+            '{guide_name}'                 => $inquiry->guide?->full_name ?? '—',
+            '{guide_phone}'                => $inquiry->guide?->phone01 ?? '—',
             '{notes}'                      => $notes,
         ];
 
@@ -276,6 +290,8 @@ class DriverDispatchNotifier
         $mealPlan = filled($stay->meal_plan) ? $stay->meal_plan : '—';
         $notes    = filled($stay->notes)     ? $stay->notes     : '—';
 
+        $inquiry->loadMissing(['driver', 'guide']);
+
         $replacements = [
             '{accommodation}'              => $accommodation?->full_name ?? '—',
             '{customer_name_with_country}' => $customerWithCountry,
@@ -284,6 +300,10 @@ class DriverDispatchNotifier
             '{stay_date}'                  => $stayDate,
             '{nights}'                     => (string) $nights,
             '{guest_count}'                => (string) $guestCount,
+            '{driver_name}'                => $inquiry->driver?->full_name ?? '—',
+            '{driver_phone}'               => $inquiry->driver?->phone01 ?? '—',
+            '{guide_name}'                 => $inquiry->guide?->full_name ?? '—',
+            '{guide_phone}'                => $inquiry->guide?->phone01 ?? '—',
             '{meal_plan}'                  => $mealPlan,
             '{notes}'                      => $notes,
             '{reference}'                  => (string) $inquiry->reference,
