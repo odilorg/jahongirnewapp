@@ -140,6 +140,9 @@ class BookingInquiry extends Model
         'driver_cost_override',
         'driver_cost_override_reason',
         'guide_cost',
+        'guide_rate_id',
+        'guide_cost_override',
+        'guide_cost_override_reason',
         'other_costs',
         'cost_notes',
         'pickup_time',
@@ -176,6 +179,7 @@ class BookingInquiry extends Model
         'driver_cost'               => 'decimal:2',
         'driver_cost_override'      => 'boolean',
         'guide_cost'                => 'decimal:2',
+        'guide_cost_override'       => 'boolean',
         'other_costs'               => 'decimal:2',
     ];
 
@@ -221,6 +225,11 @@ class BookingInquiry extends Model
         }
 
         return (float) ($this->price_quoted ?? 0);
+    }
+
+    public function guideRate(): BelongsTo
+    {
+        return $this->belongsTo(GuideRate::class);
     }
 
     public function driverRate(): BelongsTo

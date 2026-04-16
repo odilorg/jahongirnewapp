@@ -355,6 +355,8 @@ class BookingInquiryResource extends Resource
                         ->relationship('guide', 'full_name')
                         ->searchable(['first_name', 'last_name', 'phone01'])
                         ->preload()
+                        ->live()
+                        ->afterStateUpdated(fn (Forms\Set $set) => $set('guide_rate_id', null))
                         ->createOptionForm([
                             Forms\Components\TextInput::make('first_name')->required()->maxLength(255),
                             Forms\Components\TextInput::make('last_name')->required()->maxLength(255),
@@ -365,6 +367,57 @@ class BookingInquiryResource extends Resource
                         ->createOptionUsing(function (array $data): int {
                             return Guide::create($data)->id;
                         }),
+
+                    Forms\Components\Select::make('guide_rate_id')
+                        ->label('Guide rate')
+                        ->options(function (Forms\Get $get): array {
+                            $guideId = $get('guide_id');
+                            if (! $guideId) {
+                                return [];
+                            }
+
+                            return \App\Models\GuideRate::where('guide_id', $guideId)
+                                ->where('is_active', true)
+                                ->orderBy('sort_order')
+                                ->orderBy('label')
+                                ->get()
+                                ->mapWithKeys(fn ($r) => [
+                                    $r->id => "{$r->label} — \${$r->cost_usd} ({$r->rate_type})",
+                                ])
+                                ->all();
+                        })
+                        ->live()
+                        ->afterStateUpdated(function (Forms\Set $set, Forms\Get $get, ?string $state): void {
+                            if (! $state || $get('guide_cost_override')) {
+                                return;
+                            }
+                            $rate = \App\Models\GuideRate::find($state);
+                            if ($rate) {
+                                $set('guide_cost', (string) $rate->cost_usd);
+                            }
+                        })
+                        ->visible(fn (Forms\Get $get): bool => filled($get('guide_id')))
+                        ->placeholder('Select rate...'),
+
+                    Forms\Components\TextInput::make('guide_cost')
+                        ->label('Guide cost ($)')
+                        ->prefix('$')
+                        ->numeric()
+                        ->step('0.01')
+                        ->visible(fn (Forms\Get $get): bool => filled($get('guide_id'))),
+
+                    Forms\Components\Toggle::make('guide_cost_override')
+                        ->label('Override guide cost')
+                        ->live()
+                        ->inline()
+                        ->visible(fn (Forms\Get $get): bool => filled($get('guide_id'))),
+
+                    Forms\Components\TextInput::make('guide_cost_override_reason')
+                        ->label('Override reason')
+                        ->placeholder('Special language, negotiated rate, etc.')
+                        ->maxLength(255)
+                        ->visible(fn (Forms\Get $get): bool => (bool) $get('guide_cost_override'))
+                        ->required(fn (Forms\Get $get): bool => (bool) $get('guide_cost_override')),
 
                     Forms\Components\TimePicker::make('pickup_time')
                         ->label('Pickup time')
@@ -405,14 +458,8 @@ class BookingInquiryResource extends Resource
 
             // ── Tour Costs ──────────────────────────────────────────
             Forms\Components\Section::make('Tour Costs')
-                ->description('Guide, other costs, and margin overview.')
+                ->description('Other costs and margin overview. Driver + guide costs are in Operations above.')
                 ->schema([
-                    Forms\Components\TextInput::make('guide_cost')
-                        ->label('Guide cost ($)')
-                        ->prefix('$')
-                        ->numeric()
-                        ->step('0.01'),
-
                     Forms\Components\TextInput::make('other_costs')
                         ->label('Other costs ($)')
                         ->prefix('$')
