@@ -84,13 +84,13 @@
                                             {{ $chip['customer_name'] }}
                                         </span>
                                         <span class="shrink-0 text-[9px] font-bold px-1 py-0.5 rounded
-                                            {{ $chip['source_badge'] === 'GYG' ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300' : 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400' }}">
+                                            {{ $chip['source_badge'] === 'GYG' ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300' : 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300' }}">
                                             {{ $chip['source_badge'] }}
                                         </span>
                                     </div>
 
                                     {{-- Row 2: Time + pax + payment --}}
-                                    <div class="flex items-center gap-1.5 text-[11px] text-gray-700 dark:text-gray-300 mt-0.5">
+                                    <div class="flex items-center gap-1.5 text-[11px] text-gray-800 dark:text-gray-100 mt-0.5">
                                         <span>⏰ {{ $chip['pickup_time'] ?? '—' }}</span>
                                         <span>·</span>
                                         <span>{{ $chip['pax_label'] }} pax</span>
@@ -106,7 +106,7 @@
                                     </div>
 
                                     {{-- Row 3: Driver + guide --}}
-                                    <div class="text-[11px] text-gray-600 dark:text-gray-400 mt-0.5 truncate">
+                                    <div class="text-[11px] text-gray-800 dark:text-gray-200 mt-0.5 truncate">
                                         @if ($chip['driver_name'])
                                             🚗 {{ $chip['driver_name'] }}
                                         @else
