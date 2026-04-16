@@ -86,6 +86,69 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
         return Carbon::parse($this->week)->isToday();
     }
 
+    // Quick-assign properties for the slide-over form
+    public ?int $assignDriverId = null;
+    public ?int $assignDriverRateId = null;
+    public ?int $assignGuideId = null;
+    public ?int $assignGuideRateId = null;
+
+    /**
+     * Quick-assign driver + rate from the slide-over.
+     */
+    public function quickAssignDriver(): void
+    {
+        $inquiry = BookingInquiry::find($this->selectedInquiryId);
+        if (! $inquiry || ! $this->assignDriverId) {
+            return;
+        }
+
+        $update = ['driver_id' => $this->assignDriverId];
+
+        if ($this->assignDriverRateId) {
+            $rate = \App\Models\DriverRate::find($this->assignDriverRateId);
+            if ($rate) {
+                $update['driver_rate_id'] = $rate->id;
+                $update['driver_cost']    = $rate->cost_usd;
+            }
+        }
+
+        $inquiry->update($update);
+
+        Notification::make()->title('Driver assigned')->success()->send();
+
+        // Reset for next assignment
+        $this->assignDriverId = null;
+        $this->assignDriverRateId = null;
+    }
+
+    /**
+     * Quick-assign guide + rate from the slide-over.
+     */
+    public function quickAssignGuide(): void
+    {
+        $inquiry = BookingInquiry::find($this->selectedInquiryId);
+        if (! $inquiry || ! $this->assignGuideId) {
+            return;
+        }
+
+        $update = ['guide_id' => $this->assignGuideId];
+
+        if ($this->assignGuideRateId) {
+            $rate = \App\Models\GuideRate::find($this->assignGuideRateId);
+            if ($rate) {
+                $update['guide_rate_id'] = $rate->id;
+                $update['guide_cost']    = $rate->cost_usd;
+            }
+        }
+
+        $inquiry->update($update);
+
+        Notification::make()->title('Guide assigned')->success()->send();
+
+        $this->assignGuideId = null;
+        $this->assignGuideRateId = null;
+    }
+
     /**
      * Called from Blade when a chip is clicked. Opens the slide-over.
      */
