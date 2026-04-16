@@ -56,14 +56,25 @@
                         @foreach ($row['chips'] as $chip)
                             @if ($chip['day_index'] === $i)
                                 @php
-                                    $bgClass = match ($chip['display_state']) {
-                                        'ready'                => 'bg-green-100 dark:bg-green-900/40 border-green-400 dark:border-green-600 hover:bg-green-200 dark:hover:bg-green-900/60',
-                                        'paid_needs_attention' => 'bg-green-100 dark:bg-green-900/40 border-green-400 dark:border-green-600 hover:bg-green-200' . ' border-l-4 border-l-red-500',
-                                        'awaiting_payment'     => 'bg-amber-100 dark:bg-amber-900/40 border-amber-400 dark:border-amber-500 hover:bg-amber-200 dark:hover:bg-amber-900/60',
-                                        'confirmed_offline'    => 'bg-blue-100 dark:bg-blue-900/40 border-blue-400 dark:border-blue-600 hover:bg-blue-200 dark:hover:bg-blue-900/60',
-                                        'lead'                 => 'bg-gray-100 dark:bg-gray-800 border-gray-400 dark:border-gray-500 border-dashed hover:bg-gray-200 dark:hover:bg-gray-700',
-                                        default                => 'bg-gray-100 dark:bg-gray-800 border-gray-400 dark:border-gray-600',
+                                    // Inline styles bypass Tailwind purge — Filament's build
+                                    // strips standard Tailwind color classes not in safelist.
+                                    $chipStyle = match ($chip['display_state']) {
+                                        'ready'                => 'background:#dcfce7;border-color:#4ade80;',              // green
+                                        'paid_needs_attention' => 'background:#dcfce7;border-color:#4ade80;border-left:4px solid #ef4444;', // green + red accent
+                                        'awaiting_payment'     => 'background:#fef3c7;border-color:#f59e0b;',              // amber
+                                        'confirmed_offline'    => 'background:#dbeafe;border-color:#60a5fa;',              // blue
+                                        'lead'                 => 'background:#f3f4f6;border-color:#9ca3af;border-style:dashed;', // gray dashed
+                                        default                => 'background:#f3f4f6;border-color:#d1d5db;',
                                     };
+                                    $chipStyleDark = match ($chip['display_state']) {
+                                        'ready'                => 'background:rgba(22,101,52,0.35);border-color:#16a34a;',
+                                        'paid_needs_attention' => 'background:rgba(22,101,52,0.35);border-color:#16a34a;border-left:4px solid #ef4444;',
+                                        'awaiting_payment'     => 'background:rgba(146,64,14,0.35);border-color:#d97706;',
+                                        'confirmed_offline'    => 'background:rgba(30,64,175,0.35);border-color:#3b82f6;',
+                                        'lead'                 => 'background:rgba(31,41,55,0.8);border-color:#6b7280;border-style:dashed;',
+                                        default                => 'background:rgba(31,41,55,0.8);border-color:#4b5563;',
+                                    };
+                                    $bgClass = 'hover:opacity-90 transition-opacity';
 
                                     $tooltip = collect([
                                         $chip['reference'] . ' · ' . $chip['customer_name']
@@ -80,7 +91,9 @@
                                 @endphp
                                 <div wire:click="openInquiry({{ $chip['id'] }})"
                                     title="{{ $tooltip }}"
-                                    class="block rounded-md border px-2 py-1.5 text-xs cursor-pointer transition relative {{ $bgClass }}">
+                                    style="{{ $chipStyle }}"
+                                    x-bind:style="document.documentElement.classList.contains('dark') ? '{{ $chipStyleDark }}' : '{{ $chipStyle }}'"
+                                    class="block rounded-md border px-2 py-1.5 text-xs cursor-pointer relative {{ $bgClass }}">
                                     {{-- Row 1: Name + pax + source --}}
                                     <div class="flex items-center justify-between gap-1">
                                         <span class="font-semibold text-gray-900 dark:text-gray-100 truncate">
