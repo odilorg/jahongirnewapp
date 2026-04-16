@@ -125,11 +125,11 @@ class DriverDispatchNotifier
     }
 
     /**
-     * Single-supplier dispatch worker. Identical Uzbek brief is sent to
-     * whoever is named — driver and guide use the same template because
-     * they need the same operational context.
+     * Dispatch a single role (driver or guide). Public so Filament
+     * actions can re-dispatch a specific recipient after fixing their
+     * Telegram contact info.
      */
-    private function dispatchSupplier(BookingInquiry $inquiry, string $role): array
+    public function dispatchSupplier(BookingInquiry $inquiry, string $role): array
     {
         if (! (bool) config('services.tg_direct.enabled', true)) {
             return ['ok' => false, 'reason' => 'tg_direct_disabled'];

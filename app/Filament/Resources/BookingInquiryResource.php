@@ -958,6 +958,66 @@ class BookingInquiryResource extends Resource
                             }
                         }),
 
+                    Tables\Actions\Action::make('redispatchDriver')
+                        ->label('Re-dispatch driver only')
+                        ->icon('heroicon-o-truck')
+                        ->color('gray')
+                        ->visible(fn (BookingInquiry $record): bool => $record->driver_id !== null
+                            && $record->status === BookingInquiry::STATUS_CONFIRMED)
+                        ->requiresConfirmation()
+                        ->modalDescription(fn (BookingInquiry $record): string => 'Send dispatch to: 🚐 '
+                            . ($record->driver?->full_name ?? '—')
+                            . ' via ' . ($record->driver?->telegram_chat_id ?: $record->driver?->phone01 ?: 'no contact'))
+                        ->action(function (BookingInquiry $record): void {
+                            $result = app(DriverDispatchNotifier::class)->dispatchSupplier($record, 'driver');
+                            $stamp  = now()->format('Y-m-d H:i');
+                            $name   = $record->driver?->full_name ?? 'driver';
+
+                            $existing = $record->internal_notes ? $record->internal_notes . "\n" : '';
+                            if ($result['ok']) {
+                                $record->update([
+                                    'internal_notes' => $existing . "[{$stamp}] Re-dispatch TG → driver {$name} ok (msg_id={$result['msg_id']})",
+                                ]);
+                                Notification::make()->title('Driver dispatch sent')->success()->send();
+                            } else {
+                                $reason = $result['reason'] ?? 'unknown';
+                                $record->update([
+                                    'internal_notes' => $existing . "[{$stamp}] ⚠️ Re-dispatch TG → driver {$name} FAILED: {$reason}",
+                                ]);
+                                Notification::make()->title('Driver dispatch failed')->body($reason)->danger()->persistent()->send();
+                            }
+                        }),
+
+                    Tables\Actions\Action::make('redispatchGuide')
+                        ->label('Re-dispatch guide only')
+                        ->icon('heroicon-o-academic-cap')
+                        ->color('gray')
+                        ->visible(fn (BookingInquiry $record): bool => $record->guide_id !== null
+                            && $record->status === BookingInquiry::STATUS_CONFIRMED)
+                        ->requiresConfirmation()
+                        ->modalDescription(fn (BookingInquiry $record): string => 'Send dispatch to: 🧭 '
+                            . ($record->guide?->full_name ?? '—')
+                            . ' via ' . ($record->guide?->telegram_chat_id ?: $record->guide?->phone01 ?: 'no contact'))
+                        ->action(function (BookingInquiry $record): void {
+                            $result = app(DriverDispatchNotifier::class)->dispatchSupplier($record, 'guide');
+                            $stamp  = now()->format('Y-m-d H:i');
+                            $name   = $record->guide?->full_name ?? 'guide';
+
+                            $existing = $record->internal_notes ? $record->internal_notes . "\n" : '';
+                            if ($result['ok']) {
+                                $record->update([
+                                    'internal_notes' => $existing . "[{$stamp}] Re-dispatch TG → guide {$name} ok (msg_id={$result['msg_id']})",
+                                ]);
+                                Notification::make()->title('Guide dispatch sent')->success()->send();
+                            } else {
+                                $reason = $result['reason'] ?? 'unknown';
+                                $record->update([
+                                    'internal_notes' => $existing . "[{$stamp}] ⚠️ Re-dispatch TG → guide {$name} FAILED: {$reason}",
+                                ]);
+                                Notification::make()->title('Guide dispatch failed')->body($reason)->danger()->persistent()->send();
+                            }
+                        }),
+
                     Tables\Actions\Action::make('markPrepared')
                         ->label('Mark prepared')
                         ->icon('heroicon-o-clipboard-document-check')
