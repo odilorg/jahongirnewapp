@@ -18,8 +18,13 @@
                 {{ $data['from']->format('M j') }} – {{ $data['to']->format('M j, Y') }}
             </span>
         </div>
-        <div class="flex items-center gap-3 text-sm text-gray-700 dark:text-gray-300">
-            <label class="inline-flex items-center gap-2 cursor-pointer">
+        <div class="flex items-center gap-4 text-xs text-gray-600 dark:text-gray-300 flex-wrap">
+            <span class="inline-flex items-center gap-1"><span class="inline-block w-3 h-3 rounded" style="background:#dcfce7;border:1px solid #4ade80;"></span> Paid & ready</span>
+            <span class="inline-flex items-center gap-1"><span class="inline-block w-3 h-3 rounded" style="background:#dcfce7;border:1px solid #4ade80;border-left:3px solid #ef4444;"></span> Paid, needs attention</span>
+            <span class="inline-flex items-center gap-1"><span class="inline-block w-3 h-3 rounded" style="background:#fef3c7;border:1px solid #f59e0b;"></span> Awaiting payment</span>
+            <span class="inline-flex items-center gap-1"><span class="inline-block w-3 h-3 rounded" style="background:#dbeafe;border:1px solid #60a5fa;"></span> Confirmed (pay offline)</span>
+            <span class="inline-flex items-center gap-1"><span class="inline-block w-3 h-3 rounded" style="background:#f3f4f6;border:1px dashed #9ca3af;"></span> Lead</span>
+            <label class="inline-flex items-center gap-1.5 cursor-pointer ml-2">
                 <input type="checkbox" wire:model.live="showLeads"
                     class="rounded border-gray-300 dark:border-gray-600 text-primary-600 focus:ring-primary-500">
                 Show leads
