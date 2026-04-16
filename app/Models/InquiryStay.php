@@ -29,6 +29,7 @@ class InquiryStay extends Model
         'cost_per_unit_usd',
         'total_accommodation_cost',
         'cost_override',
+        'cost_override_reason',
         'sort_order',
         'stay_date',
         'nights',
