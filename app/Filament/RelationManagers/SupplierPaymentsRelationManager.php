@@ -51,9 +51,27 @@ class SupplierPaymentsRelationManager extends RelationManager
 
             Forms\Components\Select::make('booking_inquiry_id')
                 ->label('Booking (optional)')
-                ->relationship('bookingInquiry', 'reference')
+                ->options(function (): array {
+                    $owner = $this->getOwnerRecord();
+                    $type  = $this->supplierType;
+                    $id    = $owner->getKey();
+
+                    $query = \App\Models\BookingInquiry::query();
+
+                    match ($type) {
+                        'driver'        => $query->where('driver_id', $id),
+                        'guide'         => $query->where('guide_id', $id),
+                        'accommodation' => $query->whereHas('stays', fn ($q) => $q->where('accommodation_id', $id)),
+                    };
+
+                    return $query->orderByDesc('travel_date')
+                        ->get()
+                        ->mapWithKeys(fn ($i) => [
+                            $i->id => "{$i->reference} · {$i->customer_name} · {$i->travel_date?->format('M j')}",
+                        ])
+                        ->all();
+                })
                 ->searchable()
-                ->preload()
                 ->placeholder('General / advance'),
 
             Forms\Components\TextInput::make('amount')
