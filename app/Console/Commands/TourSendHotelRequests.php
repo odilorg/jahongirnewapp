@@ -1,12 +1,22 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Console\Commands;
 
+use App\Models\BookingInquiry;
 use Carbon\Carbon;
 use Illuminate\Console\Command;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
+/**
+ * Email guests with confirmed bookings (3-30 days out) who have no
+ * hotel/pickup location set. Asks them to share their hotel name so
+ * the operator can arrange pickup.
+ *
+ * Repointed from legacy `bookings` to `booking_inquiries` in Phase 9.2.
+ * Send channel: email via himalaya CLI (same as original).
+ */
 class TourSendHotelRequests extends Command
 {
     protected $signature   = 'tour:send-hotel-requests {--dry-run : Print without sending}';
@@ -19,75 +29,69 @@ class TourSendHotelRequests extends Command
         $from   = Carbon::now($tz)->addDays(3)->toDateString();
         $to     = Carbon::now($tz)->addDays(30)->toDateString();
 
-        if ($dryRun) $this->info('[DRY-RUN] No emails will be sent.');
+        if ($dryRun) {
+            $this->info('[DRY-RUN] No emails will be sent.');
+        }
 
-        $this->info("Checking bookings from {$from} to {$to} with missing hotel...");
+        $this->info("Checking inquiries from {$from} to {$to} with missing hotel...");
 
-        $bookings = DB::table('bookings')
-            ->join('guests', 'bookings.guest_id', '=', 'guests.id')
-            ->join('tours',  'bookings.tour_id',  '=', 'tours.id')
-            ->where('bookings.booking_status', 'confirmed')
-            ->whereNull('bookings.hotel_request_sent_at')
-            ->whereBetween(DB::raw('DATE(bookings.booking_start_date_time)'), [$from, $to])
+        $inquiries = BookingInquiry::query()
+            ->where('status', BookingInquiry::STATUS_CONFIRMED)
+            ->whereNull('hotel_request_sent_at')
+            ->whereBetween('travel_date', [$from, $to])
             ->where(function ($q) {
-                $q->whereNull('bookings.pickup_location')
-                  ->orWhere('bookings.pickup_location', '')
-                  ->orWhere('bookings.pickup_location', 'Samarkand');
+                $q->whereNull('pickup_point')
+                  ->orWhere('pickup_point', '')
+                  ->orWhere('pickup_point', 'Samarkand')
+                  ->orWhere('pickup_point', 'Gur Emir Mausoleum');
             })
-            ->whereNotNull('guests.email')
-            ->where('guests.email', '!=', '')
-            ->select([
-                'bookings.id',
-                'bookings.booking_number',
-                'tours.title as tour_title',
-                DB::raw("DATE(bookings.booking_start_date_time) as tour_date"),
-                DB::raw("DATE_FORMAT(bookings.booking_start_date_time, '%M %d, %Y') as tour_date_label"),
-                'guests.first_name',
-                'guests.last_name',
-                'guests.email',
-            ])
-            ->orderBy('bookings.booking_start_date_time')
+            ->where('customer_email', '!=', '')
+            ->orderBy('travel_date')
             ->get();
 
-        if ($bookings->isEmpty()) {
-            $this->info('No bookings need hotel requests right now.');
+        if ($inquiries->isEmpty()) {
+            $this->info('No inquiries need hotel requests right now.');
+
             return self::SUCCESS;
         }
 
         $sent = 0;
-        foreach ($bookings as $booking) {
-            $firstName = $booking->first_name;
-            $email     = trim($booking->email);
+        foreach ($inquiries as $inquiry) {
+            $firstName = $this->firstName($inquiry->customer_name);
+            $email     = trim($inquiry->customer_email);
+            $tourTitle = $inquiry->tourProduct?->title
+                ?? preg_replace('/\s*\|\s*Jahongir\s+Travel\s*$/iu', '', (string) $inquiry->tour_name_snapshot);
+            $dateLabel = $inquiry->travel_date->format('F d, Y');
 
-            $this->info("  📧 {$firstName} {$booking->last_name} — {$booking->tour_date} — {$email}");
+            $this->info("  📧 {$inquiry->customer_name} — {$inquiry->travel_date->format('Y-m-d')} — {$email}");
 
-            if (!$dryRun) {
-                $subject = "Your {$booking->tour_title} — {$booking->tour_date_label} | Pickup Location Needed";
-                $body    = $this->buildEmail($firstName, $booking->tour_title, $booking->tour_date_label);
+            if (! $dryRun) {
+                $subject = "Your {$tourTitle} — {$dateLabel} | Pickup Location Needed";
+                $body    = $this->buildEmail($firstName, $tourTitle, $dateLabel);
                 $mml     = "From: odilorg@gmail.com\nTo: {$email}\nSubject: {$subject}\n\n{$body}";
 
                 $tmpFile = tempnam(sys_get_temp_dir(), 'hotel_') . '.eml';
                 file_put_contents($tmpFile, $mml);
-                exec("himalaya template send < " . escapeshellarg($tmpFile) . " 2>&1", $out, $code);
-                unlink($tmpFile);
+                exec('himalaya template send < ' . escapeshellarg($tmpFile) . ' 2>&1', $out, $code);
+                @unlink($tmpFile);
 
                 if ($code === 0) {
-                    DB::table('bookings')->where('id', $booking->id)->update([
-                        'hotel_request_sent_at' => now(),
-                    ]);
+                    $inquiry->update(['hotel_request_sent_at' => now()]);
+
                     Log::info('TourSendHotelRequests: email sent', [
-                        'booking_id' => $booking->id,
+                        'inquiry_id' => $inquiry->id,
+                        'reference'  => $inquiry->reference,
                         'email'      => $email,
                     ]);
                     $sent++;
-                    $this->info("     ✅ Sent");
+                    $this->info('     ✅ Sent');
                 } else {
                     Log::error('TourSendHotelRequests: email failed', [
-                        'booking_id' => $booking->id,
+                        'inquiry_id' => $inquiry->id,
                         'email'      => $email,
                         'output'     => implode(' ', $out),
                     ]);
-                    $this->error("     ❌ Failed: " . implode(' ', $out));
+                    $this->error('     ❌ Failed: ' . implode(' ', $out));
                 }
 
                 usleep(500000); // 0.5s between sends
@@ -97,6 +101,7 @@ class TourSendHotelRequests extends Command
         }
 
         $this->info("Hotel requests done. Sent: {$sent}");
+
         return self::SUCCESS;
     }
 
@@ -104,18 +109,25 @@ class TourSendHotelRequests extends Command
     {
         return implode("\n", [
             "Dear {$firstName},",
-            "",
+            '',
             "Thank you for booking the \"{$tourTitle}\" on {$dateLabel}!",
-            "",
-            "To arrange your pickup, could you please let us know the name of your hotel in Samarkand?",
-            "",
-            "We will pick you up directly from your hotel at the scheduled time.",
-            "",
-            "Looking forward to a wonderful tour with you!",
-            "",
-            "Best regards,",
-            "Odiljon",
-            "Jahongir Travel",
+            '',
+            'To arrange your pickup, could you please let us know the name of your hotel in Samarkand?',
+            '',
+            'We will pick you up directly from your hotel at the scheduled time.',
+            '',
+            'Looking forward to a wonderful tour with you!',
+            '',
+            'Best regards,',
+            'Odiljon',
+            'Jahongir Travel',
         ]);
+    }
+
+    private function firstName(string $fullName): string
+    {
+        $parts = preg_split('/\s+/', trim($fullName), 2);
+
+        return $parts[0] ?? $fullName;
     }
 }

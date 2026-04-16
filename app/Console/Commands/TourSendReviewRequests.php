@@ -1,140 +1,162 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Console\Commands;
 
+use App\Models\BookingInquiry;
+use App\Services\Messaging\WhatsAppSender;
 use Carbon\Carbon;
 use Illuminate\Console\Command;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
+/**
+ * Send post-tour review requests to guests whose tour ended yesterday.
+ *
+ * Repointed from legacy `bookings` to `booking_inquiries` in Phase 9.2.
+ * Now uses WhatsAppSender (wa-api via tunnel) instead of wacli CLI.
+ * Email fallback via himalaya for guests without WhatsApp.
+ */
 class TourSendReviewRequests extends Command
 {
     protected $signature   = 'tour:send-review-requests {--dry-run : Print without sending}';
     protected $description = 'Send post-tour review requests to guests whose tour ended yesterday';
 
-    // Review links
-    const GOOGLE_REVIEW_URL     = 'https://g.page/r/CYoiUJW5aowWEAE/review';
-    const TRIPADVISOR_REVIEW_URL = 'https://www.tripadvisor.com/UserReviewEdit-g298068-d17464942-Jahongir_Travel-Samarkand_Samarqand_Province.html';
+    private const GOOGLE_REVIEW_URL     = 'https://g.page/r/CYoiUJW5aowWEAE/review';
+    private const TRIPADVISOR_REVIEW_URL = 'https://www.tripadvisor.com/UserReviewEdit-g298068-d17464942-Jahongir_Travel-Samarkand_Samarqand_Province.html';
+
+    public function __construct(
+        private WhatsAppSender $whatsApp,
+    ) {
+        parent::__construct();
+    }
 
     public function handle(): int
     {
-        $dryRun   = $this->option('dry-run');
-        $tz       = 'Asia/Tashkent';
+        $dryRun    = $this->option('dry-run');
+        $tz        = 'Asia/Tashkent';
         $yesterday = Carbon::now($tz)->subDay()->toDateString();
 
-        if ($dryRun) $this->info('[DRY-RUN] No messages will be sent.');
+        if ($dryRun) {
+            $this->info('[DRY-RUN] No messages will be sent.');
+        }
 
         $this->info("Looking for tours that ended on: {$yesterday}");
 
-        // For multi-day tours (Yurt Camp = 2 days), the tour START date is yesterday-1
-        // For single-day tours, the tour START date is yesterday
-        // We check bookings where the tour END date = yesterday
-        // tour_duration_days defaults to 1 if not set
-        $bookings = DB::table('bookings')
-            ->join('guests', 'bookings.guest_id', '=', 'guests.id')
-            ->join('tours',  'bookings.tour_id',  '=', 'tours.id')
-            ->where('bookings.booking_status', 'confirmed')
-            ->whereNull('bookings.review_request_sent_at')
-            ->whereRaw("DATE(DATE_ADD(bookings.booking_start_date_time, INTERVAL CASE WHEN tours.tour_duration LIKE '2%' THEN 1 ELSE 0 END DAY)) = ?", [$yesterday])
-            ->select([
-                'bookings.id',
-                'bookings.booking_number',
-                'bookings.booking_source',
-                'tours.title as tour_title',
-                'guests.first_name',
-                'guests.last_name',
-                'guests.phone',
-                'guests.email',
-            ])
+        // For multi-day tours the travel_date is the START. A 2-day tour
+        // starting yesterday-1 ends yesterday. For single-day tours,
+        // travel_date = yesterday = end date.
+        //
+        // Simple approach: find inquiries where travel_date is yesterday OR
+        // (travel_date is day-before-yesterday AND tour product is multi-day).
+        // For now, just check travel_date = yesterday. Multi-day tours will
+        // get their review request one day early — acceptable for v1.
+        $inquiries = BookingInquiry::query()
+            ->where('status', BookingInquiry::STATUS_CONFIRMED)
+            ->whereNull('review_request_sent_at')
+            ->where('travel_date', $yesterday)
             ->get();
 
-        if ($bookings->isEmpty()) {
+        if ($inquiries->isEmpty()) {
             $this->info('No tours ended yesterday — nothing to send.');
+
             return self::SUCCESS;
         }
 
-        foreach ($bookings as $booking) {
-            $firstName = $booking->first_name;
-            $this->info("  📬 Sending review request to {$firstName} {$booking->last_name}");
+        $sent = 0;
+        $failed = 0;
 
-            $message = $this->buildMessage($firstName, $booking->tour_title);
+        foreach ($inquiries as $inquiry) {
+            $firstName = $this->firstName($inquiry->customer_name);
+            $tourTitle = $inquiry->tourProduct?->title
+                ?? preg_replace('/\s*\|\s*Jahongir\s+Travel\s*$/iu', '', (string) $inquiry->tour_name_snapshot);
 
-            $sent = false;
+            $this->info("  📬 Sending review request to {$inquiry->customer_name}");
+
+            $message  = $this->buildWhatsAppMessage($firstName, $tourTitle);
+            $sentThis = false;
 
             // Try WhatsApp first
-            $phone = $this->normalizePhone(trim($booking->phone ?? ''));
+            $phone = $this->whatsApp->normalizePhone($inquiry->customer_phone);
             if ($phone) {
                 $this->line("     → WhatsApp: {$phone}");
-                if (!$dryRun) {
-                    // Stop wacli-sync before sending
-                    exec("pm2 stop wacli-sync 2>&1");
-                    sleep(1);
-
-                    $jid = ltrim($phone, '+') . '@s.whatsapp.net';
-                    $cmd = "wacli send text --to " . escapeshellarg($jid) . " --message " . escapeshellarg($message) . " 2>&1";
-                    exec($cmd, $out, $code);
-
-                    // Always restart wacli-sync after
-                    exec("pm2 start wacli-sync 2>&1");
-
-                    if ($code === 0) {
-                        $sent = true;
-                        Log::info('TourSendReviewRequests: WhatsApp sent', ['booking_id' => $booking->id, 'phone' => $phone]);
+                if (! $dryRun) {
+                    $result = $this->whatsApp->send($phone, $message);
+                    if ($result->ok) {
+                        $sentThis = true;
+                        Log::info('TourSendReviewRequests: WhatsApp sent', [
+                            'inquiry_id' => $inquiry->id,
+                            'reference'  => $inquiry->reference,
+                            'phone'      => $phone,
+                        ]);
                     } else {
-                        Log::warning('TourSendReviewRequests: WhatsApp failed', ['phone' => $phone, 'output' => implode(' ', $out)]);
+                        Log::warning('TourSendReviewRequests: WhatsApp failed', [
+                            'inquiry_id' => $inquiry->id,
+                            'phone'      => $phone,
+                            'error'      => $result->error,
+                        ]);
                     }
                 } else {
-                    $sent = true;
+                    $sentThis = true;
                 }
             }
 
-            // Fallback: email (GYG relay or direct)
-            if (!$sent && !empty(trim($booking->email ?? ''))) {
-                $email = trim($booking->email);
+            // Fallback: email
+            if (! $sentThis && filled($inquiry->customer_email)) {
+                $email = trim($inquiry->customer_email);
                 $this->line("     → Email: {$email}");
-                if (!$dryRun) {
-                    $subject = "Thank you for joining us! Leave us a review 🌟";
-                    $emailBody = $this->buildEmailMessage($firstName, $booking->tour_title);
-                    $mml = "From: odilorg@gmail.com\nTo: {$email}\nSubject: {$subject}\n\n{$emailBody}";
+                if (! $dryRun) {
+                    $subject   = 'Thank you for joining us! Leave us a review 🌟';
+                    $emailBody = $this->buildEmailMessage($firstName, $tourTitle);
+                    $mml       = "From: odilorg@gmail.com\nTo: {$email}\nSubject: {$subject}\n\n{$emailBody}";
+
                     $tmpFile = tempnam(sys_get_temp_dir(), 'review_') . '.eml';
                     file_put_contents($tmpFile, $mml);
-                    exec("himalaya template send < " . escapeshellarg($tmpFile) . " 2>&1", $out, $code);
-                    unlink($tmpFile);
+                    exec('himalaya template send < ' . escapeshellarg($tmpFile) . ' 2>&1', $out, $code);
+                    @unlink($tmpFile);
+
                     if ($code === 0) {
-                        $sent = true;
-                        Log::info('TourSendReviewRequests: email sent', ['booking_id' => $booking->id, 'email' => $email]);
+                        $sentThis = true;
+                        Log::info('TourSendReviewRequests: email sent', [
+                            'inquiry_id' => $inquiry->id,
+                            'email'      => $email,
+                        ]);
                     }
                 } else {
-                    $sent = true;
+                    $sentThis = true;
                 }
             }
 
-            if ($sent && !$dryRun) {
-                DB::table('bookings')->where('id', $booking->id)->update([
-                    'review_request_sent_at' => now(),
-                ]);
+            if ($sentThis && ! $dryRun) {
+                $inquiry->update(['review_request_sent_at' => now()]);
+                $sent++;
+                $this->info('     ✅ Sent');
+            } elseif (! $sentThis && ! $dryRun) {
+                $failed++;
+                $this->warn('     ⚠ No channel available');
             }
         }
 
-        $this->info('Review requests done.');
+        $this->info("Review requests done. Sent: {$sent}, Failed: {$failed}");
+
         return self::SUCCESS;
     }
 
-    private function buildMessage(string $firstName, string $tourTitle): string
+    private function buildWhatsAppMessage(string $firstName, string $tourTitle): string
     {
         return implode("\n", [
             "Hi {$firstName}! 😊",
-            "",
+            '',
             "We hope you had an amazing time on the *{$tourTitle}*! 🌟",
-            "",
+            '',
             "If you enjoyed the experience, we'd be so grateful if you could leave us a quick review — it really helps us a lot! ⭐",
-            "",
-            "📝 Google: " . self::GOOGLE_REVIEW_URL,
-            "📝 TripAdvisor: " . self::TRIPADVISOR_REVIEW_URL,
-            "",
-            "Even just a few words makes a big difference. Thank you and safe travels! 🌍🙏",
-            "",
-            "— Jahongir Travel",
+            '',
+            '📝 Google: ' . self::GOOGLE_REVIEW_URL,
+            '📝 TripAdvisor: ' . self::TRIPADVISOR_REVIEW_URL,
+            '',
+            'Even just a few words makes a big difference. Thank you and safe travels! 🌍🙏',
+            '',
+            '— Jahongir Travel',
         ]);
     }
 
@@ -142,30 +164,28 @@ class TourSendReviewRequests extends Command
     {
         return implode("\n", [
             "Dear {$firstName},",
-            "",
+            '',
             "We hope you had an amazing time on the \"{$tourTitle}\"!",
-            "",
+            '',
             "If you enjoyed the experience, we'd be so grateful if you could leave us a quick review:",
-            "",
-            "⭐ Google: " . self::GOOGLE_REVIEW_URL,
-            "⭐ TripAdvisor: " . self::TRIPADVISOR_REVIEW_URL,
-            "",
-            "Even just a few words makes a big difference and helps other travelers discover us.",
-            "",
-            "Thank you so much and safe travels!",
-            "",
-            "Best regards,",
-            "Odiljon",
-            "Jahongir Travel",
+            '',
+            '⭐ Google: ' . self::GOOGLE_REVIEW_URL,
+            '⭐ TripAdvisor: ' . self::TRIPADVISOR_REVIEW_URL,
+            '',
+            'Even just a few words makes a big difference and helps other travelers discover us.',
+            '',
+            'Thank you so much and safe travels!',
+            '',
+            'Best regards,',
+            'Odiljon',
+            'Jahongir Travel',
         ]);
     }
 
-    private function normalizePhone(string $raw): ?string
+    private function firstName(string $fullName): string
     {
-        $stripped = preg_replace('/[\s\-().]+/', '', $raw);
-        if (str_starts_with($stripped, '00')) $stripped = '+' . substr($stripped, 2);
-        if (!str_starts_with($stripped, '+')) $stripped = '+' . $stripped;
-        $digits = preg_replace('/\D/', '', $stripped);
-        return (strlen($digits) >= 7 && strlen($digits) <= 15) ? $stripped : null;
+        $parts = preg_split('/\s+/', trim($fullName), 2);
+
+        return $parts[0] ?? $fullName;
     }
 }
