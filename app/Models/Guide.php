@@ -39,12 +39,12 @@ class Guide extends Model
     }
 
     public function tourExpenses()
-{
-    return $this->morphMany(TourExpense::class, 'supplier');
-}
+    {
+        return $this->morphMany(TourExpense::class, 'supplier');
+    }
 
-
-    
-
-   
+    public function rates(): HasMany
+    {
+        return $this->hasMany(GuideRate::class)->orderBy('sort_order')->orderBy('label');
+    }
 }
