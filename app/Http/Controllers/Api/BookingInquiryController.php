@@ -8,6 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreBookingInquiryRequest;
 use App\Models\BookingInquiry;
 use App\Services\BookingInquiryNotifier;
+use App\Services\WebsiteAutoReplyService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -27,6 +28,7 @@ class BookingInquiryController extends Controller
 {
     public function __construct(
         private readonly BookingInquiryNotifier $notifier,
+        private readonly WebsiteAutoReplyService $autoReply,
     ) {}
 
     public function store(StoreBookingInquiryRequest $request): JsonResponse
@@ -70,6 +72,18 @@ class BookingInquiryController extends Controller
             } catch (Throwable $e) {
                 // Notification failure must not break the API response.
                 Log::warning('BookingInquiry: notifier failed', [
+                    'reference' => $inquiry->reference,
+                    'error'     => $e->getMessage(),
+                ]);
+            }
+
+            // Instant WhatsApp auto-confirmation for website bookings.
+            // Runs after the Telegram ops ping so the operator sees the
+            // inquiry before the guest gets the auto-reply. Fire-and-forget.
+            try {
+                $this->autoReply->sendIfEligible($inquiry);
+            } catch (Throwable $e) {
+                Log::warning('BookingInquiry: auto-reply failed', [
                     'reference' => $inquiry->reference,
                     'error'     => $e->getMessage(),
                 ]);
