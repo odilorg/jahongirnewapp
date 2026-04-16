@@ -77,14 +77,53 @@
                                 @endphp
                                 <a href="{{ $chip['detail_url'] }}" target="_blank" rel="noopener"
                                     title="{{ $tooltip }}"
-                                    class="block rounded-md border px-2 py-1.5 text-xs cursor-pointer transition {{ $bgClass }}">
-                                    <div class="font-semibold text-gray-900 dark:text-gray-100 truncate">
-                                        {{ $chip['customer_name'] }}
+                                    class="block rounded-md border px-2 py-1.5 text-xs cursor-pointer transition relative {{ $bgClass }}">
+                                    {{-- Row 1: Name + pax + source --}}
+                                    <div class="flex items-center justify-between gap-1">
+                                        <span class="font-semibold text-gray-900 dark:text-gray-100 truncate">
+                                            {{ $chip['customer_name'] }}
+                                        </span>
+                                        <span class="shrink-0 text-[9px] font-bold px-1 py-0.5 rounded
+                                            {{ $chip['source_badge'] === 'GYG' ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300' : 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400' }}">
+                                            {{ $chip['source_badge'] }}
+                                        </span>
                                     </div>
-                                    <div class="font-mono text-[10px] opacity-60">{{ $chip['reference'] }}</div>
-                                    <div class="text-[11px] text-gray-700 dark:text-gray-300 mt-0.5">
-                                        {{ $chip['pax_label'] }} pax · {{ $chip['duration'] }}D
+
+                                    {{-- Row 2: Time + pax + payment --}}
+                                    <div class="flex items-center gap-1.5 text-[11px] text-gray-700 dark:text-gray-300 mt-0.5">
+                                        <span>⏰ {{ $chip['pickup_time'] ?? '—' }}</span>
+                                        <span>·</span>
+                                        <span>{{ $chip['pax_label'] }} pax</span>
+                                        <span>
+                                            @if ($chip['paid_at'])
+                                                💰
+                                            @elseif ($chip['status'] === 'awaiting_payment')
+                                                ⏳
+                                            @elseif ($chip['payment_method'] === 'cash')
+                                                💵
+                                            @endif
+                                        </span>
                                     </div>
+
+                                    {{-- Row 3: Driver + guide --}}
+                                    <div class="text-[11px] text-gray-600 dark:text-gray-400 mt-0.5 truncate">
+                                        @if ($chip['driver_name'])
+                                            🚗 {{ $chip['driver_name'] }}
+                                        @else
+                                            <span class="text-danger-500">🚗 —</span>
+                                        @endif
+                                        @if ($chip['guide_name'])
+                                            · 🧭 {{ $chip['guide_name'] }}
+                                        @endif
+                                    </div>
+
+                                    {{-- Warning dot: top-right corner --}}
+                                    @if (! empty($chip['warnings']))
+                                        <span class="absolute -top-1 -right-1 w-3 h-3 rounded-full
+                                            {{ in_array('no driver', $chip['warnings']) ? 'bg-danger-500' : 'bg-warning-500' }}"
+                                            title="{{ implode(', ', $chip['warnings']) }}">
+                                        </span>
+                                    @endif
                                 </a>
                             @endif
                         @endforeach

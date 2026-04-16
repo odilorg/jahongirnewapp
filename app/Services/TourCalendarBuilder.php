@@ -152,11 +152,40 @@ class TourCalendarBuilder
         // 0 = Monday, 6 = Sunday — matches the column order in the grid.
         $dayIndex = (int) $inq->travel_date->format('N') - 1;
 
+        // Readiness: what's missing for this booking to be fully operational?
+        $warnings = [];
+        if (! $inq->driver_id) {
+            $warnings[] = 'no driver';
+        }
+        if (blank($inq->pickup_point) || $inq->pickup_point === 'Samarkand' || $inq->pickup_point === 'Gur Emir Mausoleum') {
+            $warnings[] = 'no pickup';
+        }
+        if (! $inq->paid_at && $inq->status !== BookingInquiry::STATUS_AWAITING_PAYMENT) {
+            $warnings[] = 'not paid';
+        }
+
+        $readiness = empty($warnings) ? 'ready' : implode(', ', $warnings);
+
+        // Source badge
+        $sourceBadge = match ($inq->source) {
+            'gyg'      => 'GYG',
+            'website'  => 'WEB',
+            'whatsapp' => 'WA',
+            'telegram' => 'TG',
+            'phone'    => 'PH',
+            'email'    => 'EM',
+            default    => strtoupper(mb_substr($inq->source, 0, 3)),
+        };
+
+        // WhatsApp deep link
+        $waPhone = preg_replace('/[^0-9]/', '', (string) $inq->customer_phone);
+
         return [
             'id'                => $inq->id,
             'reference'         => $inq->reference,
             'customer_name'     => (string) $inq->customer_name,
             'customer_phone'    => (string) $inq->customer_phone,
+            'wa_phone'          => $waPhone,
             'customer_country'  => $inq->customer_country,
             'pax_label'         => $paxLabel,
             'duration'          => $duration,
@@ -167,9 +196,14 @@ class TourCalendarBuilder
             'pickup_time'       => $inq->pickup_time,
             'pickup_point'      => $inq->pickup_point,
             'driver_name'       => $inq->driver?->full_name,
+            'driver_phone'      => $inq->driver?->phone01,
             'guide_name'        => $inq->guide?->full_name,
+            'guide_phone'       => $inq->guide?->phone01,
             'accommodations'    => $accommodations,
             'day_index'         => $dayIndex,
+            'source_badge'      => $sourceBadge,
+            'readiness'         => $readiness,
+            'warnings'          => $warnings,
             'detail_url'        => BookingInquiryResource::getUrl('view', ['record' => $inq->id]),
         ];
     }
