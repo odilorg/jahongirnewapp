@@ -153,8 +153,8 @@
             $allDrivers = \App\Models\Driver::where('is_active', true)->orderBy('first_name')->get();
             $allGuides  = \App\Models\Guide::where('is_active', true)->orderBy('first_name')->get();
         @endphp
-        <div class="rounded-lg p-3 mt-4 mb-4" style="background: rgba(0,0,0,0.03);">
-            <div class="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Quick Assign</div>
+        <div class="rounded-lg p-3" style="background: rgba(0,0,0,0.03); margin-top: 16px; margin-bottom: 16px;">
+            <div class="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider" style="margin-bottom: 12px;">Quick Assign</div>
 
             {{-- Driver assign --}}
             <div class="space-y-1.5 rounded-lg bg-white dark:bg-gray-800 p-2.5">
@@ -193,7 +193,7 @@
             </div>
 
             {{-- Guide assign --}}
-            <div class="space-y-1.5 rounded-lg bg-white dark:bg-gray-800 p-2.5 mt-3">
+            <div class="space-y-1.5 rounded-lg bg-white dark:bg-gray-800 p-2.5" style="margin-top: 14px;">
                 <div class="text-xs font-medium text-gray-700 dark:text-gray-300">🧭 Guide</div>
                 <select wire:model.live="assignGuideId"
                     class="w-full text-xs rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100">
