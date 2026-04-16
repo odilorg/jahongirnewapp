@@ -141,14 +141,19 @@ class DriverDispatchNotifier
             return ['ok' => false, 'reason' => "no_{$role}_assigned"];
         }
 
-        $phone = (string) $supplier->phone01;
+        // Prefer telegram_chat_id (@username or chat ID) over phone.
+        // Phone-based resolution fails silently when the number isn't
+        // registered on Telegram or has privacy restrictions.
+        $destination = filled($supplier->telegram_chat_id)
+            ? (string) $supplier->telegram_chat_id
+            : (string) $supplier->phone01;
 
-        if ($phone === '') {
-            return ['ok' => false, 'reason' => "{$role}_missing_phone"];
+        if ($destination === '') {
+            return ['ok' => false, 'reason' => "{$role}_no_telegram_or_phone"];
         }
 
         $message = $this->buildMessage($inquiry);
-        $result  = $this->tgDirect->send($phone, $message);
+        $result  = $this->tgDirect->send($destination, $message);
 
         if (! ($result['ok'] ?? false)) {
             Log::warning('DriverDispatchNotifier: send failed', [
