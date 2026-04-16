@@ -131,7 +131,7 @@
     @if ($inquiry->internal_notes)
         <div>
             <div class="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1">Notes</div>
-            <div class="text-xs text-gray-700 dark:text-gray-300 whitespace-pre-line max-h-20 overflow-y-auto">{{ $inquiry->internal_notes }}</div>
+            <div class="text-xs text-gray-900 dark:text-gray-100 whitespace-pre-line max-h-24 overflow-y-auto bg-gray-100 dark:bg-gray-800 rounded p-2">{{ $inquiry->internal_notes }}</div>
         </div>
     @endif
 </div>
