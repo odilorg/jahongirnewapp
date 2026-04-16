@@ -153,6 +153,7 @@ class GuideResource extends Resource
             LanguagesRelationManager::class,
             BookingsRelationManager::class,
             GuideResource\RelationManagers\RatesRelationManager::class,
+            GuideResource\RelationManagers\PaymentsRelationManager::class,
         ];
     }
 

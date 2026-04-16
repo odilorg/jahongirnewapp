@@ -245,6 +245,7 @@ class DriverResource extends Resource
             BookingsRelationManager::class,
             TourExpensesRelationManager::class,
             DriverResource\RelationManagers\RatesRelationManager::class,
+            DriverResource\RelationManagers\PaymentsRelationManager::class,
         ];
     }
 

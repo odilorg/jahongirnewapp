@@ -125,6 +125,7 @@ class AccommodationResource extends Resource
     {
         return [
             AccommodationResource\RelationManagers\RatesRelationManager::class,
+            AccommodationResource\RelationManagers\PaymentsRelationManager::class,
         ];
     }
 
