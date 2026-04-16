@@ -101,14 +101,22 @@
                                     style="{{ $chipStyle }}"
                                     x-bind:style="document.documentElement.classList.contains('dark') ? '{{ $chipStyleDark }}' : '{{ $chipStyle }}'"
                                     class="block rounded-md border px-2 py-1.5 text-xs cursor-pointer relative {{ $bgClass }}">
-                                    {{-- Row 1: Name + pax + source --}}
+                                    {{-- Row 1: Name + type + source --}}
                                     <div class="flex items-center justify-between gap-1">
                                         <span class="font-semibold text-gray-900 dark:text-gray-100 truncate">
                                             {{ $chip['customer_name'] }}
                                         </span>
-                                        <span class="shrink-0 text-[9px] font-bold px-1 py-0.5 rounded
-                                            {{ $chip['source_badge'] === 'GYG' ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300' : 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300' }}">
-                                            {{ $chip['source_badge'] }}
+                                        <span class="shrink-0 flex items-center gap-0.5">
+                                            @if ($chip['tour_type'])
+                                                <span class="text-[8px] font-bold px-1 py-0.5 rounded"
+                                                    style="{{ $chip['tour_type'] === 'private' ? 'background:#dbeafe;color:#1e40af;' : 'background:#fef3c7;color:#92400e;' }}">
+                                                    {{ $chip['tour_type'] === 'private' ? 'PVT' : 'GRP' }}
+                                                </span>
+                                            @endif
+                                            <span class="text-[9px] font-bold px-1 py-0.5 rounded"
+                                                style="{{ $chip['source_badge'] === 'GYG' ? 'background:#fed7aa;color:#9a3412;' : 'background:#dbeafe;color:#1e40af;' }}">
+                                                {{ $chip['source_badge'] }}
+                                            </span>
                                         </span>
                                     </div>
 

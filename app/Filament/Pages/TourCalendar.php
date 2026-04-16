@@ -97,6 +97,7 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
     public ?int $assignAccGuests = null;
     public int $assignAccNights = 1;
     public ?string $assignAccDate = null;
+    public ?int $editDirectionId = null;
 
     /**
      * Quick-assign driver + rate from the slide-over.
@@ -197,6 +198,23 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
     }
 
     /**
+     * Quick-save direction from the slide-over.
+     */
+    public function quickSaveDirection(): void
+    {
+        $inquiry = BookingInquiry::find($this->selectedInquiryId);
+        if (! $inquiry) {
+            return;
+        }
+
+        $inquiry->update([
+            'tour_product_direction_id' => $this->editDirectionId ?: null,
+        ]);
+
+        Notification::make()->title('Direction saved')->success()->send();
+    }
+
+    /**
      * Quick-save pickup time + location from the slide-over.
      */
     public function quickSavePickup(): void
@@ -229,6 +247,8 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
         $this->assignDriverRateId = $inquiry?->driver_rate_id;
         $this->assignGuideId     = $inquiry?->guide_id;
         $this->assignGuideRateId = $inquiry?->guide_rate_id;
+        $this->editDirectionId   = $inquiry?->tour_product_direction_id;
+
         // Smart default: if yurt camp tour + no stay yet, pre-select Aydarkul
         $hasStays = $inquiry?->stays()->exists();
         $isYurt   = $inquiry?->tour_slug === 'yurt-camp-tour';

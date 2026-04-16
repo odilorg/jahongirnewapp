@@ -28,6 +28,47 @@
         </div>
     </div>
 
+    {{-- Direction + Tour Type --}}
+    @if ($inquiry->tour_product_id)
+        @php
+            $directions = \App\Models\TourProductDirection::where('tour_product_id', $inquiry->tour_product_id)
+                ->where('code', '!=', 'default')
+                ->orderBy('sort_order')
+                ->get();
+        @endphp
+        @if ($directions->isNotEmpty())
+            <div style="display: flex; gap: 8px; align-items: flex-end;">
+                <div style="flex: 1;">
+                    <label class="text-[10px] text-gray-500 dark:text-gray-400">Direction</label>
+                    <select wire:model.live="editDirectionId"
+                        class="w-full text-xs rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100">
+                        <option value="">— not set —</option>
+                        @foreach ($directions as $dir)
+                            <option value="{{ $dir->id }}">{{ $dir->name }}</option>
+                        @endforeach
+                    </select>
+                </div>
+                <div>
+                    <button type="button" wire:click="quickSaveDirection"
+                        class="text-xs font-medium rounded-md px-3 py-1.5 text-white"
+                        style="background: #3b82f6;"
+                        onmouseover="this.style.background='#2563eb'" onmouseout="this.style.background='#3b82f6'">
+                        Save
+                    </button>
+                </div>
+            </div>
+        @endif
+    @endif
+
+    @if ($inquiry->tour_type)
+        <div>
+            <span class="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold"
+                style="{{ $inquiry->tour_type === 'private' ? 'background: #dbeafe; color: #1e40af;' : 'background: #fef3c7; color: #92400e;' }}">
+                {{ ucfirst($inquiry->tour_type) }} tour
+            </span>
+        </div>
+    @endif
+
     {{-- Date + Time + Pax --}}
     <div class="grid grid-cols-3 gap-3">
         <div>

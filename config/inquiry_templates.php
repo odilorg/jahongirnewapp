@@ -126,6 +126,7 @@ TXT,
 
     'driver_dispatch_uz' => <<<TXT
 🏕 Sayohat turi: {tour}
+🗺 Yo'nalish: {direction} ({tour_type})
 👤 Mehmon: {customer_name_with_country}
 🕐 Vaqti: {pickup_time}
 📅 Sana: {travel_date}
@@ -142,6 +143,7 @@ TXT,
 
     'guide_dispatch_uz' => <<<TXT
 🏕 Sayohat turi: {tour}
+🗺 Yo'nalish: {direction} ({tour_type})
 👤 Mehmon: {customer_name_with_country}
 🕐 Vaqti: {pickup_time}
 📅 Sana: {travel_date}
