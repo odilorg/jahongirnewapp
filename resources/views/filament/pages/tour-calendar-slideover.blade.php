@@ -90,9 +90,9 @@
     </div>
 
     {{-- Driver + Guide: current assignment + quick-assign --}}
-    <div class="grid grid-cols-2 gap-3">
-        <div>
-            <div class="text-xs text-gray-500 dark:text-gray-400">Driver</div>
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div class="rounded-lg bg-gray-50 dark:bg-gray-800 p-2.5">
+            <div class="text-xs text-gray-500 dark:text-gray-400 mb-1">Driver</div>
             @if ($inquiry->driver)
                 <div class="text-gray-900 dark:text-gray-100">🚗 {{ $inquiry->driver->full_name }}</div>
                 @if ($inquiry->driver->phone01)
@@ -109,8 +109,8 @@
                 <div class="text-danger-500 text-xs font-medium">⚠ Not assigned</div>
             @endif
         </div>
-        <div>
-            <div class="text-xs text-gray-500 dark:text-gray-400">Guide</div>
+        <div class="rounded-lg bg-gray-50 dark:bg-gray-800 p-2.5">
+            <div class="text-xs text-gray-500 dark:text-gray-400 mb-1">Guide</div>
             @if ($inquiry->guide)
                 <div class="text-gray-900 dark:text-gray-100">🧭 {{ $inquiry->guide->full_name }}</div>
                 @if ($inquiry->guide->phone01)
