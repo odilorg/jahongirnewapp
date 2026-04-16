@@ -429,25 +429,33 @@ class BookingInquiryResource extends Resource
                     Forms\Components\Placeholder::make('margin_summary')
                         ->label('Margin')
                         ->content(function (Forms\Get $get, $record): string {
-                            $revenue = (float) ($get('price_quoted') ?: 0);
+                            $gross      = (float) ($get('price_quoted') ?: 0);
+                            $commission = (float) ($get('commission_amount') ?: 0);
+                            $netRevenue = $commission > 0 ? $gross - $commission : $gross;
+
                             $driver  = (float) ($get('driver_cost') ?: 0);
                             $guide   = (float) ($get('guide_cost') ?: 0);
                             $other   = (float) ($get('other_costs') ?: 0);
+                            $accCost = (float) ($record?->stays?->sum('total_accommodation_cost') ?? 0);
 
-                            $accCost = $record?->stays?->sum('total_accommodation_cost') ?? 0;
+                            $totalCost = $driver + $guide + $accCost + $other;
+                            $margin    = $netRevenue - $totalCost;
+                            $pct       = $netRevenue > 0 ? round($margin / $netRevenue * 100) : 0;
 
-                            $totalCost = $driver + $guide + (float) $accCost + $other;
-                            $margin    = $revenue - $totalCost;
-                            $pct       = $revenue > 0 ? round($margin / $revenue * 100) : 0;
-
-                            if ($revenue <= 0) {
+                            if ($gross <= 0) {
                                 return '—';
                             }
 
-                            return sprintf(
-                                'Revenue $%.2f − Costs $%.2f (acc $%.2f + driver $%.2f + guide $%.2f + other $%.2f) = **$%.2f margin (%d%%)**',
-                                $revenue, $totalCost, $accCost, $driver, $guide, $other, $margin, $pct
+                            $parts = [];
+                            if ($commission > 0) {
+                                $parts[] = sprintf('Gross $%.2f − Commission $%.2f = Net $%.2f', $gross, $commission, $netRevenue);
+                            }
+                            $parts[] = sprintf(
+                                'Net $%.2f − Costs $%.2f (acc $%.2f + driver $%.2f + guide $%.2f + other $%.2f) = **$%.2f margin (%d%%)**',
+                                $netRevenue, $totalCost, $accCost, $driver, $guide, $other, $margin, $pct
                             );
+
+                            return implode("\n", $parts);
                         })
                         ->columnSpanFull(),
                 ])
