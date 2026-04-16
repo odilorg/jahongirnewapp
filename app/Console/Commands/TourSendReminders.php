@@ -462,6 +462,12 @@ class TourSendReminders extends Command
             $lines[] = "🗺 {$tour}";
             $lines[] = "⏰ {$time} · 🏨 {$pickup}";
             $lines[] = "📱 {$phone}";
+
+            // Show guide info so driver knows who to coordinate with
+            if ($inquiry->guide) {
+                $lines[] = "🧭 Gid: {$inquiry->guide->full_name} · {$inquiry->guide->phone01}";
+            }
+
             $lines[] = '';
         }
 
@@ -476,11 +482,21 @@ class TourSendReminders extends Command
         ];
 
         foreach ($inquiries as $inquiry) {
-            $pax  = $inquiry->people_adults + $inquiry->people_children;
-            $tour = $inquiry->tourProduct?->title ?? $inquiry->tour_name_snapshot;
+            $pax     = $inquiry->people_adults + $inquiry->people_children;
+            $tour    = $inquiry->tourProduct?->title ?? $inquiry->tour_name_snapshot;
+            $pickup  = $inquiry->pickup_point ?? '—';
+            $time    = $inquiry->pickup_time ?? '09:00';
 
             $lines[] = "👤 <b>{$inquiry->customer_name}</b> ({$pax} pax)";
             $lines[] = "🗺 {$tour}";
+            $lines[] = "⏰ {$time} · 🏨 {$pickup}";
+            $lines[] = "📱 {$inquiry->customer_phone}";
+
+            // Show driver info so guide knows who to coordinate with
+            if ($inquiry->driver) {
+                $lines[] = "🚗 Driver: {$inquiry->driver->full_name} · {$inquiry->driver->phone01}";
+            }
+
             $lines[] = '';
         }
 

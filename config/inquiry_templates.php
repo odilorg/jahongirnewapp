@@ -116,6 +116,8 @@ TXT,
 🌙 Ночей: {nights}
 👨‍👩‍👧 Количество гостей: {guest_count}
 📞 Тел. гостя: {customer_phone}
+🚗 Водитель: {driver_name} · {driver_phone}
+🧭 Гид: {guide_name} · {guide_phone}
 🍽 Питание: {meal_plan}
 📝 Примечания: {notes}
 
@@ -131,6 +133,23 @@ TXT,
 📱 Mehmon telefoni: {customer_phone}
 🏨 Mehmonxona / olib ketish: {pickup_point}
 🏁 Tushirish joyi: {dropoff_point}
+🧭 Gid: {guide_name} · {guide_phone}
+
+{notes}
+
+🤝 Jahongir Travel — {reference}
+TXT,
+
+    'guide_dispatch_uz' => <<<TXT
+🏕 Sayohat turi: {tour}
+👤 Mehmon: {customer_name_with_country}
+🕐 Vaqti: {pickup_time}
+📅 Sana: {travel_date}
+👥 Odam soni: {pax}
+📱 Mehmon telefoni: {customer_phone}
+🏨 Mehmonxona / olib ketish: {pickup_point}
+🏁 Tushirish joyi: {dropoff_point}
+🚗 Haydovchi: {driver_name} · {driver_phone}
 
 {notes}
 
