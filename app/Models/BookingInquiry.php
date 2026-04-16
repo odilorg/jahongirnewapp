@@ -132,6 +132,13 @@ class BookingInquiry extends Model
         'booking_id',
         'driver_id',
         'guide_id',
+        'driver_rate_id',
+        'driver_cost',
+        'driver_cost_override',
+        'driver_cost_override_reason',
+        'guide_cost',
+        'other_costs',
+        'cost_notes',
         'pickup_time',
         'pickup_point',
         'dropoff_point',
@@ -160,6 +167,10 @@ class BookingInquiry extends Model
         'hotel_request_sent_at'     => 'datetime',
         'payment_reminder_sent_at'  => 'datetime',
         'submitted_at'              => 'datetime',
+        'driver_cost'               => 'decimal:2',
+        'driver_cost_override'      => 'boolean',
+        'guide_cost'                => 'decimal:2',
+        'other_costs'               => 'decimal:2',
     ];
 
     public function driver(): BelongsTo
@@ -191,6 +202,11 @@ class BookingInquiry extends Model
     public function tourProductDirection(): BelongsTo
     {
         return $this->belongsTo(TourProductDirection::class);
+    }
+
+    public function driverRate(): BelongsTo
+    {
+        return $this->belongsTo(DriverRate::class);
     }
 
     public function stays(): HasMany

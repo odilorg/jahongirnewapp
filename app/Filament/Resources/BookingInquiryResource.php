@@ -282,6 +282,8 @@ class BookingInquiryResource extends Resource
                         ->relationship('driver', 'full_name')
                         ->searchable(['first_name', 'last_name', 'phone01'])
                         ->preload()
+                        ->live()
+                        ->afterStateUpdated(fn (Forms\Set $set) => $set('driver_rate_id', null))
                         ->createOptionForm([
                             Forms\Components\TextInput::make('first_name')->required()->maxLength(255),
                             Forms\Components\TextInput::make('last_name')->required()->maxLength(255),
@@ -296,6 +298,57 @@ class BookingInquiryResource extends Resource
                         ->createOptionUsing(function (array $data): int {
                             return Driver::create($data)->id;
                         }),
+
+                    Forms\Components\Select::make('driver_rate_id')
+                        ->label('Driver rate')
+                        ->options(function (Forms\Get $get): array {
+                            $driverId = $get('driver_id');
+                            if (! $driverId) {
+                                return [];
+                            }
+
+                            return \App\Models\DriverRate::where('driver_id', $driverId)
+                                ->where('is_active', true)
+                                ->orderBy('sort_order')
+                                ->orderBy('label')
+                                ->get()
+                                ->mapWithKeys(fn ($r) => [
+                                    $r->id => "{$r->label} — \${$r->cost_usd} ({$r->rate_type})",
+                                ])
+                                ->all();
+                        })
+                        ->live()
+                        ->afterStateUpdated(function (Forms\Set $set, Forms\Get $get, ?string $state): void {
+                            if (! $state || $get('driver_cost_override')) {
+                                return;
+                            }
+                            $rate = \App\Models\DriverRate::find($state);
+                            if ($rate) {
+                                $set('driver_cost', (string) $rate->cost_usd);
+                            }
+                        })
+                        ->visible(fn (Forms\Get $get): bool => filled($get('driver_id')))
+                        ->placeholder('Select rate...'),
+
+                    Forms\Components\TextInput::make('driver_cost')
+                        ->label('Driver cost ($)')
+                        ->prefix('$')
+                        ->numeric()
+                        ->step('0.01')
+                        ->visible(fn (Forms\Get $get): bool => filled($get('driver_id'))),
+
+                    Forms\Components\Toggle::make('driver_cost_override')
+                        ->label('Override driver cost')
+                        ->live()
+                        ->inline()
+                        ->visible(fn (Forms\Get $get): bool => filled($get('driver_id'))),
+
+                    Forms\Components\TextInput::make('driver_cost_override_reason')
+                        ->label('Override reason')
+                        ->placeholder('Extra stops, negotiated rate, etc.')
+                        ->maxLength(255)
+                        ->visible(fn (Forms\Get $get): bool => (bool) $get('driver_cost_override'))
+                        ->required(fn (Forms\Get $get): bool => (bool) $get('driver_cost_override')),
 
                     Forms\Components\Select::make('guide_id')
                         ->label('Guide')
@@ -349,6 +402,58 @@ class BookingInquiryResource extends Resource
                         ->columnSpanFull(),
                 ])
                 ->columns(2),
+
+            // ── Tour Costs ──────────────────────────────────────────
+            Forms\Components\Section::make('Tour Costs')
+                ->description('Guide, other costs, and margin overview.')
+                ->schema([
+                    Forms\Components\TextInput::make('guide_cost')
+                        ->label('Guide cost ($)')
+                        ->prefix('$')
+                        ->numeric()
+                        ->step('0.01'),
+
+                    Forms\Components\TextInput::make('other_costs')
+                        ->label('Other costs ($)')
+                        ->prefix('$')
+                        ->numeric()
+                        ->step('0.01')
+                        ->helperText('Entrance fees, meals, activities, etc.'),
+
+                    Forms\Components\Textarea::make('cost_notes')
+                        ->label('Cost notes')
+                        ->rows(2)
+                        ->placeholder('Breakdown of other costs, special arrangements')
+                        ->columnSpanFull(),
+
+                    Forms\Components\Placeholder::make('margin_summary')
+                        ->label('Margin')
+                        ->content(function (Forms\Get $get, $record): string {
+                            $revenue = (float) ($get('price_quoted') ?: 0);
+                            $driver  = (float) ($get('driver_cost') ?: 0);
+                            $guide   = (float) ($get('guide_cost') ?: 0);
+                            $other   = (float) ($get('other_costs') ?: 0);
+
+                            $accCost = $record?->stays?->sum('total_accommodation_cost') ?? 0;
+
+                            $totalCost = $driver + $guide + (float) $accCost + $other;
+                            $margin    = $revenue - $totalCost;
+                            $pct       = $revenue > 0 ? round($margin / $revenue * 100) : 0;
+
+                            if ($revenue <= 0) {
+                                return '—';
+                            }
+
+                            return sprintf(
+                                'Revenue $%.2f − Costs $%.2f (acc $%.2f + driver $%.2f + guide $%.2f + other $%.2f) = **$%.2f margin (%d%%)**',
+                                $revenue, $totalCost, $accCost, $driver, $guide, $other, $margin, $pct
+                            );
+                        })
+                        ->columnSpanFull(),
+                ])
+                ->columns(2)
+                ->collapsible()
+                ->collapsed(),
 
             // Multi-stay accommodation assignment. A Nuratau 3-day tour
             // typically has yurt night + homestay night, so we use a
