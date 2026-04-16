@@ -98,9 +98,10 @@ return [
     ],
 
     'housekeeping_bot' => [
-        'token'          => env('HOUSEKEEPING_BOT_TOKEN', ''),
-        'mgmt_group_id'  => env('HOUSEKEEPING_MGMT_GROUP_ID', ''),
-        'webhook_secret' => env('HOUSEKEEPING_WEBHOOK_SECRET', ''),
+        'token'                  => env('HOUSEKEEPING_BOT_TOKEN', ''),
+        'mgmt_group_id'          => env('HOUSEKEEPING_MGMT_GROUP_ID', ''),
+        'premium_mgmt_group_id'  => env('HOUSEKEEPING_PREMIUM_MGMT_GROUP_ID', ''),
+        'webhook_secret'         => env('HOUSEKEEPING_WEBHOOK_SECRET', ''),
     ],
 
     'kitchen_bot' => [

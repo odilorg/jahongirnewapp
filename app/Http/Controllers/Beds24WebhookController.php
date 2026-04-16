@@ -835,8 +835,11 @@ class Beds24WebhookController extends Controller
             ]);
         }
 
-        // Also send to management group
-        $mgmtGroupId = (int) config('services.housekeeping_bot.mgmt_group_id', 0);
+        // Route to correct management group based on property
+        $mgmtGroupId = match ((string) $booking->property_id) {
+            '172793' => (int) config('services.housekeeping_bot.premium_mgmt_group_id', 0),
+            default  => (int) config('services.housekeeping_bot.mgmt_group_id', 0),
+        };
         if ($mgmtGroupId) {
             SendTelegramNotificationJob::dispatch('housekeeping', 'sendMessage', [
                 'chat_id'    => $mgmtGroupId,
@@ -846,10 +849,11 @@ class Beds24WebhookController extends Controller
         }
 
         Log::info('Beds24 Checkout: Cleaner notifications queued', [
-            'booking_id' => $booking->beds24_booking_id,
-            'room_name'  => $roomName,
-            'queued_for' => $sessions->count(),
-            'mgmt_group' => (bool) $mgmtGroupId,
+            'booking_id'  => $booking->beds24_booking_id,
+            'room_name'   => $roomName,
+            'property_id' => $booking->property_id,
+            'queued_for'  => $sessions->count(),
+            'mgmt_group'  => $mgmtGroupId,
         ]);
     }
 
