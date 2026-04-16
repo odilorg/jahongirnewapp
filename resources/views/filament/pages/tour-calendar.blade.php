@@ -8,7 +8,7 @@
             </button>
             <button type="button" wire:click="thisWeek"
                 class="rounded-md bg-primary-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-primary-500">
-                This week
+                Today
             </button>
             <button type="button" wire:click="nextWeek"
                 class="rounded-md bg-white dark:bg-gray-800 px-3 py-1.5 text-sm font-medium ring-1 ring-gray-200 dark:ring-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700">
