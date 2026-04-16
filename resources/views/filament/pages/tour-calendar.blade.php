@@ -37,7 +37,7 @@
             </div>
             @foreach ($data['days'] as $day)
                 <div @class([
-                    'bg-gray-50 dark:bg-gray-800 px-2 py-2 text-center text-xs font-semibold border-b border-l border-gray-200 dark:border-gray-700',
+                    'bg-gray-50 dark:bg-gray-800 px-2 py-2 text-center text-xs font-semibold border-b border-l-2 border-gray-200 dark:border-gray-700 border-l-gray-300 dark:border-l-gray-600',
                     'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300' => $day->isToday(),
                     'text-gray-500 dark:text-gray-400' => ! $day->isToday(),
                 ])>
@@ -52,7 +52,7 @@
                     {{ $row['name'] }}
                 </div>
                 @for ($i = 0; $i < 7; $i++)
-                    <div class="border-b border-l border-gray-200 dark:border-gray-700 p-1.5 min-h-[88px] space-y-1.5">
+                    <div class="border-b border-l-2 border-gray-200 dark:border-gray-700 border-l-gray-300 dark:border-l-gray-600 p-1.5 min-h-[88px] space-y-1.5">
                         @foreach ($row['chips'] as $chip)
                             @if ($chip['day_index'] === $i)
                                 @php
