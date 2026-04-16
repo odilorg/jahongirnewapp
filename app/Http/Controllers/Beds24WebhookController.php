@@ -295,9 +295,21 @@ class Beds24WebhookController extends Controller
         // Update the booking record
         [$masterBookingId, $groupSize] = $this->extractGroupFields($raw);
 
+        // Resolve room_name via room map if webhook didn't provide it
+        $resolvedRoomName = $data['room_name'] ?? $booking->room_name;
+        if (empty($resolvedRoomName)) {
+            $rawBooking = $raw['booking'] ?? $raw;
+            $roomId = (int) ($rawBooking['roomId'] ?? 0);
+            $unitId = (int) ($rawBooking['unitId'] ?? 0);
+            $propId = (int) ($data['property_id'] ?? $booking->property_id ?? 0);
+            if ($roomId && $unitId && $propId) {
+                $resolvedRoomName = $this->roomMap->resolve($propId, $roomId, $unitId, $data['booking_id'] ?? '');
+            }
+        }
+
         $updatePayload = [
             'room_id'           => $data['room_id'] ?? $booking->room_id,
-            'room_name'         => $data['room_name'] ?? $booking->room_name,
+            'room_name'         => $resolvedRoomName,
             'guest_name'        => $this->buildGuestName($data) ?: $booking->guest_name,
             'guest_email'       => $data['guest_email'] ?? $booking->guest_email,
             'guest_phone'       => $data['guest_phone'] ?? $booking->guest_phone,
