@@ -140,10 +140,9 @@
 
                                     {{-- Warning dot: top-right corner --}}
                                     @if (! empty($chip['warnings']))
-                                        <span class="absolute -top-1 -right-1 w-3 h-3 rounded-full
-                                            {{ in_array('no driver', $chip['warnings']) ? 'bg-danger-500' : 'bg-warning-500' }}"
-                                            title="{{ implode(', ', $chip['warnings']) }}">
-                                        </span>
+                                        <div class="text-[10px] mt-0.5" style="color: #dc2626;">
+                                            ⚠ {{ implode(' · ', $chip['warnings']) }}
+                                        </div>
                                     @endif
                                 </div>
                             @endif
