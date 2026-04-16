@@ -132,8 +132,24 @@
                     🏕 {{ $stay->accommodation?->name ?? '—' }}
                     · {{ $stay->stay_date?->format('M j') }}
                     · {{ $stay->nights }}N
+                    · {{ $stay->guest_count }} guests
                 </div>
+                @if ($stay->total_accommodation_cost)
+                    <div class="text-xs ml-5" style="color: {{ $stay->cost_override ? '#d97706' : '#16a34a' }};">
+                        💰 ${{ number_format((float) $stay->total_accommodation_cost, 2) }}
+                        ({{ $stay->cost_per_unit_usd ? '$' . number_format((float) $stay->cost_per_unit_usd, 2) . '/person' : '' }})
+                        @if ($stay->cost_override)
+                            — override
+                        @endif
+                    </div>
+                @endif
             @endforeach
+            @php $totalAccCost = $inquiry->stays->sum('total_accommodation_cost'); @endphp
+            @if ($totalAccCost > 0 && $inquiry->stays->count() > 1)
+                <div class="text-xs font-semibold text-gray-900 dark:text-gray-100 mt-1 ml-5">
+                    Total accommodation: ${{ number_format($totalAccCost, 2) }}
+                </div>
+            @endif
         </div>
     @endif
 
