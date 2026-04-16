@@ -80,6 +80,11 @@ class DriverResource extends Resource
                             ->label('Phone number #2')
                             ->tel()
                             ->maxLength(255),
+                        Forms\Components\TextInput::make('telegram_chat_id')
+                            ->label('Telegram')
+                            ->placeholder('@username or chat ID')
+                            ->helperText('Used for automated tour dispatch DMs')
+                            ->maxLength(100),
                         Forms\Components\Select::make('fuel_type')
                             ->options([
                                 'propane' => 'Propane',

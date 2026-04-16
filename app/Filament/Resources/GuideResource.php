@@ -56,6 +56,11 @@ class GuideResource extends Resource
                         Forms\Components\TextInput::make('phone02')
                             ->tel()
                             ->maxLength(255),
+                        Forms\Components\TextInput::make('telegram_chat_id')
+                            ->label('Telegram')
+                            ->placeholder('@username or chat ID')
+                            ->helperText('Used for automated tour dispatch DMs')
+                            ->maxLength(100),
                         Forms\Components\Select::make('languages')
                             ->relationship('languages', 'language')
                             ->createOptionForm([
