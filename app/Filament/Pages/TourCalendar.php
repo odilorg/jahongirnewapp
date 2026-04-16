@@ -99,6 +99,12 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
     public ?string $assignAccDate = null;
     public ?int $editDirectionId = null;
 
+    // Quick pay
+    public ?string $paySupplierType = null;
+    public ?int $paySupplierIdVal = null;
+    public ?string $payAmount = null;
+    public string $payMethod = 'cash';
+
     /**
      * Quick-assign driver + rate from the slide-over.
      */
@@ -195,6 +201,46 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
         $this->assignAccGuests = null;
         $this->assignAccNights = 1;
         $this->assignAccDate = null;
+    }
+
+    /**
+     * Record a supplier payment from the slide-over.
+     */
+    public function quickPay(): void
+    {
+        $inquiry = BookingInquiry::find($this->selectedInquiryId);
+        if (! $inquiry || ! $this->paySupplierType || ! $this->paySupplierIdVal || ! $this->payAmount) {
+            return;
+        }
+
+        \App\Models\SupplierPayment::create([
+            'supplier_type'      => $this->paySupplierType,
+            'supplier_id'        => $this->paySupplierIdVal,
+            'booking_inquiry_id' => $inquiry->id,
+            'amount'             => (float) $this->payAmount,
+            'currency'           => 'USD',
+            'payment_date'       => now()->toDateString(),
+            'payment_method'     => $this->payMethod,
+            'status'             => 'recorded',
+        ]);
+
+        $name = match ($this->paySupplierType) {
+            'driver'        => $inquiry->driver?->full_name,
+            'guide'         => $inquiry->guide?->full_name,
+            'accommodation' => $inquiry->stays->first()?->accommodation?->name,
+            default         => 'supplier',
+        };
+
+        Notification::make()
+            ->title("Paid \${$this->payAmount} to {$name}")
+            ->success()
+            ->send();
+
+        // Reset
+        $this->paySupplierType = null;
+        $this->paySupplierIdVal = null;
+        $this->payAmount = null;
+        $this->payMethod = 'cash';
     }
 
     /**
