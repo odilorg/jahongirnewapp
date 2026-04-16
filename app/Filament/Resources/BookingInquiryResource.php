@@ -366,6 +366,7 @@ class BookingInquiryResource extends Resource
                                 ->searchable(['name', 'location', 'contact_name'])
                                 ->preload()
                                 ->required()
+                                ->live()
                                 ->createOptionForm([
                                     Forms\Components\TextInput::make('name')->required()->maxLength(191),
                                     Forms\Components\Select::make('type')->options([
@@ -392,15 +393,81 @@ class BookingInquiryResource extends Resource
                             Forms\Components\TextInput::make('nights')
                                 ->numeric()
                                 ->minValue(1)
-                                ->default(1),
+                                ->default(1)
+                                ->live(onBlur: true),
 
                             Forms\Components\TextInput::make('guest_count')
                                 ->numeric()
-                                ->placeholder('defaults to inquiry pax'),
+                                ->placeholder('defaults to inquiry pax')
+                                ->live(onBlur: true),
 
                             Forms\Components\TextInput::make('meal_plan')
                                 ->placeholder('B+D, HB, FB, etc.')
                                 ->maxLength(100),
+
+                            // ── Cost auto-calculation ──────────────────
+                            Forms\Components\Placeholder::make('computed_cost_display')
+                                ->label('Auto cost')
+                                ->content(function (Forms\Get $get): string {
+                                    $accId  = $get('accommodation_id');
+                                    $guests = (int) ($get('guest_count') ?: 0);
+                                    $nights = (int) ($get('nights') ?: 1);
+
+                                    if (! $accId || $guests < 1) {
+                                        return '—';
+                                    }
+
+                                    $acc  = \App\Models\Accommodation::find($accId);
+                                    $rate = $acc?->costForGuests($guests);
+
+                                    if (! $rate) {
+                                        return 'No rate for ' . $guests . ' guests';
+                                    }
+
+                                    $total = $rate->cost_usd * $guests * $nights;
+
+                                    return "\${$rate->cost_usd}/person × {$guests} guests × {$nights} night(s) = \${$total}";
+                                }),
+
+                            Forms\Components\TextInput::make('total_accommodation_cost')
+                                ->label('Accommodation cost ($)')
+                                ->prefix('$')
+                                ->numeric()
+                                ->step('0.01')
+                                ->live()
+                                ->afterStateHydrated(function (Forms\Components\TextInput $component, Forms\Get $get, ?string $state): void {
+                                    // Auto-fill on load if not already set and not overridden
+                                    if ($state !== null && $state !== '') {
+                                        return;
+                                    }
+                                    if ($get('cost_override')) {
+                                        return;
+                                    }
+                                    $accId  = $get('accommodation_id');
+                                    $guests = (int) ($get('guest_count') ?: 0);
+                                    $nights = (int) ($get('nights') ?: 1);
+                                    if (! $accId || $guests < 1) {
+                                        return;
+                                    }
+                                    $acc  = \App\Models\Accommodation::find($accId);
+                                    $rate = $acc?->costForGuests($guests);
+                                    if ($rate) {
+                                        $component->state((string) ($rate->cost_usd * $guests * $nights));
+                                    }
+                                }),
+
+                            Forms\Components\Toggle::make('cost_override')
+                                ->label('Override cost')
+                                ->helperText('Enable to manually set a different cost')
+                                ->live()
+                                ->inline(),
+
+                            Forms\Components\TextInput::make('cost_override_reason')
+                                ->label('Override reason')
+                                ->placeholder('Negotiated rate, invoice difference, etc.')
+                                ->maxLength(255)
+                                ->visible(fn (Forms\Get $get): bool => (bool) $get('cost_override'))
+                                ->required(fn (Forms\Get $get): bool => (bool) $get('cost_override')),
 
                             Forms\Components\Textarea::make('notes')
                                 ->rows(2)
@@ -1380,6 +1447,13 @@ class BookingInquiryResource extends Resource
                             Infolists\Components\TextEntry::make('accommodation.phone_primary')->label('Phone')->copyable()->placeholder('—'),
                             Infolists\Components\TextEntry::make('stay_date')->date('M j, Y')->label('Check-in')->placeholder('—'),
                             Infolists\Components\TextEntry::make('nights')->label('Nights'),
+                            Infolists\Components\TextEntry::make('guest_count')->label('Guests')->placeholder('—'),
+                            Infolists\Components\TextEntry::make('total_accommodation_cost')
+                                ->label('Accommodation cost')
+                                ->money('USD')
+                                ->placeholder('—')
+                                ->color(fn ($record): string => $record->cost_override ? 'warning' : 'success')
+                                ->suffix(fn ($record): string => $record->cost_override ? ' (override)' : ''),
                             Infolists\Components\TextEntry::make('meal_plan')->label('Meals')->placeholder('—'),
                             Infolists\Components\TextEntry::make('notes')->columnSpanFull()->placeholder('—'),
                         ])
