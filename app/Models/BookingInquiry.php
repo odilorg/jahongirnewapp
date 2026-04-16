@@ -158,6 +158,7 @@ class BookingInquiry extends Model
         'cancelled_at'              => 'datetime',
         'review_request_sent_at'    => 'datetime',
         'hotel_request_sent_at'     => 'datetime',
+        'payment_reminder_sent_at'  => 'datetime',
         'submitted_at'              => 'datetime',
     ];
 
