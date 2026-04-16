@@ -20,9 +20,9 @@
         </div>
         <div class="flex items-center gap-3 text-sm text-gray-700 dark:text-gray-300">
             <label class="inline-flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" wire:model.live="includeAwaitingPayment"
+                <input type="checkbox" wire:model.live="showLeads"
                     class="rounded border-gray-300 dark:border-gray-600 text-primary-600 focus:ring-primary-500">
-                Include awaiting payment
+                Show leads
             </label>
         </div>
     </div>
@@ -56,10 +56,13 @@
                         @foreach ($row['chips'] as $chip)
                             @if ($chip['day_index'] === $i)
                                 @php
-                                    $bgClass = match ($chip['status']) {
-                                        'confirmed'        => 'bg-success-50 dark:bg-success-900/30 border-success-300 dark:border-success-700 hover:bg-success-100 dark:hover:bg-success-900/50',
-                                        'awaiting_payment' => 'bg-warning-50 dark:bg-warning-900/30 border-warning-300 dark:border-warning-700 hover:bg-warning-100 dark:hover:bg-warning-900/50',
-                                        default            => 'bg-gray-50 dark:bg-gray-800 border-gray-300 dark:border-gray-700',
+                                    $bgClass = match ($chip['display_state']) {
+                                        'ready'                => 'bg-success-50 dark:bg-success-900/30 border-success-400 dark:border-success-600 hover:bg-success-100 dark:hover:bg-success-900/50',
+                                        'paid_needs_attention' => 'bg-success-50 dark:bg-success-900/30 border-l-4 border-l-danger-500 border-success-300 dark:border-success-700 hover:bg-success-100',
+                                        'awaiting_payment'     => 'bg-amber-50 dark:bg-amber-900/30 border-amber-400 dark:border-amber-600 hover:bg-amber-100 dark:hover:bg-amber-900/50',
+                                        'confirmed_offline'    => 'bg-blue-50 dark:bg-blue-900/30 border-blue-300 dark:border-blue-700 hover:bg-blue-100 dark:hover:bg-blue-900/50',
+                                        'lead'                 => 'bg-gray-50 dark:bg-gray-800 border-gray-300 dark:border-gray-600 border-dashed hover:bg-gray-100 dark:hover:bg-gray-700',
+                                        default                => 'bg-gray-50 dark:bg-gray-800 border-gray-300 dark:border-gray-700',
                                     };
 
                                     $tooltip = collect([

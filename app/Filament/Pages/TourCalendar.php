@@ -35,7 +35,7 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
     protected static string $view = 'filament.pages.tour-calendar';
 
     public ?string $week = null;
-    public bool $includeAwaitingPayment = false;
+    public bool $showLeads = false;
     public ?int $selectedInquiryId = null;
 
     public function mount(): void
@@ -47,9 +47,14 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
     {
         $anchor = $this->week ? Carbon::parse($this->week) : Carbon::today();
 
-        $statuses = ['confirmed'];
-        if ($this->includeAwaitingPayment) {
-            $statuses[] = BookingInquiry::STATUS_AWAITING_PAYMENT;
+        $statuses = [
+            BookingInquiry::STATUS_CONFIRMED,
+            BookingInquiry::STATUS_AWAITING_PAYMENT,
+        ];
+
+        if ($this->showLeads) {
+            $statuses[] = BookingInquiry::STATUS_CONTACTED;
+            $statuses[] = BookingInquiry::STATUS_AWAITING_CUSTOMER;
         }
 
         return [
