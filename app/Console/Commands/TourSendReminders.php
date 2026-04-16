@@ -104,10 +104,28 @@ class TourSendReminders extends Command
                 $name    = htmlspecialchars($inquiry->customer_name, ENT_QUOTES, 'UTF-8');
                 $phone   = htmlspecialchars($inquiry->customer_phone, ENT_QUOTES, 'UTF-8');
                 $pickup  = $inquiry->pickup_time ?? '09:00';
-                $driver  = $inquiry->driver?->full_name ?? '—';
                 $source  = strtoupper($inquiry->source);
+
+                // Driver TG status
+                $driverLabel = '—';
+                if ($inquiry->driver) {
+                    $driverName = htmlspecialchars($inquiry->driver->full_name, ENT_QUOTES, 'UTF-8');
+                    $driverLabel = $inquiry->driver->telegram_chat_id
+                        ? "✅ {$driverName}"
+                        : "⚠️ {$driverName} (NO TG)";
+                }
+
+                // Guide TG status
+                $guideLabel = '';
+                if ($inquiry->guide) {
+                    $guideName = htmlspecialchars($inquiry->guide->full_name, ENT_QUOTES, 'UTF-8');
+                    $guideLabel = $inquiry->guide->telegram_chat_id
+                        ? " · 🧭 ✅ {$guideName}"
+                        : " · 🧭 ⚠️ {$guideName} (NO TG)";
+                }
+
                 $lines[] = "  👤 {$name} ({$pax} pax) · {$pickup} · 📱 {$phone}";
-                $lines[] = "     🚗 {$driver} · [{$source}] <code>{$inquiry->reference}</code>";
+                $lines[] = "     🚗 {$driverLabel}{$guideLabel} · [{$source}] <code>{$inquiry->reference}</code>";
             }
             $lines[] = '';
         }
@@ -277,8 +295,27 @@ class TourSendReminders extends Command
             return;
         }
 
-        $drivers = DB::table('drivers')->whereIn('id', $driverIds)->whereNotNull('telegram_chat_id')->get()->keyBy('id');
-        $guides  = DB::table('guides')->whereIn('id', $guideIds)->whereNotNull('telegram_chat_id')->get()->keyBy('id');
+        // Fetch ALL assigned drivers/guides (including those without TG)
+        $allDrivers = DB::table('drivers')->whereIn('id', $driverIds)->get()->keyBy('id');
+        $allGuides  = DB::table('guides')->whereIn('id', $guideIds)->get()->keyBy('id');
+
+        // Only those with telegram_chat_id get DMs
+        $drivers = $allDrivers->filter(fn ($d) => filled($d->telegram_chat_id));
+        $guides  = $allGuides->filter(fn ($g) => filled($g->telegram_chat_id));
+
+        // Track who was NOT notifiable — report to operator
+        $failures = [];
+
+        foreach ($allDrivers as $d) {
+            if (empty($d->telegram_chat_id)) {
+                $failures[] = "🚗 Driver: {$d->first_name} {$d->last_name} — NO TELEGRAM, notify manually";
+            }
+        }
+        foreach ($allGuides as $g) {
+            if (empty($g->telegram_chat_id)) {
+                $failures[] = "🧭 Guide: {$g->first_name} {$g->last_name} — NO TELEGRAM, notify manually";
+            }
+        }
 
         $notified = [];
 
@@ -325,7 +362,12 @@ class TourSendReminders extends Command
                     'updated_at'         => now(),
                 ]);
 
-                $this->info($ok ? '     ✅ Sent' : '     ❌ Failed');
+                if ($ok) {
+                    $this->info('     ✅ Sent');
+                } else {
+                    $failures[] = "🚗 Driver: {$driver->first_name} {$driver->last_name} — TG send FAILED";
+                    $this->error('     ❌ Failed');
+                }
             }
 
             $notified[$key] = true;
@@ -373,10 +415,32 @@ class TourSendReminders extends Command
                     'updated_at'         => now(),
                 ]);
 
-                $this->info($ok ? '     ✅ Sent' : '     ❌ Failed');
+                if ($ok) {
+                    $this->info('     ✅ Sent');
+                } else {
+                    $failures[] = "🧭 Guide: {$guide->first_name} {$guide->last_name} — TG send FAILED";
+                    $this->error('     ❌ Failed');
+                }
             }
 
             $notified[$key] = true;
+        }
+
+        // Alert operator about any driver/guide who could NOT be notified
+        if (! empty($failures) && ! $dryRun) {
+            $alertLines = [
+                '⚠️ <b>Driver/Guide notification issues — ' . $dateLabel . '</b>',
+                '',
+                'The following people were NOT reached via Telegram.',
+                '<b>Please notify them manually:</b>',
+                '',
+            ];
+            foreach ($failures as $f) {
+                $alertLines[] = $f;
+            }
+
+            $this->sendTelegram(implode("\n", $alertLines), $this->ownerBotToken, $this->ownerChatId);
+            $this->warn('⚠ Sent failure alert to operator for ' . count($failures) . ' unnotified driver/guide(s).');
         }
     }
 
