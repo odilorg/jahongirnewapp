@@ -41,6 +41,46 @@ class Accommodation extends Model
         return $this->hasMany(InquiryStay::class);
     }
 
+    public function rates(): HasMany
+    {
+        return $this->hasMany(AccommodationRate::class)->orderBy('sort_order')->orderBy('min_occupancy');
+    }
+
+    /**
+     * Resolve the best matching rate for a given number of guests.
+     *
+     * For per_person rates: finds the tier where min_occ ≤ guests ≤ max_occ
+     * (or min_occ ≤ guests if max_occ is null).
+     *
+     * For per_room rates: returns null — operator must select room type manually.
+     *
+     * @return AccommodationRate|null
+     */
+    public function costForGuests(int $guests): ?AccommodationRate
+    {
+        return $this->rates()
+            ->where('rate_type', AccommodationRate::TYPE_PER_PERSON)
+            ->where('is_active', true)
+            ->where('min_occupancy', '<=', $guests)
+            ->where(function ($q) use ($guests) {
+                $q->where('max_occupancy', '>=', $guests)
+                  ->orWhereNull('max_occupancy');
+            })
+            ->orderByDesc('min_occupancy')
+            ->first();
+    }
+
+    /**
+     * Does this accommodation use per-person pricing?
+     */
+    public function isPerPersonPricing(): bool
+    {
+        return $this->rates()
+            ->where('rate_type', AccommodationRate::TYPE_PER_PERSON)
+            ->where('is_active', true)
+            ->exists();
+    }
+
     /**
      * Display label used by Filament Selects and the dispatch templates.
      * Includes location when present so "Aydarkul Yurt Camp · Aydarkul Lake"
