@@ -222,7 +222,7 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
         $waPhone = preg_replace('/[^0-9]/', '', (string) $inquiry->customer_phone);
         if ($waPhone) {
             $actions[] = Action::make('whatsappGuest')
-                ->label('WhatsApp guest')
+                ->label('WhatsApp')
                 ->icon('heroicon-o-chat-bubble-left-right')
                 ->color('success')
                 ->url("https://wa.me/{$waPhone}", shouldOpenInNewTab: true);
@@ -231,7 +231,7 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
         // Dispatch driver
         if ($inquiry->driver_id && $inquiry->status === BookingInquiry::STATUS_CONFIRMED) {
             $actions[] = Action::make('dispatchDriver')
-                ->label('Dispatch driver')
+                ->label('Driver')
                 ->icon('heroicon-o-truck')
                 ->color('primary')
                 ->requiresConfirmation()
@@ -257,7 +257,7 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
         // Dispatch guide
         if ($inquiry->guide_id && $inquiry->status === BookingInquiry::STATUS_CONFIRMED) {
             $actions[] = Action::make('dispatchGuide')
-                ->label('Dispatch guide')
+                ->label('Guide')
                 ->icon('heroicon-o-academic-cap')
                 ->color('primary')
                 ->requiresConfirmation()
@@ -283,7 +283,7 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
         // Dispatch accommodation stays
         if ($inquiry->stays->isNotEmpty() && $inquiry->status === BookingInquiry::STATUS_CONFIRMED) {
             $actions[] = Action::make('dispatchAccommodation')
-                ->label('Dispatch accommodation')
+                ->label('Accom.')
                 ->icon('heroicon-o-home-modern')
                 ->color('primary')
                 ->requiresConfirmation()
@@ -332,13 +332,13 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
 
         // Open full inquiry pages
         $actions[] = Action::make('editFull')
-            ->label('Edit booking')
+            ->label('Edit')
             ->icon('heroicon-o-pencil-square')
             ->color('warning')
             ->url(\App\Filament\Resources\BookingInquiryResource::getUrl('edit', ['record' => $inquiry->id]), shouldOpenInNewTab: true);
 
         $actions[] = Action::make('openFull')
-            ->label('View details')
+            ->label('View')
             ->icon('heroicon-o-arrow-top-right-on-square')
             ->color('gray')
             ->url(\App\Filament\Resources\BookingInquiryResource::getUrl('view', ['record' => $inquiry->id]), shouldOpenInNewTab: true);
