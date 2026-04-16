@@ -229,7 +229,12 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
         $this->assignDriverRateId = $inquiry?->driver_rate_id;
         $this->assignGuideId     = $inquiry?->guide_id;
         $this->assignGuideRateId = $inquiry?->guide_rate_id;
-        $this->assignAccommodationId = null;
+        // Smart default: if yurt camp tour + no stay yet, pre-select Aydarkul
+        $hasStays = $inquiry?->stays()->exists();
+        $isYurt   = $inquiry?->tour_slug === 'yurt-camp-tour';
+        $this->assignAccommodationId = (! $hasStays && $isYurt)
+            ? \App\Models\Accommodation::where('name', 'like', '%Aydarkul%')->value('id')
+            : null;
         $this->assignAccGuests   = $inquiry?->people_adults;
         $this->assignAccNights   = 1;
         $this->assignAccDate     = $inquiry?->travel_date?->toDateString();
