@@ -160,9 +160,22 @@ class TourCalendarBuilder
         if (blank($inq->pickup_point) || $inq->pickup_point === 'Samarkand' || $inq->pickup_point === 'Gur Emir Mausoleum') {
             $warnings[] = 'no pickup';
         }
-        if (! $inq->paid_at && $inq->status !== BookingInquiry::STATUS_AWAITING_PAYMENT) {
-            $warnings[] = 'not paid';
-        }
+
+        // Display state — drives chip color in Blade
+        $displayState = match (true) {
+            in_array($inq->status, [BookingInquiry::STATUS_CONTACTED, BookingInquiry::STATUS_AWAITING_CUSTOMER])
+                => 'lead',
+            $inq->status === BookingInquiry::STATUS_AWAITING_PAYMENT
+                => 'awaiting_payment',
+            $inq->paid_at !== null && empty($warnings)
+                => 'ready',
+            $inq->paid_at !== null && ! empty($warnings)
+                => 'paid_needs_attention',
+            $inq->payment_method === BookingInquiry::PAYMENT_CASH || $inq->payment_method === BookingInquiry::PAYMENT_CARD_OFFICE
+                => 'confirmed_offline',
+            default
+                => 'confirmed_offline',
+        };
 
         $readiness = empty($warnings) ? 'ready' : implode(', ', $warnings);
 
@@ -202,6 +215,7 @@ class TourCalendarBuilder
             'accommodations'    => $accommodations,
             'day_index'         => $dayIndex,
             'source_badge'      => $sourceBadge,
+            'display_state'     => $displayState,
             'readiness'         => $readiness,
             'warnings'          => $warnings,
             'detail_url'        => BookingInquiryResource::getUrl('view', ['record' => $inq->id]),
