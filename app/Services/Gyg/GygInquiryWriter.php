@@ -241,6 +241,10 @@ class GygInquiryWriter
             ]);
         }
 
+        // Phase 17 — notify assigned driver/guide if tour was already dispatched.
+        // Idempotent via internal_notes marker so re-processing won't double-send.
+        $this->notifySuppliersOfCancellation($inquiry->fresh());
+
         Log::info('GygInquiryWriter: inquiry cancelled', [
             'email_id'   => $email->id,
             'inquiry_id' => $inquiry->id,
@@ -347,5 +351,45 @@ class GygInquiryWriter
         $inquiry->update([
             'internal_notes' => $existing . $separator . "[{$timestamp}] {$note}",
         ]);
+    }
+
+    /**
+     * Phase 17 — notify assigned driver/guide that a tour was cancelled.
+     * Idempotent via internal_notes markers so re-processing the same
+     * GYG cancellation email won't re-notify suppliers.
+     *
+     * Runs after commit. Failures are logged, never throw.
+     */
+    private function notifySuppliersOfCancellation(BookingInquiry $inquiry): void
+    {
+        $dispatcher = app(\App\Services\DriverDispatchNotifier::class);
+        $notes      = (string) $inquiry->internal_notes;
+
+        foreach (['driver', 'guide'] as $role) {
+            $supplier = $role === 'driver' ? $inquiry->driver : $inquiry->guide;
+            if (! $supplier) {
+                continue;
+            }
+
+            $marker = ucfirst($role) . ' cancellation notification sent';
+            if (str_contains($notes, $marker)) {
+                continue; // already notified — idempotent
+            }
+
+            try {
+                $result = $dispatcher->notifyCancellation($inquiry, $role);
+                if ($result['ok'] ?? false) {
+                    $this->appendInternalNote($inquiry, "{$marker} (msg_id={$result['msg_id']})");
+                } else {
+                    $this->appendInternalNote($inquiry, "⚠️ {$role} cancellation notification FAILED: " . ($result['reason'] ?? 'unknown'));
+                }
+            } catch (\Throwable $e) {
+                Log::warning('GygInquiryWriter: supplier cancellation notify threw', [
+                    'inquiry_id' => $inquiry->id,
+                    'role'       => $role,
+                    'error'      => $e->getMessage(),
+                ]);
+            }
+        }
     }
 }

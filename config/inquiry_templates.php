@@ -158,4 +158,16 @@ TXT,
 🤝 Jahongir Travel — {reference}
 TXT,
 
+    // Supplier (driver/guide) cancellation notice. Short + unmistakable.
+    // Phase 17: sent when a GYG cancellation email cancels the inquiry.
+    'supplier_cancellation_uz' => <<<TXT
+❌ Tur bekor qilindi
+
+📅 Sana: {travel_date}
+👤 Mehmon: {customer_name}
+🏕 Tur: {tour}
+🕐 Vaqti: {pickup_time}
+📋 Ref: {reference}
+TXT,
+
 ];
