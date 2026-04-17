@@ -112,11 +112,45 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
     // Reassign
     public ?int $reassignUserId = null;
 
+    // Quick price
+    public ?string $editPriceQuoted = null;
+
     // Quick pay
     public ?string $paySupplierType = null;
     public ?int $paySupplierIdVal = null;
     public ?string $payAmount = null;
     public string $payMethod = 'cash';
+
+    /**
+     * Quick-save price from the slide-over. Recomputes commission + net revenue.
+     */
+    public function quickSavePrice(): void
+    {
+        $inquiry = BookingInquiry::find($this->selectedInquiryId);
+        if (! $inquiry || $this->editPriceQuoted === null || $this->editPriceQuoted === '') {
+            return;
+        }
+
+        $inquiry->assignIfUnowned(auth()->id());
+
+        $gross = (float) $this->editPriceQuoted;
+        $updates = ['price_quoted' => $gross];
+
+        // Recompute commission if OTA source has a configured rate
+        $rate = (float) ($inquiry->commission_rate ?? 0);
+        if ($rate > 0) {
+            $commission = round($gross * $rate / 100, 2);
+            $updates['commission_amount'] = $commission;
+            // Only update net_revenue if not already overridden (null)
+            if ($inquiry->net_revenue === null) {
+                // keep null to let effectiveRevenue() fall back
+            }
+        }
+
+        $inquiry->update($updates);
+
+        Notification::make()->title("Price saved: \${$gross}")->success()->send();
+    }
 
     /**
      * Claim an unassigned lead.
@@ -354,6 +388,7 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
         $this->assignGuideRateId = $inquiry?->guide_rate_id;
         $this->editDirectionId   = $inquiry?->tour_product_direction_id;
         $this->reassignUserId    = $inquiry?->assigned_to_user_id;
+        $this->editPriceQuoted   = $inquiry?->price_quoted ? (string) $inquiry->price_quoted : null;
 
         // Smart default: if yurt camp tour + no stay yet, pre-select Aydarkul
         $hasStays = $inquiry?->stays()->exists();

@@ -248,6 +248,42 @@ class BookingInquiryResource extends Resource
                 ->columns(2)
                 ->collapsible(),
 
+            Forms\Components\Section::make('Pricing')
+                ->description('Price quoted to the guest. OTA commission auto-calculates from source config.')
+                ->collapsible()
+                ->schema([
+                    Forms\Components\TextInput::make('price_quoted')
+                        ->label('Price quoted')
+                        ->prefix('$')
+                        ->numeric()
+                        ->step('0.01')
+                        ->helperText('Gross amount charged to the guest (before OTA commission).'),
+
+                    Forms\Components\TextInput::make('currency')
+                        ->default('USD')
+                        ->maxLength(3),
+
+                    Forms\Components\TextInput::make('commission_rate')
+                        ->label('OTA commission %')
+                        ->numeric()
+                        ->suffix('%')
+                        ->helperText('Auto-set from config for GYG/Viator. Manual entry otherwise.'),
+
+                    Forms\Components\TextInput::make('commission_amount')
+                        ->label('Commission amount')
+                        ->prefix('$')
+                        ->numeric()
+                        ->step('0.01'),
+
+                    Forms\Components\TextInput::make('net_revenue')
+                        ->label('Net revenue override')
+                        ->prefix('$')
+                        ->numeric()
+                        ->step('0.01')
+                        ->helperText('Leave blank to auto-compute as price_quoted - commission.'),
+                ])
+                ->columns(2),
+
             Forms\Components\Section::make('Operator')
                 ->description('Internal fields — not visible to the customer.')
                 ->collapsible()
