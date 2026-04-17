@@ -59,9 +59,16 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
 
         $startFromAnchor = $anchor->isToday();
 
+        $assignedTo = $this->mineOnly ? auth()->id() : null;
+
         return [
-            'data' => app(TourCalendarBuilder::class)->buildWeek($anchor, $statuses, $startFromAnchor),
+            'data' => app(TourCalendarBuilder::class)->buildWeek($anchor, $statuses, $startFromAnchor, $assignedTo),
         ];
+    }
+
+    public function toggleMineOnly(): void
+    {
+        $this->mineOnly = ! $this->mineOnly;
     }
 
     public function previousWeek(): void
@@ -99,11 +106,51 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
     public ?string $assignAccDate = null;
     public ?int $editDirectionId = null;
 
+    // Calendar filter: show only my leads
+    public bool $mineOnly = false;
+
+    // Reassign
+    public ?int $reassignUserId = null;
+
     // Quick pay
     public ?string $paySupplierType = null;
     public ?int $paySupplierIdVal = null;
     public ?string $payAmount = null;
     public string $payMethod = 'cash';
+
+    /**
+     * Claim an unassigned lead.
+     */
+    public function claimInquiry(): void
+    {
+        $inquiry = BookingInquiry::find($this->selectedInquiryId);
+        if (! $inquiry || $inquiry->assigned_to_user_id) {
+            return;
+        }
+
+        $inquiry->update(['assigned_to_user_id' => auth()->id()]);
+        Notification::make()->title('Lead claimed')->success()->send();
+    }
+
+    /**
+     * Reassign an inquiry to another operator.
+     */
+    public function reassignInquiry(): void
+    {
+        $inquiry = BookingInquiry::find($this->selectedInquiryId);
+        if (! $inquiry) {
+            return;
+        }
+
+        $inquiry->update(['assigned_to_user_id' => $this->reassignUserId ?: null]);
+
+        $name = $this->reassignUserId
+            ? (\App\Models\User::find($this->reassignUserId)?->name ?? 'user')
+            : 'unassigned';
+
+        Notification::make()->title("Reassigned to {$name}")->success()->send();
+        $this->reassignUserId = null;
+    }
 
     /**
      * Quick-assign driver + rate from the slide-over.
@@ -306,6 +353,7 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
         $this->assignGuideId     = $inquiry?->guide_id;
         $this->assignGuideRateId = $inquiry?->guide_rate_id;
         $this->editDirectionId   = $inquiry?->tour_product_direction_id;
+        $this->reassignUserId    = $inquiry?->assigned_to_user_id;
 
         // Smart default: if yurt camp tour + no stay yet, pre-select Aydarkul
         $hasStays = $inquiry?->stays()->exists();

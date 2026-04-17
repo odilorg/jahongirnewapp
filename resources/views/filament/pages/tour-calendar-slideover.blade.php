@@ -21,7 +21,7 @@
     </div>
 
     {{-- Operator attribution --}}
-    <div class="text-xs text-gray-500 dark:text-gray-400" style="display: flex; gap: 12px; flex-wrap: wrap;">
+    <div class="text-xs text-gray-500 dark:text-gray-400" style="display: flex; gap: 12px; flex-wrap: wrap; align-items: center;">
         <span>
             👤 Created:
             <span class="text-gray-800 dark:text-gray-200">
@@ -40,6 +40,32 @@
             <span>
                 ✅ Closed: <span class="text-gray-800 dark:text-gray-200">{{ $inquiry->closedByUser->name }}</span>
             </span>
+        @endif
+
+        @if (! $inquiry->assigned_to_user_id)
+            <button type="button" wire:click="claimInquiry"
+                class="text-[10px] font-medium rounded px-2 py-0.5 text-white"
+                style="background: #16a34a;">🤝 Claim</button>
+        @else
+            @php $users = \App\Models\User::orderBy('name')->get(); @endphp
+            <div x-data="{ open: false }" style="position: relative;">
+                <button @click="open = !open" type="button"
+                    class="text-[10px] rounded px-2 py-0.5"
+                    style="background: #e5e7eb; color: #374151;">↔ Reassign</button>
+                <div x-show="open" x-cloak @click.outside="open = false"
+                    style="position: absolute; right: 0; top: 100%; margin-top: 4px; z-index: 20; background: white; border: 1px solid #e5e7eb; border-radius: 6px; padding: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); min-width: 160px;">
+                    <select wire:model="reassignUserId"
+                        class="text-xs rounded-md border-gray-300 w-full" style="padding: 4px 6px; margin-bottom: 4px;">
+                        <option value="">— Unassign —</option>
+                        @foreach ($users as $u)
+                            <option value="{{ $u->id }}">{{ $u->name }}</option>
+                        @endforeach
+                    </select>
+                    <button type="button" wire:click="reassignInquiry" @click="open = false"
+                        class="text-[10px] font-medium rounded px-2 py-1 text-white w-full"
+                        style="background: #3b82f6;">Confirm</button>
+                </div>
+            </div>
         @endif
     </div>
 
