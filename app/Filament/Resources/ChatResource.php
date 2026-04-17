@@ -15,6 +15,9 @@ use Illuminate\Database\Eloquent\SoftDeletingScope;
 
 class ChatResource extends Resource
 {
+    // Phase 17 cleanup: hidden from navigation — unused.
+    protected static bool $shouldRegisterNavigation = false;
+
     protected static ?string $model = Chat::class;
 
     protected static ?string $navigationIcon = 'heroicon-o-rectangle-stack';

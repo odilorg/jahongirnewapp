@@ -12,6 +12,9 @@ use Filament\Tables\Table;
 
 class ScheduledMessageResource extends Resource
 {
+    // Phase 17 cleanup: hidden from navigation — unused.
+    protected static bool $shouldRegisterNavigation = false;
+
     protected static ?string $model = ScheduledMessage::class;
     protected static ?string $navigationIcon = 'heroicon-o-rectangle-stack';
     protected static ?string $navigationGroup = 'Scheduled Messages';
