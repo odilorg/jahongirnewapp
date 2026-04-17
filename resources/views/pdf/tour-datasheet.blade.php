@@ -239,9 +239,16 @@
 
 <div class="contact-box">
   <div class="title">Ready to book or have questions?</div>
-  <div class="line"><strong>WhatsApp:</strong> +998 94 880 11 99</div>
-  <div class="line"><strong>Phone:</strong> +998 91 656 11 00</div>
-  <div class="line"><strong>Email:</strong> info@jahongir-travel.uz</div>
+  @php $c = config('tour_export.pdf_contact'); @endphp
+  @if (! empty($c['whatsapp']))
+    <div class="line"><strong>WhatsApp &amp; Phone:</strong> {{ $c['whatsapp'] }}</div>
+  @endif
+  @if (! empty($c['phone']))
+    <div class="line"><strong>Phone:</strong> {{ $c['phone'] }}</div>
+  @endif
+  @if (! empty($c['email']))
+    <div class="line"><strong>Email:</strong> {{ $c['email'] }}</div>
+  @endif
   @if ($tour->pageUrl)
     <div class="line"><strong>Book online:</strong> {{ $tour->pageUrl }}</div>
   @endif
