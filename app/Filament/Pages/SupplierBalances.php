@@ -17,8 +17,8 @@ class SupplierBalances extends Page
 {
     protected static ?string $navigationIcon  = 'heroicon-o-scale';
     protected static ?string $navigationLabel = 'Supplier Balances';
-    protected static ?string $navigationGroup = 'Tours';
-    protected static ?int    $navigationSort  = 51;
+    protected static ?string $navigationGroup = 'Money';
+    protected static ?int    $navigationSort  = 20;
 
     protected static string $view = 'filament.pages.supplier-balances';
 

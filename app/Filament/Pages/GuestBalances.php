@@ -17,8 +17,8 @@ class GuestBalances extends Page
 {
     protected static ?string $navigationIcon  = 'heroicon-o-currency-dollar';
     protected static ?string $navigationLabel = 'Guest Balances';
-    protected static ?string $navigationGroup = 'Tours';
-    protected static ?int    $navigationSort  = 61;
+    protected static ?string $navigationGroup = 'Money';
+    protected static ?int    $navigationSort  = 40;
 
     protected static string $view = 'filament.pages.guest-balances';
 
