@@ -115,11 +115,43 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
     // Quick price
     public ?string $editPriceQuoted = null;
 
+    // Guest payment
+    public ?string $guestPayAmount = null;
+    public string $guestPayMethod = 'cash';
+
     // Quick pay
     public ?string $paySupplierType = null;
     public ?int $paySupplierIdVal = null;
     public ?string $payAmount = null;
     public string $payMethod = 'cash';
+
+    /**
+     * Record a guest payment from the slide-over.
+     */
+    public function quickGuestPay(): void
+    {
+        $inquiry = BookingInquiry::find($this->selectedInquiryId);
+        if (! $inquiry || ! $this->guestPayAmount) {
+            return;
+        }
+
+        $inquiry->assignIfUnowned(auth()->id());
+
+        \App\Models\GuestPayment::create([
+            'booking_inquiry_id'  => $inquiry->id,
+            'amount'              => (float) $this->guestPayAmount,
+            'currency'            => 'USD',
+            'payment_type'        => abs((float) $this->guestPayAmount) >= (float) ($inquiry->price_quoted ?? 0) ? 'full' : 'balance',
+            'payment_method'      => $this->guestPayMethod,
+            'payment_date'        => now()->toDateString(),
+            'recorded_by_user_id' => auth()->id(),
+            'status'              => 'recorded',
+        ]);
+
+        Notification::make()->title("Guest payment recorded: \${$this->guestPayAmount}")->success()->send();
+
+        $this->guestPayAmount = null;
+    }
 
     /**
      * Quick-save price from the slide-over. Recomputes commission + net revenue.
