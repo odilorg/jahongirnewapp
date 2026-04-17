@@ -217,20 +217,20 @@ class TourSendReminders extends Command
 
             $result = $this->whatsApp->send($phone, $message);
 
-            $status = $result->ok ? 'sent' : 'failed';
+            $status = $result->success ? 'sent' : 'failed';
             DB::table('tour_reminder_logs')->insert([
                 'booking_inquiry_id' => $inquiry->id,
                 'channel'            => 'whatsapp',
                 'phone'              => $phone,
                 'status'             => $status,
-                'error_message'      => $result->ok ? null : $result->error,
+                'error_message'      => $result->success ? null : $result->error,
                 'scheduled_for_date' => $tomorrow,
                 'reminded_at'        => now(),
                 'created_at'         => now(),
                 'updated_at'         => now(),
             ]);
 
-            if ($result->ok) {
+            if ($result->success) {
                 $sent++;
                 $this->info("     ✅ Sent");
             } else {
