@@ -29,6 +29,11 @@
                     class="rounded border-gray-300 dark:border-gray-600 text-primary-600 focus:ring-primary-500">
                 Show leads
             </label>
+            <label class="inline-flex items-center gap-1.5 cursor-pointer">
+                <input type="checkbox" wire:model.live="mineOnly"
+                    class="rounded border-gray-300 dark:border-gray-600 text-primary-600 focus:ring-primary-500">
+                My leads only
+            </label>
         </div>
     </div>
 
@@ -107,6 +112,12 @@
                                             {{ $chip['customer_name'] }}
                                         </span>
                                         <span class="shrink-0 flex items-center gap-0.5">
+                                            @if ($chip['assigned_initials'])
+                                                <span class="text-[8px] font-bold px-1 py-0.5 rounded" title="Assigned: {{ $chip['assigned_to'] }}"
+                                                    style="background:#e0e7ff;color:#3730a3;">
+                                                    {{ $chip['assigned_initials'] }}
+                                                </span>
+                                            @endif
                                             @if ($chip['tour_type'])
                                                 <span class="text-[8px] font-bold px-1 py-0.5 rounded"
                                                     style="{{ $chip['tour_type'] === 'private' ? 'background:#dbeafe;color:#1e40af;' : 'background:#fef3c7;color:#92400e;' }}">

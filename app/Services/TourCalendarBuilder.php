@@ -33,7 +33,7 @@ class TourCalendarBuilder
      *   rows: array<int, array{slug: ?string, name: string, earliest: string, chips: array}>,
      * }
      */
-    public function buildWeek(?Carbon $anchor = null, array $statuses = ['confirmed'], bool $startFromAnchor = false): array
+    public function buildWeek(?Carbon $anchor = null, array $statuses = ['confirmed'], bool $startFromAnchor = false, ?int $assignedToUserId = null): array
     {
         $anchor = $anchor ?? Carbon::today();
 
@@ -53,7 +53,8 @@ class TourCalendarBuilder
             ->whereIn('status', $statuses)
             ->whereNotNull('travel_date')
             ->whereBetween('travel_date', [$from->toDateString(), $to->toDateString()])
-            ->with(['driver', 'guide', 'stays.accommodation', 'tourProduct', 'tourProductDirection'])
+            ->when($assignedToUserId, fn ($q) => $q->where('assigned_to_user_id', $assignedToUserId))
+            ->with(['driver', 'guide', 'stays.accommodation', 'tourProduct', 'tourProductDirection', 'assignedToUser'])
             ->orderBy('travel_date')
             ->get();
 
@@ -228,6 +229,10 @@ class TourCalendarBuilder
             'accommodations'    => $accommodations,
             'day_index'         => $dayIndex,
             'tour_type'         => $inq->tour_type,
+            'assigned_to'       => $inq->assignedToUser?->name,
+            'assigned_initials' => $inq->assignedToUser
+                ? strtoupper(mb_substr($inq->assignedToUser->name, 0, 2))
+                : null,
             'source_badge'      => $sourceBadge,
             'display_state'     => $displayState,
             'readiness'         => $readiness,
