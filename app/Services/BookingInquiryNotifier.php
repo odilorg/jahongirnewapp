@@ -26,6 +26,16 @@ class BookingInquiryNotifier
     }
 
     /**
+     * Send a ❌ cancellation notification. Used when a GYG cancellation
+     * email flips an inquiry to cancelled, so operator gets the right
+     * message instead of the "new inquiry" template.
+     */
+    public function notifyCancelled(BookingInquiry $inquiry): void
+    {
+        $this->send($inquiry, $this->buildCancelledMessage($inquiry));
+    }
+
+    /**
      * Send a 💰 "payment received" Telegram notification when Octo's
      * webhook confirms a successful payment for an inquiry. Called from
      * OctoCallbackController::handleInquiryCallback().
@@ -115,6 +125,37 @@ class BookingInquiryNotifier
 
         $lines[] = '';
         $lines[] = '✅ Inquiry marked confirmed. Ready for booking handoff.';
+
+        return implode("\n", $lines);
+    }
+
+    private function buildCancelledMessage(BookingInquiry $inquiry): string
+    {
+        $travelDate = $inquiry->travel_date
+            ? $inquiry->travel_date->format('Y-m-d')
+            : 'not specified';
+
+        $sourceLabel = strtoupper((string) $inquiry->source);
+        $refLine     = $inquiry->external_reference
+            ? " ({$inquiry->external_reference})"
+            : '';
+
+        $lines = [
+            '❌ <b>Booking cancelled via ' . $sourceLabel . '</b>' . $refLine,
+            "<code>{$inquiry->reference}</code>",
+            '',
+            '🧳 <b>Tour:</b> ' . htmlspecialchars((string) $inquiry->tour_name_snapshot, ENT_QUOTES, 'UTF-8'),
+            "📅 <b>Date:</b> {$travelDate}",
+            '',
+            '👤 ' . htmlspecialchars((string) $inquiry->customer_name, ENT_QUOTES, 'UTF-8'),
+        ];
+
+        if ($inquiry->driver_id) {
+            $lines[] = '🚗 Driver was assigned — auto-notified';
+        }
+        if ($inquiry->guide_id) {
+            $lines[] = '🧭 Guide was assigned — auto-notified';
+        }
 
         return implode("\n", $lines);
     }

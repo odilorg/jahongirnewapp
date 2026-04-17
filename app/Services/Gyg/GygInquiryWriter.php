@@ -231,9 +231,10 @@ class GygInquiryWriter
             ]);
         });
 
-        // Notify after commit
+        // Notify after commit — use dedicated cancellation message, not
+        // the generic "🆕 new inquiry" template.
         try {
-            $this->notifier->notify($inquiry->fresh());
+            $this->notifier->notifyCancelled($inquiry->fresh());
         } catch (\Throwable $e) {
             Log::warning('GygInquiryWriter: cancellation notification failed', [
                 'inquiry_id' => $inquiry->id,
