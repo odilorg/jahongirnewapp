@@ -63,12 +63,14 @@ class AdminPanelProvider extends PanelProvider
             // Phase 17 — logical grouping. Order matters: visible top → bottom.
             // Core daily actions (Operations/Money/Suppliers) stay expanded;
             // low-frequency groups (Catalog/Feedback) start collapsed.
+            // Filament rule: group-level icons conflict with item-level icons.
+            // Items already have icons, so groups stay icon-less — just order + collapsed state.
             ->navigationGroups([
-                NavigationGroup::make('Operations')->icon('heroicon-o-calendar-days'),
-                NavigationGroup::make('Money')->icon('heroicon-o-banknotes'),
-                NavigationGroup::make('Suppliers')->icon('heroicon-o-user-group'),
-                NavigationGroup::make('Catalog')->icon('heroicon-o-map')->collapsed(),
-                NavigationGroup::make('Feedback')->icon('heroicon-o-star')->collapsed(),
+                NavigationGroup::make('Operations'),
+                NavigationGroup::make('Money'),
+                NavigationGroup::make('Suppliers'),
+                NavigationGroup::make('Catalog')->collapsed(),
+                NavigationGroup::make('Feedback')->collapsed(),
             ])
             ->authMiddleware([
                 Authenticate::class,
