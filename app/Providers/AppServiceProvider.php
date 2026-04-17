@@ -59,6 +59,11 @@ class AppServiceProvider extends ServiceProvider
         // driver/guide reassignment (removal notice + fresh dispatch).
         \App\Models\BookingInquiry::observe(\App\Observers\BookingInquiryObserver::class);
 
+        // Phase 19.3a — accommodation amendment notifications on InquiryStay.
+        // Watches stay_date/guest_count/nights/meal_plan/accommodation_id.
+        // Only notifies accommodations previously dispatched via TG.
+        \App\Models\InquiryStay::observe(\App\Observers\InquiryStayObserver::class);
+
         // Auto-export the tour pricing catalog to the static site whenever
         // any catalog row changes through Filament. See AutoExportScheduler
         // for the after-response coalesced execution model.
