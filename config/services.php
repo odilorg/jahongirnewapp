@@ -137,5 +137,10 @@ return [
         'wa_api_url'        => env('GYG_WA_API_URL', 'http://127.0.0.1:8080/api/send'),
     ],
 
+    // Phase 22 — daily operator recap email destination
+    'daily_recap' => [
+        'email' => env('DAILY_RECAP_EMAIL', 'odilorg@gmail.com'),
+    ],
+
 ];
 
