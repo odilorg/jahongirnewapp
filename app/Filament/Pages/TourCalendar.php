@@ -37,6 +37,13 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
     public ?string $week = null;
     public bool $showLeads = false;
     public ?int $selectedInquiryId = null;
+    // Phase 20 — view mode: 'action' (dispatch board) or 'grid' (legacy week view)
+    public string $viewMode = 'action';
+
+    public function toggleViewMode(): void
+    {
+        $this->viewMode = $this->viewMode === 'action' ? 'grid' : 'action';
+    }
 
     public function mount(): void
     {
@@ -60,10 +67,19 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
         $startFromAnchor = $anchor->isToday();
 
         $assignedTo = $this->mineOnly ? auth()->id() : null;
+        $builder    = app(TourCalendarBuilder::class);
 
-        return [
-            'data' => app(TourCalendarBuilder::class)->buildWeek($anchor, $statuses, $startFromAnchor, $assignedTo),
+        $viewData = [
+            'data'       => $builder->buildWeek($anchor, $statuses, $startFromAnchor, $assignedTo),
+            'action'     => null,
+            'viewMode'   => $this->viewMode,
         ];
+
+        // Action view data is always loaded so the summary strip works
+        // on both views. Cheap query; bounded to today + 7 days.
+        $viewData['action'] = $builder->buildActionView($assignedTo);
+
+        return $viewData;
     }
 
     public function toggleMineOnly(): void

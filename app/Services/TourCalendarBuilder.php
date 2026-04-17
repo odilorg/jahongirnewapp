@@ -33,6 +33,141 @@ class TourCalendarBuilder
      *   rows: array<int, array{slug: ?string, name: string, earliest: string, chips: array}>,
      * }
      */
+    /**
+     * Phase 20 — Action View. Groups active bookings by urgency instead
+     * of by date. Returns priority zones:
+     *   needs_action_today, tomorrow_prep, ready_today_tomorrow, ready_later
+     *
+     * Summary counts also returned for the top strip.
+     */
+    public function buildActionView(?int $assignedToUserId = null): array
+    {
+        $today    = Carbon::today();
+        $tomorrow = $today->copy()->addDay();
+        $weekEnd  = $today->copy()->addDays(7);
+
+        $statuses = [
+            BookingInquiry::STATUS_CONFIRMED,
+            BookingInquiry::STATUS_AWAITING_PAYMENT,
+        ];
+
+        $inquiries = BookingInquiry::query()
+            ->whereIn('status', $statuses)
+            ->whereNotNull('travel_date')
+            ->whereBetween('travel_date', [$today->toDateString(), $weekEnd->toDateString()])
+            ->when($assignedToUserId, fn ($q) => $q->where('assigned_to_user_id', $assignedToUserId))
+            ->with(['driver', 'guide', 'stays.accommodation', 'tourProduct', 'tourProductDirection', 'assignedToUser'])
+            ->orderBy('travel_date')
+            ->orderBy('pickup_time')
+            ->get();
+
+        $this->windowFrom = $today;
+
+        $needsActionToday = [];
+        $tomorrowPrep     = [];
+        $ready            = [];
+        $totalTodayRev    = 0;
+
+        foreach ($inquiries as $inq) {
+            $chip       = $this->buildChip($inq);
+            $readiness  = $this->computeReadiness($inq);
+            $chip['readiness_chips']   = $readiness['chips'];
+            $chip['action_reasons']    = $readiness['reasons'];
+            $chip['needs_action']      = ! empty($readiness['reasons']);
+            $chip['travel_date_raw']   = $inq->travel_date->toDateString();
+            $chip['travel_date_label'] = $inq->travel_date->format('M j');
+
+            $travelDate = Carbon::parse($inq->travel_date);
+            $isToday    = $travelDate->isToday();
+            $isTomorrow = $travelDate->isTomorrow();
+
+            if ($isToday) {
+                $totalTodayRev += (float) ($inq->price_quoted ?? 0);
+            }
+
+            if ($chip['needs_action'] && $isToday) {
+                $needsActionToday[] = $chip;
+            } elseif ($chip['needs_action'] && $isTomorrow) {
+                $tomorrowPrep[] = $chip;
+            } else {
+                $ready[] = $chip;
+            }
+        }
+
+        // Unclaimed leads — fresh inquiries nobody owns yet
+        $unclaimed = BookingInquiry::query()
+            ->whereIn('status', [
+                BookingInquiry::STATUS_NEW,
+                BookingInquiry::STATUS_AWAITING_PAYMENT,
+            ])
+            ->whereNull('assigned_to_user_id')
+            ->whereIn('source', ['website', 'whatsapp', 'manual'])
+            ->orderByDesc('created_at')
+            ->limit(10)
+            ->get(['id', 'reference', 'customer_name', 'source', 'created_at']);
+
+        return [
+            'today_count'        => count($needsActionToday) + count(array_filter($ready, fn ($c) => Carbon::parse($c['travel_date_raw'])->isToday())),
+            'today_revenue'      => $totalTodayRev,
+            'needs_action_count' => count($needsActionToday),
+            'tomorrow_count'     => count($tomorrowPrep) + count(array_filter($ready, fn ($c) => Carbon::parse($c['travel_date_raw'])->isTomorrow())),
+            'unclaimed_count'    => $unclaimed->count(),
+            'unclaimed'          => $unclaimed->map(fn ($i) => [
+                'id'            => $i->id,
+                'reference'     => $i->reference,
+                'customer_name' => $i->customer_name,
+                'source'        => $i->source,
+                'age'           => $i->created_at->diffForHumans(),
+            ])->toArray(),
+            'needs_action_today' => $needsActionToday,
+            'tomorrow_prep'      => $tomorrowPrep,
+            'ready'              => $ready,
+        ];
+    }
+
+    /**
+     * Phase 20 — compute explicit readiness chips + the list of reasons
+     * an inquiry needs operator action. Returns both so the UI can show
+     * 🟢/🔴 chips AND the list of action reasons.
+     */
+    private function computeReadiness(BookingInquiry $inq): array
+    {
+        $chips   = [];
+        $reasons = [];
+
+        // Payment
+        $isPaid = $inq->paid_at !== null;
+        $chips['paid'] = $isPaid;
+        if (! $isPaid && $inq->status === BookingInquiry::STATUS_AWAITING_PAYMENT) {
+            $reasons[] = 'unpaid';
+        }
+
+        // Driver
+        $driverAssigned   = (bool) $inq->driver_id;
+        $driverDispatched = $driverAssigned && str_contains(
+            (string) $inq->internal_notes,
+            'Calendar dispatch TG → driver'
+        );
+        $chips['driver'] = $driverDispatched
+            ? 'dispatched'
+            : ($driverAssigned ? 'assigned' : 'missing');
+        if (! $driverAssigned) {
+            $reasons[] = 'no driver';
+        } elseif (! $driverDispatched) {
+            $reasons[] = 'driver not dispatched';
+        }
+
+        // Pickup
+        $hasPickup = filled($inq->pickup_point)
+            && ! in_array($inq->pickup_point, ['Samarkand', 'Gur Emir Mausoleum'], true);
+        $chips['pickup'] = $hasPickup;
+        if (! $hasPickup) {
+            $reasons[] = 'no pickup';
+        }
+
+        return ['chips' => $chips, 'reasons' => $reasons];
+    }
+
     public function buildWeek(?Carbon $anchor = null, array $statuses = ['confirmed'], bool $startFromAnchor = false, ?int $assignedToUserId = null): array
     {
         $anchor = $anchor ?? Carbon::today();

@@ -1,4 +1,48 @@
 <x-filament-panels::page>
+
+    {{-- Phase 20 — Summary strip (always visible) --}}
+    <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px;">
+        <div style="flex: 1; min-width: 160px; background: #eff6ff; border-radius: 8px; padding: 10px 12px;">
+            <div style="font-size: 10px; color: #1e40af; text-transform: uppercase; letter-spacing: 0.5px;">Today</div>
+            <div style="font-size: 18px; font-weight: 700; color: #1e40af;">{{ $action['today_count'] }} tours · ${{ number_format($action['today_revenue'], 0) }}</div>
+        </div>
+        <div style="flex: 1; min-width: 160px; background: {{ $action['needs_action_count'] > 0 ? '#fee2e2' : '#dcfce7' }}; border-radius: 8px; padding: 10px 12px;">
+            <div style="font-size: 10px; color: {{ $action['needs_action_count'] > 0 ? '#991b1b' : '#166534' }}; text-transform: uppercase; letter-spacing: 0.5px;">Needs Action</div>
+            <div style="font-size: 18px; font-weight: 700; color: {{ $action['needs_action_count'] > 0 ? '#dc2626' : '#16a34a' }};">
+                {{ $action['needs_action_count'] > 0 ? $action['needs_action_count'].' urgent' : 'All clear ✅' }}
+            </div>
+        </div>
+        <div style="flex: 1; min-width: 160px; background: #fef3c7; border-radius: 8px; padding: 10px 12px;">
+            <div style="font-size: 10px; color: #92400e; text-transform: uppercase; letter-spacing: 0.5px;">Tomorrow</div>
+            <div style="font-size: 18px; font-weight: 700; color: #92400e;">{{ $action['tomorrow_count'] }} tours</div>
+        </div>
+        <div style="flex: 1; min-width: 160px; background: {{ $action['unclaimed_count'] > 0 ? '#fef3c7' : '#f3f4f6' }}; border-radius: 8px; padding: 10px 12px;">
+            <div style="font-size: 10px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px;">Unclaimed Leads</div>
+            <div style="font-size: 18px; font-weight: 700; color: {{ $action['unclaimed_count'] > 0 ? '#d97706' : '#6b7280' }};">{{ $action['unclaimed_count'] }}</div>
+        </div>
+    </div>
+
+    {{-- Phase 20 — Action view (default) with priority zones --}}
+    @if ($viewMode === 'action')
+        @include('filament.pages.tour-calendar-action')
+
+        <div style="text-align: center; margin-top: 16px;">
+            <button type="button" wire:click="toggleViewMode"
+                class="text-xs font-medium px-3 py-1.5 rounded-md"
+                style="background: #e5e7eb; color: #374151;">
+                📅 Switch to Week Grid View
+            </button>
+        </div>
+    @else
+
+    <div style="text-align: center; margin-bottom: 8px;">
+        <button type="button" wire:click="toggleViewMode"
+            class="text-xs font-medium px-3 py-1.5 rounded-md"
+            style="background: #3b82f6; color: white;">
+            🎯 Back to Dispatch Board
+        </button>
+    </div>
+
     {{-- Toolbar: navigation + filters --}}
     <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
         <div class="flex items-center gap-2">
@@ -184,6 +228,8 @@
     <p class="mt-3 text-xs text-gray-500 dark:text-gray-400">
         Click any chip to inspect details and take action. Hover for quick info.
     </p>
+
+    @endif
 
     {{-- Filament action modals (slide-over) render here --}}
     <x-filament-actions::modals />
