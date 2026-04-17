@@ -99,6 +99,9 @@
                 ])>
                     {{ $day->format('D') }}<br>
                     <span class="text-base">{{ $day->format('j') }}</span>
+                    <div style="font-size: 9px; font-weight: 500; color: #6b7280; text-transform: uppercase; margin-top: 2px; letter-spacing: 0.3px;">
+                        {{ $day->format('M') }}
+                    </div>
                 </div>
             @endforeach
 
