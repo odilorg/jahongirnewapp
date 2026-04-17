@@ -24,6 +24,8 @@
             <span class="inline-flex items-center gap-1"><span class="inline-block w-3 h-3 rounded" style="background:#fef3c7;border:1px solid #f59e0b;"></span> Awaiting payment</span>
             <span class="inline-flex items-center gap-1"><span class="inline-block w-3 h-3 rounded" style="background:#dbeafe;border:1px solid #60a5fa;"></span> Confirmed (pay offline)</span>
             <span class="inline-flex items-center gap-1"><span class="inline-block w-3 h-3 rounded" style="background:#f3f4f6;border:1px dashed #9ca3af;"></span> Lead</span>
+            <span class="inline-flex items-center gap-1">👤 Private · 👥 Group</span>
+            <span class="inline-flex items-center gap-1">🟠 GYG · 🔵 Web · 🟢 WA</span>
             <label class="inline-flex items-center gap-1.5 cursor-pointer ml-2">
                 <input type="checkbox" wire:model.live="showLeads"
                     class="rounded border-gray-300 dark:border-gray-600 text-primary-600 focus:ring-primary-500">
@@ -106,27 +108,27 @@
                                     style="{{ $chipStyle }}"
                                     x-bind:style="document.documentElement.classList.contains('dark') ? '{{ $chipStyleDark }}' : '{{ $chipStyle }}'"
                                     class="block rounded-md border px-2 py-1.5 text-xs cursor-pointer relative {{ $bgClass }}">
-                                    {{-- Row 1: Name + type + source --}}
-                                    <div class="flex items-center justify-between gap-1">
+                                    {{-- Operator badge — corner overlay, no layout impact --}}
+                                    @if ($chip['assigned_initials'])
+                                        <span title="Assigned: {{ $chip['assigned_to'] }}"
+                                            style="position: absolute; top: 2px; right: 2px; font-size: 8px; font-weight: 700; background: #e0e7ff; color: #3730a3; padding: 1px 4px; border-radius: 3px; line-height: 1; z-index: 1;">
+                                            {{ $chip['assigned_initials'] }}
+                                        </span>
+                                    @endif
+
+                                    {{-- Row 1: Name + type/source icons --}}
+                                    <div class="flex items-center justify-between gap-1" style="padding-right: {{ $chip['assigned_initials'] ? '24px' : '0' }};">
                                         <span class="font-semibold text-gray-900 dark:text-gray-100 truncate">
                                             {{ $chip['customer_name'] }}
                                         </span>
-                                        <span class="shrink-0 flex items-center gap-0.5">
-                                            @if ($chip['assigned_initials'])
-                                                <span class="text-[8px] font-bold px-1 py-0.5 rounded" title="Assigned: {{ $chip['assigned_to'] }}"
-                                                    style="background:#e0e7ff;color:#3730a3;">
-                                                    {{ $chip['assigned_initials'] }}
-                                                </span>
-                                            @endif
+                                        <span class="shrink-0" style="display: flex; align-items: center; gap: 3px; font-size: 11px; line-height: 1;">
                                             @if ($chip['tour_type'])
-                                                <span class="text-[8px] font-bold px-1 py-0.5 rounded"
-                                                    style="{{ $chip['tour_type'] === 'private' ? 'background:#dbeafe;color:#1e40af;' : 'background:#fef3c7;color:#92400e;' }}">
-                                                    {{ $chip['tour_type'] === 'private' ? 'PVT' : 'GRP' }}
+                                                <span title="{{ $chip['tour_type'] === 'private' ? 'Private tour' : 'Group tour' }}">
+                                                    {{ $chip['tour_type'] === 'private' ? '👤' : '👥' }}
                                                 </span>
                                             @endif
-                                            <span class="text-[9px] font-bold px-1 py-0.5 rounded"
-                                                style="{{ $chip['source_badge'] === 'GYG' ? 'background:#fed7aa;color:#9a3412;' : 'background:#dbeafe;color:#1e40af;' }}">
-                                                {{ $chip['source_badge'] }}
+                                            <span title="Source: {{ $chip['source_badge'] }}" style="font-size: 8px;">
+                                                @if ($chip['source_badge'] === 'GYG')🟠@elseif ($chip['source_badge'] === 'WEB')🔵@elseif ($chip['source_badge'] === 'WA')🟢@else⚪@endif
                                             </span>
                                         </span>
                                     </div>
