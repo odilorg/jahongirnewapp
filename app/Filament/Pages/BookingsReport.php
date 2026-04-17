@@ -15,6 +15,9 @@ class BookingsReport extends Page implements Tables\Contracts\HasTable
 {
     use Tables\Concerns\InteractsWithTable;
 
+    // Phase 17 cleanup: hidden — uses legacy Booking model (0 rows).
+    protected static bool $shouldRegisterNavigation = false;
+
     protected static ?string $navigationIcon = 'heroicon-o-chart-bar';
     protected static ?string $navigationGroup = 'Reports';
     protected static ?string $title = 'Bookings Report';
