@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 namespace App\Console\Commands;
 
+use App\Mail\DailyRecapMail;
 use App\Services\DailyRecapBuilder;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 
 /**
  * Phase 22 — send the operator's daily recap via Telegram at 19:00 Tashkent.
@@ -65,12 +67,27 @@ class SendDailyRecap extends Command
             return self::FAILURE;
         }
 
-        $this->info('Recap sent: ' . strlen($message) . ' chars, ' . $data['total_bookings'] . ' bookings');
-        Log::info('recap:send-daily: sent', [
+        $this->info('Telegram recap sent: ' . strlen($message) . ' chars, ' . $data['total_bookings'] . ' bookings');
+        Log::info('recap:send-daily: TG sent', [
             'tomorrow'       => $data['date'],
             'total_bookings' => $data['total_bookings'],
             'needs_action'   => count($data['needs_action']),
         ]);
+
+        // Also send email — Telegram is easy to miss if notifications are off
+        $recipientEmail = (string) config('services.daily_recap.email', 'odilorg@gmail.com');
+        if ($recipientEmail !== '') {
+            try {
+                Mail::to($recipientEmail)->send(new DailyRecapMail($data, $base));
+                $this->info("Email recap queued to {$recipientEmail}");
+                Log::info('recap:send-daily: email sent', ['to' => $recipientEmail]);
+            } catch (\Throwable $e) {
+                Log::warning('recap:send-daily: email send failed', [
+                    'error' => $e->getMessage(),
+                ]);
+                $this->warn('Email send failed: ' . $e->getMessage());
+            }
+        }
 
         return self::SUCCESS;
     }
