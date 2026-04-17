@@ -61,4 +61,14 @@ return [
     // V1 is manual only. When observer auto-export learns to regenerate
     // PDFs too (Phase 2), flip this in .env without a code change.
     'pdf_auto_export_enabled' => env('TOUR_PDF_AUTO_EXPORT', false),
+
+    // Contact block rendered in every PDF datasheet footer.
+    // Edit here (no deploy needed — `php artisan config:clear` is
+    // enough) then re-run tours:export-website-pdfs.
+    'pdf_contact' => [
+        'whatsapp' => env('TOUR_PDF_WHATSAPP', '+998 94 880 11 99'),
+        'phone'    => env('TOUR_PDF_PHONE', null),
+        'email'    => env('TOUR_PDF_EMAIL', 'info@jahongir-travel.uz'),
+        'website'  => env('TOUR_PDF_WEBSITE', 'https://jahongir-travel.uz'),
+    ],
 ];
