@@ -6,6 +6,7 @@ namespace Tests\Unit;
 
 use App\Models\TourPriceTier;
 use App\Models\TourProduct;
+use App\Models\TourProductDirection;
 use App\Services\Pdf\TourPdfViewModel;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Carbon;
@@ -44,10 +45,10 @@ class TourPdfViewModelTest extends TestCase
         return $product;
     }
 
-    private function makeTier(int $size, int $price, bool $active = true, ?int $dirId = null, string $type = TourProduct::TYPE_PRIVATE): TourPriceTier
+    private function makeTier(int $size, int $price, bool $active = true, ?string $directionCode = 'default', string $type = TourProduct::TYPE_PRIVATE): TourPriceTier
     {
         $tier = new TourPriceTier([
-            'tour_product_direction_id' => $dirId,
+            'tour_product_direction_id' => $directionCode === null ? null : 1,
             'tour_type'                 => $type,
             'group_size'                => $size,
             'price_per_person_usd'      => $price,
@@ -57,6 +58,15 @@ class TourPdfViewModelTest extends TestCase
         // Explicitly set the boolean; mass-assignment casts aren't always
         // applied on unsaved models in this app's setup.
         $tier->is_active = $active;
+
+        // Attach a materialized direction relation so the ViewModel can
+        // filter by code without hitting the DB.
+        if ($directionCode !== null) {
+            $dir = new TourProductDirection(['code' => $directionCode]);
+            $tier->setRelation('direction', $dir);
+        } else {
+            $tier->setRelation('direction', null);
+        }
 
         return $tier;
     }
@@ -72,13 +82,13 @@ class TourPdfViewModelTest extends TestCase
         $this->assertTrue($vm->priceTiers[2]['is_last']);
     }
 
-    public function test_direction_specific_tiers_excluded_from_datasheet(): void
+    public function test_non_default_direction_tiers_excluded_from_datasheet(): void
     {
         $product = $this->buildModel();
         $product->setRelation('priceTiers', new Collection([
             $this->makeTier(1, 100),
             $this->makeTier(2, 60),
-            $this->makeTier(1, 999, true, dirId: 42), // sam-bukhara, should be skipped
+            $this->makeTier(1, 999, true, 'sam-bukhara'), // variant — skipped
         ]));
 
         $vm = TourPdfViewModel::fromModel($product, Carbon::now());
@@ -89,12 +99,27 @@ class TourPdfViewModelTest extends TestCase
         }
     }
 
+    public function test_null_direction_tiers_accepted(): void
+    {
+        // Legacy schema resilience: if somehow direction_id is NULL,
+        // still accept the tier.
+        $product = $this->buildModel();
+        $product->setRelation('priceTiers', new Collection([
+            $this->makeTier(1, 100, true, null),
+            $this->makeTier(2, 60, true, null),
+        ]));
+
+        $vm = TourPdfViewModel::fromModel($product, Carbon::now());
+
+        $this->assertCount(2, $vm->priceTiers);
+    }
+
     public function test_group_tour_type_tiers_excluded(): void
     {
         $product = $this->buildModel();
         $product->setRelation('priceTiers', new Collection([
             $this->makeTier(1, 100),
-            $this->makeTier(2, 60, true, null, TourProduct::TYPE_GROUP),
+            $this->makeTier(2, 60, true, 'default', TourProduct::TYPE_GROUP),
         ]));
 
         $vm = TourPdfViewModel::fromModel($product, Carbon::now());

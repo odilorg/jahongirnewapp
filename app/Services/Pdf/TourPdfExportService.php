@@ -58,7 +58,10 @@ class TourPdfExportService
             ->where('is_active', true)
             ->where('pdf_enabled', true)
             ->whereNotNull('pdf_relative_path')
-            ->with(['priceTiers' => fn ($q) => $q->orderBy('group_size')])
+            ->with([
+                'priceTiers' => fn ($q) => $q->orderBy('group_size'),
+                'priceTiers.direction',
+            ])
             ->orderBy('slug');
 
         if ($onlySlugs !== null && $onlySlugs !== []) {
