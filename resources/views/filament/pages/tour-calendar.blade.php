@@ -20,6 +20,10 @@
             <div style="font-size: 10px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px;">Unclaimed Leads</div>
             <div style="font-size: 18px; font-weight: 700; color: {{ $action['unclaimed_count'] > 0 ? '#d97706' : '#6b7280' }};">{{ $action['unclaimed_count'] }}</div>
         </div>
+        <div style="flex: 1; min-width: 160px; background: {{ ($action['reminders_due'] ?? 0) > 0 ? '#ede9fe' : '#f3f4f6' }}; border-radius: 8px; padding: 10px 12px;">
+            <div style="font-size: 10px; color: #5b21b6; text-transform: uppercase; letter-spacing: 0.5px;">⏰ Reminders Due</div>
+            <div style="font-size: 18px; font-weight: 700; color: {{ ($action['reminders_due'] ?? 0) > 0 ? '#7c3aed' : '#6b7280' }};">{{ $action['reminders_due'] ?? 0 }}</div>
+        </div>
     </div>
 
     {{-- Phase 20 — Action view (default) with priority zones --}}

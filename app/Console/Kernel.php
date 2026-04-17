@@ -21,6 +21,13 @@ class Kernel extends ConsoleKernel
      */
     protected function schedule(Schedule $schedule): void
     {
+        // Phase 21 — email due reminders every 15 minutes.
+        // Idempotent via notified_at marker, so safe to run frequently.
+        $schedule->command('inquiry:send-reminders')
+            ->everyFifteenMinutes()
+            ->withoutOverlapping()
+            ->runInBackground();
+
         // Removed 2026-04-15: app:send-scheduled-messages scheduler disabled
         // (scheduled_messages table unused; feature deprecated)
 

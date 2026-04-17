@@ -106,12 +106,19 @@ class TourCalendarBuilder
             ->limit(10)
             ->get(['id', 'reference', 'customer_name', 'source', 'created_at']);
 
+        // Phase 21 — due reminders count
+        $dueRemindersCount = \App\Models\InquiryReminder::pending()
+            ->where('remind_at', '<=', now())
+            ->when($assignedToUserId, fn ($q) => $q->where('assigned_to_user_id', $assignedToUserId))
+            ->count();
+
         return [
             'today_count'        => count($needsActionToday) + count(array_filter($ready, fn ($c) => Carbon::parse($c['travel_date_raw'])->isToday())),
             'today_revenue'      => $totalTodayRev,
             'needs_action_count' => count($needsActionToday),
             'tomorrow_count'     => count($tomorrowPrep) + count(array_filter($ready, fn ($c) => Carbon::parse($c['travel_date_raw'])->isTomorrow())),
             'unclaimed_count'    => $unclaimed->count(),
+            'reminders_due'      => $dueRemindersCount,
             'unclaimed'          => $unclaimed->map(fn ($i) => [
                 'id'            => $i->id,
                 'reference'     => $i->reference,

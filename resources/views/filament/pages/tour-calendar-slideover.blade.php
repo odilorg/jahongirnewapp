@@ -686,6 +686,85 @@
         @endif
     </div>
 
+    {{-- Phase 21 — Reminders --}}
+    @php $pendingReminders = $inquiry->pendingReminders()->get(); @endphp
+    <div class="rounded-lg p-3" style="background: rgba(0,0,0,0.03); margin-top: 12px;">
+        <div class="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider" style="margin-bottom: 8px;">⏰ Reminders</div>
+
+        @if ($pendingReminders->isNotEmpty())
+            @foreach ($pendingReminders as $r)
+                @php
+                    $isOverdue = $r->remind_at < now();
+                    $isDueSoon = $r->remind_at <= now()->addHours(24) && ! $isOverdue;
+                @endphp
+                <div style="background: white; border-left: 3px solid {{ $isOverdue ? '#dc2626' : ($isDueSoon ? '#d97706' : '#d1d5db') }}; border-radius: 4px; padding: 8px 10px; margin-bottom: 6px;">
+                    <div style="font-size: 11px; color: #6b7280;">
+                        {{ $r->remind_at->format('M j, H:i') }}
+                        @if ($isOverdue)
+                            <span style="color: #dc2626; font-weight: 600;">· OVERDUE</span>
+                        @elseif ($isDueSoon)
+                            <span style="color: #d97706; font-weight: 600;">· DUE SOON</span>
+                        @endif
+                    </div>
+                    <div style="font-size: 12px; color: #111827; margin-top: 2px;">{{ $r->message }}</div>
+                    <div style="display: flex; gap: 6px; margin-top: 6px;">
+                        <button type="button" wire:click="markReminderDone({{ $r->id }})"
+                            class="text-[10px] font-medium rounded px-2 py-1 text-white"
+                            style="background: #16a34a;">✅ Done</button>
+                        <button type="button" wire:click="snoozeReminder({{ $r->id }}, 1)"
+                            class="text-[10px] font-medium rounded px-2 py-1"
+                            style="background: #e5e7eb; color: #374151;">⏰ +1 day</button>
+                    </div>
+                </div>
+            @endforeach
+        @endif
+
+        {{-- Add new reminder --}}
+        <div x-data="{ open: {{ $pendingReminders->isNotEmpty() ? 'false' : 'false' }} }" style="margin-top: 8px;">
+            <button @click="open = !open" type="button"
+                class="w-full text-xs font-medium rounded-md px-3 py-1.5"
+                style="background: #3b82f6; color: white;">
+                ⏰ + Set Reminder
+            </button>
+
+            <div x-show="open" x-cloak style="margin-top: 8px; padding: 10px; background: white; border-radius: 6px;">
+                <label class="text-[10px] text-gray-500 uppercase tracking-wider">When</label>
+                <input type="datetime-local" wire:model="reminderRemindAt"
+                    class="w-full text-xs rounded-md border-gray-300 mt-1"
+                    style="padding: 4px 6px;">
+
+                <div style="display: flex; gap: 4px; margin-top: 6px; flex-wrap: wrap;">
+                    <button type="button" wire:click="reminderPreset('1d')"
+                        class="text-[10px] rounded px-2 py-1"
+                        style="background: #e5e7eb; color: #374151;">+1 day</button>
+                    <button type="button" wire:click="reminderPreset('3d')"
+                        class="text-[10px] rounded px-2 py-1"
+                        style="background: #e5e7eb; color: #374151;">+3 days</button>
+                    <button type="button" wire:click="reminderPreset('1w')"
+                        class="text-[10px] rounded px-2 py-1"
+                        style="background: #e5e7eb; color: #374151;">+1 week</button>
+                    @if ($inquiry->travel_date)
+                        <button type="button" wire:click="reminderPreset('pre')"
+                            class="text-[10px] rounded px-2 py-1"
+                            style="background: #fef3c7; color: #92400e;">2 days before travel</button>
+                    @endif
+                </div>
+
+                <label class="text-[10px] text-gray-500 uppercase tracking-wider" style="margin-top: 10px; display: block;">Message</label>
+                <textarea wire:model="reminderMessage" rows="2"
+                    placeholder="e.g. Reconfirm {{ $inquiry->customer_name }} before travel"
+                    class="w-full text-xs rounded-md border-gray-300 mt-1"
+                    style="padding: 6px;"></textarea>
+
+                <button type="button" wire:click="createReminder" @click="open = false"
+                    class="w-full text-xs font-medium rounded-md px-3 py-1.5 text-white"
+                    style="background: #16a34a; margin-top: 8px;">
+                    Save Reminder
+                </button>
+            </div>
+        </div>
+    </div>
+
     {{-- Notes (last 3 lines) --}}
     @if ($inquiry->internal_notes)
         <div>
