@@ -137,6 +137,15 @@ class TourCalendarBuilder
      * an inquiry needs operator action. Returns both so the UI can show
      * 🟢/🔴 chips AND the list of action reasons.
      */
+    /**
+     * Public accessor for computeReadiness — used by DailyRecapBuilder
+     * so recap chips match dispatch board exactly.
+     */
+    public function computeReadinessPublic(BookingInquiry $inq): array
+    {
+        return $this->computeReadiness($inq);
+    }
+
     private function computeReadiness(BookingInquiry $inq): array
     {
         $chips   = [];
