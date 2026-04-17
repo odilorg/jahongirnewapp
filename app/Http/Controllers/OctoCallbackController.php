@@ -171,8 +171,20 @@ class OctoCallbackController extends Controller
             $inquiry->update([
                 'status'         => BookingInquiry::STATUS_CONFIRMED,
                 'payment_method' => BookingInquiry::PAYMENT_ONLINE,
-                'paid_at'        => now(),
                 'confirmed_at'   => $inquiry->confirmed_at ?: now(),
+            ]);
+
+            // Phase 16.3 — record as guest payment. Observer will auto-set
+            // paid_at + closed_by_user_id when received sum reaches price_quoted.
+            \App\Models\GuestPayment::create([
+                'booking_inquiry_id' => $inquiry->id,
+                'amount'             => (float) ($inquiry->price_quoted ?? 0),
+                'currency'           => 'USD',
+                'payment_type'       => 'full',
+                'payment_method'     => 'octo',
+                'payment_date'       => now()->toDateString(),
+                'reference'          => (string) $transactionId,
+                'status'             => 'recorded',
             ]);
 
             Log::info('BookingInquiry marked paid via Octo', [

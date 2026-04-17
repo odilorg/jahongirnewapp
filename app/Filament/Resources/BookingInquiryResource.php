@@ -1357,7 +1357,6 @@ class BookingInquiryResource extends Resource
                             $updates = [
                                 'status'         => BookingInquiry::STATUS_CONFIRMED,
                                 'payment_method' => $data['payment_method'],
-                                'paid_at'        => now(),
                                 'confirmed_at'   => $record->confirmed_at ?: now(),
                             ];
 
@@ -1367,6 +1366,24 @@ class BookingInquiryResource extends Resource
                             }
 
                             $record->update($updates);
+
+                            // Phase 16.3 — record as guest payment. Observer auto-sets paid_at.
+                            $amount = filled($data['price'] ?? null)
+                                ? (float) $data['price']
+                                : (float) ($record->price_quoted ?? 0);
+
+                            if ($amount > 0) {
+                                \App\Models\GuestPayment::create([
+                                    'booking_inquiry_id'  => $record->id,
+                                    'amount'              => $amount,
+                                    'currency'            => 'USD',
+                                    'payment_type'        => 'full',
+                                    'payment_method'      => $data['payment_method'] === 'online' ? 'octo' : ($data['payment_method'] ?? 'cash'),
+                                    'payment_date'        => now()->toDateString(),
+                                    'recorded_by_user_id' => auth()->id(),
+                                    'status'              => 'recorded',
+                                ]);
+                            }
 
                             Notification::make()
                                 ->title('Marked as paid')

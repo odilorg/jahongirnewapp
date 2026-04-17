@@ -124,6 +124,22 @@ class GygInquiryWriter
                 'processing_status'  => 'applied',
                 'applied_at'         => now(),
             ]);
+
+            // Phase 16.3 — GYG emails are pre-paid by definition. Record
+            // as guest payment for audit/history. paid_at is already set
+            // on the inquiry so the observer won't override it.
+            if ((float) $inquiry->price_quoted > 0) {
+                \App\Models\GuestPayment::create([
+                    'booking_inquiry_id' => $inquiry->id,
+                    'amount'             => (float) $inquiry->price_quoted,
+                    'currency'           => 'USD',
+                    'payment_type'       => 'full',
+                    'payment_method'     => 'gyg',
+                    'payment_date'       => $email->email_date?->toDateString() ?? now()->toDateString(),
+                    'reference'          => $inquiry->external_reference,
+                    'status'             => 'recorded',
+                ]);
+            }
         });
 
         if (! $inquiry) {

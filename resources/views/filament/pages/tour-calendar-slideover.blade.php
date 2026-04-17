@@ -619,6 +619,67 @@
         @endif
     </div>
 
+    {{-- Guest Payments --}}
+    @php
+        $guestPayments = $inquiry->guestPayments()->orderBy('payment_date', 'desc')->limit(5)->get();
+        $totalReceived = (float) $guestPayments->sum('amount');
+        $quotedAmount  = (float) ($inquiry->price_quoted ?? 0);
+        $outstanding   = $quotedAmount - $totalReceived;
+    @endphp
+    <div class="rounded-lg p-3" style="background: rgba(0,0,0,0.03); margin-top: 12px;">
+        <div class="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider" style="margin-bottom: 8px;">Guest Payments</div>
+
+        <div class="flex justify-between text-xs text-gray-700 dark:text-gray-200" style="margin-bottom: 2px;">
+            <span>Quoted</span>
+            <span class="font-semibold">${{ number_format($quotedAmount, 2) }}</span>
+        </div>
+        <div class="flex justify-between text-xs" style="color: #16a34a; margin-bottom: 2px;">
+            <span>Received</span>
+            <span class="font-semibold">${{ number_format($totalReceived, 2) }}</span>
+        </div>
+        <div class="flex justify-between text-xs font-bold pt-1" style="color: {{ $outstanding > 0 ? '#dc2626' : '#16a34a' }}; border-top: 1px solid rgba(0,0,0,0.08); margin-top: 4px;">
+            <span>Outstanding</span>
+            <span>${{ number_format($outstanding, 2) }} {{ $outstanding > 0 ? '🔴' : '✅' }}</span>
+        </div>
+
+        @if ($guestPayments->isNotEmpty())
+            <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(0,0,0,0.08);">
+                @foreach ($guestPayments as $p)
+                    <div class="text-[11px] text-gray-700 dark:text-gray-300" style="margin-bottom: 2px;">
+                        {{ $p->payment_date?->format('M j') }} · {{ $p->amount < 0 ? '' : '+' }}${{ number_format((float) $p->amount, 2) }} · {{ \App\Models\GuestPayment::METHODS[$p->payment_method] ?? $p->payment_method }} · {{ $p->recordedByUser?->name ?? 'System' }}
+                    </div>
+                @endforeach
+            </div>
+        @endif
+
+        {{-- Quick pay --}}
+        @if ($outstanding > 0 || $outstanding < 0)
+            <div x-data="{ open: false }" style="margin-top: 10px;">
+                <button @click="open = !open; $wire.set('guestPayAmount', '{{ $outstanding }}');" type="button"
+                    class="w-full text-xs font-medium rounded-md px-3 py-1.5 text-white"
+                    style="background: #16a34a;">💰 Record Payment</button>
+                <div x-show="open" x-cloak style="margin-top: 8px; display: flex; gap: 4px; align-items: flex-end;">
+                    <input type="number" wire:model="guestPayAmount" step="0.01"
+                        class="text-xs rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+                        style="flex: 1; padding: 4px 6px;">
+                    <select wire:model="guestPayMethod"
+                        class="text-xs rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+                        style="padding: 4px 6px;">
+                        <option value="cash">Cash</option>
+                        <option value="octo">Octo</option>
+                        <option value="card_office">Card</option>
+                        <option value="bank_transfer">Transfer</option>
+                        <option value="paypal">PayPal</option>
+                        <option value="other">Other</option>
+                    </select>
+                    <button type="button" wire:click="quickGuestPay" @click="open = false"
+                        class="text-[10px] font-medium rounded px-2 py-1 text-white"
+                        style="background: #3b82f6;">Confirm</button>
+                </div>
+            </div>
+        @endif
+    </div>
+
     {{-- Notes (last 3 lines) --}}
     @if ($inquiry->internal_notes)
         <div>
