@@ -165,6 +165,39 @@ class TourCalendarBuilder
             $reasons[] = 'no pickup';
         }
 
+        // Accommodation — Phase 20.8. Aligns UI with Phase 19.3a backend.
+        // State per stay: none | missing-accommodation | assigned | dispatched.
+        // Chip reports the weakest stay: if ANY is missing, show red.
+        $stays = $inq->stays ?? collect();
+        if ($stays->isEmpty()) {
+            $chips['accommodation'] = 'none'; // no stays at all → could be a day tour
+        } else {
+            $notes    = (string) $inq->internal_notes;
+            $allDispatched = true;
+            $anyMissingAcc = false;
+            foreach ($stays as $stay) {
+                if (! $stay->accommodation_id) {
+                    $anyMissingAcc = true;
+                    $allDispatched = false;
+                    continue;
+                }
+                $name = $stay->accommodation?->name;
+                if (! $name || ! str_contains($notes, "Calendar dispatch TG → stay {$name}")) {
+                    $allDispatched = false;
+                }
+            }
+
+            if ($anyMissingAcc) {
+                $chips['accommodation'] = 'missing';
+                $reasons[] = 'accommodation not assigned';
+            } elseif ($allDispatched) {
+                $chips['accommodation'] = 'dispatched';
+            } else {
+                $chips['accommodation'] = 'assigned';
+                $reasons[] = 'accommodation not dispatched';
+            }
+        }
+
         return ['chips' => $chips, 'reasons' => $reasons];
     }
 

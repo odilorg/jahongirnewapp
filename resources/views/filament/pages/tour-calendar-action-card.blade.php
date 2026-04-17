@@ -71,6 +71,24 @@
         <span style="{{ $chipStyle($rc['pickup'] ?? false) }}">
             {{ ($rc['pickup'] ?? false) ? '🟢 Pickup: '.$c['pickup_point'] : '🔴 No pickup location' }}
         </span>
+
+        {{-- Phase 20.8 — Accommodation chip mirrors backend dispatch state --}}
+        @php $accState = $rc['accommodation'] ?? 'none'; @endphp
+        @if ($accState !== 'none')
+            @php
+                $accAccommodations = $c['accommodations'] ?? [];
+                $accLabel = implode(', ', $accAccommodations) ?: 'stay';
+            @endphp
+            <span style="{{ $chipStyle($accState) }}">
+                @if ($accState === 'dispatched')
+                    🟢 Stay: {{ $accLabel }}
+                @elseif ($accState === 'assigned')
+                    🟡 Stay assigned (not dispatched): {{ $accLabel }}
+                @else
+                    🔴 No accommodation
+                @endif
+            </span>
+        @endif
     </div>
 
     {{-- Action reasons (only if any) --}}
