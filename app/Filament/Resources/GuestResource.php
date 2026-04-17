@@ -20,6 +20,10 @@ use App\Filament\Resources\GuestResource\RelationManagers\BookingsRelationManage
 
 class GuestResource extends Resource
 {
+    // Phase 17 cleanup: hidden from navigation — legacy pre-booking_inquiries system.
+    // Model + files kept in place until dependency cleanup is scheduled.
+    protected static bool $shouldRegisterNavigation = false;
+
     protected static ?string $model = Guest::class;
 
     protected static ?string $navigationIcon = 'heroicon-o-user-group';

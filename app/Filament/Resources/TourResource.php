@@ -21,6 +21,10 @@ use App\Filament\Resources\TourResource\RelationManagers;
 
 class TourResource extends Resource
 {
+    // Phase 17 cleanup: hidden from navigation — legacy pre-booking_inquiries system.
+    // Model + files kept in place until dependency cleanup is scheduled.
+    protected static bool $shouldRegisterNavigation = false;
+
     protected static ?string $model = Tour::class;
 
     protected static ?string $navigationIcon = 'heroicon-o-globe-americas';
