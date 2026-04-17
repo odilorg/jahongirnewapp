@@ -182,6 +182,77 @@ class DriverDispatchNotifier
     }
 
     /**
+     * Send a cancellation notice to driver or guide.
+     * Much shorter than a dispatch — just 'tour cancelled' + the essentials.
+     */
+    public function notifyCancellation(BookingInquiry $inquiry, string $role): array
+    {
+        if (! (bool) config('services.tg_direct.enabled', true)) {
+            return ['ok' => false, 'reason' => 'tg_direct_disabled'];
+        }
+
+        $supplier = $role === 'driver' ? $inquiry->driver : $inquiry->guide;
+        if (! $supplier) {
+            return ['ok' => false, 'reason' => "no_{$role}_assigned"];
+        }
+
+        $destination = filled($supplier->telegram_chat_id)
+            ? (string) $supplier->telegram_chat_id
+            : (string) $supplier->phone01;
+
+        if ($destination === '') {
+            return ['ok' => false, 'reason' => "{$role}_no_telegram_or_phone"];
+        }
+
+        $message = $this->buildCancellationMessage($inquiry);
+        $result  = $this->tgDirect->send($destination, $message);
+
+        if (! ($result['ok'] ?? false)) {
+            Log::warning('DriverDispatchNotifier: cancellation send failed', [
+                'reference'   => $inquiry->reference,
+                'role'        => $role,
+                'supplier_id' => $supplier->id,
+                'result'      => $result,
+            ]);
+
+            return ['ok' => false, 'reason' => $result['error'] ?? 'send_failed'];
+        }
+
+        Log::info('DriverDispatchNotifier: cancellation sent', [
+            'reference'   => $inquiry->reference,
+            'role'        => $role,
+            'supplier_id' => $supplier->id,
+            'msg_id'      => $result['msg_id'] ?? null,
+        ]);
+
+        return ['ok' => true, 'msg_id' => (int) ($result['msg_id'] ?? 0)];
+    }
+
+    private function buildCancellationMessage(BookingInquiry $inquiry): string
+    {
+        $template = (string) config('inquiry_templates.supplier_cancellation_uz', '');
+        if ($template === '') {
+            return "❌ Tur bekor qilindi\n\nRef: {$inquiry->reference}";
+        }
+
+        $travelDate = $inquiry->travel_date
+            ? $this->formatUzDate($inquiry->travel_date)
+            : '—';
+
+        return str_replace(
+            ['{travel_date}', '{customer_name}', '{tour}', '{pickup_time}', '{reference}'],
+            [
+                $travelDate,
+                (string) $inquiry->customer_name,
+                (string) $inquiry->tour_name_snapshot,
+                (string) ($inquiry->pickup_time ?? '—'),
+                (string) $inquiry->reference,
+            ],
+            $template
+        );
+    }
+
+    /**
      * Render the Uzbek driver dispatch template with all placeholders
      * filled. Unknown placeholders are left in place so the operator
      * sees them and can clarify before hitting send.
