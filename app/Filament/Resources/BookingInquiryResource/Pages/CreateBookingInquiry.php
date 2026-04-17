@@ -34,6 +34,13 @@ class CreateBookingInquiry extends CreateRecord
         $data['user_agent'] ??= 'Filament admin'
             . ($operator ? ' (' . $operator->name . ')' : '');
 
+        // Phase 15.1 — attribute to the operator who manually created this.
+        // System-created inquiries (GYG, website, WhatsApp) have created_by = null.
+        if ($operator) {
+            $data['created_by_user_id']  ??= $operator->id;
+            $data['assigned_to_user_id'] ??= $operator->id;
+        }
+
         return $data;
     }
 

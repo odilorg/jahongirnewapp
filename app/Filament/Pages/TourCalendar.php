@@ -115,6 +115,8 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
             return;
         }
 
+        $inquiry->assignIfUnowned(auth()->id());
+
         $update = ['driver_id' => $this->assignDriverId];
 
         if ($this->assignDriverRateId) {
@@ -144,6 +146,8 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
             return;
         }
 
+        $inquiry->assignIfUnowned(auth()->id());
+
         $update = ['guide_id' => $this->assignGuideId];
 
         if ($this->assignGuideRateId) {
@@ -171,6 +175,8 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
         if (! $inquiry || ! $this->assignAccommodationId) {
             return;
         }
+
+        $inquiry->assignIfUnowned(auth()->id());
 
         $guests = max(1, (int) ($this->assignAccGuests ?: $inquiry->people_adults));
         $nights = max(1, (int) $this->assignAccNights);
@@ -213,6 +219,8 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
             return;
         }
 
+        $inquiry->assignIfUnowned(auth()->id());
+
         \App\Models\SupplierPayment::create([
             'supplier_type'      => $this->paySupplierType,
             'supplier_id'        => $this->paySupplierIdVal,
@@ -253,6 +261,8 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
             return;
         }
 
+        $inquiry->assignIfUnowned(auth()->id());
+
         $inquiry->update([
             'tour_product_direction_id' => $this->editDirectionId ?: null,
         ]);
@@ -269,6 +279,8 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
         if (! $inquiry) {
             return;
         }
+
+        $inquiry->assignIfUnowned(auth()->id());
 
         $inquiry->update([
             'pickup_time'  => $this->editPickupTime ?: null,

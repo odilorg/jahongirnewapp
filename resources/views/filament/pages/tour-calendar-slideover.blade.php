@@ -20,6 +20,29 @@
         @endif
     </div>
 
+    {{-- Operator attribution --}}
+    <div class="text-xs text-gray-500 dark:text-gray-400" style="display: flex; gap: 12px; flex-wrap: wrap;">
+        <span>
+            👤 Created:
+            <span class="text-gray-800 dark:text-gray-200">
+                {{ $inquiry->createdByUser?->name ?? 'System' }}
+            </span>
+        </span>
+        <span>
+            🎯 Assigned:
+            @if ($inquiry->assignedToUser)
+                <span class="text-gray-800 dark:text-gray-200">{{ $inquiry->assignedToUser->name }}</span>
+            @else
+                <span class="text-danger-500">— unassigned</span>
+            @endif
+        </span>
+        @if ($inquiry->closedByUser)
+            <span>
+                ✅ Closed: <span class="text-gray-800 dark:text-gray-200">{{ $inquiry->closedByUser->name }}</span>
+            </span>
+        @endif
+    </div>
+
     {{-- Tour --}}
     <div>
         <div class="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1">Tour</div>
