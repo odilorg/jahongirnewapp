@@ -98,6 +98,10 @@ final class TourPdfViewModel
      * resolution order TourCatalogExportService uses for `tours.php`
      * so the PDF always agrees with the website.
      *
+     * Tiers always belong to a direction record in this schema — the
+     * "default" direction has code='default'. A literal NULL direction_id
+     * is treated the same way for resilience.
+     *
      * @param  iterable<TourPriceTier>  $tiers
      * @return array<int, array{group_size:int, label:string, price_usd:int|float, is_last:bool}>
      */
@@ -112,10 +116,11 @@ final class TourPdfViewModel
             if ($tier->tour_type !== TourProduct::TYPE_PRIVATE) {
                 continue;
             }
-            // Prefer default (null) direction for the datasheet — if the
-            // tour has direction-specific pricing (sam-bukhara, etc.),
-            // the website shows the default tier as the entry price too.
-            if ($tier->tour_product_direction_id !== null) {
+            // Take default-direction tiers only. Non-default directions
+            // (e.g. sam-bukhara) are variants; the datasheet shows the
+            // base price just like the website does.
+            $directionCode = $tier->direction?->code;
+            if ($directionCode !== null && $directionCode !== 'default') {
                 continue;
             }
 
