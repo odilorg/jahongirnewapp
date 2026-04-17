@@ -547,6 +547,22 @@
     <div class="rounded-lg p-3 space-y-1" style="background: rgba(0,0,0,0.03);">
         <div class="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider">Financials</div>
 
+        {{-- Inline price entry --}}
+        <div style="display: flex; gap: 6px; align-items: flex-end; margin-bottom: 6px; padding-bottom: 8px; border-bottom: 1px solid rgba(0,0,0,0.08);">
+            <div style="flex: 1;">
+                <label class="text-[10px] text-gray-500 dark:text-gray-400">Price quoted</label>
+                <input type="number" wire:model="editPriceQuoted" step="0.01" placeholder="220.00"
+                    class="w-full text-xs rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+                    style="padding: 4px 6px;">
+            </div>
+            <button type="button" wire:click="quickSavePrice"
+                class="text-xs font-medium rounded-md px-3 py-1.5 text-white"
+                style="background: #3b82f6;"
+                onmouseover="this.style.background='#2563eb'" onmouseout="this.style.background='#3b82f6'">
+                Save
+            </button>
+        </div>
+
         @if ($gross > 0)
             <div class="flex justify-between text-sm text-gray-900 dark:text-gray-100">
                 <span>{{ $hasCommission ? 'Gross (guest paid)' : 'Revenue' }}</span>
