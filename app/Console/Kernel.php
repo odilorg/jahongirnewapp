@@ -28,6 +28,14 @@ class Kernel extends ConsoleKernel
             ->withoutOverlapping()
             ->runInBackground();
 
+        // Phase 22 — daily evening operator recap via Telegram at 19:00 Tashkent.
+        // Snapshot of tomorrows tours + readiness gaps + reminders.
+        $schedule->command('recap:send-daily')
+            ->dailyAt('19:00')
+            ->timezone('Asia/Tashkent')
+            ->withoutOverlapping()
+            ->runInBackground();
+
         // Removed 2026-04-15: app:send-scheduled-messages scheduler disabled
         // (scheduled_messages table unused; feature deprecated)
 
