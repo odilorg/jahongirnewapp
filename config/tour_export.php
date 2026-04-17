@@ -46,4 +46,19 @@ return [
     // Defaults to true. Set TOUR_AUTO_EXPORT=false in .env to pause
     // observer-driven auto-exports without reverting code.
     'auto_export_enabled' => env('TOUR_AUTO_EXPORT', true),
+
+    // ── PDF datasheet exporter (TourPdfExportService) ──────────────
+    // Root for PDF output — same VPS, same filesystem as the static
+    // site so atomic temp+rename is safe. Each tour's pdf_relative_path
+    // on the model is joined to this root.
+    'pdf_output_root' => env('TOUR_EXPORT_PDF_ROOT', '/domains/jahongir-travel.uz'),
+
+    // Sanity bound. Any rendered PDF smaller than this is treated as
+    // broken; the exporter aborts the rename and keeps the existing
+    // file intact. Tuned for dompdf — a valid itinerary PDF is 30–80 KB.
+    'pdf_min_bytes' => 8000,
+
+    // V1 is manual only. When observer auto-export learns to regenerate
+    // PDFs too (Phase 2), flip this in .env without a code change.
+    'pdf_auto_export_enabled' => env('TOUR_PDF_AUTO_EXPORT', false),
 ];

@@ -54,6 +54,8 @@ class TourProduct extends Model
         'page_url',
         'meta_description',
         'is_active',
+        'pdf_enabled',
+        'pdf_relative_path',
         'sort_order',
         'source_type',
         'source_path',
@@ -64,6 +66,7 @@ class TourProduct extends Model
     protected $casts = [
         'highlights'        => 'array',
         'is_active'         => 'boolean',
+        'pdf_enabled'       => 'boolean',
         'starting_from_usd' => 'decimal:2',
         'last_imported_at'  => 'datetime',
     ];
