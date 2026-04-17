@@ -1831,4 +1831,11 @@ class BookingInquiryResource extends Resource
             'direction_code' => $directionCode,
         ];
     }
+
+    public static function getRelations(): array
+    {
+        return [
+            BookingInquiryResource\RelationManagers\GuestPaymentsRelationManager::class,
+        ];
+    }
 }
