@@ -6,6 +6,7 @@ use Filament\Http\Middleware\Authenticate;
 use BezhanSalleh\FilamentShield\FilamentShieldPlugin;
 use Filament\Http\Middleware\DisableBladeIconComponents;
 use Filament\Http\Middleware\DispatchServingFilamentEvent;
+use Filament\Navigation\NavigationGroup;
 use Filament\Pages;
 use Filament\Panel;
 use Filament\PanelProvider;
@@ -58,6 +59,16 @@ class AdminPanelProvider extends PanelProvider
             ])
             ->plugins([
                 FilamentShieldPlugin::make(),
+            ])
+            // Phase 17 — logical grouping. Order matters: visible top → bottom.
+            // Core daily actions (Operations/Money/Suppliers) stay expanded;
+            // low-frequency groups (Catalog/Feedback) start collapsed.
+            ->navigationGroups([
+                NavigationGroup::make('Operations')->icon('heroicon-o-calendar-days'),
+                NavigationGroup::make('Money')->icon('heroicon-o-banknotes'),
+                NavigationGroup::make('Suppliers')->icon('heroicon-o-user-group'),
+                NavigationGroup::make('Catalog')->icon('heroicon-o-map')->collapsed(),
+                NavigationGroup::make('Feedback')->icon('heroicon-o-star')->collapsed(),
             ])
             ->authMiddleware([
                 Authenticate::class,

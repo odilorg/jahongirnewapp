@@ -20,8 +20,8 @@ class GuestPaymentResource extends Resource
 
     protected static ?string $navigationIcon  = 'heroicon-o-credit-card';
     protected static ?string $navigationLabel = 'Guest Payments';
-    protected static ?string $navigationGroup = 'Tours';
-    protected static ?int    $navigationSort  = 60;
+    protected static ?string $navigationGroup = 'Money';
+    protected static ?int    $navigationSort  = 30;
 
     public static function form(Form $form): Form
     {
