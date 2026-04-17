@@ -1407,6 +1407,108 @@ class BookingInquiryResource extends Resource
                             Notification::make()->title('Marked as cancelled')->warning()->send();
                         }),
 
+                    Tables\Actions\Action::make('convertToDirect')
+                        ->label('Convert to Direct')
+                        ->icon('heroicon-o-arrow-path')
+                        ->color('success')
+                        ->visible(fn (BookingInquiry $record): bool =>
+                            $record->status === BookingInquiry::STATUS_CANCELLED
+                            && in_array($record->source, ['gyg', 'viator'], true)
+                        )
+                        ->modalHeading('Convert cancelled OTA booking to direct')
+                        ->modalDescription(fn (BookingInquiry $record) =>
+                            "This reactivates a cancelled {$record->source} booking as a direct one. Guest: {$record->customer_name}. Original ref: {$record->external_reference}. Note: OTA may still send follow-up emails — this booking will no longer be linked to them."
+                        )
+                        ->form([
+                            Forms\Components\Select::make('new_source')
+                                ->label('New source')
+                                ->options([
+                                    'whatsapp' => 'WhatsApp',
+                                    'manual'   => 'Manual / Office',
+                                    'website'  => 'Website',
+                                    'phone'    => 'Phone',
+                                ])
+                                ->required()
+                                ->native(false)
+                                ->default('whatsapp'),
+                            Forms\Components\TextInput::make('price')
+                                ->label('New price quoted')
+                                ->prefix('$')
+                                ->numeric()
+                                ->step('0.01')
+                                ->minValue(0.01)
+                                ->required()
+                                ->default(fn (BookingInquiry $record) => (string) ($record->price_quoted ?? '')),
+                            Forms\Components\Textarea::make('operator_note')
+                                ->label('Operator note (optional)')
+                                ->rows(2)
+                                ->placeholder('e.g. Guest cancelled via GYG to book direct by WhatsApp'),
+                        ])
+                        ->modalSubmitActionLabel('Convert booking')
+                        ->action(function (BookingInquiry $record, array $data): void {
+                            // Enforce non-OTA source server-side (guard against form tampering).
+                            if (! in_array($data['new_source'], ['whatsapp', 'manual', 'website', 'phone'], true)) {
+                                Notification::make()->title('Invalid source')->danger()->send();
+                                return;
+                            }
+
+                            \Illuminate\Support\Facades\DB::transaction(function () use ($record, $data) {
+                                $originalSource       = $record->source;
+                                $originalRef          = $record->external_reference;
+                                $originalCancelledAt  = $record->cancelled_at?->format('Y-m-d H:i');
+                                $originalCommission   = $record->commission_rate;
+                                $hadDriver            = (bool) $record->driver_id;
+                                $hadGuide             = (bool) $record->guide_id;
+
+                                $record->update([
+                                    'status'             => BookingInquiry::STATUS_AWAITING_PAYMENT,
+                                    'source'             => $data['new_source'],
+                                    'price_quoted'       => $data['price'],
+                                    'cancelled_at'       => null,
+                                    'external_reference' => null,
+                                    'commission_rate'    => 0,
+                                    'commission_amount'  => 0,
+                                    'net_revenue'        => null,
+                                ]);
+
+                                $noteLines = [
+                                    'Converted cancelled OTA booking to direct.',
+                                    "  Original source: {$originalSource}",
+                                    "  Original external_reference: " . ($originalRef ?: '—'),
+                                    "  Original cancelled_at: " . ($originalCancelledAt ?: '—'),
+                                    "  Original commission_rate: {$originalCommission}%",
+                                    "  New source: {$data['new_source']}",
+                                    "  New price: \${$data['price']}",
+                                    "  Operator: " . (auth()->user()?->name ?? 'unknown'),
+                                ];
+
+                                if ($hadDriver || $hadGuide) {
+                                    $suppliers = [];
+                                    if ($hadDriver) $suppliers[] = 'driver';
+                                    if ($hadGuide)  $suppliers[] = 'guide';
+                                    $noteLines[] = '  ⚠️ ' . implode(' + ', $suppliers)
+                                        . ' were previously notified of cancellation — re-confirm assignment manually.';
+                                }
+
+                                if (! empty($data['operator_note'])) {
+                                    $noteLines[] = "  Operator note: {$data['operator_note']}";
+                                }
+
+                                $timestamp = now()->format('Y-m-d H:i');
+                                $existing  = $record->internal_notes ?? '';
+                                $separator = $existing ? "\n\n" : '';
+                                $record->update([
+                                    'internal_notes' => $existing . $separator . "[{$timestamp}] " . implode("\n", $noteLines),
+                                ]);
+                            });
+
+                            Notification::make()
+                                ->title('Converted to direct booking')
+                                ->body('Status: Awaiting payment. Generate payment link or record offline payment next.')
+                                ->success()
+                                ->send();
+                        }),
+
                     Tables\Actions\Action::make('markSpam')
                         ->label('Spam')
                         ->icon('heroicon-o-no-symbol')
