@@ -131,6 +131,10 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
     // Quick price
     public ?string $editPriceQuoted = null;
 
+    // Reminder
+    public ?string $reminderRemindAt = null;
+    public ?string $reminderMessage = null;
+
     // Guest payment
     public ?string $guestPayAmount = null;
     public string $guestPayMethod = 'cash';
@@ -198,6 +202,81 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
         $inquiry->update($updates);
 
         Notification::make()->title("Price saved: \${$gross}")->success()->send();
+    }
+
+    /**
+     * Phase 21 — create a reminder linked to this inquiry.
+     */
+    public function createReminder(): void
+    {
+        $inquiry = BookingInquiry::find($this->selectedInquiryId);
+        if (! $inquiry || ! $this->reminderRemindAt || ! $this->reminderMessage) {
+            return;
+        }
+
+        \App\Models\InquiryReminder::create([
+            'booking_inquiry_id'  => $inquiry->id,
+            'remind_at'           => $this->reminderRemindAt,
+            'message'             => $this->reminderMessage,
+            'created_by_user_id'  => auth()->id(),
+            'assigned_to_user_id' => auth()->id(),
+            'status'              => 'pending',
+        ]);
+
+        Notification::make()
+            ->title('Reminder set')
+            ->body('You will be reminded: ' . \Carbon\Carbon::parse($this->reminderRemindAt)->format('M j, H:i'))
+            ->success()
+            ->send();
+
+        $this->reminderRemindAt = null;
+        $this->reminderMessage = null;
+    }
+
+    /**
+     * Preset a reminder date: +1 day, +3 days, +1 week, day before travel.
+     */
+    public function reminderPreset(string $preset): void
+    {
+        $inquiry = BookingInquiry::find($this->selectedInquiryId);
+        if (! $inquiry) return;
+
+        $this->reminderRemindAt = match ($preset) {
+            '1d'     => now()->addDay()->setTime(10, 0)->format('Y-m-d H:i'),
+            '3d'     => now()->addDays(3)->setTime(10, 0)->format('Y-m-d H:i'),
+            '1w'     => now()->addWeek()->setTime(10, 0)->format('Y-m-d H:i'),
+            'pre'    => $inquiry->travel_date
+                ? $inquiry->travel_date->copy()->subDays(2)->setTime(10, 0)->format('Y-m-d H:i')
+                : null,
+            default  => null,
+        };
+    }
+
+    public function markReminderDone(int $reminderId): void
+    {
+        $r = \App\Models\InquiryReminder::find($reminderId);
+        if (! $r) return;
+
+        $r->update([
+            'status'               => 'done',
+            'completed_at'         => now(),
+            'completed_by_user_id' => auth()->id(),
+        ]);
+
+        Notification::make()->title('Reminder marked done')->success()->send();
+    }
+
+    public function snoozeReminder(int $reminderId, int $days = 1): void
+    {
+        $r = \App\Models\InquiryReminder::find($reminderId);
+        if (! $r) return;
+
+        $r->update([
+            'remind_at'   => $r->remind_at->addDays($days),
+            'notified_at' => null,
+        ]);
+
+        Notification::make()->title("Snoozed {$days} day(s)")->success()->send();
     }
 
     /**
@@ -437,6 +516,11 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
         $this->editDirectionId   = $inquiry?->tour_product_direction_id;
         $this->reassignUserId    = $inquiry?->assigned_to_user_id;
         $this->editPriceQuoted   = $inquiry?->price_quoted ? (string) $inquiry->price_quoted : null;
+        // Smart default reminder: day before travel at 10:00, else +1 day
+        $this->reminderRemindAt  = $inquiry?->travel_date
+            ? $inquiry->travel_date->copy()->subDay()->setTime(10, 0)->format('Y-m-d H:i')
+            : now()->addDay()->setTime(10, 0)->format('Y-m-d H:i');
+        $this->reminderMessage   = null;
 
         // Smart default: if yurt camp tour + no stay yet, pre-select Aydarkul
         $hasStays = $inquiry?->stays()->exists();

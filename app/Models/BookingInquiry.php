@@ -232,6 +232,18 @@ class BookingInquiry extends Model
         return $this->hasMany(GuestPayment::class)->where('status', 'recorded');
     }
 
+    public function reminders()
+    {
+        return $this->hasMany(InquiryReminder::class)->orderBy('remind_at');
+    }
+
+    public function pendingReminders()
+    {
+        return $this->hasMany(InquiryReminder::class)
+            ->where('status', 'pending')
+            ->orderBy('remind_at');
+    }
+
     public function totalReceived(): float
     {
         return (float) GuestPayment::where('booking_inquiry_id', $this->id)
