@@ -19,11 +19,11 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('booking_inquiries', function (Blueprint $table) {
-            $table->foreignId('created_by_user_id')->nullable()->after('notes')
+            $table->foreignId('created_by_user_id')->nullable()
                 ->constrained('users')->nullOnDelete();
-            $table->foreignId('assigned_to_user_id')->nullable()->after('created_by_user_id')
+            $table->foreignId('assigned_to_user_id')->nullable()
                 ->constrained('users')->nullOnDelete();
-            $table->foreignId('closed_by_user_id')->nullable()->after('assigned_to_user_id')
+            $table->foreignId('closed_by_user_id')->nullable()
                 ->constrained('users')->nullOnDelete();
 
             $table->index('assigned_to_user_id');
