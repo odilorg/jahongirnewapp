@@ -227,6 +227,54 @@ class BookingInquiry extends Model
         $this->save();
     }
 
+    public function guestPayments()
+    {
+        return $this->hasMany(GuestPayment::class)->where('status', 'recorded');
+    }
+
+    public function totalReceived(): float
+    {
+        return (float) GuestPayment::where('booking_inquiry_id', $this->id)
+            ->where('status', 'recorded')
+            ->sum('amount');
+    }
+
+    public function outstanding(): float
+    {
+        return (float) ($this->price_quoted ?? 0) - $this->totalReceived();
+    }
+
+    /**
+     * Auto-update paid_at + closed_by based on received payments.
+     * Called by GuestPayment observer after any create/update/delete.
+     */
+    public function recomputePaymentStatus(): void
+    {
+        $quoted   = (float) ($this->price_quoted ?? 0);
+        $received = $this->totalReceived();
+
+        // Fully paid and no paid_at yet → set it
+        if ($quoted > 0 && $received >= $quoted && ! $this->paid_at) {
+            $this->paid_at = now();
+            if ($this->status === self::STATUS_AWAITING_PAYMENT) {
+                $this->status = self::STATUS_CONFIRMED;
+            }
+            // Phase 15.3 close attribution
+            if (! $this->closed_by_user_id) {
+                $this->closed_by_user_id = $this->assigned_to_user_id
+                    ?? $this->created_by_user_id;
+            }
+            $this->saveQuietly();
+            return;
+        }
+
+        // Refunded below threshold → unmark paid
+        if ($quoted > 0 && $received < $quoted && $this->paid_at) {
+            $this->paid_at = null;
+            $this->saveQuietly();
+        }
+    }
+
     /**
      * Catalog link — the tour PRODUCT this inquiry corresponds to.
      * Nullable: inquiries for tours not yet in the catalog, or
