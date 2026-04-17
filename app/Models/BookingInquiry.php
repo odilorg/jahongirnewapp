@@ -145,6 +145,9 @@ class BookingInquiry extends Model
         'guide_cost_override_reason',
         'other_costs',
         'cost_notes',
+        'created_by_user_id',
+        'assigned_to_user_id',
+        'closed_by_user_id',
         'pickup_time',
         'pickup_point',
         'dropoff_point',
@@ -191,6 +194,37 @@ class BookingInquiry extends Model
     public function guide(): BelongsTo
     {
         return $this->belongsTo(Guide::class);
+    }
+
+    public function createdByUser(): BelongsTo
+    {
+        return $this->belongsTo(\App\Models\User::class, 'created_by_user_id');
+    }
+
+    public function assignedToUser(): BelongsTo
+    {
+        return $this->belongsTo(\App\Models\User::class, 'assigned_to_user_id');
+    }
+
+    public function closedByUser(): BelongsTo
+    {
+        return $this->belongsTo(\App\Models\User::class, 'closed_by_user_id');
+    }
+
+    /**
+     * Assign an operator to this inquiry if not already assigned.
+     * First-touch ownership — does NOT overwrite an existing assignment.
+     */
+    public function assignIfUnowned(?int $userId): void
+    {
+        if (! $userId) {
+            return;
+        }
+        if ($this->assigned_to_user_id) {
+            return;
+        }
+        $this->assigned_to_user_id = $userId;
+        $this->save();
     }
 
     /**
