@@ -21,6 +21,9 @@ use App\Filament\Resources\RatingResource\RelationManagers;
 
 class RatingResource extends Resource
 {
+    // Phase 17 cleanup: hidden — depends on legacy Booking model (0 rows).
+    protected static bool $shouldRegisterNavigation = false;
+
     protected static ?string $model = Rating::class;
 
     protected static ?string $navigationIcon = 'heroicon-o-rectangle-stack';
