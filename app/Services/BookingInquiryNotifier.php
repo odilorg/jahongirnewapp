@@ -36,6 +36,33 @@ class BookingInquiryNotifier
     }
 
     /**
+     * Send a 🔄 amendment-received notification to operator. Used when
+     * a GYG amendment email arrives and needs manual review — operator
+     * should NOT get the "🆕 new inquiry" message.
+     */
+    public function notifyAmendmentReceived(BookingInquiry $inquiry): void
+    {
+        $lines = [
+            '🔄 <b>OTA booking amended — manual review required</b>',
+            "<code>{$inquiry->reference}</code>",
+            '',
+            '🧳 <b>Tour:</b> ' . htmlspecialchars((string) $inquiry->tour_name_snapshot, ENT_QUOTES, 'UTF-8'),
+            '👤 <b>Customer:</b> ' . htmlspecialchars((string) $inquiry->customer_name, ENT_QUOTES, 'UTF-8'),
+            '',
+            '⚠️ GYG sent an amendment email (date/pax/option may have changed).',
+            '⚠️ Check the email manually and edit the booking — the observer',
+            '   will auto-notify assigned driver/guide after you save.',
+        ];
+
+        if ($inquiry->external_reference) {
+            $lines[] = '';
+            $lines[] = "Ref: {$inquiry->external_reference}";
+        }
+
+        $this->send($inquiry, implode("\n", $lines));
+    }
+
+    /**
      * Send a 💰 "payment received" Telegram notification when Octo's
      * webhook confirms a successful payment for an inquiry. Called from
      * OctoCallbackController::handleInquiryCallback().
