@@ -182,6 +182,118 @@ class DriverDispatchNotifier
     }
 
     /**
+     * Phase 19.1 — notify a supplier that a field on their booking has changed.
+     * Only called when the supplier was previously dispatched. Message
+     * consolidates ALL changed fields into a single short alert.
+     *
+     * @param array<string, array{old: string, new: string, label: string}> $changes
+     */
+    public function notifyAmendment(BookingInquiry $inquiry, string $role, array $changes): array
+    {
+        if (! (bool) config('services.tg_direct.enabled', true)) {
+            return ['ok' => false, 'reason' => 'tg_direct_disabled'];
+        }
+
+        $supplier = $role === 'driver' ? $inquiry->driver : $inquiry->guide;
+        if (! $supplier) {
+            return ['ok' => false, 'reason' => "no_{$role}_assigned"];
+        }
+
+        $destination = filled($supplier->telegram_chat_id)
+            ? (string) $supplier->telegram_chat_id
+            : (string) $supplier->phone01;
+
+        if ($destination === '') {
+            return ['ok' => false, 'reason' => "{$role}_no_telegram_or_phone"];
+        }
+
+        $message = $this->buildAmendmentMessage($inquiry, $changes);
+        $result  = $this->tgDirect->send($destination, $message);
+
+        if (! ($result['ok'] ?? false)) {
+            Log::warning('DriverDispatchNotifier: amendment send failed', [
+                'reference' => $inquiry->reference,
+                'role'      => $role,
+                'result'    => $result,
+            ]);
+            return ['ok' => false, 'reason' => $result['error'] ?? 'send_failed'];
+        }
+
+        Log::info('DriverDispatchNotifier: amendment sent', [
+            'reference' => $inquiry->reference,
+            'role'      => $role,
+            'changes'   => array_keys($changes),
+            'msg_id'    => $result['msg_id'] ?? null,
+        ]);
+
+        return ['ok' => true, 'msg_id' => (int) ($result['msg_id'] ?? 0)];
+    }
+
+    /**
+     * Phase 19.1 — notify a supplier they've been removed from a tour
+     * (either reassigned to someone else, or unassigned entirely).
+     * Takes the supplier as argument because at this point the inquiry
+     * already has the NEW assignment.
+     */
+    public function notifySupplierRemoved(BookingInquiry $inquiry, string $role, $supplier): array
+    {
+        if (! (bool) config('services.tg_direct.enabled', true)) {
+            return ['ok' => false, 'reason' => 'tg_direct_disabled'];
+        }
+
+        $destination = filled($supplier->telegram_chat_id)
+            ? (string) $supplier->telegram_chat_id
+            : (string) $supplier->phone01;
+
+        if ($destination === '') {
+            return ['ok' => false, 'reason' => "{$role}_no_telegram_or_phone"];
+        }
+
+        $travelDate = $inquiry->travel_date
+            ? $this->formatUzDate($inquiry->travel_date)
+            : '—';
+
+        $message = "❌ Tur jadvalingizdan olib tashlandi\n\n"
+            . "📅 Sana: {$travelDate}\n"
+            . "👤 Mehmon: {$inquiry->customer_name}\n"
+            . "📋 Ref: {$inquiry->reference}";
+
+        $result = $this->tgDirect->send($destination, $message);
+
+        Log::info('DriverDispatchNotifier: supplier removal notice', [
+            'reference' => $inquiry->reference,
+            'role'      => $role,
+            'supplier'  => $supplier->id,
+            'ok'        => $result['ok'] ?? false,
+        ]);
+
+        return $result['ok'] ?? false
+            ? ['ok' => true, 'msg_id' => (int) ($result['msg_id'] ?? 0)]
+            : ['ok' => false, 'reason' => $result['error'] ?? 'send_failed'];
+    }
+
+    private function buildAmendmentMessage(BookingInquiry $inquiry, array $changes): string
+    {
+        $lines = [
+            '🔄 Tur yangilandi (UPDATED)',
+            '',
+            "📋 Ref: {$inquiry->reference}",
+            "👤 Mehmon: {$inquiry->customer_name}",
+            '',
+            "O'zgarishlar:",
+        ];
+
+        foreach ($changes as $c) {
+            $lines[] = "  {$c['label']}: {$c['old']} → {$c['new']}";
+        }
+
+        $lines[] = '';
+        $lines[] = 'Iltimos jadvalingizni yangilang.';
+
+        return implode("\n", $lines);
+    }
+
+    /**
      * Send a cancellation notice to driver or guide.
      * Much shorter than a dispatch — just 'tour cancelled' + the essentials.
      */

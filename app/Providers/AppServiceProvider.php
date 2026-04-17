@@ -54,6 +54,11 @@ class AppServiceProvider extends ServiceProvider
     {
         Booking::observe(BookingObserver::class);
 
+        // Phase 19.1 — fire supplier amendment notifications when a dispatched
+        // booking's critical fields (date/time/pickup/pax) change. Also handles
+        // driver/guide reassignment (removal notice + fresh dispatch).
+        \App\Models\BookingInquiry::observe(\App\Observers\BookingInquiryObserver::class);
+
         // Auto-export the tour pricing catalog to the static site whenever
         // any catalog row changes through Filament. See AutoExportScheduler
         // for the after-response coalesced execution model.

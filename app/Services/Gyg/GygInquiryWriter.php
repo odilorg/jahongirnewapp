@@ -288,10 +288,11 @@ class GygInquiryWriter
             ]);
         });
 
-        // Notify after commit
+        // Notify after commit — use the correct amendment template, not
+        // the "🆕 New website inquiry" generic message.
         if ($inquiry) {
             try {
-                $this->notifier->notify($inquiry->fresh());
+                $this->notifier->notifyAmendmentReceived($inquiry->fresh());
             } catch (\Throwable $e) {
                 Log::warning('GygInquiryWriter: amendment notification failed', [
                     'inquiry_id' => $inquiry->id,
