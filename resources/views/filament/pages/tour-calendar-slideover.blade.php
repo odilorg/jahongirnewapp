@@ -13,6 +13,12 @@
         <span class="text-xs text-gray-500 dark:text-gray-400">
             {{ \App\Models\BookingInquiry::SOURCE_LABELS[$inquiry->source] ?? $inquiry->source }}
         </span>
+        @if ($inquiry->external_reference)
+            <span class="text-xs" style="background: #fed7aa; color: #9a3412; padding: 2px 6px; border-radius: 4px; font-family: monospace; font-weight: 600;"
+                title="{{ strtoupper($inquiry->source) }} reference">
+                <x-copyable-field :value="$inquiry->external_reference" :display="$inquiry->external_reference" />
+            </span>
+        @endif
         @if ($inquiry->paid_at)
             <span class="text-xs text-success-600 dark:text-success-400">💰 Paid {{ $inquiry->paid_at->format('M j') }}</span>
         @elseif ($inquiry->payment_link)
