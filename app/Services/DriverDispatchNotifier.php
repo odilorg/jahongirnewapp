@@ -182,6 +182,104 @@ class DriverDispatchNotifier
     }
 
     /**
+     * Phase 19.3a — notify an accommodation that a stay field has changed.
+     * Only called when the accommodation was previously dispatched. Message
+     * consolidates ALL changed fields into a single short alert.
+     *
+     * @param array<string, array{old: string, new: string, label: string}> $changes
+     */
+    public function notifyStayAmendment(BookingInquiry $inquiry, InquiryStay $stay, array $changes): array
+    {
+        if (! (bool) config('services.tg_direct.enabled', true)) {
+            return ['ok' => false, 'reason' => 'tg_direct_disabled'];
+        }
+
+        $accommodation = $stay->accommodation;
+        if (! $accommodation) {
+            return ['ok' => false, 'reason' => 'no_accommodation'];
+        }
+
+        $phone = (string) $accommodation->phone_primary;
+        if ($phone === '') {
+            return ['ok' => false, 'reason' => 'accommodation_missing_phone'];
+        }
+
+        $message = $this->buildStayAmendmentMessage($inquiry, $changes);
+        $result  = $this->tgDirect->send($phone, $message);
+
+        Log::info('DriverDispatchNotifier: stay amendment sent', [
+            'reference'        => $inquiry->reference,
+            'stay_id'          => $stay->id,
+            'accommodation_id' => $accommodation->id,
+            'changes'          => array_keys($changes),
+            'ok'               => $result['ok'] ?? false,
+            'msg_id'           => $result['msg_id'] ?? null,
+        ]);
+
+        return $result['ok'] ?? false
+            ? ['ok' => true, 'msg_id' => (int) ($result['msg_id'] ?? 0)]
+            : ['ok' => false, 'reason' => $result['error'] ?? 'send_failed'];
+    }
+
+    /**
+     * Phase 19.3a — notify an accommodation that a stay has been removed
+     * (reassigned to different acc, or unassigned entirely).
+     */
+    public function notifyStayRemoved(BookingInquiry $inquiry, InquiryStay $stay, $accommodation): array
+    {
+        if (! (bool) config('services.tg_direct.enabled', true)) {
+            return ['ok' => false, 'reason' => 'tg_direct_disabled'];
+        }
+
+        $phone = (string) ($accommodation->phone_primary ?? '');
+        if ($phone === '') {
+            return ['ok' => false, 'reason' => 'accommodation_missing_phone'];
+        }
+
+        $stayDate = $stay->stay_date
+            ? $this->formatUzDate($stay->stay_date)
+            : '—';
+
+        $message = "❌ Bron bekor qilindi / olib tashlandi\n\n"
+            . "📅 Sana: {$stayDate}\n"
+            . "👤 Mehmon: {$inquiry->customer_name}\n"
+            . "📋 Ref: {$inquiry->reference}";
+
+        $result = $this->tgDirect->send($phone, $message);
+
+        Log::info('DriverDispatchNotifier: stay removal notice', [
+            'reference'        => $inquiry->reference,
+            'stay_id'          => $stay->id,
+            'accommodation_id' => $accommodation->id ?? null,
+            'ok'               => $result['ok'] ?? false,
+        ]);
+
+        return $result['ok'] ?? false
+            ? ['ok' => true, 'msg_id' => (int) ($result['msg_id'] ?? 0)]
+            : ['ok' => false, 'reason' => $result['error'] ?? 'send_failed'];
+    }
+
+    private function buildStayAmendmentMessage(BookingInquiry $inquiry, array $changes): string
+    {
+        $lines = [
+            '🔄 Yangilanish — bron',
+            '',
+            "📋 Ref: {$inquiry->reference}",
+            "👤 {$inquiry->customer_name}",
+            '',
+        ];
+
+        foreach ($changes as $c) {
+            $lines[] = "{$c['label']}: {$c['old']} → {$c['new']}";
+        }
+
+        $lines[] = '';
+        $lines[] = 'Iltimos bronni yangilang.';
+
+        return implode("\n", $lines);
+    }
+
+    /**
      * Phase 19.1 — notify a supplier that a field on their booking has changed.
      * Only called when the supplier was previously dispatched. Message
      * consolidates ALL changed fields into a single short alert.
