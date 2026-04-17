@@ -125,16 +125,32 @@ class BookingInquiryObserver
         return $changes;
     }
 
+    /**
+     * A supplier was "dispatched" once they received their first TG about
+     * this inquiry. The codebase has accumulated 3 different marker shapes
+     * over time — check all of them.
+     */
     private function wasDispatched(BookingInquiry $inquiry, string $role): bool
     {
         $notes = (string) $inquiry->internal_notes;
-        $marker = $role === 'driver'
-            ? 'Driver dispatch sent'
-            : 'Guide dispatch sent';
+        if ($notes === '') {
+            return false;
+        }
 
-        return str_contains($notes, $marker)
-            // Fallback: older dispatches used this form
-            || str_contains(strtolower($notes), "{$role} dispatched");
+        $patterns = [
+            "Calendar dispatch TG → {$role}",    // slide-over dispatch (current)
+            "Dispatch TG → {$role}",             // older resource action shape
+            ucfirst($role) . ' dispatch sent',   // what Phase 17 cancellation marker writes
+            "{$role} dispatched",                // generic fallback
+        ];
+
+        foreach ($patterns as $p) {
+            if (str_contains($notes, $p) || str_contains(strtolower($notes), strtolower($p))) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function notifySupplierRemoved(
