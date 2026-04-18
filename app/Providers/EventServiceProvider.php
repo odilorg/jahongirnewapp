@@ -2,6 +2,8 @@
 
 namespace App\Providers;
 
+use App\Events\Ledger\LedgerEntryRecorded;
+use App\Listeners\Ledger\UpdateBalanceProjections;
 use Illuminate\Auth\Events\Registered;
 use Illuminate\Auth\Listeners\SendEmailVerificationNotification;
 use Illuminate\Foundation\Support\Providers\EventServiceProvider as ServiceProvider;
@@ -17,6 +19,13 @@ class EventServiceProvider extends ServiceProvider
     protected $listen = [
         Registered::class => [
             SendEmailVerificationNotification::class,
+        ],
+
+        // L-005 — keep ledger balance projections in sync with every
+        // ledger write. Synchronous listener; runs inside the ledger
+        // write transaction so the projection and the entry are atomic.
+        LedgerEntryRecorded::class => [
+            UpdateBalanceProjections::class,
         ],
     ];
 
