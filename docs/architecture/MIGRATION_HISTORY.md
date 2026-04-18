@@ -53,6 +53,67 @@ v2 already includes `SET FOREIGN_KEY_CHECKS=0 + Schema::dropIfExists
 v2 already includes `Schema::dropIfExists + recreate + FK re-add`, so
 `migrate:fresh` succeeds. Leaving both files in place.
 
+### `supplier_payments` — fixed
+
+Discovered during L-001 verification on 2026-04-18 when the first
+`migrate:fresh` attempt failed **after** the guest_payments fix. The
+phase-1 inventory grep had not flagged this pair because the two
+files are 20 months apart.
+
+- **v1** (`2024_08_22_130240_create_supplier_payments_table`) —
+  original tour-centric schema (`tour_booking_id`, `driver_id`,
+  `guide_id`, `amount_paid`).
+- **v2** (`2026_04_16_000010_create_supplier_payments_table`) —
+  replaced with polymorphic `(supplier_type, supplier_id)` + nullable
+  `booking_inquiry_id` design.
+
+**Anomaly:** identical to the guest_payments case — v2's `up()`
+originally had no `Schema::dropIfExists`, so `migrate:fresh` failed
+after v1 created the table.
+
+**Fix (L-001 extension, 2026-04-18):**
+1. Added `Schema::dropIfExists('supplier_payments')` at the top of
+   v2's `up()`.
+2. Added a DEPRECATED docblock to v1.
+
+### `telegram_pos_sessions` — no change needed
+
+v2 (`2025_10_18_235845`) already includes `Schema::dropIfExists` in
+`up()`.
+
+### `room_statuses` — no change needed
+
+v2 (`2026_03_11_000002_rebuild_housekeeping_tables`) already drops
+before recreate.
+
+### `jobs` — no change needed
+
+v2 (`2026_03_12_220000_create_jobs_and_failed_jobs_tables`) uses
+`if (! Schema::hasTable('jobs'))` guards for idempotency. Same pattern
+for `job_batches`, `failed_jobs`.
+
+### `bot_analytics` — no change needed
+
+v2 (`2025_10_14_002118`) uses an early `if (Schema::hasTable('bot_analytics'))
+return;` guard.
+
+### Full audit — all 8 duplicate `Schema::create` pairs
+
+| Pair | Protection in v2 | Status after L-001 |
+|---|---|---|
+| `booking_fx_syncs` | `SET FK=0` + `dropIfExists` | ✅ healthy |
+| `fx_manager_approvals` | `dropIfExists` + FK re-add | ✅ healthy |
+| `guest_payments` | `dropIfExists` (added by L-001) | ✅ healthy |
+| `supplier_payments` | `dropIfExists` (added by L-001 extension) | ✅ healthy |
+| `telegram_pos_sessions` | `dropIfExists` in up() | ✅ healthy |
+| `room_statuses` | `dropIfExists` in up() | ✅ healthy |
+| `jobs` | `hasTable` guard | ✅ healthy |
+| `bot_analytics` | `hasTable` guard | ✅ healthy |
+
+Phase 1 inventory (`docs/architecture/INVENTORY.md`) originally
+listed only 3 broken pairs. Correct count is **8 duplicate pairs,
+2 broken before L-001, 0 broken after**.
+
 ### Live row counts at the time of this change
 
 | Table | Row count on production |

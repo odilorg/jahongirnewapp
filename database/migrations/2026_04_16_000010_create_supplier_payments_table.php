@@ -17,6 +17,13 @@ return new class extends Migration
 {
     public function up(): void
     {
+        // L-001 (2026-04-18): supersedes the 2024_08_22_130240 supplier_payments
+        // schema. On fresh installs the v1 migration runs first; without this
+        // drop v2 would throw "table already exists".
+        // Safe in production — Laravel does not re-execute this migration.
+        // See docs/architecture/MIGRATION_HISTORY.md.
+        Schema::dropIfExists('supplier_payments');
+
         Schema::create('supplier_payments', function (Blueprint $table) {
             $table->id();
             $table->string('supplier_type', 20)->index()
