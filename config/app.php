@@ -188,4 +188,15 @@ return [
         // 'Example' => App\Facades\Example::class,
     ])->toArray(),
 
+    /*
+    |--------------------------------------------------------------------------
+    | Global Guest Message Kill Switch (Phase 26)
+    |--------------------------------------------------------------------------
+    | When false, WhatsAppSender refuses to send any guest-facing message.
+    | Flip via SEND_GUEST_MESSAGES=false in .env, then php artisan config:clear.
+    | Does NOT affect supplier Telegram (driver/guide/accommodation) nor
+    | operator notifications.
+    */
+    'send_guest_messages' => (bool) env('SEND_GUEST_MESSAGES', true),
+
 ];

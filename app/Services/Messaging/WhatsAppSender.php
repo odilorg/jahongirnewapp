@@ -35,6 +35,19 @@ class WhatsAppSender
      */
     public function send(string $normalizedPhone, string $message): SendResult
     {
+        // Phase 26 — global kill switch. Flip SEND_GUEST_MESSAGES=false in
+        // .env to pause ALL outbound guest WhatsApp immediately without
+        // touching scheduler or code. Useful during testing, maintenance,
+        // or incident response. Returns a non-retryable fail so callers
+        // log 'blocked' rather than retry forever.
+        if (! (bool) config('app.send_guest_messages', true)) {
+            \Illuminate\Support\Facades\Log::info('WhatsAppSender: send blocked by kill switch', [
+                'to'      => $normalizedPhone,
+                'preview' => mb_substr($message, 0, 80),
+            ]);
+            return SendResult::fail('whatsapp', 'send_guest_messages=false (global kill switch)', retryable: false);
+        }
+
         $url = config('services.gyg.wa_api_url', 'http://127.0.0.1:8080/api/send');
 
         try {
