@@ -41,6 +41,12 @@ readonly class PaymentPresentation
         public ?string $groupMasterBookingId    = null,
         public ?int    $groupSizeExpected       = null,
         public ?int    $groupSizeLocal          = null,
+
+        // L-002: additional audit fields written to cash_transactions.
+        // Kept optional so old serialized sessions remain valid.
+        public ?string $roomNumber              = null,
+        public int     $usdPresented            = 0,
+        public ?int    $exchangeRateId          = null,
     ) {}
 
     public static function fromSync(
@@ -66,6 +72,10 @@ readonly class PaymentPresentation
             groupMasterBookingId:    $resolution?->effectiveMasterBookingId,
             groupSizeExpected:       $resolution?->groupSizeExpected,
             groupSizeLocal:          $resolution?->groupSizeLocal,
+            // L-002: audit fields — pulled from the booking + sync at snapshot time
+            roomNumber:              $booking->room_name ?? null,
+            usdPresented:            (int) $sync->usd_final,
+            exchangeRateId:          $sync->exchange_rate_id,
         );
     }
 
@@ -114,6 +124,10 @@ readonly class PaymentPresentation
             'group_master_booking_id' => $this->groupMasterBookingId,
             'group_size_expected'     => $this->groupSizeExpected,
             'group_size_local'        => $this->groupSizeLocal,
+            // L-002 audit fields — optional to keep old sessions valid
+            'room_number'             => $this->roomNumber,
+            'usd_presented'           => $this->usdPresented,
+            'exchange_rate_id'        => $this->exchangeRateId,
         ];
     }
 
@@ -159,6 +173,10 @@ readonly class PaymentPresentation
                                          : null,
             groupSizeExpected:       isset($data['group_size_expected']) ? (int) $data['group_size_expected'] : null,
             groupSizeLocal:          isset($data['group_size_local'])    ? (int) $data['group_size_local']    : null,
+            // L-002 audit fields — optional; default for sessions serialized before rollout
+            roomNumber:              isset($data['room_number']) && $data['room_number'] !== '' ? (string) $data['room_number'] : null,
+            usdPresented:            isset($data['usd_presented']) ? (int) $data['usd_presented'] : 0,
+            exchangeRateId:          isset($data['exchange_rate_id']) ? (int) $data['exchange_rate_id'] : null,
         );
     }
 }

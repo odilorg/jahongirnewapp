@@ -5,8 +5,11 @@ namespace App\Services;
 use App\DTO\GroupAmountResolution;
 use App\DTO\PaymentPresentation;
 use App\DTO\RecordPaymentData;
+use App\Enums\CashTransactionSource;
 use App\Enums\Currency;
 use App\Enums\OverrideTier;
+use App\Enums\TransactionCategory;
+use App\Enums\TransactionType;
 use App\Exceptions\BookingNotPayableException;
 use App\Exceptions\DuplicateGroupPaymentException;
 use App\Exceptions\DuplicatePaymentException;
@@ -25,15 +28,16 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 /**
- * Cashier bot payment flow — active FX payment path used by CashierBotController.
- *
- * @deprecated Superseded by App\Services\Fx\BotPaymentService. This class remains
- *             active until the controller is migrated to the Fx namespace. Do not
- *             add new business logic here — fix the canonical service instead.
- *             Tracked: TODO(payment-orchestrator) — collapse to single payment path.
+ * Cashier bot payment flow — canonical FX payment path used by CashierBotController.
  *
  * Core rule: this service never calculates exchange rates. It reads from
- * booking_fx_syncs (via FxSyncService) and records against a frozen snapshot.
+ * booking_fx_syncs (via FxSyncService) and records against a frozen snapshot
+ * stored inside {@see PaymentPresentation}.
+ *
+ * L-002 (2026-04-18): collapsed from two divergent implementations
+ * (Services\BotPaymentService + Services\Fx\BotPaymentService). This is now
+ * the single source of truth. Writes the full audit superset to
+ * cash_transactions (group fields + FX snapshot + override traceability).
  */
 class BotPaymentService
 {
@@ -142,7 +146,7 @@ class BotPaymentService
         // Soft guard — log if booking already fully paid (does not block)
         $this->warnIfAlreadyFullyPaid($data->presentation, $data->currencyPaid);
 
-        return DB::transaction(function () use ($data, $tier, $presented): CashTransaction {
+        return DB::transaction(function () use ($data, $tier, $presented, $evaluation): CashTransaction {
             $p = $data->presentation; // frozen — never re-reads live sync
 
             // 3+4. Lock the booking row to serialize concurrent payment attempts.
@@ -175,40 +179,50 @@ class BotPaymentService
             $fxSync = BookingFxSync::find($p->syncId);
             $usdEquivalent = $this->resolveUsdEquivalent($data->amountPaid, $data->currencyPaid, $fxSync);
 
-            // 6. Create cash transaction with group audit metadata
+            // 6. Create cash transaction with full audit superset (L-002 merge target)
             $transaction = CashTransaction::create([
-                // Core transaction fields
+                // Core transaction fields — enum values, not string literals
                 'cashier_shift_id'            => $data->shiftId,
-                'type'                        => 'in',
+                'type'                        => TransactionType::IN->value,
                 'amount'                      => $data->amountPaid,
                 'currency'                    => $data->currencyPaid,
-                'category'                    => 'sale',
+                'category'                    => TransactionCategory::SALE->value,
                 'beds24_booking_id'           => $p->beds24BookingId,
                 'payment_method'              => $data->paymentMethod,
                 'guest_name'                  => $p->guestName,
+                'room_number'                 => $p->roomNumber,
                 'reference'                   => "Beds24 #{$p->beds24BookingId}",
                 'notes'                       => $this->buildNotes($p, $data, $tier, $presented),
                 'created_by'                  => $data->cashierId,
                 'occurred_at'                 => now(),
 
-                // FX presentation audit columns
+                // FX presentation audit — both rate FKs populated for full traceability
                 'booking_fx_sync_id'          => $p->syncId,
                 'daily_exchange_rate_id'      => $p->dailyExchangeRateId,
+                'exchange_rate_id'            => $p->exchangeRateId,
                 'amount_presented_uzs'        => $p->uzsPresented,
                 'amount_presented_eur'        => $p->eurPresented,
                 'amount_presented_rub'        => $p->rubPresented,
+                'amount_presented_usd'        => $p->usdPresented,
                 'presented_currency'          => $data->currencyPaid,
                 'amount_presented_selected'   => $presented,
                 'usd_equivalent_paid'         => $usdEquivalent,
+
+                // Override / approval traceability
                 'is_override'                 => $tier !== OverrideTier::None,
+                'within_tolerance'            => $evaluation->withinTolerance,
+                'variance_pct'                => $evaluation->variancePct,
                 'override_tier'               => $tier->value,
                 'override_reason'             => $data->overrideReason,
                 'override_approved_by'        => $data->managerApproval?->resolved_by,
                 'override_approved_at'        => $data->managerApproval?->resolved_at,
+                'override_approval_id'        => $data->managerApproval?->id,
+
+                // Session / event metadata
                 'presented_at'                => $p->presentedAt,
                 'recorded_at'                 => now(),
                 'bot_session_id'              => $p->botSessionId,
-                'source_trigger'              => 'cashier_bot',
+                'source_trigger'              => CashTransactionSource::CashierBot->value,
 
                 // Group booking audit — null for standalone bookings
                 'group_master_booking_id'     => $p->groupMasterBookingId,
@@ -263,7 +277,7 @@ class BotPaymentService
     {
         // Tier 1: standalone guard (applies to all bookings, grouped or not)
         $standaloneDuplicate = CashTransaction::where('beds24_booking_id', $p->beds24BookingId)
-            ->where('source_trigger', 'cashier_bot')
+            ->where('source_trigger', CashTransactionSource::CashierBot->value)
             ->exists();
 
         if ($standaloneDuplicate) {
@@ -277,7 +291,7 @@ class BotPaymentService
         if ($p->isGroupPayment && $p->groupMasterBookingId !== null) {
             $groupDuplicate = CashTransaction::where('group_master_booking_id', $p->groupMasterBookingId)
                 ->where('is_group_payment', true)
-                ->where('source_trigger', 'cashier_bot')
+                ->where('source_trigger', CashTransactionSource::CashierBot->value)
                 ->exists();
 
             if ($groupDuplicate) {
