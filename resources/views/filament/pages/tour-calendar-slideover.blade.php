@@ -339,9 +339,9 @@
                     @endforeach
                 </select>
 
-                @if ($this->assignDriverId)
+                @if ($assignDriverId)
                     @php
-                        $driverRates = \App\Models\DriverRate::where('driver_id', $this->assignDriverId)
+                        $driverRates = \App\Models\DriverRate::where('driver_id', $assignDriverId)
                             ->where('is_active', true)->orderBy('sort_order')->orderBy('label')->get();
                     @endphp
                     @if ($driverRates->isNotEmpty())
@@ -359,7 +359,7 @@
                         class="w-full text-xs font-medium rounded-md px-3 py-1.5 text-white transition"
                         style="background: #16a34a;"
                         onmouseover="this.style.background='#15803d'" onmouseout="this.style.background='#16a34a'">
-                        Assign driver{{ $this->assignDriverRateId ? '' : ' (no rate)' }}
+                        Assign driver{{ $assignDriverRateId ? '' : ' (no rate)' }}
                     </button>
                 @endif
             </div>
@@ -378,9 +378,9 @@
                     @endforeach
                 </select>
 
-                @if ($this->assignGuideId)
+                @if ($assignGuideId)
                     @php
-                        $guideRates = \App\Models\GuideRate::where('guide_id', $this->assignGuideId)
+                        $guideRates = \App\Models\GuideRate::where('guide_id', $assignGuideId)
                             ->where('is_active', true)->orderBy('sort_order')->orderBy('label')->get();
                     @endphp
                     @if ($guideRates->isNotEmpty())
@@ -398,7 +398,7 @@
                         class="w-full text-xs font-medium rounded-md px-3 py-1.5 text-white transition"
                         style="background: #16a34a;"
                         onmouseover="this.style.background='#15803d'" onmouseout="this.style.background='#16a34a'">
-                        Assign guide{{ $this->assignGuideRateId ? '' : ' (no rate)' }}
+                        Assign guide{{ $assignGuideRateId ? '' : ' (no rate)' }}
                     </button>
                 @endif
             </div>
@@ -482,7 +482,7 @@
                     @endforeach
                 </select>
 
-                @if ($this->assignAccommodationId)
+                @if ($assignAccommodationId)
                     <div style="display: flex; gap: 6px; margin-bottom: 8px;">
                         <div style="flex: 1;">
                             <label class="text-[10px] text-gray-500 dark:text-gray-400">Guests</label>
@@ -502,9 +502,9 @@
                     </div>
 
                     @php
-                        $previewAcc = \App\Models\Accommodation::find($this->assignAccommodationId);
-                        $previewGuests = max(1, (int) ($this->assignAccGuests ?: $inquiry->people_adults));
-                        $previewNights = max(1, (int) $this->assignAccNights);
+                        $previewAcc = \App\Models\Accommodation::find($assignAccommodationId);
+                        $previewGuests = max(1, (int) ($assignAccGuests ?: $inquiry->people_adults));
+                        $previewNights = max(1, (int) $assignAccNights);
                         $previewRate = $previewAcc?->costForGuests($previewGuests);
                     @endphp
 
