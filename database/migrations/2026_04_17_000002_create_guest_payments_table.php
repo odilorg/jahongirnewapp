@@ -17,6 +17,13 @@ return new class extends Migration
 {
     public function up(): void
     {
+        // L-001 (2026-04-18): supersedes the 2025_03_04_033652 guest_payments
+        // schema (guest_id + booking_id). On fresh installs the v1 migration
+        // runs first; without this drop v2 would throw "table already exists".
+        // Safe in production — Laravel does not re-execute this migration
+        // (already in migrations table). See docs/architecture/L-001_execution_plan.md.
+        Schema::dropIfExists('guest_payments');
+
         Schema::create('guest_payments', function (Blueprint $table) {
             $table->id();
             $table->foreignId('booking_inquiry_id')
