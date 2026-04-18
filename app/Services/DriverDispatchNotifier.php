@@ -395,6 +395,98 @@ class DriverDispatchNotifier
      * Send a cancellation notice to driver or guide.
      * Much shorter than a dispatch — just 'tour cancelled' + the essentials.
      */
+    /**
+     * Phase 23 — T-1h imminent tour ping to driver or guide.
+     * Short operational safety message sent ~1 hour before pickup.
+     */
+    public function notifyImminent(BookingInquiry $inquiry, string $role): array
+    {
+        if (! (bool) config('services.tg_direct.enabled', true)) {
+            return ['ok' => false, 'reason' => 'tg_direct_disabled'];
+        }
+
+        $supplier = $role === 'driver' ? $inquiry->driver : $inquiry->guide;
+        if (! $supplier) {
+            return ['ok' => false, 'reason' => "no_{$role}_assigned"];
+        }
+
+        $destination = filled($supplier->telegram_chat_id)
+            ? (string) $supplier->telegram_chat_id
+            : (string) $supplier->phone01;
+
+        if ($destination === '') {
+            return ['ok' => false, 'reason' => "{$role}_no_telegram_or_phone"];
+        }
+
+        $pickupTime  = $inquiry->pickup_time ? substr((string) $inquiry->pickup_time, 0, 5) : '—';
+        $pickupPlace = $inquiry->pickup_point ?: '—';
+
+        $message = "⏰ Tur 1 soat ichida boshlanadi\n\n"
+            . "📋 {$inquiry->reference}\n"
+            . "👤 {$inquiry->customer_name}\n"
+            . "🕐 {$pickupTime}\n"
+            . "📍 {$pickupPlace}\n\n"
+            . "Iltimos tayyor bo'ling.";
+
+        $result = $this->tgDirect->send($destination, $message);
+
+        Log::info('DriverDispatchNotifier: T-1h imminent ping', [
+            'reference' => $inquiry->reference,
+            'role'      => $role,
+            'supplier'  => $supplier->id,
+            'ok'        => $result['ok'] ?? false,
+            'msg_id'    => $result['msg_id'] ?? null,
+        ]);
+
+        return ($result['ok'] ?? false)
+            ? ['ok' => true, 'msg_id' => (int) ($result['msg_id'] ?? 0)]
+            : ['ok' => false, 'reason' => $result['error'] ?? 'send_failed'];
+    }
+
+    /**
+     * Phase 23 — T-1h ping to accommodation supplier.
+     * Uses travel date (not pickup_time) since stay context differs.
+     */
+    public function notifyStayImminent(BookingInquiry $inquiry, InquiryStay $stay): array
+    {
+        if (! (bool) config('services.tg_direct.enabled', true)) {
+            return ['ok' => false, 'reason' => 'tg_direct_disabled'];
+        }
+
+        $accommodation = $stay->accommodation;
+        if (! $accommodation) {
+            return ['ok' => false, 'reason' => 'no_accommodation'];
+        }
+
+        $phone = (string) $accommodation->phone_primary;
+        if ($phone === '') {
+            return ['ok' => false, 'reason' => 'accommodation_missing_phone'];
+        }
+
+        $stayDate = $stay->stay_date ? $stay->stay_date->format('Y-m-d') : '—';
+
+        $message = "⏰ Mehmonlar tez orada yetib boradi\n\n"
+            . "📋 {$inquiry->reference}\n"
+            . "👤 {$inquiry->customer_name}\n"
+            . "🏕 {$accommodation->name}\n"
+            . "📅 {$stayDate}\n\n"
+            . "Iltimos tayyor bo'ling.";
+
+        $result = $this->tgDirect->send($phone, $message);
+
+        Log::info('DriverDispatchNotifier: T-1h stay imminent ping', [
+            'reference'        => $inquiry->reference,
+            'stay_id'          => $stay->id,
+            'accommodation_id' => $accommodation->id,
+            'ok'               => $result['ok'] ?? false,
+            'msg_id'           => $result['msg_id'] ?? null,
+        ]);
+
+        return ($result['ok'] ?? false)
+            ? ['ok' => true, 'msg_id' => (int) ($result['msg_id'] ?? 0)]
+            : ['ok' => false, 'reason' => $result['error'] ?? 'send_failed'];
+    }
+
     public function notifyCancellation(BookingInquiry $inquiry, string $role): array
     {
         if (! (bool) config('services.tg_direct.enabled', true)) {

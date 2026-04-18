@@ -36,6 +36,15 @@ class Kernel extends ConsoleKernel
             ->withoutOverlapping()
             ->runInBackground();
 
+        // Phase 23 — T-1h supplier ping. Runs every 15 min; targets
+        // bookings whose pickup_time is now+45min..now+75min (Tashkent).
+        // Idempotent via internal_notes markers.
+        $schedule->command('supplier:ping-imminent-tours')
+            ->everyFifteenMinutes()
+            ->timezone('Asia/Tashkent')
+            ->withoutOverlapping()
+            ->runInBackground();
+
         // Removed 2026-04-15: app:send-scheduled-messages scheduler disabled
         // (scheduled_messages table unused; feature deprecated)
 
