@@ -135,15 +135,7 @@
                                         'lead'                 => 'background:#f3f4f6;border-color:#9ca3af;border-style:dashed;', // gray dashed
                                         default                => 'background:#f3f4f6;border-color:#d1d5db;',
                                     };
-                                    $chipStyleDark = match ($chip['display_state']) {
-                                        'ready'                => 'background:rgba(22,101,52,0.35);border-color:#16a34a;',
-                                        'paid_needs_attention' => 'background:rgba(22,101,52,0.35);border-color:#16a34a;border-left:4px solid #ef4444;',
-                                        'awaiting_payment'     => 'background:rgba(146,64,14,0.35);border-color:#d97706;',
-                                        'confirmed_offline'    => 'background:rgba(30,64,175,0.35);border-color:#3b82f6;',
-                                        'lead'                 => 'background:rgba(31,41,55,0.8);border-color:#6b7280;border-style:dashed;',
-                                        default                => 'background:rgba(31,41,55,0.8);border-color:#4b5563;',
-                                    };
-                                    $bgClass = 'hover:opacity-90 transition-opacity';
+$bgClass = 'hover:opacity-90 transition-opacity';
 
                                     $tooltip = collect([
                                         $chip['reference'] . ' · ' . $chip['customer_name']
@@ -158,9 +150,7 @@
                                         $chip['paid_at'] ? '💰 Paid ' . $chip['paid_at'] : null,
                                     ])->filter()->implode("\n");
                                 @endphp
-                                <div x-data="{}"
-                                    @click="$wire.call('openInquiry', {{ $chip['id'] }})"
-                                    x-bind:style="document.documentElement.classList.contains('dark') ? '{{ $chipStyleDark }}' : '{{ $chipStyle }}'"
+                                <div wire:click="openInquiry({{ $chip['id'] }})"
                                     style="{{ $chipStyle }}"
                                     title="{{ $tooltip }}"
                                     class="block rounded-md border px-2 py-1.5 text-xs cursor-pointer relative {{ $bgClass }}">
