@@ -94,17 +94,20 @@ class TourCalendarBuilder
             }
         }
 
-        // Unclaimed leads — fresh inquiries nobody owns yet
+        // Active leads — inquiries nobody owns yet, or still in early workflow.
+        // Broadened to include 'contacted' + 'awaiting_customer' because
+        // those are bookings we reached out to but haven't confirmed yet —
+        // still need operator attention (price, follow-up, confirmation).
         $unclaimed = BookingInquiry::query()
             ->whereIn('status', [
                 BookingInquiry::STATUS_NEW,
-                BookingInquiry::STATUS_AWAITING_PAYMENT,
+                BookingInquiry::STATUS_CONTACTED,
+                BookingInquiry::STATUS_AWAITING_CUSTOMER,
             ])
-            ->whereNull('assigned_to_user_id')
-            ->whereIn('source', ['website', 'whatsapp', 'manual'])
+            ->whereIn('source', ['website', 'whatsapp', 'manual', 'phone'])
             ->orderByDesc('created_at')
             ->limit(10)
-            ->get(['id', 'reference', 'customer_name', 'source', 'created_at']);
+            ->get(['id', 'reference', 'customer_name', 'source', 'status', 'created_at', 'assigned_to_user_id']);
 
         // Phase 21 — due reminders count
         $dueRemindersCount = \App\Models\InquiryReminder::pending()
@@ -124,7 +127,9 @@ class TourCalendarBuilder
                 'reference'     => $i->reference,
                 'customer_name' => $i->customer_name,
                 'source'        => $i->source,
+                'status'        => $i->status,
                 'age'           => $i->created_at->diffForHumans(),
+                'assigned'      => $i->assigned_to_user_id !== null,
             ])->toArray(),
             'needs_action_today' => $needsActionToday,
             'tomorrow_prep'      => $tomorrowPrep,

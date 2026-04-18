@@ -7,18 +7,32 @@
     };
 @endphp
 
-{{-- Unclaimed leads banner (top) --}}
+{{-- Active leads banner (top) — leads needing operator attention --}}
 @if (! empty($action['unclaimed']))
     <div style="background: #fef3c7; border: 1px solid #f59e0b; border-radius: 8px; padding: 10px 14px; margin-bottom: 16px;">
         <div style="font-size: 12px; font-weight: 600; color: #92400e; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px;">
-            📬 {{ $action['unclaimed_count'] }} Unclaimed Lead{{ $action['unclaimed_count'] === 1 ? '' : 's' }}
+            📬 {{ $action['unclaimed_count'] }} Active Lead{{ $action['unclaimed_count'] === 1 ? '' : 's' }}
         </div>
         @foreach ($action['unclaimed'] as $lead)
+            @php
+                $statusColors = [
+                    'new'                => ['bg' => '#dbeafe', 'fg' => '#1e40af'],
+                    'contacted'          => ['bg' => '#fef3c7', 'fg' => '#92400e'],
+                    'awaiting_customer'  => ['bg' => '#ede9fe', 'fg' => '#5b21b6'],
+                ];
+                $sc = $statusColors[$lead['status']] ?? ['bg' => '#f3f4f6', 'fg' => '#6b7280'];
+            @endphp
             <div style="display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 13px; color: #78350f;">
                 <span wire:click="openInquiry({{ $lead['id'] }})" style="cursor: pointer; text-decoration: underline; font-weight: 500;">
                     {{ $lead['customer_name'] }}
                 </span>
+                <span style="font-size: 10px; background: {{ $sc['bg'] }}; color: {{ $sc['fg'] }}; padding: 2px 6px; border-radius: 3px; text-transform: uppercase; font-weight: 600;">
+                    {{ str_replace('_', ' ', $lead['status']) }}
+                </span>
                 <span style="font-size: 10px; background: rgba(0,0,0,0.08); padding: 2px 6px; border-radius: 3px; text-transform: uppercase;">{{ $lead['source'] }}</span>
+                @if (! $lead['assigned'])
+                    <span style="font-size: 10px; background: #fee2e2; color: #991b1b; padding: 2px 6px; border-radius: 3px; text-transform: uppercase; font-weight: 600;">Unclaimed</span>
+                @endif
                 <span style="color: #92400e; font-size: 11px;">{{ $lead['age'] }}</span>
             </div>
         @endforeach
