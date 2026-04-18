@@ -713,6 +713,7 @@ class Beds24WebhookController extends Controller
         // and swallowed, preserving legacy behaviour byte-for-byte.
         // The full migration that makes this the primary writer is L-007.
         if (config('features.ledger.shadow.beds24', false)) {
+            $shadowStart = microtime(true);
             try {
                 app(\App\Actions\Ledger\Adapters\Beds24PaymentAdapter::class)->record(
                     beds24BookingId:        $bookingId,
@@ -731,6 +732,7 @@ class Beds24WebhookController extends Controller
                     'booking_id'     => $bookingId,
                     'beds24_item_id' => $beds24ItemId,
                     'amount'         => $amount,
+                    'latency_ms'     => (int) ((microtime(true) - $shadowStart) * 1000),
                 ]);
             } catch (\App\Exceptions\Ledger\LedgerIdempotencyConflictException $e) {
                 // Expected on retried webhooks — legacy dedup may have let
@@ -738,6 +740,7 @@ class Beds24WebhookController extends Controller
                 Log::info('ledger.shadow.write.beds24.idempotent_replay', [
                     'booking_id'     => $bookingId,
                     'beds24_item_id' => $beds24ItemId,
+                    'latency_ms'     => (int) ((microtime(true) - $shadowStart) * 1000),
                 ]);
             } catch (\Throwable $e) {
                 Log::warning('ledger.shadow.write.beds24.failure', [
@@ -746,6 +749,7 @@ class Beds24WebhookController extends Controller
                     'amount'         => $amount,
                     'error_class'    => $e::class,
                     'error'          => $e->getMessage(),
+                    'latency_ms'     => (int) ((microtime(true) - $shadowStart) * 1000),
                 ]);
             }
         }
