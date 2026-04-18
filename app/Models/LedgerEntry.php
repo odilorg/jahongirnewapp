@@ -8,6 +8,7 @@ use App\Enums\CounterpartyType;
 use App\Enums\LedgerDataQuality;
 use App\Enums\LedgerEntryDirection;
 use App\Enums\LedgerEntryType;
+use App\Enums\OverrideTier;
 use App\Enums\PaymentMethod;
 use App\Enums\SourceTrigger;
 use App\Enums\TrustLevel;
@@ -88,6 +89,7 @@ class LedgerEntry extends Model
         'counterparty_type'     => CounterpartyType::class,
         'payment_method'        => PaymentMethod::class,
         'variance_pct'          => 'decimal:2',
+        'override_tier'         => OverrideTier::class,
         'presentation_snapshot' => 'array',
         'tags'                  => 'array',
         'data_quality'          => LedgerDataQuality::class,
