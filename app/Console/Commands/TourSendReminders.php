@@ -326,14 +326,16 @@ class TourSendReminders extends Command
             $lines[] = 'You will be met at the reception';
         }
 
-        // Drop-off for Bukhara routes
-        $dropoff = (string) ($inquiry->dropoff_point ?? '');
+        // Drop-off: operator-set value wins; Bukhara default only if left blank.
+        // Operators sometimes override with a specific hotel — must echo verbatim
+        // with a map link so guests know exactly where tour ends.
+        $dropoff = trim((string) ($inquiry->dropoff_point ?? ''));
         $directionName = strtolower((string) $inquiry->tourProductDirection?->name);
-        $looksLikeBukhara = stripos($dropoff, 'bukhara') !== false
-            || str_contains($directionName, 'bukhara');
 
-        if ($looksLikeBukhara && stripos($directionName, '→ samarkand') === false) {
-            // Tour ends in Bukhara
+        if (filled($dropoff)) {
+            $lines[] = "📍 Drop-off: {$dropoff}";
+            $lines[] = '📍 https://maps.google.com/?q=' . rawurlencode($dropoff);
+        } elseif (str_contains($directionName, 'bukhara') && stripos($directionName, '→ samarkand') === false) {
             $lines[] = '📍 Drop-off: Lyabi Hauz area, Bukhara';
         }
 
