@@ -237,21 +237,22 @@ $bgClass = 'hover:opacity-90 transition-opacity';
     <x-filament-actions::modals />
 
     {{--
-        FIX: Livewire morph inserts modal content without Alpine re-registering
-        directives on the new nodes, so x-show="isOpen" never reacts. We force
-        Alpine.initTree() on the matched modal after open-modal fires, which
-        re-runs all directives in that subtree.
+        FIX: Livewire morph inserts modal children without Alpine activating
+        their directives (x-show etc.), so the first open() doesn't reveal the
+        modal. We hook into Livewire's morph lifecycle and call Alpine.initTree
+        ONLY on newly-added nodes inside a .fi-modal — never on the modal root
+        itself (which would cancel active transitions).
     --}}
     <script>
-        window.addEventListener('open-modal', function (e) {
-            const id = e.detail?.id;
-            if (!id || !window.Alpine) return;
-            queueMicrotask(function () {
-                document.querySelectorAll('.fi-modal').forEach(function (modal) {
-                    const onAttr = modal.getAttribute('x-on:open-modal.window') || '';
-                    if (!onAttr.includes(id)) return;
-                    try { window.Alpine.initTree(modal); } catch (err) { console.error('modal reinit failed', err); }
-                });
+        document.addEventListener('livewire:init', function () {
+            if (!window.Livewire || !window.Alpine) return;
+
+            Livewire.hook('morph.added', function (payload) {
+                const el = payload?.el;
+                if (!el || el.nodeType !== 1) return;
+                if (el.closest && el.closest('.fi-modal')) {
+                    try { window.Alpine.initTree(el); } catch (_e) {}
+                }
             });
         });
     </script>
