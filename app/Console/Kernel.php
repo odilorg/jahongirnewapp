@@ -128,8 +128,15 @@ class Kernel extends ConsoleKernel
         // GYG email pipeline — 3 independent stages, each processes only its
         // own state slice (fetch→fetched, process→parsed, apply→applied).
         // withoutOverlapping() prevents concurrent runs of the same stage.
+        // GYG pipeline — staggered so each stage's input is visible to the
+        // next. Previously all three fired at the same minute: fetch could
+        // finish AFTER process had already scanned, leaving a 15-min gap
+        // until the next tick. With stagger, process sees fetch's output
+        // reliably within the same 15-min cycle.
+        //
+        // Fetch :*:00 · Process :*:05 · Apply :*:10
         $schedule->command('gyg:fetch-emails')
-            ->everyFifteenMinutes()
+            ->cron('*/15 * * * *')
             ->withoutOverlapping()
             ->runInBackground()
             ->onFailure(function () {
@@ -137,7 +144,7 @@ class Kernel extends ConsoleKernel
             });
 
         $schedule->command('gyg:process-emails')
-            ->everyFifteenMinutes()
+            ->cron('5-59/15 * * * *')
             ->withoutOverlapping()
             ->runInBackground()
             ->onFailure(function () {
@@ -145,7 +152,7 @@ class Kernel extends ConsoleKernel
             });
 
         $schedule->command('gyg:apply-bookings')
-            ->everyFifteenMinutes()
+            ->cron('10-59/15 * * * *')
             ->withoutOverlapping()
             ->runInBackground()
             ->onFailure(function () {

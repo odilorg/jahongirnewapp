@@ -128,7 +128,11 @@ class GygFetchEmails extends Command
 
     private function fetchEnvelopes(int $limit): ?array
     {
-        $result = Process::timeout(30)->run([
+        // Bumped 30s → 60s 2026-04-18. Real-world IMAP fetches against
+        // Gmail regularly take 45-55s depending on Gmail server load;
+        // 30s produced frequent FAILED runs leaving emails queued for
+        // another 15-min cycle.
+        $result = Process::timeout(60)->run([
             self::HIMALAYA_BIN, 'envelope', 'list',
             '--folder', 'INBOX',
             '--page-size', (string) $limit,
