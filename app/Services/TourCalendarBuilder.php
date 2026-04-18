@@ -115,6 +115,9 @@ class TourCalendarBuilder
             ->when($assignedToUserId, fn ($q) => $q->where('assigned_to_user_id', $assignedToUserId))
             ->count();
 
+        // Phase 24 — group match opportunities count
+        $groupMatchesCount = app(\App\Services\GroupMatchingEngine::class)->findClusters()->count();
+
         return [
             'today_count'        => count($needsActionToday) + count(array_filter($ready, fn ($c) => Carbon::parse($c['travel_date_raw'])->isToday())),
             'today_revenue'      => $totalTodayRev,
@@ -122,6 +125,7 @@ class TourCalendarBuilder
             'tomorrow_count'     => count($tomorrowPrep) + count(array_filter($ready, fn ($c) => Carbon::parse($c['travel_date_raw'])->isTomorrow())),
             'unclaimed_count'    => $unclaimed->count(),
             'reminders_due'      => $dueRemindersCount,
+            'group_matches'      => $groupMatchesCount,
             'unclaimed'          => $unclaimed->map(fn ($i) => [
                 'id'            => $i->id,
                 'reference'     => $i->reference,
