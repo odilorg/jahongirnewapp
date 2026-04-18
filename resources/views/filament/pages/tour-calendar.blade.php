@@ -254,36 +254,34 @@ $bgClass = 'hover:opacity-90 transition-opacity';
                 console.log('[SLIDE-DEBUG] open-modal event received, id=' + dispatchedId);
                 setTimeout(function () {
                     const modals = document.querySelectorAll('.fi-modal');
-                    console.log('[SLIDE-DEBUG] .fi-modal nodes: ' + modals.length);
-                    modals.forEach(function (outer, idx) {
+                    modals.forEach(function (outer) {
                         const onAttr = outer.getAttribute('x-on:open-modal.window') || '';
-                        const matches = onAttr.includes(dispatchedId);
-                        if (!matches) return;
-                        const data = window.Alpine ? window.Alpine.$data(outer) : null;
-                        console.log('[SLIDE-DEBUG] ======= matched modal #' + idx + ' =======');
-                        console.log('[SLIDE-DEBUG] outer isOpen=' + (data?.isOpen));
+                        if (!onAttr.includes(dispatchedId)) return;
+                        const outerData = window.Alpine ? window.Alpine.$data(outer) : null;
+                        console.log('[SLIDE-DEBUG] outer isOpen=' + outerData?.isOpen);
 
-                        // Walk all descendants with x-show / display info
-                        const all = outer.querySelectorAll('*');
-                        let count = 0;
-                        all.forEach(function (child, i) {
-                            if (count > 8) return;
-                            const xshow = child.getAttribute('x-show');
-                            const xcloak = child.hasAttribute('x-cloak');
-                            const cs = getComputedStyle(child);
-                            const r = child.getBoundingClientRect();
-                            if (xshow || xcloak || r.height > 0) {
-                                console.log('[SLIDE-DEBUG] #' + i
-                                    + ' tag=' + child.tagName
-                                    + ' xshow=' + (xshow || '-')
-                                    + ' xcloak=' + (xcloak ? 'YES' : 'no')
-                                    + ' disp=' + cs.display
-                                    + ' pos=' + cs.position
-                                    + ' w×h=' + Math.round(r.width) + '×' + Math.round(r.height)
-                                    + ' cls=' + (child.className || '').toString().slice(0, 80));
-                                count++;
+                        // Find first x-show="isOpen" child and diagnose its scope
+                        const showIsOpen = outer.querySelector('[x-show="isOpen"]');
+                        if (!showIsOpen) { console.warn('[SLIDE-DEBUG] no x-show=isOpen child found'); return; }
+                        const scopeData = window.Alpine.$data(showIsOpen);
+                        console.log('[SLIDE-DEBUG] x-show=isOpen child scope isOpen=' + scopeData?.isOpen);
+                        console.log('[SLIDE-DEBUG] scope data keys=' + Object.keys(scopeData || {}).join(','));
+                        console.log('[SLIDE-DEBUG] is same scope as outer? ' + (scopeData === outerData));
+
+                        // Walk UP from the x-show=isOpen child and list every x-data ancestor
+                        let el = showIsOpen;
+                        let level = 0;
+                        while (el && el !== document.body && level < 10) {
+                            if (el.hasAttribute('x-data')) {
+                                const d = window.Alpine.$data(el);
+                                const xd = el.getAttribute('x-data') || '';
+                                console.log('[SLIDE-DEBUG] ancestor L' + level + ' tag=' + el.tagName
+                                    + ' x-data=' + xd.slice(0, 60)
+                                    + ' isOpen=' + d?.isOpen);
+                                level++;
                             }
-                        });
+                            el = el.parentElement;
+                        }
                     });
                 }, 200);
             });
