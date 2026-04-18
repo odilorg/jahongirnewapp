@@ -250,10 +250,35 @@ $bgClass = 'hover:opacity-90 transition-opacity';
             }, true);
 
             window.addEventListener('open-modal', function (e) {
-                console.log('[SLIDE-DEBUG] open-modal event received, id=' + (e.detail?.id ?? 'N/A'));
-                const selector = '[x-data*="isOpen"]';
-                const modals = document.querySelectorAll(selector);
-                console.log('[SLIDE-DEBUG] modal elements on page: ' + modals.length);
+                const dispatchedId = e.detail?.id ?? 'N/A';
+                console.log('[SLIDE-DEBUG] open-modal event received, id=' + dispatchedId);
+                setTimeout(function () {
+                    const modals = document.querySelectorAll('[x-data]');
+                    let matchedAny = false;
+                    modals.forEach(function (el) {
+                        const xd = el.getAttribute('x-data') || '';
+                        if (!xd.includes('isOpen')) return;
+                        const onAttr = (el.getAttribute('x-on:open-modal.window') || '')
+                                     + (el.getAttribute('@open-modal.window') || '');
+                        const matchesThisId = onAttr.includes(dispatchedId);
+                        const data = window.Alpine ? window.Alpine.$data(el) : null;
+                        const isOpen = data ? data.isOpen : '(no alpine data)';
+                        const rect = el.getBoundingClientRect();
+                        const display = getComputedStyle(el).display;
+                        const visibility = getComputedStyle(el).visibility;
+                        const opacity = getComputedStyle(el).opacity;
+                        const zIndex = getComputedStyle(el).zIndex;
+                        console.log('[SLIDE-DEBUG] modal: listens-for-this-id=' + matchesThisId
+                            + ' isOpen=' + isOpen
+                            + ' display=' + display
+                            + ' visibility=' + visibility
+                            + ' opacity=' + opacity
+                            + ' z=' + zIndex
+                            + ' w×h=' + Math.round(rect.width) + '×' + Math.round(rect.height));
+                        if (matchesThisId) matchedAny = true;
+                    });
+                    if (!matchedAny) console.warn('[SLIDE-DEBUG] NO modal listens for id=' + dispatchedId);
+                }, 100);
             });
 
             document.addEventListener('livewire:initialized', function () {
