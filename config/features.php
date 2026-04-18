@@ -57,5 +57,29 @@ return [
             'octo'     => (bool) env('LEDGER_SHADOW_OCTO',     false),
             'cashier'  => (bool) env('LEDGER_SHADOW_CASHIER',  false),
         ],
+
+        /*
+        |------------------------------------------------------------
+        | Runtime Write Firewall (L-018)
+        |------------------------------------------------------------
+        | Controls what happens when LedgerEntry::create() fires
+        | OUTSIDE an active LedgerWriteContext binding (i.e. NOT from
+        | inside App\Actions\Ledger\RecordLedgerEntry::execute or a
+        | future sanctioned bulk writer).
+        |
+        |  'off'      (default) — firewall does nothing; unchanged
+        |                          behaviour.
+        |  'warn'                 — the write proceeds but a structured
+        |                          log line is emitted with a stack
+        |                          trace so discipline breaches are
+        |                          visible without breaking production.
+        |  'enforce'              — throw LedgerWriteForbiddenException;
+        |                          the row is NOT written. Ship-ready
+        |                          once Phase C completes and every
+        |                          writer uses the action.
+        */
+        'firewall' => [
+            'mode' => env('LEDGER_FIREWALL_MODE', 'off'),
+        ],
     ],
 ];

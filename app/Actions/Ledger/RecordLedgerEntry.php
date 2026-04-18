@@ -9,6 +9,7 @@ use App\Events\Ledger\LedgerEntryRecorded;
 use App\Exceptions\Ledger\InvalidLedgerEntryException;
 use App\Exceptions\Ledger\LedgerIdempotencyConflictException;
 use App\Models\LedgerEntry;
+use App\Support\Ledger\LedgerWriteContext;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -64,11 +65,23 @@ final class RecordLedgerEntry
         //    the row is rolled back — callers see the exception, there
         //    is no partial state.
         return DB::transaction(function () use ($input, $direction, $occurredAt, $trustLevel) {
-            // DB-touching validations happen inside the transaction so
-            // they read the latest committed state.
-            $this->validateAgainstDatabase($input, $direction);
+            // L-018 — bind the write context so the model-side firewall
+            // recognises this as a sanctioned write. Unbound in finally
+            // below regardless of success or exception.
+            app()->instance(
+                LedgerWriteContext::class,
+                new LedgerWriteContext(
+                    initiator: 'RecordLedgerEntry',
+                    userId:    $input->createdByUserId,
+                ),
+            );
 
-            $entry = LedgerEntry::create([
+            try {
+                // DB-touching validations happen inside the transaction so
+                // they read the latest committed state.
+                $this->validateAgainstDatabase($input, $direction);
+
+                $entry = LedgerEntry::create([
                 'ulid'                   => (string) Str::ulid(),
                 'idempotency_key'        => $input->idempotencyKey,
                 'occurred_at'            => $occurredAt,
@@ -121,9 +134,12 @@ final class RecordLedgerEntry
                 'booking_inquiry_id' => $entry->booking_inquiry_id,
             ]);
 
-            LedgerEntryRecorded::dispatch($entry);
+                LedgerEntryRecorded::dispatch($entry);
 
-            return $entry;
+                return $entry;
+            } finally {
+                app()->forgetInstance(LedgerWriteContext::class);
+            }
         });
     }
 

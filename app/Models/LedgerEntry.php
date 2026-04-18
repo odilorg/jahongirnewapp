@@ -13,10 +13,13 @@ use App\Enums\PaymentMethod;
 use App\Enums\SourceTrigger;
 use App\Enums\TrustLevel;
 use App\Exceptions\Ledger\LedgerImmutableException;
+use App\Exceptions\Ledger\LedgerWriteForbiddenException;
+use App\Support\Ledger\LedgerWriteContext;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Facades\Log;
 
 /**
  * L-003 — canonical append-only ledger row.
@@ -106,6 +109,7 @@ class LedgerEntry extends Model
      */
     protected static function booted(): void
     {
+        // L-003 append-only invariant.
         static::updating(function (LedgerEntry $entry): void {
             throw new LedgerImmutableException(
                 "LedgerEntry #{$entry->id} cannot be updated — ledger is append-only. "
@@ -118,6 +122,81 @@ class LedgerEntry extends Model
                 "LedgerEntry #{$entry->id} cannot be deleted — ledger is append-only."
             );
         });
+
+        // L-018 runtime write firewall. Blocks (or warns about) any
+        // LedgerEntry::create() that happens outside an active
+        // LedgerWriteContext binding. See config/features.php
+        // ledger.firewall.mode for the runtime switch.
+        static::creating(function (LedgerEntry $entry): void {
+            $mode = config('features.ledger.firewall.mode', 'off');
+            if ($mode === 'off') {
+                return;
+            }
+
+            if (app()->bound(LedgerWriteContext::class)) {
+                return;   // sanctioned writer — context is live
+            }
+
+            // Unsanctioned write path reached the model. Either warn
+            // and let it proceed, or block.
+            $payload = [
+                'mode'        => $mode,
+                'entry_type'  => $entry->entry_type instanceof \BackedEnum
+                                    ? $entry->entry_type->value
+                                    : $entry->entry_type,
+                'source'      => $entry->source instanceof \BackedEnum
+                                    ? $entry->source->value
+                                    : $entry->source,
+                'amount'      => (string) $entry->amount,
+                'currency'    => $entry->currency,
+                'trace'       => self::shortTrace(),
+            ];
+
+            if ($mode === 'enforce') {
+                Log::warning('ledger.write.firewall.blocked', $payload);
+                throw new LedgerWriteForbiddenException(
+                    'Direct ledger_entries insertion outside RecordLedgerEntry is forbidden. '
+                    . 'Route the write through App\Actions\Ledger\RecordLedgerEntry.'
+                );
+            }
+
+            // mode === 'warn' — proceed but leave a trail
+            Log::warning('ledger.write.firewall.unbound_write', $payload);
+        });
+    }
+
+    /**
+     * Tight stack trace for firewall log entries — just the app-level
+     * frames, trimmed to keep logs readable.
+     *
+     * @return list<string>
+     */
+    private static function shortTrace(): array
+    {
+        $frames = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 25);
+        $out    = [];
+        foreach ($frames as $f) {
+            $file = $f['file'] ?? null;
+            if ($file === null) {
+                continue;
+            }
+            // Keep only app-level frames (skip vendor/ and this file itself).
+            if (str_contains($file, '/vendor/')) {
+                continue;
+            }
+            if (str_contains($file, 'LedgerEntry.php')) {
+                continue;
+            }
+            $out[] = sprintf('%s:%d %s',
+                str_replace(base_path() . '/', '', $file),
+                $f['line'] ?? 0,
+                ($f['class'] ?? '') . ($f['type'] ?? '') . ($f['function'] ?? ''),
+            );
+            if (count($out) >= 8) {
+                break;
+            }
+        }
+        return $out;
     }
 
     // ---------------------------------------------------------------------
