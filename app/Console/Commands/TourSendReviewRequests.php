@@ -82,7 +82,7 @@ class TourSendReviewRequests extends Command
                 $this->line("     → WhatsApp: {$phone}");
                 if (! $dryRun) {
                     $result = $this->whatsApp->send($phone, $message);
-                    if ($result->ok) {
+                    if ($result->success) {
                         $sentThis = true;
                         Log::info('TourSendReviewRequests: WhatsApp sent', [
                             'inquiry_id' => $inquiry->id,

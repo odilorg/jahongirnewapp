@@ -102,7 +102,7 @@ class InquirySendPaymentReminders extends Command
 
             $result = $this->whatsApp->send($phone, $message);
 
-            if ($result->ok) {
+            if ($result->success) {
                 $inquiry->update(['payment_reminder_sent_at' => now()]);
 
                 $this->appendNote($inquiry, 'Payment reminder sent via WhatsApp');
