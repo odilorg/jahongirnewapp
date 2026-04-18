@@ -23,10 +23,18 @@
     </div>
 
     @if ($count === 0)
-        <div style="text-align: center; padding: 40px; color: #9ca3af;">
+        <div style="text-align: center; padding: 36px 20px; color: #6b7280; background: white; border-radius: 8px; border: 1px dashed #d1d5db;">
             <div style="font-size: 36px; margin-bottom: 8px;">🔍</div>
-            <div>No group match opportunities right now.</div>
-            <div style="font-size: 12px; margin-top: 6px;">Matches appear when 2+ active leads share the same tour, direction, and date window.</div>
+            <div style="font-weight: 600; color: #374151; margin-bottom: 8px;">No matching opportunities right now.</div>
+            <div style="font-size: 13px; max-width: 520px; margin: 0 auto 10px;">
+                This is normal. Matches appear when multiple travelers request the same tour, same direction, around similar dates.
+            </div>
+            <div style="font-size: 12px; color: #9ca3af; background: #f9fafb; padding: 8px 14px; border-radius: 4px; display: inline-block; margin-top: 8px;">
+                💡 Check this page when the dispatch board's <strong>🎯 Group Matches</strong> counter goes above 0.
+            </div>
+            <div style="font-size: 11px; color: #9ca3af; margin-top: 14px;">
+                Matching window: ±{{ config('matching.window_days', 2) }} days · Max pax: {{ config('matching.max_pax', 8) }} · Min lead time: {{ config('matching.min_days_before_travel', 2) }} days
+            </div>
         </div>
     @endif
 
