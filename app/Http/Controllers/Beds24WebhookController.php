@@ -707,6 +707,49 @@ class Beds24WebhookController extends Controller
             'occurred_at'        => now(),
         ]);
 
+        // L-006 shadow write — observer-only. Captures the same event in
+        // ledger_entries alongside the legacy cash_transactions row above.
+        // Failures NEVER propagate: a ledger insert that throws is logged
+        // and swallowed, preserving legacy behaviour byte-for-byte.
+        // The full migration that makes this the primary writer is L-007.
+        if (config('features.ledger.shadow.beds24', false)) {
+            try {
+                app(\App\Actions\Ledger\Adapters\Beds24PaymentAdapter::class)->record(
+                    beds24BookingId:        $bookingId,
+                    beds24ItemId:           $beds24ItemId,
+                    amount:                 $amount,
+                    currency:               \App\Enums\Currency::USD,
+                    beds24PaymentMethod:    $method,
+                    guestName:              $booking->guest_name,
+                    roomNumber:             $booking->room_name,
+                    cashierShiftId:         $activeShift?->id,
+                    idempotencyKeyOverride: $beds24ItemId === null && $reference !== null
+                                                ? "b24_ref_{$reference}"
+                                                : null,
+                );
+                Log::info('ledger.shadow.write.beds24.success', [
+                    'booking_id'     => $bookingId,
+                    'beds24_item_id' => $beds24ItemId,
+                    'amount'         => $amount,
+                ]);
+            } catch (\App\Exceptions\Ledger\LedgerIdempotencyConflictException $e) {
+                // Expected on retried webhooks — legacy dedup may have let
+                // the row through but ledger key recognised the replay.
+                Log::info('ledger.shadow.write.beds24.idempotent_replay', [
+                    'booking_id'     => $bookingId,
+                    'beds24_item_id' => $beds24ItemId,
+                ]);
+            } catch (\Throwable $e) {
+                Log::warning('ledger.shadow.write.beds24.failure', [
+                    'booking_id'     => $bookingId,
+                    'beds24_item_id' => $beds24ItemId,
+                    'amount'         => $amount,
+                    'error_class'    => $e::class,
+                    'error'          => $e->getMessage(),
+                ]);
+            }
+        }
+
         Log::info('Beds24 Webhook: external bookkeeping row created', [
             'booking_id' => $bookingId,
             'amount'     => $amount,

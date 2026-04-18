@@ -37,4 +37,25 @@ return [
     | When false, the legacy createPaymentTransaction() path runs.
     */
     'fx_webhook_reconciliation' => (bool) env('FX_WEBHOOK_RECONCILIATION', false),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Ledger Shadow Mode
+    |--------------------------------------------------------------------------
+    | L-006 onward: when a shadow flag is TRUE, the corresponding source
+    | also writes to ledger_entries alongside its legacy table. Legacy
+    | behaviour is unchanged. Reads still come from legacy. Shadow writes
+    | are observer-only — a ledger insert failure NEVER fails the legacy
+    | operation.
+    |
+    | Flip to true in staging first. Leave off in production until the
+    | L-006.5 parity report shows zero drift for 7 consecutive days.
+    */
+    'ledger' => [
+        'shadow' => [
+            'beds24'   => (bool) env('LEDGER_SHADOW_BEDS24',   false),
+            'octo'     => (bool) env('LEDGER_SHADOW_OCTO',     false),
+            'cashier'  => (bool) env('LEDGER_SHADOW_CASHIER',  false),
+        ],
+    ],
 ];

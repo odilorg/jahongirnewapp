@@ -32,9 +32,23 @@ final class Beds24PaymentAdapter
         private readonly RecordLedgerEntry $recorder,
     ) {}
 
+    /**
+     * @param  string|null $beds24ItemId  Stable per-payment-line id from
+     *                                    the webhook payload. When null
+     *                                    the caller MUST supply
+     *                                    $idempotencyKeyOverride so the
+     *                                    idempotency guard can still
+     *                                    detect duplicate deliveries.
+     * @param  string|null $idempotencyKeyOverride  Optional explicit key.
+     *                                              Used when $beds24ItemId
+     *                                              is null and the caller
+     *                                              has a better signal
+     *                                              (e.g. reference string,
+     *                                              content hash).
+     */
     public function record(
         string   $beds24BookingId,
-        string   $beds24ItemId,
+        ?string  $beds24ItemId,
         float    $amount,
         Currency $currency,
         string   $beds24PaymentMethod,
@@ -42,7 +56,15 @@ final class Beds24PaymentAdapter
         ?string  $roomNumber = null,
         ?int     $cashierShiftId = null,
         ?Carbon  $occurredAt = null,
+        ?string  $idempotencyKeyOverride = null,
     ): LedgerEntry {
+        $idempotencyKey = $idempotencyKeyOverride
+            ?? ($beds24ItemId !== null ? "b24_item_{$beds24ItemId}" : null);
+
+        $externalItemRef = $beds24ItemId !== null
+            ? "b24_item_{$beds24ItemId}"
+            : null;
+
         return $this->recorder->execute(new LedgerEntryInput(
             entryType:         LedgerEntryType::AccommodationPaymentIn,
             source:            SourceTrigger::Beds24Webhook,
@@ -50,12 +72,12 @@ final class Beds24PaymentAdapter
             currency:          $currency,
             counterpartyType:  CounterpartyType::Guest,
             paymentMethod:     $this->mapPaymentMethod($beds24PaymentMethod),
-            idempotencyKey:    "b24_item_{$beds24ItemId}",
+            idempotencyKey:    $idempotencyKey,
             beds24BookingId:   $beds24BookingId,
             cashierShiftId:    $cashierShiftId,
             occurredAt:        $occurredAt,
             externalReference: $beds24BookingId,
-            externalItemRef:   "b24_item_{$beds24ItemId}",
+            externalItemRef:   $externalItemRef,
             createdByBotSlug:  'beds24_webhook',
             notes:             $this->buildNotes($guestName, $roomNumber),
             tags:              ['beds24', 'external-webhook'],
