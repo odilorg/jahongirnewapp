@@ -237,23 +237,28 @@ $bgClass = 'hover:opacity-90 transition-opacity';
     <x-filament-actions::modals />
 
     {{--
-        FIX: Livewire morph inserts modal children without Alpine activating
-        their directives (x-show etc.), so the first open() doesn't reveal the
-        modal. We hook into Livewire's morph lifecycle and call Alpine.initTree
-        ONLY on newly-added nodes inside a .fi-modal — never on the modal root
-        itself (which would cancel active transitions).
+        FIX: On the first chip click, Livewire dispatches open-modal BEFORE the
+        morphed modal subtree has finished registering its x-show/x-transition
+        directives with Alpine, so isOpen flips without anything watching it
+        (modal stays hidden). Re-dispatching the same event once after Alpine
+        has had a tick to bind directives works the second time — we just do
+        that automatically so the first click is enough.
     --}}
     <script>
-        document.addEventListener('livewire:init', function () {
-            if (!window.Livewire || !window.Alpine) return;
-
-            Livewire.hook('morph.added', function (payload) {
-                const el = payload?.el;
-                if (!el || el.nodeType !== 1) return;
-                if (el.closest && el.closest('.fi-modal')) {
-                    try { window.Alpine.initTree(el); } catch (_e) {}
-                }
+        (function () {
+            let rebroadcasting = false;
+            window.addEventListener('open-modal', function (e) {
+                if (rebroadcasting) return;
+                const id = e.detail?.id;
+                if (!id) return;
+                requestAnimationFrame(function () {
+                    requestAnimationFrame(function () {
+                        rebroadcasting = true;
+                        window.dispatchEvent(new CustomEvent('open-modal', { detail: { id: id } }));
+                        rebroadcasting = false;
+                    });
+                });
             });
-        });
+        })();
     </script>
 </x-filament-panels::page>
