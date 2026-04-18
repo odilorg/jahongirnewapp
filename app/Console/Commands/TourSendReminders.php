@@ -186,25 +186,7 @@ class TourSendReminders extends Command
                 continue;
             }
 
-            $pickupTime = $inquiry->pickup_time ?? '09:00';
-            $tourTitle  = $inquiry->tourProduct?->title
-                ?? preg_replace('/\s*\|\s*Jahongir\s+Travel\s*$/iu', '', (string) $inquiry->tour_name_snapshot);
-            $driverName  = $inquiry->driver?->full_name;
-            $driverPhone = $inquiry->driver?->phone01;
-            $guideName   = $inquiry->guide?->full_name;
-            $guidePhone  = $inquiry->guide?->phone01;
-
-            $message = $this->buildGuestMessage(
-                $this->firstName($inquiry->customer_name),
-                $tourTitle,
-                $dateLabel,
-                $inquiry->pickup_point,
-                $pickupTime,
-                $driverName,
-                $driverPhone,
-                $guideName,
-                $guidePhone,
-            );
+            $message = $this->buildGuestMessage($inquiry, $dateLabel);
 
             $this->info("  📱 WhatsApp → {$phone} ({$inquiry->customer_name})");
             $phonesThisRun[$phone] = true;
@@ -242,43 +224,221 @@ class TourSendReminders extends Command
         $this->info("WhatsApp summary: {$sent} sent, {$skipped} skipped, {$failed} failed.");
     }
 
-    private function buildGuestMessage(
-        string $firstName,
-        string $tourTitle,
-        string $dateLabel,
-        ?string $pickup,
-        string $pickupTime,
-        ?string $driverName,
-        ?string $driverPhone,
-        ?string $guideName,
-        ?string $guidePhone,
-    ): string {
+    /**
+     * Phase 25 — rewritten guest reminder message.
+     *   - Context-aware pickup block (private hotel / group Samarkand / Bukhara dropoff)
+     *   - Primary contact = guide if assigned, else driver
+     *   - Car line only when driver is primary contact and car data exists
+     *   - Packing/meals from config by tour slug
+     *   - Weather advisory only if fetch succeeds; silent on failure
+     *   - Correct support number +998 91 555 08 08 via config
+     */
+    private function buildGuestMessage(\App\Models\BookingInquiry $inquiry, string $dateLabel): string
+    {
+        $firstName = $this->firstName($inquiry->customer_name);
+
+        $tourTitle = $inquiry->tourProduct?->title
+            ?? preg_replace('/\s*\|\s*Jahongir\s+Travel\s*$/iu', '', (string) $inquiry->tour_name_snapshot);
+        $direction = $inquiry->tourProductDirection?->name;
+        $headline  = $direction ? "*{$tourTitle}* ({$direction})" : "*{$tourTitle}*";
+
+        $pickupTime  = $inquiry->pickup_time ? substr((string) $inquiry->pickup_time, 0, 5) : '09:00';
+        $hoursUntil  = $this->hoursUntilPickup($inquiry, $pickupTime);
+
         $lines = [
             "Hi {$firstName}! 👋",
             '',
-            "Just a friendly reminder — your *{$tourTitle}* is tomorrow! 🎉",
+            "Your {$headline} is tomorrow 🎉",
+            '',
+            'Everything is arranged and ready for you 👍',
             '',
             "📅 {$dateLabel}",
-            "⏰ Pickup: {$pickupTime}",
+            "⏰ Pickup: {$pickupTime}" . ($hoursUntil ? " (in ~{$hoursUntil}h)" : ''),
         ];
 
-        if (filled($pickup)) {
-            $lines[] = "🏨 Location: {$pickup}";
+        // Pickup block — context-aware
+        foreach ($this->buildPickupBlockLines($inquiry) as $l) {
+            $lines[] = $l;
         }
 
-        if ($driverName) {
-            $lines[] = "🚗 Driver: {$driverName}" . ($driverPhone ? " ({$driverPhone})" : '');
+        // Primary contact (guide-first, driver fallback)
+        $lines[] = '';
+        foreach ($this->buildContactBlockLines($inquiry) as $l) {
+            $lines[] = $l;
         }
 
-        if ($guideName) {
-            $lines[] = "🧭 Guide: {$guideName}" . ($guidePhone ? " ({$guidePhone})" : '');
+        // Packing list
+        $slug = $inquiry->tourProduct?->slug ?? 'default';
+        $packing = config("tour_experience.packing_lists.{$slug}")
+            ?? config('tour_experience.packing_lists.default', []);
+        if (! empty($packing)) {
+            $lines[] = '';
+            $lines[] = '🎒 What to bring:';
+            foreach ($packing as $item) {
+                $lines[] = "• {$item}";
+            }
         }
+
+        // Weather (silent on failure)
+        $weatherBlock = $this->buildWeatherBlock($inquiry);
+        if ($weatherBlock) {
+            $lines[] = '';
+            foreach ($weatherBlock as $l) $lines[] = $l;
+        }
+
+        // Meals
+        $meals = config("tour_experience.meal_plans.{$slug}")
+            ?? config('tour_experience.meal_plans.default');
+        if (filled($meals)) {
+            $lines[] = '';
+            $lines[] = "🍽 {$meals}";
+        }
+
+        // Support
+        $opsWhatsapp = config('tour_experience.ops_whatsapp', '+998 91 555 08 08');
+        $lines[] = '';
+        $lines[] = "🆘 Need help? WhatsApp us anytime: {$opsWhatsapp}";
 
         $lines[] = '';
-        $lines[] = 'Have a wonderful trip! 🌟';
+        $lines[] = 'Have an amazing trip! 🌟';
         $lines[] = '— Jahongir Travel';
 
         return implode("\n", $lines);
+    }
+
+    /**
+     * @return array<string>
+     */
+    private function buildPickupBlockLines(\App\Models\BookingInquiry $inquiry): array
+    {
+        $lines = [];
+        $pickup = $inquiry->pickup_point;
+        $isGroupInSamarkand = $inquiry->tour_type === 'group'
+            && (blank($pickup) || in_array($pickup, ['Samarkand', 'Gur Emir Mausoleum'], true));
+
+        if ($isGroupInSamarkand) {
+            $lines[] = '🏛 Meeting point: Gur Emir Mausoleum, Samarkand';
+            $lines[] = '📍 https://maps.google.com/?q=Gur+Emir+Mausoleum+Samarkand';
+            $lines[] = 'You will be met downstairs next to the entrance portal';
+        } elseif (filled($pickup)) {
+            $lines[] = "🏨 {$pickup}";
+            $lines[] = '📍 https://maps.google.com/?q=' . rawurlencode($pickup);
+            $lines[] = 'You will be met at the reception';
+        }
+
+        // Drop-off for Bukhara routes
+        $dropoff = (string) ($inquiry->dropoff_point ?? '');
+        $directionName = strtolower((string) $inquiry->tourProductDirection?->name);
+        $looksLikeBukhara = stripos($dropoff, 'bukhara') !== false
+            || str_contains($directionName, 'bukhara');
+
+        if ($looksLikeBukhara && stripos($directionName, '→ samarkand') === false) {
+            // Tour ends in Bukhara
+            $lines[] = '📍 Drop-off: Lyabi Hauz area, Bukhara';
+        }
+
+        return $lines;
+    }
+
+    /**
+     * Guide-first, driver fallback. Never shows empty labels.
+     *
+     * @return array<string>
+     */
+    private function buildContactBlockLines(\App\Models\BookingInquiry $inquiry): array
+    {
+        $lines = [];
+
+        if ($inquiry->guide && $inquiry->guide->full_name) {
+            $name  = $inquiry->guide->full_name;
+            $phone = $inquiry->guide->phone01;
+            $lines[] = "🧭 Your guide: {$name}";
+            if ($phone) $lines[] = "📱 {$phone}";
+            return $lines;
+        }
+
+        if ($inquiry->driver && $inquiry->driver->full_name) {
+            $name  = $inquiry->driver->full_name;
+            $phone = $inquiry->driver->phone01;
+            $lines[] = "🚗 Your driver: {$name}";
+            if ($phone) $lines[] = "📱 {$phone}";
+
+            $carLine = $this->buildCarLine($inquiry->driver);
+            if ($carLine) $lines[] = "🚐 {$carLine}";
+        }
+
+        return $lines;
+    }
+
+    private function buildCarLine(\App\Models\Driver $driver): ?string
+    {
+        $car = $driver->cars()->first();
+        if (! $car) return null;
+
+        $parts = [];
+        if (filled($car->color)) $parts[] = ucfirst((string) $car->color);
+        if (filled($car->brand_name)) $parts[] = $car->brand_name;
+
+        $left = trim(implode(' ', $parts));
+        if ($left === '' && blank($car->plate_number)) return null;
+
+        if ($left === '') return (string) $car->plate_number;
+        if (blank($car->plate_number)) return $left;
+
+        return "{$left} · {$car->plate_number}";
+    }
+
+    private function hoursUntilPickup(\App\Models\BookingInquiry $inquiry, string $pickupTime): ?int
+    {
+        try {
+            $date = $inquiry->travel_date ? $inquiry->travel_date->format('Y-m-d') : null;
+            if (! $date) return null;
+            $dt = \Carbon\Carbon::parse("{$date} {$pickupTime}", 'Asia/Tashkent');
+            $hours = (int) round(now('Asia/Tashkent')->diffInMinutes($dt, false) / 60);
+            return $hours > 0 ? $hours : null;
+        } catch (\Throwable $e) {
+            return null;
+        }
+    }
+
+    /**
+     * wttr.in free weather lookup. Gracefully returns empty on any failure.
+     *
+     * @return array<string>
+     */
+    private function buildWeatherBlock(\App\Models\BookingInquiry $inquiry): array
+    {
+        $slug = $inquiry->tourProduct?->slug ?? 'default';
+        $location = config("tour_experience.weather_locations.{$slug}")
+            ?? config('tour_experience.weather_locations.default');
+        if (! $location) return [];
+
+        try {
+            $cacheKey = "wttr:tomorrow:{$location}";
+            $data = \Illuminate\Support\Facades\Cache::remember($cacheKey, 3600, function () use ($location) {
+                $response = \Illuminate\Support\Facades\Http::timeout(3)
+                    ->get("https://wttr.in/" . rawurlencode($location), ['format' => 'j1']);
+                return $response->successful() ? $response->json() : null;
+            });
+
+            if (! $data || empty($data['weather'][1])) return [];
+            $tomorrow = $data['weather'][1];
+            $maxC = $tomorrow['maxtempC'] ?? null;
+            $minC = $tomorrow['mintempC'] ?? null;
+            if (! $maxC || ! $minC) return [];
+
+            return [
+                "🌤 Expected around {$location}:",
+                "☀️ ~{$maxC}°C daytime",
+                "🌙 ~{$minC}°C at night",
+            ];
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::info('Weather fetch failed — omitting', [
+                'location' => $location,
+                'error'    => $e->getMessage(),
+            ]);
+            return [];
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════════════
