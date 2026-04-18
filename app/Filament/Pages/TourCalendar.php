@@ -566,7 +566,16 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
             ->modalHeading(fn (): string => $this->getSelectedInquiry()?->reference ?? 'Inquiry')
             ->modalContent(fn (): \Illuminate\Contracts\View\View => view(
                 'filament.pages.tour-calendar-slideover',
-                ['inquiry' => $this->getSelectedInquiry()],
+                [
+                    'inquiry'               => $this->getSelectedInquiry(),
+                    'assignDriverId'        => $this->assignDriverId,
+                    'assignDriverRateId'    => $this->assignDriverRateId,
+                    'assignGuideId'         => $this->assignGuideId,
+                    'assignGuideRateId'     => $this->assignGuideRateId,
+                    'assignAccommodationId' => $this->assignAccommodationId,
+                    'assignAccGuests'       => $this->assignAccGuests,
+                    'assignAccNights'       => $this->assignAccNights,
+                ],
             ))
             ->modalFooterActions(fn (): array => $this->getSlideOverActions())
             ->closeModalByClickingAway()
