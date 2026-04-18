@@ -50,49 +50,71 @@ Effort:     S (≤1d) / M (2–3d) / L (4–7d) / XL (>1w)
 
 ## 2. Execution order (dependency DAG, condensed)
 
+**Updated post-review (2026-04-18) — reviewer corrections integrated:**
+- Added **L-006.5 — Shadow Ledger Mode** (before any flow migration)
+- Added **L-015.5 — `ledger:diff` tool** (before backfill runs)
+- Moved **L-017 (CI guard)** and **L-018 (write firewall)** earlier — enforce discipline *before* flows migrate
+- Backfill (L-015) phased: 7 days → 30 days → full history
+
 ```
-                                  ┌──────── L-021..L-029 (P2 cleanup, parallel)
-                                  │
-  P0 ─┬─ L-001  migrations
+  Phase A — Stabilization (P0)
+    L-001 migrations
+    L-002 BotPaymentService
+          │
+          ▼
+  Phase B — Foundation
+    L-003 ledger_entries schema
       │
-      └─ L-002  BotPaymentService
+      └── L-004 RecordLedgerEntry + DTO + enums
+            │
+            ├── L-005 event + projection updater skeleton
+            │
+            ├── L-006 source adapters (Beds24/Octo/GYG)
+            │
+            ├── L-006.5 🔥 SHADOW LEDGER MODE
+            │      (dual-write to legacy + ledger; ledger not yet used for reads)
+            │
+            ├── L-017 CI guard (moved earlier)
+            │
+            └── L-018 runtime write firewall (moved earlier; enforced flag off initially)
                     │
                     ▼
-  P1 ── L-003  ledger_entries schema
-             │
-             ├─ L-004  RecordLedgerEntry + DTO + enums
-             │        │
-             │        ├─ L-005  event + projection updater skeleton
-             │        │        │
-             │        │        └─ L-011  balance projections
-             │        │                 │
-             │        │                 └─ L-013  LedgerReportService
-             │        │                          │
-             │        │                          └─ L-014  Filament reads from service
-             │        │
-             │        ├─ L-006  source adapters (3)
-             │        │        │
-             │        │        ├─ L-007  Beds24 migrated (flagged)
-             │        │        ├─ L-008  Octo migrated (kill legacy path)
-             │        │        ├─ L-009  bots migrated (flagged)
-             │        │        └─ L-010  Filament pages migrated
-             │        │
-             │        └─ L-012  payment projections (read-only models)
-             │
-             ├─ L-015  backfill command
-             │
-             ├─ L-016  consolidate reconciliation
-             │
-             ├─ L-017  CI guard
-             │
-             ├─ L-018  write firewall (runtime guard)
-             │
-             ├─ L-019  freeze legacy tables (triggers)
-             │
-             └─ L-020  drop legacy tables (after observation window)
+  Phase C — Controlled flow migration (behind flags)
+    L-007 Beds24 (shadow validation running)
+    L-008 Octo (kill legacy path + amount-drift fix)
+    L-009 bots (cashier/POS/owner, per-bot flags)
+    L-010 Filament pages
+                    │
+                    ▼
+  Phase D — Read shift
+    L-011 balance projections
+    L-012 payment projection models (read-only)
+    L-013 LedgerReportService
+    L-014 Filament readers migrated
+                    │
+                    ▼
+  Phase E — Backfill (phased)
+    L-015.5 ledger:diff tool (prereq)
+    L-015   backfill: 7d → 30d → full history
+                    │
+                    ▼
+  Phase F — Hardening
+    L-016 reconciliation consolidation
+    (CI + firewall already live; flip firewall.enforce=true here)
+                    │
+                    ▼
+  Phase G — Cutover
+    L-019 freeze legacy tables (triggers)
+    (30-day observation window)
+    L-020 drop legacy tables
+
+  (P2 cleanup — L-021..L-029 run in parallel throughout, where non-interfering)
 ```
 
-**Hard gate:** L-001 and L-002 must be merged to `main` and deployed before any L-003+ ticket begins.
+**Hard gates:**
+- L-001 and L-002 must be merged to `main` and deployed before any L-003+ ticket begins.
+- **L-006.5 (shadow mode) must be green for 7 consecutive days before L-007 production enablement.** This is a new cutover criterion — see §5.
+- L-015.5 (`ledger:diff` tool) must exist and pass on current data before L-015 backfill runs.
 
 ---
 
@@ -319,6 +341,59 @@ Effort:     S (≤1d) / M (2–3d) / L (4–7d) / XL (>1w)
 **Rollback:** Delete files. Not wired yet.
 
 **Effort:** **M (3 days)**.
+
+---
+
+### L-006.5 · 🔥 Shadow Ledger Mode — dual-write without switching reads      P1   Risk: LOW
+
+**Scope:**
+- `RecordLedgerEntry` action adds a **shadow mode** — if `features.ledger.shadow=true`, the action executes normally AND any matching projection update; reads still come from legacy tables
+- Source adapters (L-006) record to the ledger but **do not replace** the legacy writes — they run *in addition* during shadow phase
+- new: `app/Services/Ledger/ShadowParityChecker.php` — nightly command comparing legacy totals vs ledger totals per source, per booking, per day
+- new: `php artisan ledger:shadow-parity-report {--from} {--to}`
+
+**Why:** Reviewer correction (2026-04-18). Migrating flows without a shadow comparison means we migrate blind — first bug hits production. Shadow mode lets us detect drift before switching reads.
+
+**Behaviour during shadow phase:**
+```
+┌──────────────────────────────────────────────────────┐
+│  Incoming event (Beds24 / Octo / bot / Filament)     │
+│           │                                          │
+│           ├──► legacy writer (unchanged)             │
+│           │      └──► cash_transactions etc.         │
+│           │                                          │
+│           └──► source adapter (new)                  │
+│                  └──► ledger_entries                 │
+│                                                      │
+│  Reads: still from legacy (unchanged)                │
+│  Nightly job: diff legacy vs ledger → alert on drift │
+└──────────────────────────────────────────────────────┘
+```
+
+**Steps:**
+1. Add feature flag `features.ledger.shadow` (default off).
+2. Make `RecordLedgerEntry` idempotent when called in shadow mode — same idempotency key produces no-op second call.
+3. Modify each migrated controller (L-007..L-010) so that while `shadow=true` **both** paths run; flag flip removes legacy path only after parity holds.
+4. `ShadowParityChecker` queries:
+   - Per day: `SUM(cash_transactions.amount)` vs `SUM(ledger_entries WHERE source_trigger=cashier_bot)` — grouped by currency
+   - Per booking: `GuestPayment.amount` vs `ledger_entries WHERE booking_inquiry_id=X AND entry_type=AccommodationPaymentIn` — match 1:1 or flag
+   - Per source: every external_reference in legacy should appear in ledger with same amount
+5. Nightly scheduled command: 07:05 Tashkent, sends Telegram recap "Shadow parity report: 100% matched" or "3 drift rows — see `ledger_drift_log`".
+6. New table `ledger_drift_log` stores all detected discrepancies until resolved.
+
+**Depends on:** L-006.
+
+**Test plan:**
+- Insert a legacy row via existing code; verify shadow mode also creates ledger entry with same amount/currency/references.
+- Run `ledger:shadow-parity-report --from=yesterday` — output must be 100% match for synthetic data.
+- Introduce a deliberate drift (write to legacy without ledger) → report flags it.
+
+**Rollback:** Feature flag off — dual-write stops; ledger rows already written remain (harmless).
+
+**Effort:** **L (5 days)**.
+
+**New cutover criterion (added to §5):**
+> Shadow parity report shows 100% match for 7 consecutive days before any `features.ledger.<flow>=true` flag is flipped to read-from-ledger.
 
 ---
 
@@ -587,13 +662,56 @@ Effort:     S (≤1d) / M (2–3d) / L (4–7d) / XL (>1w)
 
 ---
 
-### L-015 · Backfill historical data into `ledger_entries`      P1   Risk: MEDIUM
+### L-015.5 · `ledger:diff` tool (prerequisite for backfill)            P1   Risk: LOW
+
+**Scope:**
+- new: `app/Console/Commands/LedgerDiff.php`
+- new: `app/Services/Ledger/LegacyLedgerDiffer.php`
+
+**Why:** Reviewer correction — "totals can hide misattribution, wrong source tagging, incorrect grouping". Before L-015 runs, there must be a tool that compares legacy and ledger **per booking, per day, per source** — not just per-day totals. Builds on the `ShadowParityChecker` from L-006.5 but adds row-level diff output.
+
+**Steps:**
+1. Command: `php artisan ledger:diff {--from=} {--to=} {--booking=} {--source=} {--granularity=booking|day|source}`
+2. Output modes:
+   - **Summary** — JSON/CSV per group; total expected vs total found vs drift
+   - **Detailed** — every legacy row with its ledger counterpart (or `MISSING`); diff columns highlighted
+3. Can be run on:
+   - Shadow-mode data (during L-006.5 coexistence)
+   - Backfill dry-run results
+   - Post-backfill verification
+4. Exit code 0 = fully matched, 1 = drift detected.
+5. Wire into CI so nightly scheduled run fails loudly when drift is introduced.
+
+**Depends on:** L-006.5.
+
+**Test plan:**
+- Synthetic fixture: 100 bookings, known payment amounts → diff output zero rows.
+- Introduce known drift (modify one ledger row) → tool identifies the exact row and column.
+- Large-data perf: 30-day prod-scale diff completes under 60s.
+
+**Rollback:** Delete command — no production effect.
+
+**Effort:** **M (3 days)**.
+
+---
+
+### L-015 · Backfill historical data into `ledger_entries` (phased)      P1   Risk: MEDIUM
 
 **Scope:**
 - new: `app/Console/Commands/LedgerBackfill.php`
 - new: `app/Services/Ledger/LegacyBackfillMapper.php` — the row-translation logic
 
 **Why:** `MONEY_FLOW_DEEP_DIVE.md §6` — reconstruction plan. `TARGET_ARCHITECTURE.md §7.4`.
+
+**Phased execution (reviewer correction):** do not bulk-migrate history blindly. Three passes:
+
+| Pass | Scope | Purpose |
+|---|---|---|
+| **1: last 7 days** | Most recent week | Detect mapping bugs fast; short reversal window |
+| **2: last 30 days** | Extend to 1 month | Exercise edge cases; monthly cycle coverage |
+| **3: full history** | All remaining rows | Final backfill once passes 1 & 2 are clean |
+
+Between each pass: `ledger:diff` must be green before proceeding. Minimum 48h soak between passes.
 
 **Steps:**
 1. Command signature: `ledger:backfill {--from=} {--to=} {--dry-run} {--chunk=1000} {--source=all}`
@@ -604,21 +722,23 @@ Effort:     S (≤1d) / M (2–3d) / L (4–7d) / XL (>1w)
    - Preserves original `source_trigger` in `tags` for audit
    - Reversal reference parsing: where `reference LIKE 'reversal:%'` → set `reverses_entry_id`. Where fuzzy match was used → mark `data_quality='manual_review'`.
    - Exchange pair reconstruction: group by `reference LIKE 'EX-%'` → set `parent_entry_id` on the second leg.
-4. Post-backfill verification:
-   - `ledger_entries.source=SystemBackfill` count = combined legacy row count
+4. Post-backfill verification per pass:
+   - `ledger_entries.source=SystemBackfill` count = combined legacy row count in pass window
+   - `ledger:diff --from --to --granularity=booking` → zero drift
    - `SUM(amount * direction_sign)` per projection matches pre-backfill computed balance
 
-**Depends on:** L-004, L-011, L-012.
+**Depends on:** L-004, L-011, L-012, **L-015.5**.
 
 **Test plan:**
 - Dry-run on staging with production snapshot → produces a report of entries to create, no writes.
 - Full run on staging → projection balances match pre-backfill snapshot within ±0.01 for all drawers.
 - Idempotent: running twice does not duplicate rows.
 - `data_quality='manual_review'` flagged rows are reported in a summary file.
+- Each phase's `ledger:diff` clean before progressing to next phase.
 
-**Rollback:** `DELETE FROM ledger_entries WHERE source='system_backfill'` — the source stamp makes backfilled rows identifiable. Projections rebuild from remaining rows.
+**Rollback:** `DELETE FROM ledger_entries WHERE source='system_backfill' AND occurred_at BETWEEN ?` — the source stamp + time window makes a single pass reversible without touching previous passes or live shadow-mode rows. Projections rebuild from remaining rows.
 
-**Effort:** **XL (1–2 weeks)** — data mapping is laborious and every edge case matters.
+**Effort:** **XL (1–2 weeks across 3 passes with soak periods)** — data mapping is laborious and every edge case matters.
 
 ---
 
@@ -770,7 +890,7 @@ Effort:     S (≤1d) / M (2–3d) / L (4–7d) / XL (>1w)
 
 ## 5. Cutover gates (must all be green to proceed past L-019)
 
-From `TARGET_ARCHITECTURE.md §7.6`:
+From `TARGET_ARCHITECTURE.md §7.6` + reviewer corrections:
 
 | # | Gate | Measured how |
 |---|---|---|
@@ -779,8 +899,12 @@ From `TARGET_ARCHITECTURE.md §7.6`:
 | 3 | `ledger:rebuild-projections --verify` zero drift for 7 consecutive days | Scheduled diff job, logged |
 | 4 | `ReconciliationService` runs green for 7 consecutive days | Daily recap email |
 | 5 | Daily cash report matches pre-cutover baseline within ±0.01 for 7 consecutive days | Shadow comparison fixture |
+| 6 | 🔥 Shadow parity report (L-006.5) shows 100% match for 7 consecutive days before flipping any flow flag | Nightly ShadowParityChecker command |
+| 7 | 🔥 `ledger:diff --granularity=booking` returns zero drift rows for 7 consecutive days | Nightly diff command |
 
-**All 5 must be green before L-019 ships. All 5 must stay green for 30 more days before L-020 ships.**
+**All 7 must be green before L-019 ships. All 7 must stay green for 30 more days before L-020 ships.**
+
+**Additional gate from reviewer (unique constraint):** the migration that creates `ledger_entries` (L-003) must enforce `UNIQUE(source, idempotency_key)` at the DB level — not only at application layer. This prevents accidental double-writes during shadow / coexistence phases.
 
 ---
 
