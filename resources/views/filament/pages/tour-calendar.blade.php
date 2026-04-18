@@ -236,59 +236,23 @@ $bgClass = 'hover:opacity-90 transition-opacity';
     {{-- Filament action modals (slide-over) render here --}}
     <x-filament-actions::modals />
 
-    {{-- DEBUG-SLIDEOVER — remove after diagnosis --}}
+    {{--
+        FIX: Livewire morph inserts modal content without Alpine re-registering
+        directives on the new nodes, so x-show="isOpen" never reacts. We force
+        Alpine.initTree() on the matched modal after open-modal fires, which
+        re-runs all directives in that subtree.
+    --}}
     <script>
-        (function () {
-            console.log('[SLIDE-DEBUG] script loaded', new Date().toISOString());
-
-            document.addEventListener('click', function (e) {
-                const chip = e.target.closest('[wire\\:click^="openInquiry"]');
-                if (chip) {
-                    const attr = chip.getAttribute('wire:click');
-                    console.log('[SLIDE-DEBUG] chip clicked:', attr, 'tag=' + chip.tagName);
-                }
-            }, true);
-
-            window.addEventListener('open-modal', function (e) {
-                const dispatchedId = e.detail?.id ?? 'N/A';
-                console.log('[SLIDE-DEBUG] open-modal event received, id=' + dispatchedId);
-                setTimeout(function () {
-                    const modals = document.querySelectorAll('.fi-modal');
-                    modals.forEach(function (outer) {
-                        const onAttr = outer.getAttribute('x-on:open-modal.window') || '';
-                        if (!onAttr.includes(dispatchedId)) return;
-                        const outerData = window.Alpine ? window.Alpine.$data(outer) : null;
-                        console.log('[SLIDE-DEBUG] outer isOpen=' + outerData?.isOpen);
-
-                        // Find first x-show="isOpen" child and diagnose its scope
-                        const showIsOpen = outer.querySelector('[x-show="isOpen"]');
-                        if (!showIsOpen) { console.warn('[SLIDE-DEBUG] no x-show=isOpen child found'); return; }
-                        const scopeData = window.Alpine.$data(showIsOpen);
-                        console.log('[SLIDE-DEBUG] x-show=isOpen child scope isOpen=' + scopeData?.isOpen);
-                        console.log('[SLIDE-DEBUG] scope data keys=' + Object.keys(scopeData || {}).join(','));
-                        console.log('[SLIDE-DEBUG] is same scope as outer? ' + (scopeData === outerData));
-
-                        // Walk UP from the x-show=isOpen child and list every x-data ancestor
-                        let el = showIsOpen;
-                        let level = 0;
-                        while (el && el !== document.body && level < 10) {
-                            if (el.hasAttribute('x-data')) {
-                                const d = window.Alpine.$data(el);
-                                const xd = el.getAttribute('x-data') || '';
-                                console.log('[SLIDE-DEBUG] ancestor L' + level + ' tag=' + el.tagName
-                                    + ' x-data=' + xd.slice(0, 60)
-                                    + ' isOpen=' + d?.isOpen);
-                                level++;
-                            }
-                            el = el.parentElement;
-                        }
-                    });
-                }, 200);
+        window.addEventListener('open-modal', function (e) {
+            const id = e.detail?.id;
+            if (!id || !window.Alpine) return;
+            queueMicrotask(function () {
+                document.querySelectorAll('.fi-modal').forEach(function (modal) {
+                    const onAttr = modal.getAttribute('x-on:open-modal.window') || '';
+                    if (!onAttr.includes(id)) return;
+                    try { window.Alpine.initTree(modal); } catch (err) { console.error('modal reinit failed', err); }
+                });
             });
-
-            document.addEventListener('livewire:initialized', function () {
-                console.log('[SLIDE-DEBUG] livewire initialized');
-            });
-        })();
+        });
     </script>
 </x-filament-panels::page>
