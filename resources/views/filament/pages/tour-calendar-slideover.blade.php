@@ -538,8 +538,10 @@
     {{-- Costs + Margin --}}
     @php
         $accCost       = (float) $inquiry->stays->sum('total_accommodation_cost');
-        $driverCost    = (float) ($inquiry->driver_cost ?? 0);
-        $guideCost     = (float) ($inquiry->guide_cost ?? 0);
+        // Only count driver/guide cost if the role is actually assigned —
+        // prevents stale orphan cost values from inflating margin math.
+        $driverCost    = $inquiry->driver_id ? (float) ($inquiry->driver_cost ?? 0) : 0;
+        $guideCost     = $inquiry->guide_id  ? (float) ($inquiry->guide_cost ?? 0)  : 0;
         $otherCosts    = (float) ($inquiry->other_costs ?? 0);
         $totalCost     = $accCost + $driverCost + $guideCost + $otherCosts;
         $gross         = (float) ($inquiry->price_quoted ?? 0);

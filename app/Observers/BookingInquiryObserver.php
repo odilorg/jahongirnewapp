@@ -38,6 +38,28 @@ class BookingInquiryObserver
         BookingInquiry::STATUS_CONFIRMED,
     ];
 
+    /**
+     * Phase 23.1 — prevent orphan cost/rate values when role is unassigned.
+     * If operator clears driver_id (or guide_id) but doesn't clear the
+     * associated _cost / _rate_id / _override fields, financials inflate
+     * with stale data. Auto-clean on save.
+     */
+    public function saving(BookingInquiry $inquiry): void
+    {
+        if (! $inquiry->driver_id) {
+            $inquiry->driver_cost                = null;
+            $inquiry->driver_rate_id             = null;
+            $inquiry->driver_cost_override       = false;
+            $inquiry->driver_cost_override_reason = null;
+        }
+        if (! $inquiry->guide_id) {
+            $inquiry->guide_cost                = null;
+            $inquiry->guide_rate_id             = null;
+            $inquiry->guide_cost_override       = false;
+            $inquiry->guide_cost_override_reason = null;
+        }
+    }
+
     public function updated(BookingInquiry $inquiry): void
     {
         if (! in_array($inquiry->status, self::ACTIVE_STATUSES, true)) {
