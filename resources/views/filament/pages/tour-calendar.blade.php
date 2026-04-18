@@ -24,6 +24,10 @@
             <div style="font-size: 10px; color: #5b21b6; text-transform: uppercase; letter-spacing: 0.5px;">⏰ Reminders Due</div>
             <div style="font-size: 18px; font-weight: 700; color: {{ ($action['reminders_due'] ?? 0) > 0 ? '#7c3aed' : '#6b7280' }};">{{ $action['reminders_due'] ?? 0 }}</div>
         </div>
+        <a href="{{ url('/admin/group-matches') }}" style="flex: 1; min-width: 160px; background: {{ ($action['group_matches'] ?? 0) > 0 ? '#faf5ff' : '#f3f4f6' }}; border-radius: 8px; padding: 10px 12px; text-decoration: none; border: {{ ($action['group_matches'] ?? 0) > 0 ? '1px solid #7c3aed' : '1px solid transparent' }};">
+            <div style="font-size: 10px; color: #5b21b6; text-transform: uppercase; letter-spacing: 0.5px;">🎯 Group Matches</div>
+            <div style="font-size: 18px; font-weight: 700; color: {{ ($action['group_matches'] ?? 0) > 0 ? '#7c3aed' : '#6b7280' }};">{{ $action['group_matches'] ?? 0 }}</div>
+        </a>
     </div>
 
     {{-- Phase 20 — Action view (default) with priority zones --}}
