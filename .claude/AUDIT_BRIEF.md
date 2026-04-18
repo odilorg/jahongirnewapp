@@ -114,6 +114,8 @@ Enforced on every session, every file, every commit:
 6. ✅ **All artifacts land in `docs/architecture/`**
 7. ✅ **Feature ideas go to `FEATURE_BACKLOG.md`** — never mixed into current-state docs
 8. ✅ **Commit early, commit often** — one atomic commit per artifact, push immediately
+9. 🔒 **Tour runtime is PROTECTED** — jahongirnewapp is a shared Laravel app serving BOTH hotel ops AND live tour operations. This refactor is a hotel-core refactor inside a shared app, not an app-wide refactor. Every ticket must pass the scope gate in `docs/architecture/SCOPE_GATE.md` — domain / runtime impact / tour risk / safety proof — before execution. A ticket proceeds only if one of: (a) hotel-only in runtime, (b) purely additive, (c) behind hotel-only flag/route/panel/namespace, (d) has regression test proving tour flows unchanged. (Added 2026-04-18 per user directive.)
+10. 💾 **Full verified DB backup before ANY schema/migration/bulk-data change** — no exceptions, even for "zero-risk" changes. Target: `/var/backups/databases/daily/<YYYYMMDD_HHMMSS>_jahongirnewapp_<context>.sql.gz`. (Added 2026-04-18 per user directive.)
 
 ---
 
