@@ -64,7 +64,10 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
             $statuses[] = BookingInquiry::STATUS_AWAITING_CUSTOMER;
         }
 
-        $startFromAnchor = $anchor->isToday();
+        // Always 7 days from anchor. Mon-Sun mode created a gap when paging
+        // back from the today-anchored view (Apr 19–25 → Apr 6–12, missing
+        // Apr 13–18). Contiguous sliding windows are simpler and gap-free.
+        $startFromAnchor = true;
 
         $assignedTo = $this->mineOnly ? auth()->id() : null;
         $builder    = app(TourCalendarBuilder::class);
