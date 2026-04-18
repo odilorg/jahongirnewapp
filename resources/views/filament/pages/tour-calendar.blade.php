@@ -237,28 +237,48 @@ $bgClass = 'hover:opacity-90 transition-opacity';
     <x-filament-actions::modals />
 
     {{--
-        FIX: On the first chip click, Livewire dispatches open-modal BEFORE the
-        morphed modal subtree has finished registering its x-show/x-transition
-        directives with Alpine, so isOpen flips without anything watching it
-        (modal stays hidden). Re-dispatching the same event once after Alpine
-        has had a tick to bind directives works the second time — we just do
-        that automatically so the first click is enough.
+        FIX: Livewire morph inserts modal children but Alpine doesn't bind
+        x-show reactively to their scope on first render, so x-show="isOpen"
+        stays at display:none even though isOpen=true.
+        Workaround: after open-modal fires, manually evaluate each x-show
+        expression inside the matched modal (using Alpine.evaluate) and fix
+        the display style. Same for close-modal — re-hide if expression went
+        falsy. No re-init, no transition disruption.
+        Also re-apply on livewire:update so close-then-reopen keeps working.
     --}}
     <script>
         (function () {
-            let rebroadcasting = false;
-            window.addEventListener('open-modal', function (e) {
-                if (rebroadcasting) return;
+            function syncXShow(modal) {
+                if (!window.Alpine) return;
+                modal.querySelectorAll('[x-show]').forEach(function (el) {
+                    const expr = el.getAttribute('x-show');
+                    if (!expr) return;
+                    let value;
+                    try { value = window.Alpine.evaluate(el, expr); } catch (_e) { return; }
+                    if (value) {
+                        if (el.style.display === 'none') el.style.removeProperty('display');
+                    } else {
+                        el.style.display = 'none';
+                    }
+                });
+            }
+
+            function handle(e) {
                 const id = e.detail?.id;
                 if (!id) return;
                 requestAnimationFrame(function () {
                     requestAnimationFrame(function () {
-                        rebroadcasting = true;
-                        window.dispatchEvent(new CustomEvent('open-modal', { detail: { id: id } }));
-                        rebroadcasting = false;
+                        document.querySelectorAll('.fi-modal').forEach(function (modal) {
+                            const onAttr = modal.getAttribute('x-on:open-modal.window') || '';
+                            if (!onAttr.includes(id)) return;
+                            syncXShow(modal);
+                        });
                     });
                 });
-            });
+            }
+
+            window.addEventListener('open-modal', handle);
+            window.addEventListener('close-modal', handle);
         })();
     </script>
 </x-filament-panels::page>
