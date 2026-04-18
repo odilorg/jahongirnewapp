@@ -420,12 +420,28 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
     /**
      * Record a supplier payment from the slide-over.
      */
-    public function quickPay(): void
+    /**
+     * Phase 22 fix — accept params directly. Previous implementation used
+     * x-init="$wire.set(...)" calls which fired async; if operator clicked
+     * Confirm before those set requests completed, quickPay ran with null
+     * supplier info and silently failed.
+     */
+    public function quickPay(?string $supplierType = null, ?int $supplierId = null, ?string $amount = null): void
     {
+        $supplierType = $supplierType ?: $this->paySupplierType;
+        $supplierId   = $supplierId   ?: $this->paySupplierIdVal;
+        $amount       = $amount       ?: $this->payAmount;
+
         $inquiry = BookingInquiry::find($this->selectedInquiryId);
-        if (! $inquiry || ! $this->paySupplierType || ! $this->paySupplierIdVal || ! $this->payAmount) {
+        if (! $inquiry || ! $supplierType || ! $supplierId || ! $amount) {
+            Notification::make()->title('Payment failed — missing data')->danger()->send();
             return;
         }
+
+        // Assign locally for the rest of the method
+        $this->paySupplierType = $supplierType;
+        $this->paySupplierIdVal = $supplierId;
+        $this->payAmount = $amount;
 
         $inquiry->assignIfUnowned(auth()->id());
 

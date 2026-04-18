@@ -237,11 +237,11 @@
                             <button @click="open = !open" type="button"
                                 class="text-[10px] font-medium rounded px-2 py-1 text-white"
                                 style="background: #7c3aed;">💰 Pay</button>
-                            <div x-show="open" x-cloak style="margin-top: 6px; display: flex; gap: 4px; align-items: flex-end;">
-                                <input type="number" wire:model="payAmount" step="0.01"
+                            <div x-show="open" x-cloak style="margin-top: 6px; display: flex; gap: 4px; align-items: flex-end;"
+                                x-data="{ amount: '{{ $driverRemaining }}' }">
+                                <input type="number" step="0.01" x-model="amount"
                                     class="text-xs rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
-                                    style="width: 80px; padding: 4px 6px;"
-                                    x-init="$wire.set('payAmount', '{{ $driverRemaining }}'); $wire.set('paySupplierType', 'driver'); $wire.set('paySupplierIdVal', {{ $inquiry->driver_id }});">
+                                    style="width: 80px; padding: 4px 6px;">
                                 <select wire:model="payMethod"
                                     class="text-xs rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
                                     style="padding: 4px 6px;">
@@ -249,7 +249,8 @@
                                     <option value="bank_transfer">Transfer</option>
                                     <option value="card">Card</option>
                                 </select>
-                                <button type="button" wire:click="quickPay" @click="open = false"
+                                <button type="button"
+                                    @click="$wire.call('quickPay', 'driver', {{ $inquiry->driver_id }}, amount); open = false;"
                                     class="text-[10px] font-medium rounded px-2 py-1 text-white"
                                     style="background: #16a34a;">Confirm</button>
                             </div>
@@ -292,11 +293,11 @@
                             <button @click="open = !open" type="button"
                                 class="text-[10px] font-medium rounded px-2 py-1 text-white"
                                 style="background: #7c3aed;">💰 Pay</button>
-                            <div x-show="open" x-cloak style="margin-top: 6px; display: flex; gap: 4px; align-items: flex-end;">
-                                <input type="number" wire:model="payAmount" step="0.01"
+                            <div x-show="open" x-cloak style="margin-top: 6px; display: flex; gap: 4px; align-items: flex-end;"
+                                x-data="{ amount: '{{ $guideRemaining }}' }">
+                                <input type="number" step="0.01" x-model="amount"
                                     class="text-xs rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
-                                    style="width: 80px; padding: 4px 6px;"
-                                    x-init="$wire.set('payAmount', '{{ $guideRemaining }}'); $wire.set('paySupplierType', 'guide'); $wire.set('paySupplierIdVal', {{ $inquiry->guide_id }});">
+                                    style="width: 80px; padding: 4px 6px;">
                                 <select wire:model="payMethod"
                                     class="text-xs rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
                                     style="padding: 4px 6px;">
@@ -304,7 +305,8 @@
                                     <option value="bank_transfer">Transfer</option>
                                     <option value="card">Card</option>
                                 </select>
-                                <button type="button" wire:click="quickPay" @click="open = false"
+                                <button type="button"
+                                    @click="$wire.call('quickPay', 'guide', {{ $inquiry->guide_id }}, amount); open = false;"
                                     class="text-[10px] font-medium rounded px-2 py-1 text-white"
                                     style="background: #16a34a;">Confirm</button>
                             </div>
@@ -434,11 +436,11 @@
                             <button @click="open = !open" type="button"
                                 class="text-[10px] font-medium rounded px-2 py-1 text-white"
                                 style="background: #7c3aed;">💰 Pay</button>
-                            <div x-show="open" x-cloak style="margin-top: 6px; display: flex; gap: 4px; align-items: flex-end;">
-                                <input type="number" wire:model="payAmount" step="0.01"
+                            <div x-show="open" x-cloak style="margin-top: 6px; display: flex; gap: 4px; align-items: flex-end;"
+                                x-data="{ amount: '{{ $accRemaining }}' }">
+                                <input type="number" step="0.01" x-model="amount"
                                     class="text-xs rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
-                                    style="width: 80px; padding: 4px 6px;"
-                                    x-init="$wire.set('payAmount', '{{ $accRemaining }}'); $wire.set('paySupplierType', 'accommodation'); $wire.set('paySupplierIdVal', {{ $stay->accommodation_id }});">
+                                    style="width: 80px; padding: 4px 6px;">
                                 <select wire:model="payMethod"
                                     class="text-xs rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
                                     style="padding: 4px 6px;">
@@ -446,7 +448,8 @@
                                     <option value="bank_transfer">Transfer</option>
                                     <option value="card">Card</option>
                                 </select>
-                                <button type="button" wire:click="quickPay" @click="open = false"
+                                <button type="button"
+                                    @click="$wire.call('quickPay', 'accommodation', {{ $stay->accommodation_id }}, amount); open = false;"
                                     class="text-[10px] font-medium rounded px-2 py-1 text-white"
                                     style="background: #16a34a;">Confirm</button>
                             </div>
