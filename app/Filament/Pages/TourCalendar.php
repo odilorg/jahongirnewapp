@@ -148,10 +148,14 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
     /**
      * Record a guest payment from the slide-over.
      */
-    public function quickGuestPay(): void
+    public function quickGuestPay(?string $amount = null, ?string $method = null): void
     {
+        $amount = $amount ?: $this->guestPayAmount;
+        $method = $method ?: $this->guestPayMethod;
+
         $inquiry = BookingInquiry::find($this->selectedInquiryId);
-        if (! $inquiry || ! $this->guestPayAmount) {
+        if (! $inquiry || ! $amount) {
+            Notification::make()->title('Guest payment failed — missing amount')->danger()->send();
             return;
         }
 
@@ -159,16 +163,16 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
 
         \App\Models\GuestPayment::create([
             'booking_inquiry_id'  => $inquiry->id,
-            'amount'              => (float) $this->guestPayAmount,
+            'amount'              => (float) $amount,
             'currency'            => 'USD',
-            'payment_type'        => abs((float) $this->guestPayAmount) >= (float) ($inquiry->price_quoted ?? 0) ? 'full' : 'balance',
-            'payment_method'      => $this->guestPayMethod,
+            'payment_type'        => abs((float) $amount) >= (float) ($inquiry->price_quoted ?? 0) ? 'full' : 'balance',
+            'payment_method'      => $method ?: 'cash',
             'payment_date'        => now()->toDateString(),
             'recorded_by_user_id' => auth()->id(),
             'status'              => 'recorded',
         ]);
 
-        Notification::make()->title("Guest payment recorded: \${$this->guestPayAmount}")->success()->send();
+        Notification::make()->title("Guest payment recorded: \${$amount}")->success()->send();
 
         $this->guestPayAmount = null;
     }

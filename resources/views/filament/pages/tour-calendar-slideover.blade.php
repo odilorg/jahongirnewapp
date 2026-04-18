@@ -665,15 +665,15 @@
 
         {{-- Quick pay --}}
         @if ($outstanding > 0 || $outstanding < 0)
-            <div x-data="{ open: false }" style="margin-top: 10px;">
-                <button @click="open = !open; $wire.set('guestPayAmount', '{{ $outstanding }}');" type="button"
+            <div x-data="{ open: false, amount: '{{ $outstanding }}', method: 'cash' }" style="margin-top: 10px;">
+                <button @click="open = !open" type="button"
                     class="w-full text-xs font-medium rounded-md px-3 py-1.5 text-white"
                     style="background: #16a34a;">💰 Record Payment</button>
                 <div x-show="open" x-cloak style="margin-top: 8px; display: flex; gap: 4px; align-items: flex-end;">
-                    <input type="number" wire:model="guestPayAmount" step="0.01"
+                    <input type="number" step="0.01" x-model="amount"
                         class="text-xs rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
                         style="flex: 1; padding: 4px 6px;">
-                    <select wire:model="guestPayMethod"
+                    <select x-model="method"
                         class="text-xs rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
                         style="padding: 4px 6px;">
                         <option value="cash">Cash</option>
@@ -683,7 +683,8 @@
                         <option value="paypal">PayPal</option>
                         <option value="other">Other</option>
                     </select>
-                    <button type="button" wire:click="quickGuestPay" @click="open = false"
+                    <button type="button"
+                        @click="$wire.call('quickGuestPay', amount, method); open = false;"
                         class="text-[10px] font-medium rounded px-2 py-1 text-white"
                         style="background: #3b82f6;">Confirm</button>
                 </div>
