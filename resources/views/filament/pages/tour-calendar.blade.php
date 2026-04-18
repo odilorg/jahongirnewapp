@@ -253,32 +253,39 @@ $bgClass = 'hover:opacity-90 transition-opacity';
                 const dispatchedId = e.detail?.id ?? 'N/A';
                 console.log('[SLIDE-DEBUG] open-modal event received, id=' + dispatchedId);
                 setTimeout(function () {
-                    const modals = document.querySelectorAll('[x-data]');
-                    let matchedAny = false;
-                    modals.forEach(function (el) {
-                        const xd = el.getAttribute('x-data') || '';
-                        if (!xd.includes('isOpen')) return;
-                        const onAttr = (el.getAttribute('x-on:open-modal.window') || '')
-                                     + (el.getAttribute('@open-modal.window') || '');
-                        const matchesThisId = onAttr.includes(dispatchedId);
-                        const data = window.Alpine ? window.Alpine.$data(el) : null;
-                        const isOpen = data ? data.isOpen : '(no alpine data)';
-                        const rect = el.getBoundingClientRect();
-                        const display = getComputedStyle(el).display;
-                        const visibility = getComputedStyle(el).visibility;
-                        const opacity = getComputedStyle(el).opacity;
-                        const zIndex = getComputedStyle(el).zIndex;
-                        console.log('[SLIDE-DEBUG] modal: listens-for-this-id=' + matchesThisId
-                            + ' isOpen=' + isOpen
-                            + ' display=' + display
-                            + ' visibility=' + visibility
-                            + ' opacity=' + opacity
-                            + ' z=' + zIndex
-                            + ' w×h=' + Math.round(rect.width) + '×' + Math.round(rect.height));
-                        if (matchesThisId) matchedAny = true;
+                    const modals = document.querySelectorAll('.fi-modal');
+                    console.log('[SLIDE-DEBUG] .fi-modal nodes: ' + modals.length);
+                    modals.forEach(function (outer, idx) {
+                        const onAttr = outer.getAttribute('x-on:open-modal.window') || '';
+                        const matches = onAttr.includes(dispatchedId);
+                        if (!matches) return;
+                        const data = window.Alpine ? window.Alpine.$data(outer) : null;
+                        console.log('[SLIDE-DEBUG] ======= matched modal #' + idx + ' =======');
+                        console.log('[SLIDE-DEBUG] outer isOpen=' + (data?.isOpen));
+
+                        // Walk all descendants with x-show / display info
+                        const all = outer.querySelectorAll('*');
+                        let count = 0;
+                        all.forEach(function (child, i) {
+                            if (count > 8) return;
+                            const xshow = child.getAttribute('x-show');
+                            const xcloak = child.hasAttribute('x-cloak');
+                            const cs = getComputedStyle(child);
+                            const r = child.getBoundingClientRect();
+                            if (xshow || xcloak || r.height > 0) {
+                                console.log('[SLIDE-DEBUG] #' + i
+                                    + ' tag=' + child.tagName
+                                    + ' xshow=' + (xshow || '-')
+                                    + ' xcloak=' + (xcloak ? 'YES' : 'no')
+                                    + ' disp=' + cs.display
+                                    + ' pos=' + cs.position
+                                    + ' w×h=' + Math.round(r.width) + '×' + Math.round(r.height)
+                                    + ' cls=' + (child.className || '').toString().slice(0, 80));
+                                count++;
+                            }
+                        });
                     });
-                    if (!matchedAny) console.warn('[SLIDE-DEBUG] NO modal listens for id=' + dispatchedId);
-                }, 100);
+                }, 200);
             });
 
             document.addEventListener('livewire:initialized', function () {
