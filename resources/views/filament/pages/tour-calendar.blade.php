@@ -235,4 +235,30 @@ $bgClass = 'hover:opacity-90 transition-opacity';
 
     {{-- Filament action modals (slide-over) render here --}}
     <x-filament-actions::modals />
+
+    {{-- DEBUG-SLIDEOVER — remove after diagnosis --}}
+    <script>
+        (function () {
+            console.log('[SLIDE-DEBUG] script loaded', new Date().toISOString());
+
+            document.addEventListener('click', function (e) {
+                const chip = e.target.closest('[wire\\:click^="openInquiry"]');
+                if (chip) {
+                    const attr = chip.getAttribute('wire:click');
+                    console.log('[SLIDE-DEBUG] chip clicked:', attr, 'tag=' + chip.tagName);
+                }
+            }, true);
+
+            window.addEventListener('open-modal', function (e) {
+                console.log('[SLIDE-DEBUG] open-modal event received, id=' + (e.detail?.id ?? 'N/A'));
+                const selector = '[x-data*="isOpen"]';
+                const modals = document.querySelectorAll(selector);
+                console.log('[SLIDE-DEBUG] modal elements on page: ' + modals.length);
+            });
+
+            document.addEventListener('livewire:initialized', function () {
+                console.log('[SLIDE-DEBUG] livewire initialized');
+            });
+        })();
+    </script>
 </x-filament-panels::page>
