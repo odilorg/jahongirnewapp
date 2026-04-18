@@ -17,7 +17,7 @@
             <div style="font-size: 18px; font-weight: 700; color: #92400e;">{{ $action['tomorrow_count'] }} tours</div>
         </div>
         <div style="flex: 1; min-width: 160px; background: {{ $action['unclaimed_count'] > 0 ? '#fef3c7' : '#f3f4f6' }}; border-radius: 8px; padding: 10px 12px;">
-            <div style="font-size: 10px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px;">Unclaimed Leads</div>
+            <div style="font-size: 10px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px;">Active Leads</div>
             <div style="font-size: 18px; font-weight: 700; color: {{ $action['unclaimed_count'] > 0 ? '#d97706' : '#6b7280' }};">{{ $action['unclaimed_count'] }}</div>
         </div>
         <div style="flex: 1; min-width: 160px; background: {{ ($action['reminders_due'] ?? 0) > 0 ? '#ede9fe' : '#f3f4f6' }}; border-radius: 8px; padding: 10px 12px;">
