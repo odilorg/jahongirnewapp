@@ -158,10 +158,11 @@
                                         $chip['paid_at'] ? '💰 Paid ' . $chip['paid_at'] : null,
                                     ])->filter()->implode("\n");
                                 @endphp
-                                <div wire:click="openInquiry({{ $chip['id'] }})"
-                                    title="{{ $tooltip }}"
-                                    style="{{ $chipStyle }}"
+                                <div x-data="{}"
+                                    @click="$wire.call('openInquiry', {{ $chip['id'] }})"
                                     x-bind:style="document.documentElement.classList.contains('dark') ? '{{ $chipStyleDark }}' : '{{ $chipStyle }}'"
+                                    style="{{ $chipStyle }}"
+                                    title="{{ $tooltip }}"
                                     class="block rounded-md border px-2 py-1.5 text-xs cursor-pointer relative {{ $bgClass }}">
                                     {{-- Operator badge — corner overlay, no layout impact --}}
                                     @if ($chip['assigned_initials'])
