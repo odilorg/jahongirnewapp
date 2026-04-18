@@ -156,6 +156,20 @@ final class LedgerEntryInput
             );
         }
 
+        // 4b. Override tier is an operator-side concept (cashier entered
+        //     an amount that deviates from the presented value). External
+        //     sources of truth (Beds24 webhook, Octo callback, GYG import)
+        //     cannot carry a cashier override — they ARE the truth.
+        if ($this->overrideTier !== OverrideTier::None
+            && $this->source->trustLevel()->value === 'authoritative'
+        ) {
+            throw new InvalidLedgerEntryException(
+                "Authoritative source '{$this->source->value}' cannot carry an "
+                . "override_tier (got '{$this->overrideTier->value}'). Overrides "
+                . 'are operator-input only.'
+            );
+        }
+
         // 5. Authoritative sources must carry an external_reference so the
         //    row can be deduped / traced to the external system.
         if ($this->source->trustLevel()->value === 'authoritative'

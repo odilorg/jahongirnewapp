@@ -157,6 +157,16 @@ final class RecordLedgerEntry
             return $existing;
         }
 
+        // L-004 follow-up: idempotency conflicts are almost always a caller bug
+        // (modified webhook payload, amount drift, stale retry). Surface loudly
+        // so integration issues don't hide as silent exceptions.
+        Log::warning('ledger.idempotency_conflict', [
+            'existing_id'     => $existing->id,
+            'source'          => $existing->source?->value,
+            'idempotency_key' => $existing->idempotency_key,
+            'differences'     => $differences,
+        ]);
+
         throw new LedgerIdempotencyConflictException($existing, $differences);
     }
 
