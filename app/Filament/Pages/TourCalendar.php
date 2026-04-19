@@ -617,8 +617,15 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
                 ->url("mailto:{$inquiry->customer_email}?subject={$subject}", shouldOpenInNewTab: true);
         }
 
-        // Dispatch driver
-        if ($inquiry->driver_id && $inquiry->status === BookingInquiry::STATUS_CONFIRMED) {
+        // Dispatch driver. Allow on awaiting_payment too — the slide-over lets
+        // operators assign a driver before payment clears, so dispatching
+        // early notice is a valid ops need. Only lead/contacted stay gated.
+        $dispatchable = in_array($inquiry->status, [
+            BookingInquiry::STATUS_CONFIRMED,
+            BookingInquiry::STATUS_AWAITING_PAYMENT,
+        ], true);
+
+        if ($inquiry->driver_id && $dispatchable) {
             $actions[] = Action::make('dispatchDriver')
                 ->label('Driver')
                 ->icon('heroicon-o-truck')
@@ -644,7 +651,7 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
         }
 
         // Dispatch guide
-        if ($inquiry->guide_id && $inquiry->status === BookingInquiry::STATUS_CONFIRMED) {
+        if ($inquiry->guide_id && $dispatchable) {
             $actions[] = Action::make('dispatchGuide')
                 ->label('Guide')
                 ->icon('heroicon-o-academic-cap')
@@ -670,7 +677,7 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
         }
 
         // Dispatch accommodation stays
-        if ($inquiry->stays->isNotEmpty() && $inquiry->status === BookingInquiry::STATUS_CONFIRMED) {
+        if ($inquiry->stays->isNotEmpty() && $dispatchable) {
             $actions[] = Action::make('dispatchAccommodation')
                 ->label('Accom.')
                 ->icon('heroicon-o-home-modern')
