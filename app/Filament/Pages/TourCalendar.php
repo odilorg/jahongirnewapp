@@ -617,13 +617,9 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
                 ->url("mailto:{$inquiry->customer_email}?subject={$subject}", shouldOpenInNewTab: true);
         }
 
-        // Dispatch driver. Allow on awaiting_payment too — the slide-over lets
-        // operators assign a driver before payment clears, so dispatching
-        // early notice is a valid ops need. Only lead/contacted stay gated.
-        $dispatchable = in_array($inquiry->status, [
-            BookingInquiry::STATUS_CONFIRMED,
-            BookingInquiry::STATUS_AWAITING_PAYMENT,
-        ], true);
+        // Dispatch gate — uses BookingInquiry::isDispatchable() so this stays
+        // in lockstep with the assign UIs (slide-over + resource form).
+        $dispatchable = $inquiry->isDispatchable();
 
         if ($inquiry->driver_id && $dispatchable) {
             $actions[] = Action::make('dispatchDriver')

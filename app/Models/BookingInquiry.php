@@ -38,6 +38,18 @@ class BookingInquiry extends Model
         self::STATUS_SPAM,
     ];
 
+    // Single source of truth for "is this booking real enough to act on
+    // suppliers for?". Both supplier-assign UIs (calendar slide-over, resource
+    // form) and supplier-dispatch actions (Telegram notify) must agree — when
+    // they drift, operators can assign but not dispatch (or vice versa).
+    public function isDispatchable(): bool
+    {
+        return in_array($this->status, [
+            self::STATUS_CONFIRMED,
+            self::STATUS_AWAITING_PAYMENT,
+        ], true);
+    }
+
     public const PAYMENT_ONLINE      = 'online';
     public const PAYMENT_CASH        = 'cash';
     public const PAYMENT_CARD_OFFICE = 'card_office';
