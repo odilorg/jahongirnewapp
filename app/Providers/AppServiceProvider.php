@@ -75,5 +75,26 @@ class AppServiceProvider extends ServiceProvider
         // next_followup_at on the lead row so queue views don't need a join.
         \App\Models\LeadInteraction::observe(\App\Observers\LeadInteractionObserver::class);
         \App\Models\LeadFollowUp::observe(\App\Observers\LeadFollowUpObserver::class);
+
+        // Lead CRM Phase 2a — Livewire auto-discovery only walks app/Livewire/;
+        // register Follow-up Queue child components explicitly so action
+        // round-trips (Snooze, Done, Add follow-up) can resolve the component
+        // by name.
+        \Livewire\Livewire::component(
+            'follow-up-queue.overdue',
+            \App\Filament\Pages\FollowUpQueue\OverdueFollowUpsTable::class,
+        );
+        \Livewire\Livewire::component(
+            'follow-up-queue.no-followup',
+            \App\Filament\Pages\FollowUpQueue\LeadsWithoutFollowUpTable::class,
+        );
+        \Livewire\Livewire::component(
+            'follow-up-queue.due-today',
+            \App\Filament\Pages\FollowUpQueue\DueTodayFollowUpsTable::class,
+        );
+        \Livewire\Livewire::component(
+            'follow-up-queue.upcoming',
+            \App\Filament\Pages\FollowUpQueue\UpcomingFollowUpsTable::class,
+        );
     }
 }
