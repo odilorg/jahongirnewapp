@@ -11,6 +11,7 @@ use App\Models\Lead;
 use Filament\Forms;
 use Filament\Forms\Concerns\InteractsWithForms;
 use Filament\Forms\Contracts\HasForms;
+use Filament\Notifications\Notification;
 use Filament\Tables;
 use Filament\Tables\Concerns\InteractsWithTable;
 use Filament\Tables\Contracts\HasTable;
@@ -120,14 +121,12 @@ class LeadsWithoutFollowUpTable extends Component implements HasForms, HasTable
                             'type'   => $data['type'],
                             'note'   => $data['note'] ?? null,
                         ]);
+                        Notification::make()
+                            ->title("Follow-up added for {$record->name}")
+                            ->success()
+                            ->send();
                         $this->dispatch('followup-queue-updated');
                     }),
-
-                Tables\Actions\Action::make('open_lead')
-                    ->label('Open')
-                    ->icon('heroicon-m-arrow-top-right-on-square')
-                    ->disabled()
-                    ->tooltip('Lead detail — coming in Phase 2b'),
             ])
             ->poll('60s')
             ->emptyStateHeading('Every active lead has a follow-up. 👍')
