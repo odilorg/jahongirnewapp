@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Filament\Pages\FollowUpQueue;
+namespace App\Livewire\FollowUpQueue;
 
 use App\Models\LeadFollowUp;
 use Illuminate\Database\Eloquent\Builder;
