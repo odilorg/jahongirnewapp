@@ -59,7 +59,7 @@ esac
 
 # Deploy to VPS
 echo -e "${YELLOW}📡 Deploying main to VPS...${NC}"
-ssh main-vps bash -c "'
+ssh jahongir bash -c "'
 set -e
 cd /var/www/jahongirnewapp
 
