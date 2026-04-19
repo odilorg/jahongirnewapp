@@ -50,7 +50,8 @@ class FindOrCreateLeadByContact
 
             if ($matches->count() > 1) {
                 throw new AmbiguousLeadMatchException(
-                    "Multiple leads share {$field}={$fields[$field]} — ids=[".$matches->pluck('id')->implode(',').']'
+                    "Multiple leads share {$field}={$fields[$field]} — ids=[".$matches->pluck('id')->implode(',').']',
+                    $matches,
                 );
             }
 
