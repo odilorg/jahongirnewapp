@@ -66,8 +66,11 @@ cd /var/www/jahongirnewapp
 # Pull code
 git fetch origin && git reset --hard origin/main
 
-# Run migrations, cache config, cache routes
+# Invalidate ALL optimized caches before rebuilding. config:cache alone does
+# not bust the Filament page registry or OPcache, which causes newly added
+# pages / Livewire components to be missing until a manual optimize:clear.
 php artisan migrate --force 2>/dev/null
+php artisan optimize:clear
 php artisan config:cache
 php artisan route:cache
 
