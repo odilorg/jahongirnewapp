@@ -1116,7 +1116,7 @@ class BookingInquiryResource extends Resource
                         ->visible(fn (BookingInquiry $record): bool => ($record->driver_id !== null
                             || $record->guide_id !== null
                             || $record->stays()->exists())
-                            && $record->status === BookingInquiry::STATUS_CONFIRMED)
+                            && $record->isDispatchable())
                         ->requiresConfirmation()
                         ->modalHeading('Send dispatch via Telegram')
                         ->modalDescription(function (BookingInquiry $record): string {
@@ -1226,7 +1226,7 @@ class BookingInquiryResource extends Resource
                         ->icon('heroicon-o-truck')
                         ->color('gray')
                         ->visible(fn (BookingInquiry $record): bool => $record->driver_id !== null
-                            && $record->status === BookingInquiry::STATUS_CONFIRMED)
+                            && $record->isDispatchable())
                         ->requiresConfirmation()
                         ->modalDescription(fn (BookingInquiry $record): string => 'Send dispatch to: 🚐 '
                             . ($record->driver?->full_name ?? '—')
@@ -1256,7 +1256,7 @@ class BookingInquiryResource extends Resource
                         ->icon('heroicon-o-academic-cap')
                         ->color('gray')
                         ->visible(fn (BookingInquiry $record): bool => $record->guide_id !== null
-                            && $record->status === BookingInquiry::STATUS_CONFIRMED)
+                            && $record->isDispatchable())
                         ->requiresConfirmation()
                         ->modalDescription(fn (BookingInquiry $record): string => 'Send dispatch to: 🧭 '
                             . ($record->guide?->full_name ?? '—')
