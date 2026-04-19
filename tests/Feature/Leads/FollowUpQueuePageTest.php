@@ -204,6 +204,62 @@ class FollowUpQueuePageTest extends TestCase
             ->assertCanNotSeeTableRecords([$overdue]);
     }
 
+    public function test_new_lead_action_creates_lead_with_initial_followup_and_interaction(): void
+    {
+        Livewire::test(FollowUpQueuePage::class)
+            ->callAction('new_lead', [
+                'name'  => 'Fresh Inbound',
+                'phone' => '+998903334455',
+                'note'  => 'Asked about Silk Road tour on WhatsApp',
+            ])
+            ->assertHasNoActionErrors();
+
+        $lead = Lead::where('phone', '+998903334455')->first();
+        $this->assertNotNull($lead);
+        $this->assertSame('Fresh Inbound', $lead->name);
+        $this->assertSame(1, $lead->interactions()->count());
+        $this->assertSame('Asked about Silk Road tour on WhatsApp', $lead->interactions()->first()->body);
+
+        $followUp = $lead->followUps()->first();
+        $this->assertNotNull($followUp);
+        $this->assertSame('message', $followUp->type->value);
+        $this->assertTrue($followUp->due_at->gt(now()));
+    }
+
+    public function test_new_lead_action_matches_existing_lead_when_contact_matches(): void
+    {
+        $existing = Lead::factory()->create([
+            'phone' => '+998904445566',
+            'name'  => 'Returning Guest',
+        ]);
+
+        Livewire::test(FollowUpQueuePage::class)
+            ->callAction('new_lead', [
+                'name'  => 'Should Be Ignored',
+                'phone' => '+998904445566',
+            ])
+            ->assertHasNoActionErrors();
+
+        $this->assertSame(1, Lead::where('phone', '+998904445566')->count());
+        $this->assertSame('Returning Guest', $existing->fresh()->name);
+        $this->assertSame(1, $existing->followUps()->count());
+    }
+
+    public function test_new_lead_action_refuses_to_create_on_ambiguous_match(): void
+    {
+        Lead::factory()->create(['whatsapp_number' => '+998905556677']);
+        Lead::factory()->create(['whatsapp_number' => '+998905556677']);
+
+        Livewire::test(FollowUpQueuePage::class)
+            ->callAction('new_lead', [
+                'whatsapp_number' => '+998905556677',
+                'name'            => 'Should Not Be Created',
+            ])
+            ->assertHasNoActionErrors();
+
+        $this->assertSame(0, Lead::where('name', 'Should Not Be Created')->count());
+    }
+
     public function test_navigation_badge_reflects_overdue_count(): void
     {
         $lead = Lead::factory()->create();
