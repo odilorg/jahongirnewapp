@@ -1,8 +1,8 @@
 <x-filament-panels::page>
     <div class="space-y-6">
-        @livewire(\App\Filament\Pages\FollowUpQueue\OverdueFollowUpsTable::class)
-        @livewire(\App\Filament\Pages\FollowUpQueue\LeadsWithoutFollowUpTable::class)
-        @livewire(\App\Filament\Pages\FollowUpQueue\DueTodayFollowUpsTable::class)
-        @livewire(\App\Filament\Pages\FollowUpQueue\UpcomingFollowUpsTable::class)
+        @livewire('follow-up-queue.overdue')
+        @livewire('follow-up-queue.no-followup')
+        @livewire('follow-up-queue.due-today')
+        @livewire('follow-up-queue.upcoming')
     </div>
 </x-filament-panels::page>
