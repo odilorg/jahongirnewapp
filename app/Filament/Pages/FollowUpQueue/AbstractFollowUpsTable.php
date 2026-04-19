@@ -10,6 +10,7 @@ use App\Enums\LeadPriority;
 use App\Models\LeadFollowUp;
 use Filament\Forms\Concerns\InteractsWithForms;
 use Filament\Forms\Contracts\HasForms;
+use Filament\Notifications\Notification;
 use Filament\Tables;
 use Filament\Tables\Concerns\InteractsWithTable;
 use Filament\Tables\Contracts\HasTable;
@@ -42,6 +43,27 @@ abstract class AbstractFollowUpsTable extends Component implements HasForms, Has
     public function refreshSection(): void
     {
         $this->resetTable();
+    }
+
+    // Shared snooze handler used by all three preset buttons. When the snooze
+    // target is earlier than the follow-up's already-scheduled due_at the
+    // effective due time does NOT change — we still save snoozed_until (the
+    // action requires it in the future) but warn the operator that the row
+    // won't move so they're not surprised.
+    protected function snooze(LeadFollowUp $record, \Carbon\Carbon $until, string $humanOffset): void
+    {
+        $willActuallyMove = $until->gt($record->due_at);
+
+        app(SnoozeFollowUp::class)->handle($record, $until);
+
+        Notification::make()
+            ->title($willActuallyMove
+                ? "Snoozed for {$humanOffset}"
+                : "Note: follow-up is already due later than +{$humanOffset} — no visible change")
+            ->{$willActuallyMove ? 'success' : 'warning'}()
+            ->send();
+
+        $this->dispatch('followup-queue-updated');
     }
 
     public function table(Tables\Table $table): Tables\Table
@@ -96,38 +118,27 @@ abstract class AbstractFollowUpsTable extends Component implements HasForms, Has
                     ->button()
                     ->action(function (LeadFollowUp $record): void {
                         app(CompleteFollowUp::class)->handle($record);
+                        Notification::make()
+                            ->title('Marked done')
+                            ->success()
+                            ->send();
                         $this->dispatch('followup-queue-updated');
                     }),
 
                 Tables\Actions\ActionGroup::make([
                     Tables\Actions\Action::make('snooze_1h')
                         ->label('+1 hour')
-                        ->action(function (LeadFollowUp $record): void {
-                            app(SnoozeFollowUp::class)->handle($record, now()->addHour());
-                            $this->dispatch('followup-queue-updated');
-                        }),
+                        ->action(fn (LeadFollowUp $record) => $this->snooze($record, now()->addHour(), '1 hour')),
                     Tables\Actions\Action::make('snooze_4h')
                         ->label('+4 hours')
-                        ->action(function (LeadFollowUp $record): void {
-                            app(SnoozeFollowUp::class)->handle($record, now()->addHours(4));
-                            $this->dispatch('followup-queue-updated');
-                        }),
+                        ->action(fn (LeadFollowUp $record) => $this->snooze($record, now()->addHours(4), '4 hours')),
                     Tables\Actions\Action::make('snooze_1d')
                         ->label('+1 day')
-                        ->action(function (LeadFollowUp $record): void {
-                            app(SnoozeFollowUp::class)->handle($record, now()->addDay());
-                            $this->dispatch('followup-queue-updated');
-                        }),
+                        ->action(fn (LeadFollowUp $record) => $this->snooze($record, now()->addDay(), '1 day')),
                 ])
                     ->label('Snooze')
                     ->icon('heroicon-m-clock')
                     ->button(),
-
-                Tables\Actions\Action::make('open_lead')
-                    ->label('Open')
-                    ->icon('heroicon-m-arrow-top-right-on-square')
-                    ->disabled()
-                    ->tooltip('Lead detail — coming in Phase 2b'),
             ])
             ->poll($this->pollSeconds().'s')
             ->emptyStateHeading($this->emptyHeading())
