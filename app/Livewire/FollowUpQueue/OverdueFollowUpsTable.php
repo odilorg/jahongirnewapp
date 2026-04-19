@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace App\Filament\Pages\FollowUpQueue;
+namespace App\Livewire\FollowUpQueue;
 
 use App\Models\LeadFollowUp;
 use Illuminate\Database\Eloquent\Builder;
 
-class UpcomingFollowUpsTable extends AbstractFollowUpsTable
+class OverdueFollowUpsTable extends AbstractFollowUpsTable
 {
     protected function rowsQuery(): Builder
     {
@@ -16,27 +16,27 @@ class UpcomingFollowUpsTable extends AbstractFollowUpsTable
             ->select('lead_followups.*')
             ->selectRaw(LeadFollowUp::EFFECTIVE_DUE_SQL.' as effective_due')
             ->with(['lead:id,name,priority,assigned_to', 'lead.assignee:id,name'])
-            ->upcoming(7)
+            ->overdue()
             ->orderByPriorityThenDue();
     }
 
     protected function sectionLabel(): string
     {
-        return 'Upcoming 7 days';
+        return 'Overdue';
     }
 
     protected function sectionColor(): string
     {
-        return 'info';
+        return 'danger';
     }
 
     protected function pollSeconds(): int
     {
-        return 60;
+        return 30;
     }
 
     protected function emptyHeading(): string
     {
-        return 'Clear week ahead.';
+        return 'Nothing overdue. Keep it that way.';
     }
 }

@@ -82,19 +82,19 @@ class AppServiceProvider extends ServiceProvider
         // by name.
         \Livewire\Livewire::component(
             'follow-up-queue.overdue',
-            \App\Filament\Pages\FollowUpQueue\OverdueFollowUpsTable::class,
+            \App\Livewire\FollowUpQueue\OverdueFollowUpsTable::class,
         );
         \Livewire\Livewire::component(
             'follow-up-queue.no-followup',
-            \App\Filament\Pages\FollowUpQueue\LeadsWithoutFollowUpTable::class,
+            \App\Livewire\FollowUpQueue\LeadsWithoutFollowUpTable::class,
         );
         \Livewire\Livewire::component(
             'follow-up-queue.due-today',
-            \App\Filament\Pages\FollowUpQueue\DueTodayFollowUpsTable::class,
+            \App\Livewire\FollowUpQueue\DueTodayFollowUpsTable::class,
         );
         \Livewire\Livewire::component(
             'follow-up-queue.upcoming',
-            \App\Filament\Pages\FollowUpQueue\UpcomingFollowUpsTable::class,
+            \App\Livewire\FollowUpQueue\UpcomingFollowUpsTable::class,
         );
     }
 }
