@@ -32,32 +32,43 @@ class LeadFollowUp extends Model
         'status'        => LeadFollowUpStatus::class,
     ];
 
-    // "Due now" — status=open AND effective_due <= now (where effective_due respects an active snooze).
+    // Effective due = snooze wins if set and later than due_at, otherwise due_at.
+    // Centralized so every section of the follow-up queue asks the same question.
+    public const EFFECTIVE_DUE_SQL =
+        '(CASE WHEN snoozed_until IS NOT NULL AND snoozed_until > due_at THEN snoozed_until ELSE due_at END)';
+
     public function scopeDue(Builder $q): Builder
     {
-        return $q->where('status', LeadFollowUpStatus::Open->value)
-            ->where(function ($q) {
-                $q->whereNull('snoozed_until')
-                    ->orWhere('snoozed_until', '<=', now());
-            })
-            ->where('due_at', '<=', now());
+        return $q->where('lead_followups.status', LeadFollowUpStatus::Open->value)
+            ->whereRaw(self::EFFECTIVE_DUE_SQL.' <= ?', [now()]);
     }
 
-    // "Overdue" = past due AND not currently snoozed into the future.
     public function scopeOverdue(Builder $q): Builder
     {
-        return $q->where('status', LeadFollowUpStatus::Open->value)
-            ->where('due_at', '<', now())
-            ->where(function ($q) {
-                $q->whereNull('snoozed_until')
-                    ->orWhere('snoozed_until', '<=', now());
-            });
+        return $q->where('lead_followups.status', LeadFollowUpStatus::Open->value)
+            ->whereRaw(self::EFFECTIVE_DUE_SQL.' < ?', [now()]);
+    }
+
+    public function scopeDueToday(Builder $q): Builder
+    {
+        return $q->where('lead_followups.status', LeadFollowUpStatus::Open->value)
+            ->whereRaw(self::EFFECTIVE_DUE_SQL.' >= ?', [now()])
+            ->whereRaw(self::EFFECTIVE_DUE_SQL.' <= ?', [now()->endOfDay()]);
     }
 
     public function scopeUpcoming(Builder $q, int $days = 7): Builder
     {
-        return $q->where('status', LeadFollowUpStatus::Open->value)
-            ->whereBetween('due_at', [now(), now()->addDays($days)]);
+        return $q->where('lead_followups.status', LeadFollowUpStatus::Open->value)
+            ->whereRaw(self::EFFECTIVE_DUE_SQL.' > ?', [now()->endOfDay()])
+            ->whereRaw(self::EFFECTIVE_DUE_SQL.' <= ?', [now()->addDays($days)->endOfDay()]);
+    }
+
+    // Sort by priority (urgent first) then effective_due ASC. Requires the
+    // leads join to be present on the query.
+    public function scopeOrderByPriorityThenDue(Builder $q): Builder
+    {
+        return $q->orderByRaw("CASE leads.priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 WHEN 'low' THEN 4 ELSE 5 END ASC")
+            ->orderByRaw(self::EFFECTIVE_DUE_SQL.' ASC');
     }
 
     public function lead(): BelongsTo
