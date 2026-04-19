@@ -70,5 +70,10 @@ class AppServiceProvider extends ServiceProvider
         TourProduct::observe(TourProductObserver::class);
         TourProductDirection::observe(TourProductDirectionObserver::class);
         TourPriceTier::observe(TourPriceTierObserver::class);
+
+        // Lead CRM Phase 1 — denormalization of last_interaction_at and
+        // next_followup_at on the lead row so queue views don't need a join.
+        \App\Models\LeadInteraction::observe(\App\Observers\LeadInteractionObserver::class);
+        \App\Models\LeadFollowUp::observe(\App\Observers\LeadFollowUpObserver::class);
     }
 }
