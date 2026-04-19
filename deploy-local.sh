@@ -71,8 +71,13 @@ git fetch origin && git reset --hard origin/main
 # pages / Livewire components to be missing until a manual optimize:clear.
 php artisan migrate --force 2>/dev/null
 php artisan optimize:clear
+# Filament caches its own Livewire component registry at bootstrap/cache/filament/
+# which optimize:clear does NOT touch. Stale cache silently omits newly-added
+# pages and breaks /livewire/update round-trips with ComponentNotFoundException.
+php artisan filament:clear-cached-components 2>/dev/null || true
 php artisan config:cache
 php artisan route:cache
+php artisan filament:cache-components 2>/dev/null || true
 
 # Validate cached config (catches bad .env / missing values AFTER caching)
 php artisan app:assert-production-config
