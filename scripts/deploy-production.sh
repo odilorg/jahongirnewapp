@@ -26,7 +26,7 @@ DEPLOY_HISTORY="$APP_DIR/.deploy-history"
 OPERATOR="${SUDO_USER:-${USER:-unknown}}"
 
 # PM2 processes that belong to THIS app (not others on the server)
-APP_PM2_PROCESSES="hotel-queue"
+APP_PM2_PROCESSES="jahongir-queue"
 
 # PHP-FPM runs as www-data; deploy runs as root
 APP_USER="www-data"
@@ -201,18 +201,17 @@ else
 fi
 
 # Check 5: HTTP healthz endpoint
-HEALTHZ_URL="http://127.0.0.1/api/healthz"
-if curl -fsS "$HEALTHZ_URL" >/dev/null 2>&1; then
+# Nginx routes by Host header; hitting 127.0.0.1 without one lands on the
+# default server (404). Force the vhost so Laravel actually answers.
+APP_HOST="jahongir-app.uz"
+if curl -fsS -H "Host: $APP_HOST" "http://127.0.0.1/api/healthz" >/dev/null 2>&1; then
     log "    ✅ HTTP /healthz OK"
     CHECKS_PASSED=$((CHECKS_PASSED + 1))
+elif curl -fsSk -H "Host: $APP_HOST" "https://127.0.0.1/api/healthz" >/dev/null 2>&1; then
+    log "    ✅ HTTP /healthz OK (via HTTPS)"
+    CHECKS_PASSED=$((CHECKS_PASSED + 1))
 else
-    # Try HTTPS if HTTP redirects
-    if curl -fsSk "https://127.0.0.1/api/healthz" >/dev/null 2>&1; then
-        log "    ✅ HTTP /healthz OK (via HTTPS)"
-        CHECKS_PASSED=$((CHECKS_PASSED + 1))
-    else
-        log "    ❌ HTTP /healthz FAILED"
-    fi
+    log "    ❌ HTTP /healthz FAILED"
 fi
 
 set -e
