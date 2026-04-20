@@ -5,7 +5,6 @@ namespace App\Actions\BookingBot\Handlers;
 use App\Services\StaffAuthorizationService;
 use App\Services\TelegramBotService;
 use App\Services\TelegramKeyboardService;
-use Closure;
 
 /**
  * Handles inline-button callback queries from @j_booking_hotel_bot.
@@ -13,11 +12,9 @@ use Closure;
  * Pure extraction from ProcessBookingMessage::handleCallbackQuery. Behaviour
  * must be byte-identical — the golden master asserts this.
  *
- * Transitional seam: the original method calls $this->handleViewBookings(...)
- * four times. That method is still on the Job (scheduled for extraction in
- * plan §4.6). Until then, the Job passes a delegate closure that proxies to
- * it. The $viewBookingsDelegate parameter is temporary scaffolding and MUST
- * be removed in the same commit that extracts ViewBookingsFromMessageAction.
+ * The four "view_*" callback cases delegate to ViewBookingsFromMessageAction
+ * via the container. Earlier iterations passed a Closure delegate as a
+ * transitional seam; that scaffold was removed when ViewBookings shipped.
  */
 final class HandleCallbackQueryAction
 {
@@ -27,12 +24,7 @@ final class HandleCallbackQueryAction
         private readonly TelegramKeyboardService $keyboard,
     ) {}
 
-    /**
-     * @param  array    $callbackQuery  Telegram callback_query payload.
-     * @param  Closure  $viewBookingsDelegate  fn(array $parsed): string — TEMPORARY, remove
-     *                                          when ViewBookingsFromMessageAction ships (plan §4.6).
-     */
-    public function execute(array $callbackQuery, Closure $viewBookingsDelegate): void
+    public function execute(array $callbackQuery): void
     {
         $chatId = $callbackQuery['message']['chat']['id'];
         $messageId = $callbackQuery['message']['message_id'];
@@ -67,28 +59,28 @@ final class HandleCallbackQueryAction
                 break;
 
             case 'view_arrivals_today':
-                $response = $viewBookingsDelegate(['filter_type' => 'arrivals_today']);
+                $response = app(ViewBookingsFromMessageAction::class)->execute(['filter_type' => 'arrivals_today']);
                 $this->telegram->editMessageText($chatId, $messageId, $response, [
                     'reply_markup' => $this->keyboard->formatForApi($this->keyboard->getBackButton())
                 ]);
                 break;
 
             case 'view_departures_today':
-                $response = $viewBookingsDelegate(['filter_type' => 'departures_today']);
+                $response = app(ViewBookingsFromMessageAction::class)->execute(['filter_type' => 'departures_today']);
                 $this->telegram->editMessageText($chatId, $messageId, $response, [
                     'reply_markup' => $this->keyboard->formatForApi($this->keyboard->getBackButton())
                 ]);
                 break;
 
             case 'view_current':
-                $response = $viewBookingsDelegate(['filter_type' => 'current']);
+                $response = app(ViewBookingsFromMessageAction::class)->execute(['filter_type' => 'current']);
                 $this->telegram->editMessageText($chatId, $messageId, $response, [
                     'reply_markup' => $this->keyboard->formatForApi($this->keyboard->getBackButton())
                 ]);
                 break;
 
             case 'view_new':
-                $response = $viewBookingsDelegate(['filter_type' => 'new']);
+                $response = app(ViewBookingsFromMessageAction::class)->execute(['filter_type' => 'new']);
                 $this->telegram->editMessageText($chatId, $messageId, $response, [
                     'reply_markup' => $this->keyboard->formatForApi($this->keyboard->getBackButton())
                 ]);
