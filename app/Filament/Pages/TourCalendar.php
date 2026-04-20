@@ -6,7 +6,7 @@ namespace App\Filament\Pages;
 
 use App\Models\BookingInquiry;
 use App\Services\DriverDispatchNotifier;
-use App\Services\TourCalendarBuilder;
+use App\Services\Calendar\TourCalendarBuilder;
 use Carbon\Carbon;
 use Filament\Actions\Action;
 use Filament\Actions\Concerns\InteractsWithActions;

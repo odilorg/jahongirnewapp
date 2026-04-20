@@ -6,6 +6,7 @@ namespace App\Services;
 
 use App\Models\BookingInquiry;
 use App\Models\InquiryReminder;
+use App\Services\Calendar\TourCalendarBuilder;
 use Carbon\Carbon;
 
 /**
