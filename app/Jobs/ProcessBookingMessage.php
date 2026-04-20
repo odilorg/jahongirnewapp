@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Actions\BookingBot\Handlers\CancelBookingFromMessageAction;
 use App\Actions\BookingBot\Handlers\HandleCallbackQueryAction;
 use App\Actions\BookingBot\Handlers\HandlePhoneContactAction;
 use App\Models\User;
@@ -140,7 +141,7 @@ class ProcessBookingMessage implements ShouldQueue
                 return $this->handleModifyBooking($parsed, $staff, $beds24);
 
             case 'cancel_booking':
-                return $this->handleCancelBooking($parsed, $staff, $beds24);
+                return app(CancelBookingFromMessageAction::class)->execute($parsed, $staff);
 
             default:
                 return "I did not quite understand that. Try:\n\n" .
@@ -562,110 +563,6 @@ class ProcessBookingMessage implements ShouldQueue
         }
     }
 
-    protected function handleCancelBooking(array $parsed, $staff, $beds24): string
-    {
-        // Extract booking ID from parsed data
-        $bookingId = $parsed['booking_id'] ?? null;
-
-        // If not in parsed data, try to extract from raw text (fallback)
-        if (!$bookingId && isset($parsed['_raw_message'])) {
-            // Try to extract booking ID from message like "cancel booking #123456" or "cancel 123456"
-            if (preg_match('/#?(\d+)/', $parsed['_raw_message'], $matches)) {
-                $bookingId = $matches[1];
-            }
-        }
-
-        if (!$bookingId) {
-            return "Please provide a booking ID to cancel.\n\n" .
-                   "Example: cancel booking #123456\n" .
-                   "Or: cancel booking 123456";
-        }
-
-        try {
-            // First, try to get the booking details to show in confirmation
-            Log::info('Fetching booking details before cancellation', ['booking_id' => $bookingId]);
-
-            $bookingDetails = null;
-            try {
-                $getResult = $beds24->getBooking($bookingId);
-                if (isset($getResult['data']) && !empty($getResult['data'])) {
-                    $bookingDetails = $getResult['data'][0] ?? $getResult['data'];
-                }
-            } catch (\Exception $e) {
-                Log::warning('Could not fetch booking details', ['error' => $e->getMessage()]);
-                // Continue with cancellation even if we can't get details
-            }
-
-            // Cancel the booking
-            Log::info('Cancelling booking', [
-                'booking_id' => $bookingId,
-                'staff' => $staff->name
-            ]);
-
-            $reason = 'Cancelled by ' . $staff->name . ' via Telegram Bot';
-            $result = $beds24->cancelBooking($bookingId, $reason);
-
-            Log::info('Cancel booking API response', ['result' => $result]);
-
-            // Check if cancellation was successful
-            // Beds24 API returns array format: [{"success": true, ...}]
-            $success = false;
-            if (is_array($result)) {
-                if (isset($result['success']) && $result['success']) {
-                    $success = true;
-                } elseif (isset($result[0]['success']) && $result[0]['success']) {
-                    $success = true;
-                } elseif (isset($result[0]) && !isset($result[0]['error'])) {
-                    // Sometimes success is implied by no error
-                    $success = true;
-                }
-            }
-
-            if ($success) {
-                $response = "✅ Booking Cancelled Successfully\n\n";
-                $response .= "Booking ID: #{$bookingId}\n";
-
-                // Add booking details if we got them
-                if ($bookingDetails) {
-                    if (isset($bookingDetails['roomName'])) {
-                        $response .= "Room: {$bookingDetails['roomName']}\n";
-                    }
-                    if (isset($bookingDetails['guestName'])) {
-                        $response .= "Guest: {$bookingDetails['guestName']}\n";
-                    }
-                    if (isset($bookingDetails['arrival']) && isset($bookingDetails['departure'])) {
-                        $response .= "Dates: {$bookingDetails['arrival']} to {$bookingDetails['departure']}\n";
-                    }
-                }
-
-                $response .= "\nThe booking has been cancelled in Beds24.";
-
-                return $response;
-            } else {
-                // Check for specific error messages
-                $errorMsg = 'Unknown error';
-                if (isset($result['error'])) {
-                    $errorMsg = $result['error'];
-                } elseif (isset($result[0]['error'])) {
-                    $errorMsg = $result[0]['error'];
-                }
-
-                throw new \Exception($errorMsg);
-            }
-
-        } catch (\Exception $e) {
-            Log::error('Booking cancellation failed', [
-                'booking_id' => $bookingId,
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
-            ]);
-
-            return "❌ Booking Cancellation Failed\n\n" .
-                   "Booking ID: #{$bookingId}\n" .
-                   "Error: {$e->getMessage()}\n\n" .
-                   "Please check the booking ID and try again, or cancel manually in Beds24.";
-        }
-    }
     protected function handleModifyBooking(array $parsed, $staff, $beds24): string
     {
         // Extract booking ID
