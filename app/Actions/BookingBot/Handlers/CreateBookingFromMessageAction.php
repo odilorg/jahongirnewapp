@@ -101,7 +101,11 @@ final class CreateBookingFromMessageAction
             $result = $this->beds24->createBooking($bookingData);
 
             if (isset($result['success']) && $result['success']) {
-                $bookingId = $result['bookId'] ?? 'Unknown';
+                // Beds24BookingService::createBooking() returns 'bookingId' (canonical)
+                // with 'id' as an alias. The old handler read a non-existent 'bookId'
+                // key, which is why the reply said "#Unknown" for every successful
+                // booking. Fixed in-Action; not a refactor regression.
+                $bookingId = $result['bookingId'] ?? $result['id'] ?? 'Unknown';
 
                 return "Booking Created Successfully!\n" .
                        "Booking ID: #{$bookingId}\n" .
