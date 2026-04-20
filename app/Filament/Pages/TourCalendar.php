@@ -563,9 +563,24 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
             ->modalHeading(fn (): string => $this->getSelectedInquiry()?->reference ?? 'Inquiry')
             ->modalContent(function (): \Illuminate\Contracts\View\View {
                 $inquiry = $this->getSelectedInquiry();
-                $slideData = $inquiry
-                    ? app(TourCalendarBuilder::class)->buildSlideOverViewData($inquiry)
-                    : ['users' => collect(), 'reminders' => []];
+
+                $slide = $inquiry
+                    ? app(TourCalendarBuilder::class)->buildSlideOverViewData($inquiry, [
+                        'driver_id'        => $this->assignDriverId,
+                        'guide_id'         => $this->assignGuideId,
+                        'accommodation_id' => $this->assignAccommodationId,
+                        'guests'           => $this->assignAccGuests,
+                        'nights'           => $this->assignAccNights,
+                    ])
+                    : [
+                        'users' => collect(), 'drivers' => collect(), 'guides' => collect(),
+                        'accommodations' => collect(), 'directions' => collect(),
+                        'driver_rates' => collect(), 'guide_rates' => collect(),
+                        'accommodation_preview' => null,
+                        'customer_phone' => ['raw' => '', 'formatted' => '', 'wa' => ''],
+                        'reminders' => [],
+                        'payments' => null,
+                    ];
 
                 return view(
                     'filament.pages.tour-calendar-slideover',
@@ -578,8 +593,17 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
                         'assignAccommodationId' => $this->assignAccommodationId,
                         'assignAccGuests'       => $this->assignAccGuests,
                         'assignAccNights'       => $this->assignAccNights,
-                        'users'                 => $slideData['users'],
-                        'pendingReminders'      => $slideData['reminders'],
+                        'users'                 => $slide['users'],
+                        'drivers'               => $slide['drivers'],
+                        'guides'                => $slide['guides'],
+                        'accommodations'        => $slide['accommodations'],
+                        'directions'            => $slide['directions'],
+                        'driverRates'           => $slide['driver_rates'],
+                        'guideRates'            => $slide['guide_rates'],
+                        'accommodationPreview'  => $slide['accommodation_preview'],
+                        'customerPhone'         => $slide['customer_phone'],
+                        'pendingReminders'      => $slide['reminders'],
+                        'payments'              => $slide['payments'],
                     ],
                 );
             })
