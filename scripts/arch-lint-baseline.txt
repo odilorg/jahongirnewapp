@@ -1,4 +1,4 @@
-# arch-lint baseline — regenerated 2026-04-20T14:44:38+05:00
+# arch-lint baseline — regenerated 2026-04-20T15:19:32+05:00
 # Format: file:line:rule-key (rule-key stable across runs)
 app/Console/Commands/SendDailyRecap.php:52:http-outside-adapter
 app/Console/Commands/TourSendReminders.php:421:http-outside-adapter
@@ -47,12 +47,4 @@ resources/views/filament/pages/cash-dashboard.blade.php:12:blade-query
 resources/views/filament/pages/reports.blade.php:156:blade-query
 resources/views/filament/pages/reports.blade.php:175:blade-query
 resources/views/filament/pages/reports/transaction-analysis.blade.php:109:long-php-block
-resources/views/filament/pages/tour-calendar-slideover.blade.php:348:blade-query
-resources/views/filament/pages/tour-calendar-slideover.blade.php:349:blade-query
-resources/views/filament/pages/tour-calendar-slideover.blade.php:367:blade-query
-resources/views/filament/pages/tour-calendar-slideover.blade.php:406:blade-query
-resources/views/filament/pages/tour-calendar-slideover.blade.php:499:blade-query
-resources/views/filament/pages/tour-calendar-slideover.blade.php:532:blade-query
-resources/views/filament/pages/tour-calendar-slideover.blade.php:569:long-php-block
-resources/views/filament/pages/tour-calendar-slideover.blade.php:88:blade-query
 resources/views/filament/pages/tour-calendar-slideover.blade.php::large-blade

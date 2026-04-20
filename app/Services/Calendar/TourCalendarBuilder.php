@@ -608,19 +608,131 @@ class TourCalendarBuilder
     }
 
     /**
-     * Prepare view data the slide-over partial needs but shouldn't query
-     * for itself (users list for reassign dropdown, enriched reminders).
+     * Prepare EVERY piece of view data the slide-over partial needs so the
+     * Blade is pure render (no queries, no aggregations, no @php logic).
      *
-     * @return array{
-     *   users: \Illuminate\Support\Collection,
-     *   reminders: array<int, array<string, mixed>>,
-     * }
+     * $assignState mirrors the Livewire page's transient assign-panel fields
+     * so the rates/preview panels re-compute on every Livewire update.
+     *
+     * @param  array{
+     *   driver_id?: ?int,
+     *   guide_id?: ?int,
+     *   accommodation_id?: ?int,
+     *   guests?: ?int,
+     *   nights?: ?int,
+     * } $assignState
      */
-    public function buildSlideOverViewData(BookingInquiry $inquiry): array
+    public function buildSlideOverViewData(BookingInquiry $inquiry, array $assignState = []): array
     {
+        $driverId = $assignState['driver_id']        ?? null;
+        $guideId  = $assignState['guide_id']         ?? null;
+        $accId    = $assignState['accommodation_id'] ?? null;
+        $guests   = $assignState['guests']           ?? null;
+        $nights   = $assignState['nights']           ?? null;
+
         return [
-            'users'     => \App\Models\User::query()->orderBy('name')->get(['id', 'name']),
-            'reminders' => $this->enrichRemindersForView($inquiry),
+            'users'                => \App\Models\User::query()->orderBy('name')->get(['id', 'name']),
+            'drivers'              => \App\Models\Driver::query()->where('is_active', true)->orderBy('first_name')->get(),
+            'guides'               => \App\Models\Guide::query()->where('is_active', true)->orderBy('first_name')->get(),
+            'accommodations'       => \App\Models\Accommodation::query()->where('is_active', true)->orderBy('name')->get(),
+            'directions'           => $this->loadDirections($inquiry),
+            'driver_rates'         => $this->loadDriverRates($driverId),
+            'guide_rates'          => $this->loadGuideRates($guideId),
+            'accommodation_preview' => $this->buildAccommodationPreview($inquiry, $accId, $guests, $nights),
+            'customer_phone'       => $this->buildCustomerPhone($inquiry),
+            'reminders'            => $this->enrichRemindersForView($inquiry),
+            'payments'             => app(\App\Services\Calendar\Support\PaymentSummaryBuilder::class)->buildForInquiry($inquiry),
+        ];
+    }
+
+    /** @return \Illuminate\Support\Collection */
+    private function loadDirections(BookingInquiry $inquiry)
+    {
+        if (! $inquiry->tour_product_id) {
+            return collect();
+        }
+        return \App\Models\TourProductDirection::query()
+            ->where('tour_product_id', $inquiry->tour_product_id)
+            ->where('code', '!=', 'default')
+            ->orderBy('sort_order')
+            ->get();
+    }
+
+    /** @return \Illuminate\Support\Collection */
+    private function loadDriverRates(?int $driverId)
+    {
+        if (! $driverId) {
+            return collect();
+        }
+        return \App\Models\DriverRate::query()
+            ->where('driver_id', $driverId)
+            ->where('is_active', true)
+            ->orderBy('sort_order')
+            ->orderBy('label')
+            ->get();
+    }
+
+    /** @return \Illuminate\Support\Collection */
+    private function loadGuideRates(?int $guideId)
+    {
+        if (! $guideId) {
+            return collect();
+        }
+        return \App\Models\GuideRate::query()
+            ->where('guide_id', $guideId)
+            ->where('is_active', true)
+            ->orderBy('sort_order')
+            ->orderBy('label')
+            ->get();
+    }
+
+    /**
+     * Compute the live accommodation-cost preview for the Add Accommodation
+     * panel. Returns null when no preview is possible yet (no selection or
+     * the accommodation has no matching rate for the guest count).
+     *
+     * @return array{accommodation: \App\Models\Accommodation, guests: int, nights: int, rate: mixed, total: float}|null
+     */
+    private function buildAccommodationPreview(BookingInquiry $inquiry, ?int $accId, ?int $guests, ?int $nights): ?array
+    {
+        if (! $accId) {
+            return null;
+        }
+        $acc = \App\Models\Accommodation::find($accId);
+        if (! $acc) {
+            return null;
+        }
+        $guests = max(1, (int) ($guests ?: $inquiry->people_adults ?: 1));
+        $nights = max(1, (int) ($nights ?: 1));
+        $rate   = $acc->costForGuests($guests);
+        if (! $rate) {
+            return [
+                'accommodation' => $acc,
+                'guests'        => $guests,
+                'nights'        => $nights,
+                'rate'          => null,
+                'total'         => 0.0,
+            ];
+        }
+        return [
+            'accommodation' => $acc,
+            'guests'        => $guests,
+            'nights'        => $nights,
+            'rate'          => $rate,
+            'total'         => (float) $rate->cost_usd * $guests * $nights,
+        ];
+    }
+
+    /**
+     * @return array{raw: string, formatted: string, wa: string}
+     */
+    private function buildCustomerPhone(BookingInquiry $inquiry): array
+    {
+        $phone = (string) ($inquiry->customer_phone ?? '');
+        return [
+            'raw'       => \App\Support\PhoneFormatter::normalizeForCopy($phone),
+            'formatted' => \App\Support\PhoneFormatter::format($phone),
+            'wa'        => preg_replace('/[^0-9]/', '', $phone) ?: '',
         ];
     }
 

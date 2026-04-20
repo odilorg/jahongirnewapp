@@ -82,16 +82,9 @@
         </div>
     </div>
 
-    {{-- Direction + Tour Type --}}
-    @if ($inquiry->tour_product_id)
-        @php
-            $directions = \App\Models\TourProductDirection::where('tour_product_id', $inquiry->tour_product_id)
-                ->where('code', '!=', 'default')
-                ->orderBy('sort_order')
-                ->get();
-        @endphp
-        @if ($directions->isNotEmpty())
-            <div style="display: flex; gap: 8px; align-items: flex-end;">
+    {{-- Direction + Tour Type. $directions prepared by builder. --}}
+    @if ($inquiry->tour_product_id && $directions->isNotEmpty())
+        <div style="display: flex; gap: 8px; align-items: flex-end;">
                 <div style="flex: 1;">
                     <label class="text-[10px] text-gray-500 dark:text-gray-400">Direction</label>
                     <select wire:model.live="editDirectionId"
@@ -111,7 +104,6 @@
                     </button>
                 </div>
             </div>
-        @endif
     @endif
 
     @if ($inquiry->tour_type)
@@ -149,15 +141,10 @@
         <div class="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider">Guest</div>
         <div class="font-semibold text-gray-900 dark:text-gray-100">{{ $inquiry->customer_name }}</div>
         @if ($inquiry->customer_phone)
-            @php
-                $waPhone = preg_replace('/[^0-9]/', '', $inquiry->customer_phone);
-                $formattedPhone = \App\Support\PhoneFormatter::format($inquiry->customer_phone);
-                $rawPhone = \App\Support\PhoneFormatter::normalizeForCopy($inquiry->customer_phone);
-            @endphp
             <div class="flex items-center gap-2 text-gray-800 dark:text-gray-100">
-                📱 <x-copyable-field :value="$rawPhone" :display="$formattedPhone" />
-                @if ($waPhone)
-                    <a href="https://wa.me/{{ $waPhone }}" target="_blank"
+                📱 <x-copyable-field :value="$customerPhone['raw']" :display="$customerPhone['formatted']" />
+                @if ($customerPhone['wa'])
+                    <a href="https://wa.me/{{ $customerPhone['wa'] }}" target="_blank"
                         class="text-success-600 hover:text-success-500 text-xs font-medium">WhatsApp →</a>
                 @endif
             </div>
@@ -236,28 +223,24 @@
                     </div>
                 @endif
                 @if ($inquiry->driver_cost)
-                    @php
-                        $driverPaid = (float) \App\Models\SupplierPayment::forSupplier('driver', $inquiry->driver_id)->where('booking_inquiry_id', $inquiry->id)->sum('amount');
-                        $driverRemaining = (float) $inquiry->driver_cost - $driverPaid;
-                    @endphp
-                    <div class="text-xs" style="margin-top: 2px; color: {{ $driverRemaining > 0 ? '#dc2626' : '#16a34a' }};">
+                    <div class="text-xs" style="margin-top: 2px; color: {{ $payments['driver']['color'] }};">
                         ${{ number_format((float) $inquiry->driver_cost, 2) }}
-                        @if ($driverPaid > 0)
-                            · paid ${{ number_format($driverPaid, 2) }}
+                        @if ($payments['driver']['paid'] > 0)
+                            · paid ${{ number_format($payments['driver']['paid'], 2) }}
                         @endif
-                        @if ($driverRemaining > 0)
-                            · <strong>${{ number_format($driverRemaining, 2) }} due</strong>
+                        @if ($payments['driver']['remaining'] > 0)
+                            · <strong>${{ number_format($payments['driver']['remaining'], 2) }} due</strong>
                         @else
                             · ✅ settled
                         @endif
                     </div>
-                    @if ($driverRemaining > 0)
+                    @if ($payments['driver']['remaining'] > 0)
                         <div style="margin-top: 4px;" x-data="{ open: false }">
                             <button @click="open = !open" type="button"
                                 class="text-[10px] font-medium rounded px-2 py-1 text-white"
                                 style="background: #7c3aed;">💰 Pay</button>
                             <div x-show="open" x-cloak style="margin-top: 6px; display: flex; gap: 4px; align-items: flex-end;"
-                                x-data="{ amount: '{{ $driverRemaining }}' }">
+                                x-data="{ amount: '{{ $payments['driver']['remaining'] }}' }">
                                 <input type="number" step="0.01" x-model="amount"
                                     class="text-xs rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
                                     style="width: 80px; padding: 4px 6px;">
@@ -296,28 +279,24 @@
                     </div>
                 @endif
                 @if ($inquiry->guide_cost)
-                    @php
-                        $guidePaid = (float) \App\Models\SupplierPayment::forSupplier('guide', $inquiry->guide_id)->where('booking_inquiry_id', $inquiry->id)->sum('amount');
-                        $guideRemaining = (float) $inquiry->guide_cost - $guidePaid;
-                    @endphp
-                    <div class="text-xs" style="margin-top: 2px; color: {{ $guideRemaining > 0 ? '#dc2626' : '#16a34a' }};">
+                    <div class="text-xs" style="margin-top: 2px; color: {{ $payments['guide']['color'] }};">
                         ${{ number_format((float) $inquiry->guide_cost, 2) }}
-                        @if ($guidePaid > 0)
-                            · paid ${{ number_format($guidePaid, 2) }}
+                        @if ($payments['guide']['paid'] > 0)
+                            · paid ${{ number_format($payments['guide']['paid'], 2) }}
                         @endif
-                        @if ($guideRemaining > 0)
-                            · <strong>${{ number_format($guideRemaining, 2) }} due</strong>
+                        @if ($payments['guide']['remaining'] > 0)
+                            · <strong>${{ number_format($payments['guide']['remaining'], 2) }} due</strong>
                         @else
                             · ✅ settled
                         @endif
                     </div>
-                    @if ($guideRemaining > 0)
+                    @if ($payments['guide']['remaining'] > 0)
                         <div style="margin-top: 4px;" x-data="{ open: false }">
                             <button @click="open = !open" type="button"
                                 class="text-[10px] font-medium rounded px-2 py-1 text-white"
                                 style="background: #7c3aed;">💰 Pay</button>
                             <div x-show="open" x-cloak style="margin-top: 6px; display: flex; gap: 4px; align-items: flex-end;"
-                                x-data="{ amount: '{{ $guideRemaining }}' }">
+                                x-data="{ amount: '{{ $payments['guide']['remaining'] }}' }">
                                 <input type="number" step="0.01" x-model="amount"
                                     class="text-xs rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
                                     style="width: 80px; padding: 4px 6px;">
@@ -342,12 +321,9 @@
         </div>
     </div>
 
-    {{-- Quick Assign --}}
+    {{-- Quick Assign. $drivers / $guides / $driverRates / $guideRates
+         prepared by TourCalendarBuilder. --}}
     @if ($inquiry->status === 'confirmed' || $inquiry->status === 'awaiting_payment')
-        @php
-            $allDrivers = \App\Models\Driver::where('is_active', true)->orderBy('first_name')->get();
-            $allGuides  = \App\Models\Guide::where('is_active', true)->orderBy('first_name')->get();
-        @endphp
         <div class="rounded-lg p-3" style="background: rgba(0,0,0,0.03); margin-top: 16px; margin-bottom: 16px;">
             <div class="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider" style="margin-bottom: 12px;">Quick Assign</div>
 
@@ -357,16 +333,12 @@
                 <select wire:model.live="assignDriverId" style="margin-bottom: 8px;"
                     class="w-full text-xs rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100">
                     <option value="">Select driver...</option>
-                    @foreach ($allDrivers as $d)
+                    @foreach ($drivers as $d)
                         <option value="{{ $d->id }}">{{ $d->full_name }}</option>
                     @endforeach
                 </select>
 
                 @if ($assignDriverId)
-                    @php
-                        $driverRates = \App\Models\DriverRate::where('driver_id', $assignDriverId)
-                            ->where('is_active', true)->orderBy('sort_order')->orderBy('label')->get();
-                    @endphp
                     @if ($driverRates->isNotEmpty())
                         <select wire:model.live="assignDriverRateId" style="margin-bottom: 8px;"
                             class="w-full text-xs rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100">
@@ -396,16 +368,12 @@
                 <select wire:model.live="assignGuideId" style="margin-bottom: 8px;"
                     class="w-full text-xs rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100">
                     <option value="">Select guide...</option>
-                    @foreach ($allGuides as $g)
+                    @foreach ($guides as $g)
                         <option value="{{ $g->id }}">{{ $g->full_name }}</option>
                     @endforeach
                 </select>
 
                 @if ($assignGuideId)
-                    @php
-                        $guideRates = \App\Models\GuideRate::where('guide_id', $assignGuideId)
-                            ->where('is_active', true)->orderBy('sort_order')->orderBy('label')->get();
-                    @endphp
                     @if ($guideRates->isNotEmpty())
                         <select wire:model.live="assignGuideRateId" style="margin-bottom: 8px;"
                             class="w-full text-xs rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100">
@@ -444,27 +412,20 @@
                     'inquiryUpdatedAt' => $stay->updated_at,
                 ])
                 @if ($stay->total_accommodation_cost)
-                    @php
-                        $accPaid = $stay->accommodation_id
-                            ? (float) \App\Models\SupplierPayment::forSupplier('accommodation', $stay->accommodation_id)
-                                ->where('booking_inquiry_id', $inquiry->id)->sum('amount')
-                            : 0;
-                        $accRemaining = (float) $stay->total_accommodation_cost - $accPaid;
-                    @endphp
-                    <div class="text-xs ml-5" style="color: {{ $accRemaining > 0 ? '#dc2626' : '#16a34a' }};">
+                    <div class="text-xs ml-5" style="color: {{ $payments['stays'][$stay->id]['color'] }};">
                         ${{ number_format((float) $stay->total_accommodation_cost, 2) }}
                         ({{ $stay->cost_per_unit_usd ? '$' . number_format((float) $stay->cost_per_unit_usd, 2) . '/person' : '' }})
-                        @if ($accPaid > 0) · paid ${{ number_format($accPaid, 2) }} @endif
-                        @if ($accRemaining > 0) · <strong>${{ number_format($accRemaining, 2) }} due</strong>
+                        @if ($payments['stays'][$stay->id]['paid'] > 0) · paid ${{ number_format($payments['stays'][$stay->id]['paid'], 2) }} @endif
+                        @if ($payments['stays'][$stay->id]['remaining'] > 0) · <strong>${{ number_format($payments['stays'][$stay->id]['remaining'], 2) }} due</strong>
                         @else · ✅ settled @endif
                     </div>
-                    @if ($accRemaining > 0 && $stay->accommodation_id)
+                    @if ($payments['stays'][$stay->id]['remaining'] > 0 && $stay->accommodation_id)
                         <div class="ml-5" style="margin-top: 4px;" x-data="{ open: false }">
                             <button @click="open = !open" type="button"
                                 class="text-[10px] font-medium rounded px-2 py-1 text-white"
                                 style="background: #7c3aed;">💰 Pay</button>
                             <div x-show="open" x-cloak style="margin-top: 6px; display: flex; gap: 4px; align-items: flex-end;"
-                                x-data="{ amount: '{{ $accRemaining }}' }">
+                                x-data="{ amount: '{{ $payments['stays'][$stay->id]['remaining'] }}' }">
                                 <input type="number" step="0.01" x-model="amount"
                                     class="text-xs rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
                                     style="width: 80px; padding: 4px 6px;">
@@ -484,27 +445,24 @@
                     @endif
                 @endif
             @endforeach
-            @php $totalAccCost = $inquiry->stays->sum('total_accommodation_cost'); @endphp
-            @if ($totalAccCost > 0 && $inquiry->stays->count() > 1)
+            @if ($payments['totals']['acc_cost_multi'])
                 <div class="text-xs font-semibold text-gray-900 dark:text-gray-100 mt-1 ml-5">
-                    Total accommodation: ${{ number_format($totalAccCost, 2) }}
+                    Total accommodation: ${{ number_format($payments['totals']['acc_cost'], 2) }}
                 </div>
             @endif
         </div>
     @endif
 
-    {{-- Quick Add Accommodation --}}
+    {{-- Quick Add Accommodation. $accommodations + $accommodationPreview
+         prepared by builder. --}}
     @if ($inquiry->status === 'confirmed' || $inquiry->status === 'awaiting_payment')
-        @php
-            $allAccommodations = \App\Models\Accommodation::where('is_active', true)->orderBy('name')->get();
-        @endphp
         <div class="rounded-lg p-3" style="background: rgba(0,0,0,0.03); margin-top: 12px;">
             <div class="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider" style="margin-bottom: 8px;">Add Accommodation</div>
             <div class="rounded-lg bg-white dark:bg-gray-800 p-2.5">
                 <select wire:model.live="assignAccommodationId" style="margin-bottom: 8px;"
                     class="w-full text-xs rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100">
                     <option value="">Select accommodation...</option>
-                    @foreach ($allAccommodations as $acc)
+                    @foreach ($accommodations as $acc)
                         <option value="{{ $acc->id }}">{{ $acc->full_name }}</option>
                     @endforeach
                 </select>
@@ -528,30 +486,23 @@
                         </div>
                     </div>
 
-                    @php
-                        $previewAcc = \App\Models\Accommodation::find($assignAccommodationId);
-                        $previewGuests = max(1, (int) ($assignAccGuests ?: $inquiry->people_adults));
-                        $previewNights = max(1, (int) $assignAccNights);
-                        $previewRate = $previewAcc?->costForGuests($previewGuests);
-                    @endphp
-
-                    @if ($previewRate)
+                    @if ($accommodationPreview && $accommodationPreview['rate'])
                         <div class="text-xs" style="color: #16a34a; margin-bottom: 8px;">
-                            → ${{ number_format((float) $previewRate->cost_usd, 2) }}/person × {{ $previewGuests }} × {{ $previewNights }}N = <strong>${{ number_format((float) $previewRate->cost_usd * $previewGuests * $previewNights, 2) }}</strong>
+                            → ${{ number_format((float) $accommodationPreview['rate']->cost_usd, 2) }}/person × {{ $accommodationPreview['guests'] }} × {{ $accommodationPreview['nights'] }}N = <strong>${{ number_format($accommodationPreview['total'], 2) }}</strong>
                         </div>
                         <button type="button" wire:click="quickAddStay"
                             class="w-full text-xs font-medium rounded-md px-3 py-1.5 text-white transition"
                             style="background: #16a34a;"
                             onmouseover="this.style.background='#15803d'" onmouseout="this.style.background='#16a34a'">
-                            Add stay — ${{ number_format((float) $previewRate->cost_usd * $previewGuests * $previewNights, 2) }}
+                            Add stay — ${{ number_format($accommodationPreview['total'], 2) }}
                         </button>
-                    @elseif ($previewAcc && !$previewAcc->isPerPersonPricing())
+                    @elseif ($accommodationPreview && ! $accommodationPreview['accommodation']->isPerPersonPricing())
                         <div class="text-xs" style="color: #d97706; margin-bottom: 8px;">
                             Per-room pricing — use full edit page for hotel stays
                         </div>
-                    @else
+                    @elseif ($accommodationPreview)
                         <div class="text-xs" style="color: #dc2626; margin-bottom: 8px;">
-                            No active rate found for {{ $previewGuests }} guests
+                            No active rate found for {{ $accommodationPreview['guests'] }} guests
                         </div>
                         <button type="button" wire:click="quickAddStay"
                             class="w-full text-xs font-medium rounded-md px-3 py-1.5 text-white transition"
@@ -565,23 +516,7 @@
         </div>
     @endif
 
-    {{-- Costs + Margin --}}
-    @php
-        $accCost       = (float) $inquiry->stays->sum('total_accommodation_cost');
-        // Only count driver/guide cost if the role is actually assigned —
-        // prevents stale orphan cost values from inflating margin math.
-        $driverCost    = $inquiry->driver_id ? (float) ($inquiry->driver_cost ?? 0) : 0;
-        $guideCost     = $inquiry->guide_id  ? (float) ($inquiry->guide_cost ?? 0)  : 0;
-        $otherCosts    = (float) ($inquiry->other_costs ?? 0);
-        $totalCost     = $accCost + $driverCost + $guideCost + $otherCosts;
-        $gross         = (float) ($inquiry->price_quoted ?? 0);
-        $commission    = (float) ($inquiry->commission_amount ?? 0);
-        $netRevenue    = $inquiry->effectiveRevenue();
-        $margin        = $netRevenue - $totalCost;
-        $marginPct     = $netRevenue > 0 ? round($margin / $netRevenue * 100) : 0;
-        $hasCommission = $commission > 0;
-    @endphp
-
+    {{-- Costs + Margin. All totals prepared by PaymentSummaryBuilder. --}}
     <div class="rounded-lg p-3 space-y-1" style="background: rgba(0,0,0,0.03);">
         <div class="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider">Financials</div>
 
@@ -601,88 +536,83 @@
             </button>
         </div>
 
-        @if ($gross > 0)
+        @if ($payments['totals']['gross'] > 0)
             <div class="flex justify-between text-sm text-gray-900 dark:text-gray-100">
-                <span>{{ $hasCommission ? 'Gross (guest paid)' : 'Revenue' }}</span>
-                <span class="font-semibold">${{ number_format($gross, 2) }}</span>
+                <span>{{ $payments['totals']['has_commission'] ? 'Gross (guest paid)' : 'Revenue' }}</span>
+                <span class="font-semibold">${{ number_format($payments['totals']['gross'], 2) }}</span>
             </div>
         @endif
 
-        @if ($hasCommission)
+        @if ($payments['totals']['has_commission'])
             <div class="flex justify-between text-xs" style="color: #dc2626;">
                 <span>{{ $inquiry->source === 'gyg' ? 'GYG' : 'OTA' }} commission ({{ (int) $inquiry->commission_rate }}%)</span>
-                <span>−${{ number_format($commission, 2) }}</span>
+                <span>−${{ number_format($payments['totals']['commission'], 2) }}</span>
             </div>
             <div class="flex justify-between text-sm text-gray-900 dark:text-gray-100 font-semibold">
                 <span>Net revenue</span>
-                <span>${{ number_format($netRevenue, 2) }}</span>
+                <span>${{ number_format($payments['totals']['net_revenue'], 2) }}</span>
             </div>
         @endif
 
-        @if ($accCost > 0)
+        @if ($payments['totals']['acc_cost'] > 0)
             <div class="flex justify-between text-xs text-gray-800 dark:text-gray-200">
                 <span>Accommodation</span>
-                <span>${{ number_format($accCost, 2) }}</span>
+                <span>${{ number_format($payments['totals']['acc_cost'], 2) }}</span>
             </div>
         @endif
 
-        @if ($driverCost > 0)
+        @if ($payments['totals']['driver_cost'] > 0)
             <div class="flex justify-between text-xs text-gray-800 dark:text-gray-200">
                 <span>Driver{{ $inquiry->driver_cost_override ? ' (override)' : '' }}</span>
-                <span>${{ number_format($driverCost, 2) }}</span>
+                <span>${{ number_format($payments['totals']['driver_cost'], 2) }}</span>
             </div>
         @endif
 
-        @if ($guideCost > 0)
+        @if ($payments['totals']['guide_cost'] > 0)
             <div class="flex justify-between text-xs text-gray-800 dark:text-gray-200">
                 <span>Guide</span>
-                <span>${{ number_format($guideCost, 2) }}</span>
+                <span>${{ number_format($payments['totals']['guide_cost'], 2) }}</span>
             </div>
         @endif
 
-        @if ($otherCosts > 0)
+        @if ($payments['totals']['other_costs'] > 0)
             <div class="flex justify-between text-xs text-gray-800 dark:text-gray-200">
                 <span>Other</span>
-                <span>${{ number_format($otherCosts, 2) }}</span>
+                <span>${{ number_format($payments['totals']['other_costs'], 2) }}</span>
             </div>
         @endif
 
-        @if ($totalCost > 0 && $netRevenue > 0)
-            <div class="border-t border-gray-200 dark:border-gray-700 pt-1 mt-1 flex justify-between text-sm font-semibold" style="color: {{ $marginPct >= 40 ? '#16a34a' : ($marginPct >= 20 ? '#d97706' : '#dc2626') }};">
+        @if ($payments['totals']['total_cost'] > 0 && $payments['totals']['net_revenue'] > 0)
+            <div class="border-t border-gray-200 dark:border-gray-700 pt-1 mt-1 flex justify-between text-sm font-semibold" style="color: {{ $payments['totals']['margin_pct'] >= 40 ? '#16a34a' : ($payments['totals']['margin_pct'] >= 20 ? '#d97706' : '#dc2626') }};">
                 <span>Margin</span>
-                <span>${{ number_format($margin, 2) }} ({{ $marginPct }}%)</span>
+                <span>${{ number_format($payments['totals']['margin'], 2) }} ({{ $payments['totals']['margin_pct'] }}%)</span>
             </div>
-        @elseif ($netRevenue > 0)
+        @elseif ($payments['totals']['net_revenue'] > 0)
             <div class="text-xs text-gray-500 dark:text-gray-400 mt-1">No costs entered yet</div>
         @endif
     </div>
 
     {{-- Guest Payments --}}
-    @php
-        $guestPayments = $inquiry->guestPayments()->orderBy('payment_date', 'desc')->limit(5)->get();
-        $totalReceived = (float) $guestPayments->sum('amount');
-        $quotedAmount  = (float) ($inquiry->price_quoted ?? 0);
-        $outstanding   = $quotedAmount - $totalReceived;
-    @endphp
+    {{-- Guest payment stats from PaymentSummaryBuilder --}}
     <div class="rounded-lg p-3" style="background: rgba(0,0,0,0.03); margin-top: 12px;">
         <div class="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider" style="margin-bottom: 8px;">Guest Payments</div>
 
         <div class="flex justify-between text-xs text-gray-700 dark:text-gray-200" style="margin-bottom: 2px;">
             <span>Quoted</span>
-            <span class="font-semibold">${{ number_format($quotedAmount, 2) }}</span>
+            <span class="font-semibold">${{ number_format($payments['guest']['quoted'], 2) }}</span>
         </div>
         <div class="flex justify-between text-xs" style="color: #16a34a; margin-bottom: 2px;">
             <span>Received</span>
-            <span class="font-semibold">${{ number_format($totalReceived, 2) }}</span>
+            <span class="font-semibold">${{ number_format($payments['guest']['received'], 2) }}</span>
         </div>
-        <div class="flex justify-between text-xs font-bold pt-1" style="color: {{ $outstanding > 0 ? '#dc2626' : '#16a34a' }}; border-top: 1px solid rgba(0,0,0,0.08); margin-top: 4px;">
+        <div class="flex justify-between text-xs font-bold pt-1" style="color: {{ $payments['guest']['outstanding'] > 0 ? '#dc2626' : '#16a34a' }}; border-top: 1px solid rgba(0,0,0,0.08); margin-top: 4px;">
             <span>Outstanding</span>
-            <span>${{ number_format($outstanding, 2) }} {{ $outstanding > 0 ? '🔴' : '✅' }}</span>
+            <span>${{ number_format($payments['guest']['outstanding'], 2) }} {{ $payments['guest']['outstanding'] > 0 ? '🔴' : '✅' }}</span>
         </div>
 
-        @if ($guestPayments->isNotEmpty())
+        @if ($payments['guest']['recent_payments']->isNotEmpty())
             <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(0,0,0,0.08);">
-                @foreach ($guestPayments as $p)
+                @foreach ($payments['guest']['recent_payments'] as $p)
                     <div class="text-[11px] text-gray-700 dark:text-gray-300" style="margin-bottom: 2px;">
                         {{ $p->payment_date?->format('M j') }} · {{ $p->amount < 0 ? '' : '+' }}${{ number_format((float) $p->amount, 2) }} · {{ \App\Models\GuestPayment::METHODS[$p->payment_method] ?? $p->payment_method }} · {{ $p->recordedByUser?->name ?? 'System' }}
                     </div>
@@ -691,8 +621,8 @@
         @endif
 
         {{-- Quick pay --}}
-        @if ($outstanding > 0 || $outstanding < 0)
-            <div x-data="{ open: false, amount: '{{ $outstanding }}', method: 'cash' }" style="margin-top: 10px;">
+        @if ($payments['guest']['outstanding'] > 0 || $payments['guest']['outstanding'] < 0)
+            <div x-data="{ open: false, amount: '{{ $payments['guest']['outstanding'] }}', method: 'cash' }" style="margin-top: 10px;">
                 <button @click="open = !open" type="button"
                     class="w-full text-xs font-medium rounded-md px-3 py-1.5 text-white"
                     style="background: #16a34a;">💰 Record Payment</button>
