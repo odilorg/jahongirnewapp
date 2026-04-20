@@ -119,6 +119,7 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
     public ?int $assignGuideRateId = null;
     public ?string $editPickupTime = null;
     public ?string $editPickupPoint = null;
+    public ?string $editDropoffPoint = null;
     public ?int $assignAccommodationId = null;
     public ?int $assignAccGuests = null;
     public int $assignAccNights = 1;
@@ -522,6 +523,27 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
     }
 
     /**
+     * Quick-save drop-off location from the slide-over.
+     * Location-only by design — dropoff time is implicit (end of tour)
+     * and no dropoff_time column exists.
+     */
+    public function quickSaveDropoff(): void
+    {
+        $inquiry = BookingInquiry::find($this->selectedInquiryId);
+        if (! $inquiry) {
+            return;
+        }
+
+        $inquiry->assignIfUnowned(auth()->id());
+
+        $inquiry->update([
+            'dropoff_point' => $this->editDropoffPoint ?: null,
+        ]);
+
+        Notification::make()->title('Drop-off saved')->success()->send();
+    }
+
+    /**
      * Called from Blade when a chip is clicked. Opens the slide-over.
      */
     public function openInquiry(int $id): void
@@ -532,6 +554,7 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
         $inquiry = BookingInquiry::find($id);
         $this->editPickupTime    = $inquiry?->pickup_time;
         $this->editPickupPoint   = $inquiry?->pickup_point;
+        $this->editDropoffPoint  = $inquiry?->dropoff_point;
         $this->assignDriverId    = $inquiry?->driver_id;
         $this->assignDriverRateId = $inquiry?->driver_rate_id;
         $this->assignGuideId     = $inquiry?->guide_id;

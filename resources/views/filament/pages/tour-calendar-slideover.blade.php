@@ -196,10 +196,26 @@
             Save pickup
         </button>
 
+        <div class="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider pt-2">Drop-off</div>
+        <div>
+            <label class="text-[10px] text-gray-500 dark:text-gray-400">Location</label>
+            <input type="text" wire:model="editDropoffPoint"
+                placeholder="Hotel name or landmark"
+                class="w-full text-xs rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 px-2 py-1.5">
+        </div>
+        <button type="button" wire:click="quickSaveDropoff"
+            class="w-full text-xs font-medium rounded-md px-3 py-1.5 text-white transition"
+            style="background: #3b82f6;"
+            onmouseover="this.style.background='#2563eb'" onmouseout="this.style.background='#3b82f6'">
+            Save drop-off
+        </button>
+
         @if ($inquiry->dropoff_point)
-            <div class="text-xs text-gray-500 dark:text-gray-400 pt-1">
-                Dropoff: <span class="text-gray-900 dark:text-gray-100">{{ $inquiry->dropoff_point }}</span>
-            </div>
+            <a href="https://maps.google.com/?q={{ urlencode($inquiry->dropoff_point) }}"
+               target="_blank" rel="noopener"
+               class="block text-[10px] text-blue-600 dark:text-blue-400 hover:underline">
+                📍 Open current drop-off in map
+            </a>
         @endif
     </div>
 
