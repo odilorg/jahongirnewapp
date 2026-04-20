@@ -29,6 +29,20 @@ class TransitionLeadStatus
         'lost'             => [],
     ];
 
+    /**
+     * Public view of the state machine so the UI can grey out illegal
+     * transitions instead of trying them and getting an exception.
+     *
+     * @return array<int, LeadStatus>
+     */
+    public static function allowedTransitionsFrom(LeadStatus $from): array
+    {
+        return array_map(
+            fn (string $value) => LeadStatus::from($value),
+            self::ALLOWED[$from->value] ?? [],
+        );
+    }
+
     public function handle(Lead $lead, LeadStatus $to, ?string $waitingReason = null): Lead
     {
         if ($lead->status === $to) {

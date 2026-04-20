@@ -7,6 +7,8 @@ namespace App\Livewire\FollowUpQueue;
 use App\Actions\Leads\CreateFollowUp;
 use App\Enums\LeadFollowUpType;
 use App\Enums\LeadPriority;
+use App\Enums\LeadStatus;
+use App\Livewire\FollowUpQueue\Concerns\HasLeadRowActions;
 use App\Models\Lead;
 use Filament\Forms;
 use Filament\Forms\Concerns\InteractsWithForms;
@@ -28,8 +30,15 @@ use Livewire\Component;
  */
 class LeadsWithoutFollowUpTable extends Component implements HasForms, HasTable
 {
+    use HasLeadRowActions;
     use InteractsWithForms;
     use InteractsWithTable;
+
+    // HasLeadRowActions abstraction — Lead rows ARE the Lead.
+    protected function leadFromRecord(mixed $record): Lead
+    {
+        return $record;
+    }
 
     #[On('followup-queue-updated')]
     public function refreshSection(): void
@@ -44,7 +53,10 @@ class LeadsWithoutFollowUpTable extends Component implements HasForms, HasTable
                 ->whereNotIn('status', ['converted', 'lost'])
                 ->whereDoesntHave('followUps', fn (Builder $q) => $q->where('status', 'open'))
                 ->selectRaw('leads.*, (CASE WHEN (SELECT COUNT(*) FROM lead_followups WHERE lead_followups.lead_id = leads.id) = 0 THEN 1 ELSE 0 END) as is_never_touched')
-                ->with(['assignee:id,name'])
+                ->with([
+                    'assignee:id,name',
+                    'latestInteraction',
+                ])
                 ->orderByRaw("CASE priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 WHEN 'low' THEN 4 ELSE 5 END ASC")
                 ->orderByDesc('is_never_touched')
                 ->orderByRaw('last_interaction_at IS NULL DESC')
@@ -77,15 +89,27 @@ class LeadsWithoutFollowUpTable extends Component implements HasForms, HasTable
                 Tables\Columns\TextColumn::make('status')
                     ->label('Status')
                     ->badge()
-                    ->color('gray'),
+                    ->formatStateUsing(fn ($state) => $state instanceof LeadStatus ? ucfirst(str_replace('_', ' ', $state->value)) : (string) $state)
+                    ->color(fn ($state) => match ($state instanceof LeadStatus ? $state->value : $state) {
+                        'converted' => 'success',
+                        'lost'      => 'danger',
+                        'quoted', 'tentative' => 'warning',
+                        default     => 'gray',
+                    }),
 
                 Tables\Columns\TextColumn::make('last_interaction_at')
-                    ->label('Last contact')
+                    ->label('Last contact time')
                     ->since()
                     ->placeholder('Never')
                     ->color(fn ($state) => $state === null || \Carbon\Carbon::parse($state)->lt(now()->subDays(7))
                         ? 'danger'
                         : null),
+
+                Tables\Columns\TextColumn::make('latestInteraction.body')
+                    ->label('Last contact')
+                    ->limit(50)
+                    ->placeholder('—')
+                    ->tooltip(fn ($record) => $record->latestInteraction?->body),
 
                 Tables\Columns\TextColumn::make('assignee.name')
                     ->label('Assignee')
@@ -127,6 +151,11 @@ class LeadsWithoutFollowUpTable extends Component implements HasForms, HasTable
                             ->send();
                         $this->dispatch('followup-queue-updated');
                     }),
+
+                $this->logInteractionAction(),
+                $this->changeStatusAction(),
+                $this->changePriorityAction(),
+                $this->editContactAction(),
             ])
             ->poll('60s')
             ->emptyStateHeading('Every active lead has a follow-up. 👍')

@@ -14,6 +14,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Lead extends Model
@@ -60,6 +61,12 @@ class Lead extends Model
     public function followUps(): HasMany
     {
         return $this->hasMany(LeadFollowUp::class);
+    }
+
+    // Powers the "Last contact" column on the follow-up queue.
+    public function latestInteraction(): HasOne
+    {
+        return $this->hasOne(LeadInteraction::class)->latestOfMany('occurred_at');
     }
 
     public function assignee(): BelongsTo

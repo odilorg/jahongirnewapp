@@ -7,6 +7,9 @@ namespace App\Livewire\FollowUpQueue;
 use App\Actions\Leads\CompleteFollowUp;
 use App\Actions\Leads\SnoozeFollowUp;
 use App\Enums\LeadPriority;
+use App\Enums\LeadStatus;
+use App\Livewire\FollowUpQueue\Concerns\HasLeadRowActions;
+use App\Models\Lead;
 use App\Models\LeadFollowUp;
 use Filament\Forms\Concerns\InteractsWithForms;
 use Filament\Forms\Contracts\HasForms;
@@ -26,10 +29,17 @@ use Livewire\Component;
  */
 abstract class AbstractFollowUpsTable extends Component implements HasForms, HasTable
 {
+    use HasLeadRowActions;
     use InteractsWithForms;
     use InteractsWithTable;
 
     abstract protected function rowsQuery(): Builder;
+
+    // Provided to HasLeadRowActions — LeadFollowUp rows reach the lead via ->lead.
+    protected function leadFromRecord(mixed $record): Lead
+    {
+        return $record->lead;
+    }
 
     abstract protected function sectionLabel(): string;
 
@@ -89,6 +99,17 @@ abstract class AbstractFollowUpsTable extends Component implements HasForms, Has
                         default  => 'gray',
                     }),
 
+                Tables\Columns\TextColumn::make('lead.status')
+                    ->label('Status')
+                    ->badge()
+                    ->formatStateUsing(fn ($state) => $state instanceof LeadStatus ? ucfirst(str_replace('_', ' ', $state->value)) : (string) $state)
+                    ->color(fn ($state) => match ($state instanceof LeadStatus ? $state->value : $state) {
+                        'converted' => 'success',
+                        'lost'      => 'danger',
+                        'quoted', 'tentative' => 'warning',
+                        default     => 'gray',
+                    }),
+
                 Tables\Columns\TextColumn::make('type')
                     ->label('Type')
                     ->badge()
@@ -105,6 +126,12 @@ abstract class AbstractFollowUpsTable extends Component implements HasForms, Has
                     ->label('Note')
                     ->limit(60)
                     ->tooltip(fn ($record) => $record->note),
+
+                Tables\Columns\TextColumn::make('lead.latestInteraction.body')
+                    ->label('Last contact')
+                    ->limit(50)
+                    ->placeholder('—')
+                    ->tooltip(fn ($record) => $record->lead?->latestInteraction?->body),
 
                 Tables\Columns\TextColumn::make('lead.assignee.name')
                     ->label('Assignee')
@@ -139,6 +166,11 @@ abstract class AbstractFollowUpsTable extends Component implements HasForms, Has
                     ->label('Snooze')
                     ->icon('heroicon-m-clock')
                     ->button(),
+
+                $this->logInteractionAction(),
+                $this->changeStatusAction(),
+                $this->changePriorityAction(),
+                $this->editContactAction(),
             ])
             ->poll($this->pollSeconds().'s')
             ->emptyStateHeading($this->emptyHeading())
