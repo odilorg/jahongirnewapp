@@ -433,4 +433,159 @@ class TourCalendarBuilder
             'detail_url'        => BookingInquiryResource::getUrl('view', ['record' => $inq->id]),
         ];
     }
+
+    // =========================================================================
+    // View preparation — R2: data ready-to-render for Blade partials.
+    // No business logic here. Pure mapping from domain chip arrays to UI data.
+    // =========================================================================
+
+    /**
+     * Enrich every chip in an Action View zone list with pre-computed style/
+     * label data the card partial would otherwise build via @php blocks.
+     *
+     * @param  array<int, array<string, mixed>>  $chips
+     * @param  string                            $zone   'urgent' | 'warning' | 'ready' | 'neutral'
+     * @return array<int, array<string, mixed>>
+     */
+    public function enrichActionChipsForView(array $chips, string $zone): array
+    {
+        return array_map(fn (array $c) => $this->enrichActionChipForView($c, $zone), $chips);
+    }
+
+    /**
+     * Produce a single card-ready chip: original keys + a 'view' subarray
+     * with zone/colors/chips/source_badge/tour_icon all pre-rendered.
+     *
+     * @param  array<string, mixed>  $c
+     * @return array<string, mixed>
+     */
+    public function enrichActionChipForView(array $c, string $zone): array
+    {
+        $zoneColor  = match ($zone) {
+            'urgent'  => '#fee2e2',
+            'warning' => '#fef3c7',
+            'ready'   => '#dcfce7',
+            default   => '#f3f4f6',
+        };
+        $zoneBorder = match ($zone) {
+            'urgent'  => '#dc2626',
+            'warning' => '#d97706',
+            'ready'   => '#16a34a',
+            default   => '#d1d5db',
+        };
+
+        $rc = $c['readiness_chips'] ?? [];
+
+        $c['view'] = [
+            'zone_color'        => $zoneColor,
+            'zone_border'       => $zoneBorder,
+            'tour_type_icon'    => $this->tourTypeIcon($c['tour_type'] ?? null),
+            'source_badge_style' => $this->sourceBadgeStyle($c['source_badge'] ?? ''),
+            'paid'              => $this->readinessChip(
+                state: $rc['paid'] ?? false,
+                dispatchedLabel: null,
+                assignedLabel: null,
+                okLabel: '🟢 Paid',
+                missingLabel: '🔴 Unpaid',
+            ),
+            'driver'            => $this->readinessChip(
+                state: $rc['driver'] ?? 'missing',
+                dispatchedLabel: '🟢 Driver: ' . ($c['driver_name'] ?: '—'),
+                assignedLabel:   '🟡 Driver assigned (not dispatched): ' . ($c['driver_name'] ?: '—'),
+                okLabel: null,
+                missingLabel: '🔴 No driver',
+            ),
+            'pickup'            => $this->readinessChip(
+                state: $rc['pickup'] ?? false,
+                dispatchedLabel: null,
+                assignedLabel: null,
+                okLabel: '🟢 Pickup: ' . ($c['pickup_point'] ?? ''),
+                missingLabel: '🔴 No pickup location',
+            ),
+            'accommodation'     => $this->accommodationChipView(
+                state: $rc['accommodation'] ?? 'none',
+                accommodations: $c['accommodations'] ?? [],
+            ),
+        ];
+
+        return $c;
+    }
+
+    /**
+     * Map readiness state → chip style + label in one go so Blade never
+     * computes it. Returns ['style' => '...', 'label' => '...', 'visible' => bool].
+     *
+     * @return array{style: string, label: string, visible: bool}
+     */
+    private function readinessChip(
+        string|bool $state,
+        ?string $dispatchedLabel,
+        ?string $assignedLabel,
+        ?string $okLabel,
+        string $missingLabel,
+    ): array {
+        $style = $this->chipStyle($state);
+        $label = match (true) {
+            $state === 'dispatched' && $dispatchedLabel !== null => $dispatchedLabel,
+            $state === 'assigned'   && $assignedLabel   !== null => $assignedLabel,
+            $state === true         && $okLabel         !== null => $okLabel,
+            default                                              => $missingLabel,
+        };
+        return ['style' => $style, 'label' => $label, 'visible' => true];
+    }
+
+    /**
+     * Accommodation chip has a visible=false state (chip omitted when no
+     * accommodation ever existed). Separate from readinessChip because
+     * it has a three-way label with accommodation names.
+     *
+     * @param  array<int, string>  $accommodations
+     * @return array{style: string, label: string, visible: bool}
+     */
+    private function accommodationChipView(string $state, array $accommodations): array
+    {
+        if ($state === 'none') {
+            return ['style' => '', 'label' => '', 'visible' => false];
+        }
+        $label = implode(', ', $accommodations) ?: 'stay';
+        $text  = match ($state) {
+            'dispatched' => '🟢 Stay: ' . $label,
+            'assigned'   => '🟡 Stay assigned (not dispatched): ' . $label,
+            default      => '🔴 No accommodation',
+        };
+        return [
+            'style'   => $this->chipStyle($state),
+            'label'   => $text,
+            'visible' => true,
+        ];
+    }
+
+    private function chipStyle(string|bool $state): string
+    {
+        $base = 'padding: 2px 6px; border-radius: 3px; font-weight: 500; ';
+        if ($state === true || $state === 'dispatched') {
+            return $base . 'background: #dcfce7; color: #166534;';
+        }
+        if ($state === 'assigned') {
+            return $base . 'background: #fef3c7; color: #92400e;';
+        }
+        return $base . 'background: #fee2e2; color: #991b1b;';
+    }
+
+    private function sourceBadgeStyle(string $source): string
+    {
+        $base = 'font-size: 8px; font-weight: 700; padding: 1px 4px; border-radius: 3px;';
+        return $source === 'GYG'
+            ? $base . 'background:#fed7aa;color:#9a3412;'
+            : $base . 'background:#dbeafe;color:#1e40af;';
+    }
+
+    private function tourTypeIcon(?string $tourType): ?string
+    {
+        return match ($tourType) {
+            'private' => '👤',
+            'group'   => '👥',
+            default   => null,
+        };
+    }
 }
