@@ -77,11 +77,7 @@ app/Actions/BookingBot/
     ├── CreateBookingFromMessageAction.php ~120 LOC
     ├── ViewBookingsFromMessageAction.php  ~180 LOC
     ├── CancelBookingFromMessageAction.php ~110 LOC
-    └── ModifyBooking/                     split — see §4.7
-        ├── ModifyBookingFromMessageAction.php  (orchestrator, ~80 LOC)
-        ├── ModifyBookingDatesStep.php          (~70 LOC)
-        ├── ModifyBookingGuestStep.php          (~70 LOC)
-        └── ModifyBookingRoomStep.php           (~70 LOC)
+    └── ModifyBookingFromMessageAction.php  ~250 LOC  (see §4.7 — single Action with private helpers; sub-action split rejected after source read)
 ```
 
 Each Action:
@@ -164,19 +160,37 @@ This is **the path a user hits when they write "check avail jan 2-3"** — the p
 
 (Three straightforward extractions — same pattern as 4.3. Each one commit.)
 
-### 4.7 · Extract + split `ModifyBookingFromMessageAction`
+### 4.7 · Extract `ModifyBookingFromMessageAction` — REVISED after source read
 
-252 LOC is too big for one Action — that's re-creating the god-class problem in miniature. Split by sub-intent:
+**Original proposal** (speculation before reading source): orchestrator + 3 step-actions (dates / guest / room).
 
-- Parent Action `ModifyBookingFromMessageAction` — orchestrates, picks the right step
-- Steps per modifiable field:
-  - `ModifyBookingDatesStep`
-  - `ModifyBookingGuestStep`
-  - `ModifyBookingRoomStep`
+**What the source actually is:** an **accumulator**, not a dispatcher. A single Telegram message can modify dates + guest + room simultaneously in one Beds24 call. The three "per-field" blocks contribute to a single `$changes` array; they're not independent actions, they're parallel gatherers feeding the same Beds24 request.
 
-Each Step: ≤ 100 LOC.
+**Actual shape:**
+```
+entry guard (booking_id)
+shared lookup (beds24->getBooking)
+three parallel change gatherers → one $changes array
+empty-changes check
+conditional availability guard (only if dates changed)
+beds24->modifyBooking once
+format success / handle errors
+```
 
-If the internal sub-intents are discoverable from the parsed structure, the parent is a 5-line dispatch. If not, a match expression on the modify-type field does the routing.
+**Decision:** single Action, with private helpers that mirror the real seams.
+
+```
+ModifyBookingFromMessageAction::execute(array $parsed, User $staff): string
+├── collectDateChanges(array $parsed, array $currentBooking): array
+├── collectGuestChanges(array $parsed, array $currentBooking): array
+├── collectRoomChange(array $parsed, array $currentBooking, string $bookingId): array|string
+├── guardDateAvailability(array $changes, array $currentBooking, string $bookingId): ?string
+└── formatSuccessReply(string $bookingId, array $changes, array $summary, array $currentBooking): string
+```
+
+No sub-actions. Splitting would invent abstraction that doesn't match the domain — each "step" would be a parse-and-append fragment that never executes anything on its own.
+
+**Preserved defect:** the original method has an indentation/bracket bug around the date-validation block — `$newArrival` and `$newDeparture` are defined inside a conditional but read outside it. For guest-only / room-only modifications this triggers "Warning: Undefined variable" and a useless availability check that's swallowed by the inner try/catch. The extraction reproduces this byte-for-byte (see Action docblock). Fix lands in a dedicated follow-up commit with a regression test.
 
 ### 4.8 · Collapse the Job
 
