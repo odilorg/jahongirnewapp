@@ -114,6 +114,30 @@ class DriverDispatchNotifier
             return ['ok' => false, 'reason' => $result['error'] ?? 'send_failed'];
         }
 
+        // Atomic: stamp dispatched_at on the stay + append to inquiry audit line
+        // using query-builder updates so neither stay.updated_at nor
+        // inquiry.updated_at is bumped. That keeps "updated_at > dispatched_at"
+        // semantically meaning "operator changed something after dispatch",
+        // not "some other dispatch happened".
+        $stamp = now()->format('Y-m-d H:i');
+        $name  = $accommodation->name ?? 'stay';
+        $note  = "[{$stamp}] TG dispatch → stay {$name} ok (msg_id={$result['msg_id']})";
+        $existingNotes = (string) $inquiry->internal_notes;
+        $newNotes = $existingNotes === '' ? $note : $existingNotes . "\n" . $note;
+
+        \App\Models\InquiryStay::query()
+            ->whereKey($stay->id)
+            ->update(['dispatched_at' => now()]);
+
+        \App\Models\BookingInquiry::query()
+            ->whereKey($inquiry->id)
+            ->update(['internal_notes' => $newNotes]);
+
+        $stay->dispatched_at = now();
+        $stay->syncOriginalAttribute('dispatched_at');
+        $inquiry->internal_notes = $newNotes;
+        $inquiry->syncOriginalAttribute('internal_notes');
+
         Log::info('DriverDispatchNotifier: stay dispatch sent', [
             'reference'        => $inquiry->reference,
             'stay_id'          => $stay->id,
@@ -167,6 +191,30 @@ class DriverDispatchNotifier
 
             return ['ok' => false, 'reason' => $result['error'] ?? 'send_failed'];
         }
+
+        // Atomic: stamp dispatched_at + append audit line in ONE raw UPDATE
+        // that bypasses Eloquent's updated_at auto-bump. The slide-over UI
+        // compares $inquiry->updated_at > *_dispatched_at to flag
+        // "re-dispatch needed" — if we bumped updated_at here, every dispatch
+        // would immediately appear stale. Query-builder update keeps
+        // updated_at reflecting business edits only.
+        $stamp = now()->format('Y-m-d H:i');
+        $name  = $supplier->full_name ?? ucfirst($role);
+        $note  = "[{$stamp}] TG dispatch → {$role} {$name} ok (msg_id={$result['msg_id']})";
+        $existingNotes = (string) $inquiry->internal_notes;
+        $newNotes = $existingNotes === '' ? $note : $existingNotes . "\n" . $note;
+
+        \App\Models\BookingInquiry::query()
+            ->whereKey($inquiry->id)
+            ->update([
+                $role . '_dispatched_at' => now(),
+                'internal_notes'         => $newNotes,
+            ]);
+
+        // Refresh the in-memory model so callers see the new state without re-querying.
+        $inquiry->{$role . '_dispatched_at'} = now();
+        $inquiry->internal_notes             = $newNotes;
+        $inquiry->syncOriginalAttributes([$role . '_dispatched_at', 'internal_notes']);
 
         Log::info('DriverDispatchNotifier: dispatch sent', [
             'reference'   => $inquiry->reference,

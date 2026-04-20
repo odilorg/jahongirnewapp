@@ -644,23 +644,31 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
         // in lockstep with the assign UIs (slide-over + resource form).
         $dispatchable = $inquiry->isDispatchable();
 
+        // Dispatch state helper: never-dispatched / clean / stale.
+        $dispatchState = function (?\Carbon\Carbon $dispatchedAt) use ($inquiry): string {
+            if (! $dispatchedAt) return 'fresh';
+            return $inquiry->updated_at && $inquiry->updated_at->gt($dispatchedAt) ? 'stale' : 'clean';
+        };
+
         if ($inquiry->driver_id && $dispatchable) {
+            $state = $dispatchState($inquiry->driver_dispatched_at);
             $actions[] = Action::make('dispatchDriver')
-                ->label('Driver')
+                ->label(match ($state) {
+                    'fresh' => 'Dispatch driver',
+                    'clean' => 'Re-dispatch driver (already sent ' . $inquiry->driver_dispatched_at->format('M j H:i') . ')',
+                    'stale' => 'Re-dispatch driver — changes since ' . $inquiry->driver_dispatched_at->format('M j H:i'),
+                })
                 ->icon('heroicon-o-truck')
-                ->color('primary')
+                ->color(match ($state) {
+                    'fresh' => 'primary',
+                    'clean' => 'gray',
+                    'stale' => 'danger',
+                })
                 ->requiresConfirmation()
                 ->modalDescription('Send Telegram DM to: 🚗 ' . ($inquiry->driver?->full_name ?? '—'))
                 ->action(function () use ($inquiry): void {
                     $result = app(DriverDispatchNotifier::class)->dispatchSupplier($inquiry, 'driver');
-                    $stamp = now()->format('Y-m-d H:i');
-                    $name = $inquiry->driver?->full_name ?? 'driver';
-
                     if ($result['ok']) {
-                        $inquiry->update([
-                            'internal_notes' => ($inquiry->internal_notes ? $inquiry->internal_notes . "\n" : '')
-                                . "[{$stamp}] Calendar dispatch TG → driver {$name} ok (msg_id={$result['msg_id']})",
-                        ]);
                         Notification::make()->title('Driver dispatch sent')->success()->send();
                     } else {
                         $reason = $result['reason'] ?? 'unknown';
@@ -671,22 +679,24 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
 
         // Dispatch guide
         if ($inquiry->guide_id && $dispatchable) {
+            $state = $dispatchState($inquiry->guide_dispatched_at);
             $actions[] = Action::make('dispatchGuide')
-                ->label('Guide')
+                ->label(match ($state) {
+                    'fresh' => 'Dispatch guide',
+                    'clean' => 'Re-dispatch guide (already sent ' . $inquiry->guide_dispatched_at->format('M j H:i') . ')',
+                    'stale' => 'Re-dispatch guide — changes since ' . $inquiry->guide_dispatched_at->format('M j H:i'),
+                })
                 ->icon('heroicon-o-academic-cap')
-                ->color('primary')
+                ->color(match ($state) {
+                    'fresh' => 'primary',
+                    'clean' => 'gray',
+                    'stale' => 'danger',
+                })
                 ->requiresConfirmation()
                 ->modalDescription('Send Telegram DM to: 🧭 ' . ($inquiry->guide?->full_name ?? '—'))
                 ->action(function () use ($inquiry): void {
                     $result = app(DriverDispatchNotifier::class)->dispatchSupplier($inquiry, 'guide');
-                    $stamp = now()->format('Y-m-d H:i');
-                    $name = $inquiry->guide?->full_name ?? 'guide';
-
                     if ($result['ok']) {
-                        $inquiry->update([
-                            'internal_notes' => ($inquiry->internal_notes ? $inquiry->internal_notes . "\n" : '')
-                                . "[{$stamp}] Calendar dispatch TG → guide {$name} ok (msg_id={$result['msg_id']})",
-                        ]);
                         Notification::make()->title('Guide dispatch sent')->success()->send();
                     } else {
                         $reason = $result['reason'] ?? 'unknown';
@@ -695,12 +705,28 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
                 });
         }
 
-        // Dispatch accommodation stays
+        // Dispatch accommodation stays. Label reflects aggregate stay state:
+        // - fresh: at least one stay has never been dispatched
+        // - stale: every stay dispatched, but operator edited at least one after dispatch
+        // - clean: every stay dispatched and none edited since
         if ($inquiry->stays->isNotEmpty() && $dispatchable) {
+            $stays = $inquiry->stays;
+            $anyUndispatched = $stays->contains(fn ($s) => ! $s->dispatched_at);
+            $anyStale = $stays->contains(fn ($s) => $s->dispatched_at && $s->updated_at->gt($s->dispatched_at));
+            $aggState = $anyUndispatched ? 'fresh' : ($anyStale ? 'stale' : 'clean');
+
             $actions[] = Action::make('dispatchAccommodation')
-                ->label('Accom.')
+                ->label(match ($aggState) {
+                    'fresh' => 'Dispatch accommodation' . ($stays->count() > 1 ? ' (' . $stays->count() . ')' : ''),
+                    'clean' => 'Re-dispatch accommodation (all sent)',
+                    'stale' => 'Re-dispatch accommodation — changes since dispatch',
+                })
                 ->icon('heroicon-o-home-modern')
-                ->color('primary')
+                ->color(match ($aggState) {
+                    'fresh' => 'primary',
+                    'clean' => 'gray',
+                    'stale' => 'danger',
+                })
                 ->requiresConfirmation()
                 ->modalDescription(function () use ($inquiry): string {
                     return $inquiry->stays
@@ -711,28 +737,17 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
                     $notifier = app(DriverDispatchNotifier::class);
                     $ok = 0;
                     $fail = 0;
-                    $stamp = now()->format('Y-m-d H:i');
-                    $auditLines = [];
 
                     foreach ($inquiry->stays as $stay) {
                         if (! $stay->accommodation) {
                             continue;
                         }
                         $result = $notifier->dispatchStay($inquiry, $stay);
-                        $name = $stay->accommodation->name;
                         if ($result['ok']) {
-                            $auditLines[] = "[{$stamp}] Calendar dispatch TG → stay {$name} ok (msg_id={$result['msg_id']})";
                             $ok++;
                         } else {
-                            $auditLines[] = "[{$stamp}] ⚠️ Calendar dispatch TG → stay {$name} FAILED: " . ($result['reason'] ?? 'unknown');
                             $fail++;
                         }
-                    }
-
-                    if (! empty($auditLines)) {
-                        $inquiry->update([
-                            'internal_notes' => ($inquiry->internal_notes ? $inquiry->internal_notes . "\n" : '') . implode("\n", $auditLines),
-                        ]);
                     }
 
                     if ($fail === 0 && $ok > 0) {
