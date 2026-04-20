@@ -607,6 +607,105 @@ class TourCalendarBuilder
         }, $leads);
     }
 
+    /**
+     * Enrich buildWeek() output with grid-view-ready data so the week-grid
+     * Blade has zero @php blocks.
+     *
+     * Mutates:
+     *   - $data['days'][i]  → adds 'is_today'
+     *   - $data['rows'][i]['chips'][j]  → adds 'view' subarray
+     *
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    public function enrichWeekDataForView(array $data): array
+    {
+        $data['days'] = array_map(
+            fn ($d) => ['carbon' => $d, 'is_today' => $d->isToday()],
+            $data['days'] ?? [],
+        );
+
+        $data['rows'] = array_map(function (array $row): array {
+            $row['chips'] = array_map(fn (array $chip) => $this->enrichGridChipForView($chip), $row['chips']);
+            return $row;
+        }, $data['rows'] ?? []);
+
+        return $data;
+    }
+
+    /**
+     * Per-chip view prep: style, bg class, tooltip, and all icons resolved
+     * server-side.
+     *
+     * @param  array<string, mixed>  $chip
+     * @return array<string, mixed>
+     */
+    private function enrichGridChipForView(array $chip): array
+    {
+        $chip['view'] = [
+            'style'          => $this->gridChipStyle($chip['display_state'] ?? ''),
+            'bg_class'       => 'hover:opacity-90 transition-opacity',
+            'tooltip'        => $this->gridChipTooltip($chip),
+            'tour_type_icon' => $this->tourTypeIcon($chip['tour_type'] ?? null),
+            'source_icon'    => $this->gridSourceIcon($chip['source_badge'] ?? ''),
+            'payment_icon'   => $this->gridPaymentIcon(
+                paidAt: $chip['paid_at'] ?? null,
+                status: $chip['status'] ?? null,
+                method: $chip['payment_method'] ?? null,
+            ),
+        ];
+        return $chip;
+    }
+
+    private function gridChipStyle(string $displayState): string
+    {
+        return match ($displayState) {
+            'ready'                => 'background:#dcfce7;border-color:#4ade80;',
+            'paid_needs_attention' => 'background:#dcfce7;border-color:#4ade80;border-left:4px solid #ef4444;',
+            'awaiting_payment'     => 'background:#fef3c7;border-color:#f59e0b;',
+            'confirmed_offline'    => 'background:#dbeafe;border-color:#60a5fa;',
+            'lead'                 => 'background:#f3f4f6;border-color:#9ca3af;border-style:dashed;',
+            default                => 'background:#f3f4f6;border-color:#d1d5db;',
+        };
+    }
+
+    /**
+     * @param  array<string, mixed>  $chip
+     */
+    private function gridChipTooltip(array $chip): string
+    {
+        return collect([
+            ($chip['reference'] ?? '') . ' · ' . ($chip['customer_name'] ?? '')
+                . (! empty($chip['customer_country']) ? ' (' . $chip['customer_country'] . ')' : ''),
+            '📅 ' . ($chip['travel_date'] ?? '') . ' · ' . ($chip['duration'] ?? '') . ' day(s)',
+            '👥 ' . ($chip['pax_label'] ?? '') . ' pax',
+            ! empty($chip['pickup_time'])  ? '🕐 ' . $chip['pickup_time']  : null,
+            ! empty($chip['pickup_point']) ? '📍 ' . $chip['pickup_point'] : null,
+            ! empty($chip['driver_name'])  ? '🚐 Driver: ' . $chip['driver_name'] : null,
+            ! empty($chip['guide_name'])   ? '🧑‍✈️ Guide: ' . $chip['guide_name']   : null,
+            count($chip['accommodations'] ?? []) ? '🏕 ' . implode(', ', $chip['accommodations']) : null,
+            ! empty($chip['paid_at']) ? '💰 Paid ' . $chip['paid_at'] : null,
+        ])->filter()->implode("\n");
+    }
+
+    private function gridSourceIcon(string $source): string
+    {
+        return match ($source) {
+            'GYG' => '🟠',
+            'WEB' => '🔵',
+            'WA'  => '🟢',
+            default => '⚪',
+        };
+    }
+
+    private function gridPaymentIcon(?string $paidAt, ?string $status, ?string $method): ?string
+    {
+        if ($paidAt) return '💰';
+        if ($status === 'awaiting_payment') return '⏳';
+        if ($method === 'cash') return '💵';
+        return null;
+    }
+
     private function leadStatusBadgeStyle(string $status): string
     {
         [$bg, $fg] = match ($status) {
