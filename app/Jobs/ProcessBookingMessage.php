@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Actions\BookingBot\Handlers\CancelBookingFromMessageAction;
+use App\Actions\BookingBot\Handlers\CheckAvailabilityAction;
 use App\Actions\BookingBot\Handlers\CreateBookingFromMessageAction;
 use App\Actions\BookingBot\Handlers\HandleCallbackQueryAction;
 use App\Actions\BookingBot\Handlers\HandlePhoneContactAction;
@@ -130,7 +131,7 @@ class ProcessBookingMessage implements ShouldQueue
 
         switch ($intent) {
             case 'check_availability':
-                return $this->handleCheckAvailability($parsed, $beds24);
+                return app(CheckAvailabilityAction::class)->execute($parsed);
 
             case 'create_booking':
                 return app(CreateBookingFromMessageAction::class)->execute($parsed, $staff);
@@ -152,133 +153,6 @@ class ProcessBookingMessage implements ShouldQueue
                        "- help";
         }
     }
-
-    protected function handleCheckAvailability(array $parsed, $beds24): string
-    {
-        $dates = $parsed['dates'] ?? null;
-
-        if (!$dates || empty($dates['check_in']) || empty($dates['check_out'])) {
-            return 'Please provide valid dates. Example: check avail jan 2-3';
-        }
-
-        $checkIn = $dates['check_in'];
-        $checkOut = $dates['check_out'];
-
-        // Get all configured rooms
-        $rooms = RoomUnitMapping::all();
-
-        if ($rooms->isEmpty()) {
-            return 'No rooms configured in system.';
-        }
-
-        try {
-            // Get property IDs for availability check
-            $propertyIds = $rooms->pluck('property_id')->unique()->toArray();
-
-            // Check availability using calendar endpoint
-            $availability = $beds24->checkAvailability($checkIn, $checkOut, $propertyIds);
-
-            if (!$availability['success']) {
-                throw new \Exception($availability['error'] ?? 'API request failed');
-            }
-
-            $availableRoomsApi = $availability['availableRooms'] ?? [];
-            $nights = $availability['nights'] ?? [];
-            $nightCount = count($nights);
-
-            // Map API room data to our room units
-            $availableUnits = [];
-            foreach ($availableRoomsApi as $apiRoom) {
-                $roomId = $apiRoom['roomId'];
-                $quantity = $apiRoom['quantity'];
-                $roomName = $apiRoom['roomName'];
-                $propertyId = $apiRoom['propertyId'];
-
-                // Find units for this room type - only take as many as available quantity
-                $units = $rooms->where('room_id', $roomId)
-                                ->where('property_id', $propertyId)
-                                ->sortBy('unit_name')
-                                ->take($quantity); // Only take N units where N = quantity available
-
-                foreach ($units as $unit) {
-                    $availableUnits[] = [
-                        'unit' => $unit,
-                        'quantity' => $quantity,
-                        'roomName' => $roomName,
-                    ];
-                }
-            }
-
-            // Format output according to spec
-            if (empty($availableUnits)) {
-                return "No rooms available for the entire stay.\n" .
-                       "Check-in: {$checkIn}\n" .
-                       "Check-out: {$checkOut}\n\n" .
-                       "All rooms are booked for at least one night in this period.";
-            }
-
-            // Calculate date range for display (e.g., "Oct 16–19")
-            $checkInDt = new \DateTimeImmutable($checkIn);
-            $checkOutDt = new \DateTimeImmutable($checkOut);
-            $monthName = $checkInDt->format('M');
-            $startDay = $checkInDt->format('j');
-            $endDay = $checkOutDt->format('j');
-            $dateRange = "{$monthName} {$startDay}–{$endDay}";
-
-            // Determine night text
-            if ($nightCount == 1) {
-                $nightText = 'night';
-            } elseif ($nightCount == 2) {
-                $nightText = 'both nights';
-            } elseif ($nightCount == 3) {
-                $nightText = 'all three nights';
-            } else {
-                $nightText = "all {$nightCount} nights";
-            }
-
-            // Build response
-            $response = "Rooms available for the entire stay ({$nightText}):\n\n";
-
-            // Group by property for organization
-            $byProperty = collect($availableUnits)->groupBy(function($item) {
-                return $item['unit']->property_name;
-            });
-
-            foreach ($byProperty as $propertyName => $propertyUnits) {
-                $response .= "━━━━━ " . strtoupper($propertyName) . " ━━━━━\n\n";
-
-                // Group by room type
-                $byRoomType = $propertyUnits->groupBy('roomName');
-
-                foreach ($byRoomType as $roomTypeName => $typeUnits) {
-                    $totalQty = $typeUnits->first()['quantity'];
-                    $units = $typeUnits->pluck('unit');
-
-                    $response .= "{$roomTypeName} — {$totalQty} " . ($totalQty == 1 ? 'room' : 'rooms') . "\n";
-                    $response .= "Units: " . $units->pluck('unit_name')->sort()->implode(', ') . "\n";
-
-                    $firstUnit = $units->first();
-                    $response .= "Type: " . ucfirst($firstUnit->room_type) . " | Max: {$firstUnit->max_guests} guests\n";
-                    if ($firstUnit->base_price > 0) {
-                        $response .= "Price: $" . $firstUnit->base_price . "/night\n";
-                    }
-                    $response .= "\n";
-                }
-            }
-
-            $response .= "All other room types break on at least one night, so they're not available for the whole {$dateRange} stay.\n\n";
-            $response .= "To book, use: book room [NUMBER] under [NAME] {$checkIn} to {$checkOut} tel [PHONE] email [EMAIL]";
-
-            return $response;
-
-        } catch (\Exception $e) {
-            Log::error('Availability check failed', ['error' => $e->getMessage()]);
-
-            return "Error checking availability: " . $e->getMessage() . "\n\n" .
-                   "Please try again or contact support.";
-        }
-    }
-
 
     protected function handleViewBookings(array $parsed, $beds24): string
     {
