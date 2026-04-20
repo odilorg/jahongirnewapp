@@ -77,7 +77,7 @@ class ZohoMailInboundClient
             folder: $this->config['inbox_folder'] ?? 'INBOX',
             senderEmail: $senderEmail,
             senderName: $senderName,
-            subject: (string) ($m->getSubject() ?? ''),
+            subject: $this->decodeSubject($m->getSubject()),
             body: (string) ($m->getTextBody() ?: $m->getHtmlBody() ?: ''),
             hasAttachments: $filenames !== [],
             attachmentFilenames: $filenames,
@@ -141,6 +141,27 @@ class ZohoMailInboundClient
         }
 
         return [];
+    }
+
+    // Webklex returns the Subject header untouched. MIME encoded-word subjects
+    // (subjects containing non-ASCII, emoji, em-dashes) arrive like
+    // "=?UTF-8?Q?Silk_Road_=E2=80=93_family?=" — decode them before we store
+    // anything operators will read.
+    private function decodeSubject(mixed $raw): string
+    {
+        $raw = $this->stringify($raw) ?? '';
+        if ($raw === '' || ! str_contains($raw, '=?')) {
+            return $raw;
+        }
+
+        $decoded = @iconv_mime_decode($raw, ICONV_MIME_DECODE_CONTINUE_ON_ERROR, 'UTF-8');
+        if (is_string($decoded) && $decoded !== '') {
+            return $decoded;
+        }
+
+        $decoded = @mb_decode_mimeheader($raw);
+
+        return is_string($decoded) && $decoded !== '' ? $decoded : $raw;
     }
 
     private function stringify(mixed $v): ?string
