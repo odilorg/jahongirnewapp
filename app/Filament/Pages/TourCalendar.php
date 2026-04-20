@@ -327,27 +327,22 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
     public function quickAssignDriver(): void
     {
         $inquiry = BookingInquiry::find($this->selectedInquiryId);
-        if (! $inquiry || ! $this->assignDriverId) {
+        $driver  = $this->assignDriverId ? \App\Models\Driver::find($this->assignDriverId) : null;
+        if (! $inquiry || ! $driver) {
             return;
         }
 
-        $inquiry->assignIfUnowned(auth()->id());
+        $this->runCalendarAction(
+            app(\App\Actions\Calendar\Assign\QuickAssignDriverAction::class)->handle(
+                $inquiry,
+                $driver,
+                [
+                    'rate_id'     => $this->assignDriverRateId,
+                    'operator_id' => auth()->id(),
+                ],
+            ),
+        );
 
-        $update = ['driver_id' => $this->assignDriverId];
-
-        if ($this->assignDriverRateId) {
-            $rate = \App\Models\DriverRate::find($this->assignDriverRateId);
-            if ($rate) {
-                $update['driver_rate_id'] = $rate->id;
-                $update['driver_cost']    = $rate->cost_usd;
-            }
-        }
-
-        $inquiry->update($update);
-
-        Notification::make()->title('Driver assigned')->success()->send();
-
-        // Reset for next assignment
         $this->assignDriverId = null;
         $this->assignDriverRateId = null;
     }
@@ -358,25 +353,21 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
     public function quickAssignGuide(): void
     {
         $inquiry = BookingInquiry::find($this->selectedInquiryId);
-        if (! $inquiry || ! $this->assignGuideId) {
+        $guide   = $this->assignGuideId ? \App\Models\Guide::find($this->assignGuideId) : null;
+        if (! $inquiry || ! $guide) {
             return;
         }
 
-        $inquiry->assignIfUnowned(auth()->id());
-
-        $update = ['guide_id' => $this->assignGuideId];
-
-        if ($this->assignGuideRateId) {
-            $rate = \App\Models\GuideRate::find($this->assignGuideRateId);
-            if ($rate) {
-                $update['guide_rate_id'] = $rate->id;
-                $update['guide_cost']    = $rate->cost_usd;
-            }
-        }
-
-        $inquiry->update($update);
-
-        Notification::make()->title('Guide assigned')->success()->send();
+        $this->runCalendarAction(
+            app(\App\Actions\Calendar\Assign\QuickAssignGuideAction::class)->handle(
+                $inquiry,
+                $guide,
+                [
+                    'rate_id'     => $this->assignGuideRateId,
+                    'operator_id' => auth()->id(),
+                ],
+            ),
+        );
 
         $this->assignGuideId = null;
         $this->assignGuideRateId = null;
