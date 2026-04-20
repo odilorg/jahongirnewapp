@@ -15,7 +15,11 @@ class OverdueFollowUpsTable extends AbstractFollowUpsTable
             ->join('leads', 'leads.id', '=', 'lead_followups.lead_id')
             ->select('lead_followups.*')
             ->selectRaw(LeadFollowUp::EFFECTIVE_DUE_SQL.' as effective_due')
-            ->with(['lead:id,name,priority,assigned_to', 'lead.assignee:id,name'])
+            ->with([
+                'lead:id,name,priority,status,assigned_to,phone,email,whatsapp_number',
+                'lead.assignee:id,name',
+                'lead.latestInteraction',
+            ])
             ->overdue()
             ->orderByPriorityThenDue();
     }
