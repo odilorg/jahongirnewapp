@@ -116,12 +116,17 @@ PROMPT;
             ]);
 
             $content = $response->choices[0]->message->content ?? '';
-            
+
             Log::info('DeepSeek Booking Intent Response', ['content' => $content]);
 
-            // Parse JSON response
+            // DeepSeek occasionally wraps JSON in a markdown code fence
+            // (```json ... ``` or ``` ... ```). Strip it before decoding.
+            $content = trim($content);
+            $content = preg_replace('/^```(?:json)?\s*/i', '', $content);
+            $content = preg_replace('/\s*```\s*$/', '', $content);
+
             $parsed = json_decode($content, true);
-            
+
             if (json_last_error() !== JSON_ERROR_NONE) {
                 throw new \Exception('Failed to parse DeepSeek response: ' . json_last_error_msg());
             }
