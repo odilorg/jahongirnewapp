@@ -1,22 +1,8 @@
-{{-- Phase 20 — Single action card with readiness chips + reason labels --}}
-@php
-    $zoneColor = match ($zone) {
-        'urgent'  => '#fee2e2',
-        'warning' => '#fef3c7',
-        'ready'   => '#dcfce7',
-        default   => '#f3f4f6',
-    };
-    $zoneBorder = match ($zone) {
-        'urgent'  => '#dc2626',
-        'warning' => '#d97706',
-        'ready'   => '#16a34a',
-        default   => '#d1d5db',
-    };
-    $rc = $c['readiness_chips'] ?? [];
-@endphp
-
+{{-- Phase 20 — Single action card with readiness chips + reason labels.
+     R2: all view prep moved to TourCalendarBuilder::enrichActionChipForView.
+     This partial is now pure rendering over the $c['view'] subarray. --}}
 <div wire:click="openInquiry({{ $c['id'] }})"
-    style="background: {{ $zoneColor }}; border-left: 4px solid {{ $zoneBorder }}; border-radius: 6px; padding: 10px 12px; margin-bottom: 8px; cursor: pointer;">
+    style="background: {{ $c['view']['zone_color'] }}; border-left: 4px solid {{ $c['view']['zone_border'] }}; border-radius: 6px; padding: 10px 12px; margin-bottom: 8px; cursor: pointer;">
 
     {{-- Top row: name, time/pax/date, badges --}}
     <div style="display: flex; justify-content: space-between; gap: 8px; align-items: baseline; flex-wrap: wrap;">
@@ -32,11 +18,10 @@
             <span>{{ $c['pax_label'] }} pax</span>
             <span>·</span>
             <span style="color: #6b7280;">{{ $c['travel_date_label'] }}</span>
-            @if ($c['tour_type'])
-                <span>{{ $c['tour_type'] === 'private' ? '👤' : '👥' }}</span>
+            @if ($c['view']['tour_type_icon'])
+                <span>{{ $c['view']['tour_type_icon'] }}</span>
             @endif
-            <span style="font-size: 8px; font-weight: 700; padding: 1px 4px; border-radius: 3px;
-                {{ $c['source_badge'] === 'GYG' ? 'background:#fed7aa;color:#9a3412;' : 'background:#dbeafe;color:#1e40af;' }}">
+            <span style="{{ $c['view']['source_badge_style'] }}">
                 {{ $c['source_badge'] }}
             </span>
             @if ($c['assigned_initials'])
@@ -49,45 +34,11 @@
 
     {{-- Readiness chips --}}
     <div style="display: flex; gap: 8px; margin-top: 6px; flex-wrap: wrap; font-size: 11px;">
-        @php
-            $chipStyle = fn ($ok) => 'padding: 2px 6px; border-radius: 3px; font-weight: 500; '
-                . ($ok === true ? 'background: #dcfce7; color: #166534;'
-                : ($ok === 'dispatched' ? 'background: #dcfce7; color: #166534;'
-                : ($ok === 'assigned' ? 'background: #fef3c7; color: #92400e;'
-                : 'background: #fee2e2; color: #991b1b;')));
-        @endphp
-        <span style="{{ $chipStyle($rc['paid'] ?? false) }}">
-            {{ ($rc['paid'] ?? false) ? '🟢 Paid' : '🔴 Unpaid' }}
-        </span>
-        <span style="{{ $chipStyle($rc['driver'] ?? 'missing') }}">
-            @if (($rc['driver'] ?? 'missing') === 'dispatched')
-                🟢 Driver: {{ $c['driver_name'] ?: '—' }}
-            @elseif (($rc['driver'] ?? 'missing') === 'assigned')
-                🟡 Driver assigned (not dispatched): {{ $c['driver_name'] ?: '—' }}
-            @else
-                🔴 No driver
-            @endif
-        </span>
-        <span style="{{ $chipStyle($rc['pickup'] ?? false) }}">
-            {{ ($rc['pickup'] ?? false) ? '🟢 Pickup: '.$c['pickup_point'] : '🔴 No pickup location' }}
-        </span>
-
-        {{-- Phase 20.8 — Accommodation chip mirrors backend dispatch state --}}
-        @php $accState = $rc['accommodation'] ?? 'none'; @endphp
-        @if ($accState !== 'none')
-            @php
-                $accAccommodations = $c['accommodations'] ?? [];
-                $accLabel = implode(', ', $accAccommodations) ?: 'stay';
-            @endphp
-            <span style="{{ $chipStyle($accState) }}">
-                @if ($accState === 'dispatched')
-                    🟢 Stay: {{ $accLabel }}
-                @elseif ($accState === 'assigned')
-                    🟡 Stay assigned (not dispatched): {{ $accLabel }}
-                @else
-                    🔴 No accommodation
-                @endif
-            </span>
+        <span style="{{ $c['view']['paid']['style'] }}">{{ $c['view']['paid']['label'] }}</span>
+        <span style="{{ $c['view']['driver']['style'] }}">{{ $c['view']['driver']['label'] }}</span>
+        <span style="{{ $c['view']['pickup']['style'] }}">{{ $c['view']['pickup']['label'] }}</span>
+        @if ($c['view']['accommodation']['visible'])
+            <span style="{{ $c['view']['accommodation']['style'] }}">{{ $c['view']['accommodation']['label'] }}</span>
         @endif
     </div>
 

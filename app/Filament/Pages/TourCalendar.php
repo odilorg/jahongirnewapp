@@ -80,7 +80,16 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
 
         // Action view data is always loaded so the summary strip works
         // on both views. Cheap query; bounded to today + 7 days.
-        $viewData['action'] = $builder->buildActionView($assignedTo);
+        $action = $builder->buildActionView($assignedTo);
+
+        // R2: pre-enrich chips with zone-tagged view data so the action-card
+        // partial has zero @php blocks. Each list's chips carry a 'view'
+        // subarray with colors, chip styles, and rendered labels.
+        $action['needs_action_today'] = $builder->enrichActionChipsForView($action['needs_action_today'] ?? [], 'urgent');
+        $action['tomorrow_prep']      = $builder->enrichActionChipsForView($action['tomorrow_prep']      ?? [], 'warning');
+        $action['ready']              = $builder->enrichActionChipsForView($action['ready']             ?? [], 'ready');
+
+        $viewData['action'] = $action;
 
         return $viewData;
     }
