@@ -225,6 +225,10 @@
             <div class="text-xs text-gray-500 dark:text-gray-400 mb-1">Driver</div>
             @if ($inquiry->driver)
                 <div class="text-gray-900 dark:text-gray-100">🚗 {{ $inquiry->driver->full_name }}</div>
+                @include('filament.pages.partials.dispatch-chip', [
+                    'dispatchedAt' => $inquiry->driver_dispatched_at,
+                    'inquiryUpdatedAt' => $inquiry->updated_at,
+                ])
                 @if ($inquiry->driver->phone01)
                     <div class="text-xs text-gray-800 dark:text-gray-100">
                         <x-copyable-field
@@ -281,6 +285,10 @@
             <div class="text-xs text-gray-500 dark:text-gray-400 mb-1">Guide</div>
             @if ($inquiry->guide)
                 <div class="text-gray-900 dark:text-gray-100">🧭 {{ $inquiry->guide->full_name }}</div>
+                @include('filament.pages.partials.dispatch-chip', [
+                    'dispatchedAt' => $inquiry->guide_dispatched_at,
+                    'inquiryUpdatedAt' => $inquiry->updated_at,
+                ])
                 @if ($inquiry->guide->phone01)
                     <div class="text-xs text-gray-800 dark:text-gray-100">
                         <x-copyable-field
@@ -432,6 +440,10 @@
                     · {{ $stay->nights }}N
                     · {{ $stay->guest_count }} guests
                 </div>
+                @include('filament.pages.partials.dispatch-chip', [
+                    'dispatchedAt' => $stay->dispatched_at,
+                    'inquiryUpdatedAt' => $stay->updated_at,
+                ])
                 @if ($stay->total_accommodation_cost)
                     @php
                         $accPaid = $stay->accommodation_id

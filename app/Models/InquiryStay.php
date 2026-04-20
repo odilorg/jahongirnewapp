@@ -36,6 +36,7 @@ class InquiryStay extends Model
         'guest_count',
         'meal_plan',
         'notes',
+        'dispatched_at',
     ];
 
     protected $casts = [
@@ -43,6 +44,7 @@ class InquiryStay extends Model
         'cost_per_unit_usd'        => 'decimal:2',
         'total_accommodation_cost' => 'decimal:2',
         'cost_override'            => 'boolean',
+        'dispatched_at'            => 'datetime',
     ];
 
     public function inquiry(): BelongsTo
