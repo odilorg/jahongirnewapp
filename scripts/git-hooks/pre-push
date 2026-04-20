@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# pre-push — runs arch-lint against the baseline. Blocks push on NEW
+# violations only. Regenerate the baseline (fixing tech debt) with:
+#   scripts/arch-lint.sh --regen-baseline > scripts/arch-lint-baseline.txt
+
+set -e
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+
+if [ -x scripts/arch-lint.sh ]; then
+    echo "→ arch-lint (baselined)…"
+    scripts/arch-lint.sh --baseline=scripts/arch-lint-baseline.txt
+fi
