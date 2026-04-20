@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Actions\BookingBot\Handlers\HandlePhoneContactAction;
 use App\Models\User;
 use App\Models\RoomUnitMapping;
 use App\Services\Beds24BookingService;
@@ -52,7 +53,7 @@ class ProcessBookingMessage implements ShouldQueue
 
             // Check for phone contact shared
             if (isset($message['contact'])) {
-                $this->handlePhoneContact($message, $authService, $telegram, $formatter);
+                app(HandlePhoneContactAction::class)->execute($message);
                 return;
             }
 
@@ -112,26 +113,6 @@ class ProcessBookingMessage implements ShouldQueue
             if (isset($chatId) && isset($telegram)) {
                 $telegram->sendMessage($chatId, 'Error: ' . $e->getMessage());
             }
-        }
-    }
-
-    protected function handlePhoneContact($message, $authService, $telegram, $formatter): void
-    {
-        $contact = $message['contact'];
-        $phoneNumber = $contact['phone_number'];
-        $chatId = $message['chat']['id'];
-        $userId = $message['from']['id'];
-        $username = $message['from']['username'] ?? '';
-
-        // Normalize phone number: remove + sign to match database format
-        $phoneNumber = ltrim($phoneNumber, '+');
-
-        $staff = $authService->linkPhoneNumber($phoneNumber, $userId, $username);
-
-        if ($staff) {
-            $telegram->sendMessage($chatId, $authService->getAccessGrantedMessage($staff));
-        } else {
-            $telegram->sendMessage($chatId, $authService->getAccessDeniedMessage($phoneNumber));
         }
     }
 
