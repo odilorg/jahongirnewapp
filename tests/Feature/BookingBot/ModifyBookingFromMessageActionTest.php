@@ -74,11 +74,6 @@ final class ModifyBookingFromMessageActionTest extends TestCase
         $this->assertStringContainsString('Guest: Old Name → Updated', $reply);
     }
 
-    public function test_room_only_modification_does_not_throw_and_skips_availability_check(): void
-    {
-        $this->markTestSkipped('Requires RoomUnitMapping fixture — covered by smoke test; restore after scope follow-up.');
-    }
-
     public function test_dates_only_modification_triggers_availability_check(): void
     {
         /** @var Beds24BookingService&\Mockery\MockInterface $beds24 */
