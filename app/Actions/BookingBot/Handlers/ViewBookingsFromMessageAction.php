@@ -13,14 +13,7 @@ use Illuminate\Support\Facades\Log;
  * Serves both typed-text intents (handleCommand) and inline-button
  * filter_type callbacks (view_arrivals_today, view_departures_today,
  * view_current, view_new). Same orchestration — the caller sets the
- * filter_type in $parsed.
- *
- * Pure extraction from ProcessBookingMessage::handleViewBookings plus one
- * structural split: reply formatting pulled into a private helper.
- * Behaviour must be byte-identical — the golden master asserts this.
- *
- * Known principle deviation carried from the original: RoomUnitMapping is
- * queried directly (P6-P7 concern, plan §4.3 follow-up).
+ * filter_type in $parsed. Reply formatting is kept as a private helper.
  */
 final class ViewBookingsFromMessageAction
 {

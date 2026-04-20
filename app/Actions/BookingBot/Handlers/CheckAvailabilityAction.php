@@ -10,15 +10,9 @@ use Illuminate\Support\Facades\Log;
 /**
  * Handles "check availability" intent from @j_booking_hotel_bot.
  *
- * Pure extraction from ProcessBookingMessage::handleCheckAvailability plus one
- * structural split: the 60-odd lines of reply formatting are pulled into a
- * private formatAvailabilityReply() method so execute() stays readable.
- * Behaviour must be byte-identical — the golden master asserts this.
- *
- * Known principle deviation carried from the original: this Action queries
- * RoomUnitMapping directly. That's a P6-P7 concern (domain data lookup should
- * live in a scope or lookup Service). Deliberately unchanged in this commit;
- * tracked as follow-up.
+ * execute() fans out to Beds24 for every configured property; the 60-odd
+ * lines of reply formatting are kept as a private helper so the orchestrator
+ * stays readable.
  */
 final class CheckAvailabilityAction
 {

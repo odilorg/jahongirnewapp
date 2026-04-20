@@ -2,11 +2,20 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class RoomUnitMapping extends Model
 {
+    /**
+     * Beds24 property IDs for Jahongir's two properties. Referenced by the
+     * Telegram booking bot's NLP parser when the staff member says "at
+     * Premium" / "at Hotel" to disambiguate a unit number that exists in
+     * both properties.
+     */
+    private const PROPERTY_ID_PREMIUM = '172793';
+    private const PROPERTY_ID_HOTEL   = '41097';
+
     protected $fillable = [
         'unit_name',
         'property_id',
@@ -36,5 +45,33 @@ class RoomUnitMapping extends Model
             ->orWhere('room_name', 'like', "%{$query}%")
             ->orWhere('room_type', 'like', "%{$query}%")
             ->get();
+    }
+
+    public function scopeForUnit(Builder $query, string $unitName): Builder
+    {
+        return $query->where('unit_name', $unitName);
+    }
+
+    /**
+     * Narrow to a property when the parser emits a free-text hint like
+     * "premium" / "hotel". Anything else (null, unknown word) is a no-op —
+     * keeping both properties in play so the caller can surface the
+     * "multiple rooms match" disambiguation prompt.
+     */
+    public function scopeMatchingPropertyHint(Builder $query, ?string $propertyHint): Builder
+    {
+        if ($propertyHint === null) {
+            return $query;
+        }
+
+        if (stripos($propertyHint, 'premium') !== false) {
+            return $query->where('property_id', self::PROPERTY_ID_PREMIUM);
+        }
+
+        if (stripos($propertyHint, 'hotel') !== false) {
+            return $query->where('property_id', self::PROPERTY_ID_HOTEL);
+        }
+
+        return $query;
     }
 }

@@ -24,9 +24,6 @@ use Illuminate\Support\Facades\Log;
  * abstraction. Kept as one Action with private helpers that mirror the real
  * seams: collect → validate → apply → format. Plan §4.7 updated accordingly.
  *
- * Known preserved defect:
- *   - RoomUnitMapping queried directly — P6-P7 concern, plan follow-up.
- *
  * Fixed (was preserved, now corrected with a regression test):
  *   - guardDateAvailability() previously read $newArrival / $newDeparture
  *     outside the "has date changes" block, throwing ErrorException for
@@ -222,17 +219,10 @@ final class ModifyBookingFromMessageAction
         $unitName = $room['unit_name'];
         $propertyHint = $parsed['property'] ?? null;
 
-        $query = RoomUnitMapping::where('unit_name', $unitName);
-
-        if ($propertyHint) {
-            if (stripos($propertyHint, 'premium') !== false) {
-                $query->where('property_id', '172793');
-            } elseif (stripos($propertyHint, 'hotel') !== false) {
-                $query->where('property_id', '41097');
-            }
-        }
-
-        $matchingRooms = $query->get();
+        $matchingRooms = RoomUnitMapping::query()
+            ->forUnit($unitName)
+            ->matchingPropertyHint($propertyHint)
+            ->get();
 
         if ($matchingRooms->isEmpty()) {
             return "❌ Modification Failed\n\n" .
