@@ -293,12 +293,13 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
     public function claimInquiry(): void
     {
         $inquiry = BookingInquiry::find($this->selectedInquiryId);
-        if (! $inquiry || $inquiry->assigned_to_user_id) {
+        if (! $inquiry) {
             return;
         }
 
-        $inquiry->update(['assigned_to_user_id' => auth()->id()]);
-        Notification::make()->title('Lead claimed')->success()->send();
+        $this->runCalendarAction(
+            app(\App\Actions\Calendar\Assign\ClaimInquiryAction::class)->handle($inquiry, auth()->id()),
+        );
     }
 
     /**
@@ -311,13 +312,10 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
             return;
         }
 
-        $inquiry->update(['assigned_to_user_id' => $this->reassignUserId ?: null]);
+        $this->runCalendarAction(
+            app(\App\Actions\Calendar\Assign\ReassignInquiryAction::class)->handle($inquiry, $this->reassignUserId),
+        );
 
-        $name = $this->reassignUserId
-            ? (\App\Models\User::find($this->reassignUserId)?->name ?? 'user')
-            : 'unassigned';
-
-        Notification::make()->title("Reassigned to {$name}")->success()->send();
         $this->reassignUserId = null;
     }
 
@@ -413,47 +411,25 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
      */
     public function quickPay(?string $supplierType = null, ?int $supplierId = null, ?string $amount = null): void
     {
-        $supplierType = $supplierType ?: $this->paySupplierType;
-        $supplierId   = $supplierId   ?: $this->paySupplierIdVal;
-        $amount       = $amount       ?: $this->payAmount;
-
         $inquiry = BookingInquiry::find($this->selectedInquiryId);
-        if (! $inquiry || ! $supplierType || ! $supplierId || ! $amount) {
-            Notification::make()->title('Payment failed — missing data')->danger()->send();
+        if (! $inquiry) {
+            Notification::make()->title('Payment failed — missing inquiry')->danger()->send();
             return;
         }
 
-        // Assign locally for the rest of the method
-        $this->paySupplierType = $supplierType;
-        $this->paySupplierIdVal = $supplierId;
-        $this->payAmount = $amount;
+        $this->runCalendarAction(
+            app(\App\Actions\Calendar\Payment\QuickPayAction::class)->handle(
+                $inquiry,
+                [
+                    'supplier_type' => $supplierType ?: $this->paySupplierType,
+                    'supplier_id'   => $supplierId   ?: $this->paySupplierIdVal,
+                    'amount'        => $amount       ?: $this->payAmount,
+                    'method'        => $this->payMethod,
+                    'operator_id'   => auth()->id(),
+                ],
+            ),
+        );
 
-        $inquiry->assignIfUnowned(auth()->id());
-
-        \App\Models\SupplierPayment::create([
-            'supplier_type'      => $this->paySupplierType,
-            'supplier_id'        => $this->paySupplierIdVal,
-            'booking_inquiry_id' => $inquiry->id,
-            'amount'             => (float) $this->payAmount,
-            'currency'           => 'USD',
-            'payment_date'       => now()->toDateString(),
-            'payment_method'     => $this->payMethod,
-            'status'             => 'recorded',
-        ]);
-
-        $name = match ($this->paySupplierType) {
-            'driver'        => $inquiry->driver?->full_name,
-            'guide'         => $inquiry->guide?->full_name,
-            'accommodation' => $inquiry->stays->first()?->accommodation?->name,
-            default         => 'supplier',
-        };
-
-        Notification::make()
-            ->title("Paid \${$this->payAmount} to {$name}")
-            ->success()
-            ->send();
-
-        // Reset
         $this->paySupplierType = null;
         $this->paySupplierIdVal = null;
         $this->payAmount = null;
