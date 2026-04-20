@@ -10,13 +10,9 @@ use Illuminate\Support\Facades\Log;
 /**
  * Handles "create booking" intent from @j_booking_hotel_bot.
  *
- * Pure extraction from ProcessBookingMessage::handleCreateBooking. Behaviour
- * must be byte-identical — the golden master asserts this.
- *
- * Known principle deviation carried from the original: this Action queries
- * RoomUnitMapping directly. That's a domain-data concern that should live in
- * a scope or lookup service (plan §4.3 / principle P6-P7). Left as-is for this
- * pure-extraction commit and tracked as follow-up.
+ * The room-lookup query concern (unit_name + optional property hint) lives
+ * on the RoomUnitMapping model via forUnit() / matchingPropertyHint() scopes
+ * per principle 2. This Action just composes them.
  */
 final class CreateBookingFromMessageAction
 {
@@ -45,19 +41,10 @@ final class CreateBookingFromMessageAction
         $unitName = $room['unit_name'];
         $propertyHint = $parsed['property'] ?? null;
 
-        $query = RoomUnitMapping::where('unit_name', $unitName);
-
-        // Property hints from the NLP parser: "premium" or "hotel" narrow to
-        // one of two Beds24 property IDs. Anything else falls through.
-        if ($propertyHint) {
-            if (stripos($propertyHint, 'premium') !== false) {
-                $query->where('property_id', '172793'); // Jahongir Premium
-            } elseif (stripos($propertyHint, 'hotel') !== false) {
-                $query->where('property_id', '41097');  // Jahongir Hotel
-            }
-        }
-
-        $matchingRooms = $query->get();
+        $matchingRooms = RoomUnitMapping::query()
+            ->forUnit($unitName)
+            ->matchingPropertyHint($propertyHint)
+            ->get();
 
         if ($matchingRooms->isEmpty()) {
             return 'Room ' . $unitName . ' not found. Please check the room number and try again.';
