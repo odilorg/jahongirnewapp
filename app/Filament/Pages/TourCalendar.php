@@ -383,33 +383,19 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
             return;
         }
 
-        $inquiry->assignIfUnowned(auth()->id());
+        $this->runCalendarAction(
+            app(\App\Actions\Calendar\Save\QuickAddStayAction::class)->handle(
+                $inquiry,
+                [
+                    'accommodation_id' => $this->assignAccommodationId,
+                    'guests'           => $this->assignAccGuests,
+                    'nights'           => $this->assignAccNights,
+                    'date'             => $this->assignAccDate,
+                    'operator_id'      => auth()->id(),
+                ],
+            ),
+        );
 
-        $guests = max(1, (int) ($this->assignAccGuests ?: $inquiry->people_adults));
-        $nights = max(1, (int) $this->assignAccNights);
-
-        $stay = \App\Models\InquiryStay::create([
-            'booking_inquiry_id' => $inquiry->id,
-            'accommodation_id'   => $this->assignAccommodationId,
-            'sort_order'         => $inquiry->stays()->count() + 1,
-            'stay_date'          => $this->assignAccDate ?: $inquiry->travel_date,
-            'nights'             => $nights,
-            'guest_count'        => $guests,
-            'meal_plan'          => 'dinner + breakfast',
-        ]);
-
-        $stay->calculateCost();
-        $stay->save();
-
-        $accName = $stay->accommodation?->name ?? 'accommodation';
-        $cost    = $stay->total_accommodation_cost ? '$' . number_format((float) $stay->total_accommodation_cost, 2) : 'no rate';
-
-        Notification::make()
-            ->title("Stay added: {$accName} — {$cost}")
-            ->success()
-            ->send();
-
-        // Reset
         $this->assignAccommodationId = null;
         $this->assignAccGuests = null;
         $this->assignAccNights = 1;
@@ -484,13 +470,15 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
             return;
         }
 
-        $inquiry->assignIfUnowned(auth()->id());
-
-        $inquiry->update([
-            'tour_product_direction_id' => $this->editDirectionId ?: null,
-        ]);
-
-        Notification::make()->title('Direction saved')->success()->send();
+        $this->runCalendarAction(
+            app(\App\Actions\Calendar\Save\QuickSaveDirectionAction::class)->handle(
+                $inquiry,
+                [
+                    'direction_id' => $this->editDirectionId,
+                    'operator_id'  => auth()->id(),
+                ],
+            ),
+        );
     }
 
     /**
@@ -503,14 +491,16 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
             return;
         }
 
-        $inquiry->assignIfUnowned(auth()->id());
-
-        $inquiry->update([
-            'pickup_time'  => $this->editPickupTime ?: null,
-            'pickup_point' => $this->editPickupPoint ?: null,
-        ]);
-
-        Notification::make()->title('Pickup info saved')->success()->send();
+        $this->runCalendarAction(
+            app(\App\Actions\Calendar\Save\QuickSavePickupAction::class)->handle(
+                $inquiry,
+                [
+                    'time'        => $this->editPickupTime,
+                    'point'       => $this->editPickupPoint,
+                    'operator_id' => auth()->id(),
+                ],
+            ),
+        );
     }
 
     /**
@@ -525,13 +515,15 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
             return;
         }
 
-        $inquiry->assignIfUnowned(auth()->id());
-
-        $inquiry->update([
-            'dropoff_point' => $this->editDropoffPoint ?: null,
-        ]);
-
-        Notification::make()->title('Drop-off saved')->success()->send();
+        $this->runCalendarAction(
+            app(\App\Actions\Calendar\Save\QuickSaveDropoffAction::class)->handle(
+                $inquiry,
+                [
+                    'point'       => $this->editDropoffPoint,
+                    'operator_id' => auth()->id(),
+                ],
+            ),
+        );
     }
 
     /**
