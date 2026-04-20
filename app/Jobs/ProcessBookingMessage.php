@@ -7,6 +7,7 @@ use App\Actions\BookingBot\Handlers\CheckAvailabilityAction;
 use App\Actions\BookingBot\Handlers\CreateBookingFromMessageAction;
 use App\Actions\BookingBot\Handlers\HandleCallbackQueryAction;
 use App\Actions\BookingBot\Handlers\HandlePhoneContactAction;
+use App\Actions\BookingBot\Handlers\ViewBookingsFromMessageAction;
 use App\Models\User;
 use App\Models\RoomUnitMapping;
 use App\Services\Beds24BookingService;
@@ -41,12 +42,7 @@ class ProcessBookingMessage implements ShouldQueue
         try {
             // Handle callback queries (button presses)
             if (isset($this->update['callback_query'])) {
-                // TODO: remove the $viewBookingsDelegate closure once handleViewBookings
-                // is extracted (plan §4.6). Transitional seam only.
-                app(HandleCallbackQueryAction::class)->execute(
-                    $this->update['callback_query'],
-                    fn (array $parsed): string => $this->handleViewBookings($parsed, $beds24),
-                );
+                app(HandleCallbackQueryAction::class)->execute($this->update['callback_query']);
                 return;
             }
 
@@ -137,7 +133,7 @@ class ProcessBookingMessage implements ShouldQueue
                 return app(CreateBookingFromMessageAction::class)->execute($parsed, $staff);
 
             case 'view_bookings':
-                return $this->handleViewBookings($parsed, $beds24);
+                return app(ViewBookingsFromMessageAction::class)->execute($parsed);
 
             case 'modify_booking':
                 return $this->handleModifyBooking($parsed, $staff, $beds24);
@@ -151,183 +147,6 @@ class ProcessBookingMessage implements ShouldQueue
                        "- book room 12 under John Walker jan 2-3 tel +1234567890 email ok@ok.com\n" .
                        "- cancel booking #123456\n" .
                        "- help";
-        }
-    }
-
-    protected function handleViewBookings(array $parsed, $beds24): string
-    {
-        try {
-            // Build filters based on parsed intent
-            $filters = [];
-            $filterType = $parsed['filter_type'] ?? null;
-
-            // Get all configured room properties
-            $rooms = RoomUnitMapping::all();
-            $propertyIds = $rooms->pluck('property_id')->unique()->toArray();
-            $filters['propertyId'] = $propertyIds;
-
-            // Determine filter type from parsed data
-            if ($filterType) {
-                switch ($filterType) {
-                    case 'arrivals_today':
-                        $today = date('Y-m-d');
-                        $filters['arrivalFrom'] = $today;
-                        $filters['arrivalTo'] = $today;
-                        $title = "Arrivals Today (" . date('M j, Y') . ")";
-                        break;
-
-                    case 'departures_today':
-                        $today = date('Y-m-d');
-                        $filters['departureFrom'] = $today;
-                        $filters['departureTo'] = $today;
-                        $title = "Departures Today (" . date('M j, Y') . ")";
-                        break;
-
-                    case 'current':
-                        // In-house guests: arrival before or on today, departure after today
-                        $today = date('Y-m-d');
-                        $filters['arrivalTo'] = $today;
-                        $filters['departureFrom'] = date('Y-m-d', strtotime('+1 day'));
-                        $title = "Current Bookings (In-House)";
-                        break;
-
-                    case 'new':
-                        // New/unconfirmed bookings - use status filter
-                        $filters['status'] = ['new', 'request'];
-                        $title = "New Bookings (Unconfirmed)";
-                        break;
-
-                    default:
-                        // Default: show upcoming bookings (arrivals from today onwards)
-                        $filters['arrivalFrom'] = date('Y-m-d');
-                        $title = "Upcoming Bookings";
-                }
-            } else {
-                // Default: show upcoming bookings
-                $filters['arrivalFrom'] = date('Y-m-d');
-                $title = "Upcoming Bookings";
-            }
-
-            // Check for search string (guest name search)
-            if (isset($parsed['search_string']) && !empty($parsed['search_string'])) {
-                $filters['searchString'] = $parsed['search_string'];
-                $title = "Search Results: " . $parsed['search_string'];
-            }
-
-            // Check for date range filters
-            $dates = $parsed['dates'] ?? null;
-            if ($dates) {
-                if (!empty($dates['check_in'])) {
-                    $filters['arrivalFrom'] = $dates['check_in'];
-                }
-                if (!empty($dates['check_out'])) {
-                    $filters['arrivalTo'] = $dates['check_out'];
-                }
-            }
-
-            Log::info('Fetching bookings', ['filters' => $filters, 'title' => $title]);
-
-            // Get bookings from Beds24
-            $result = $beds24->getBookings($filters);
-
-            Log::info('Bookings result', [
-                'success' => $result['success'] ?? false,
-                'count' => $result['count'] ?? 0,
-                'has_data' => isset($result['data']),
-                'data_empty' => empty($result['data'])
-            ]);
-
-            if (!isset($result['data']) || empty($result['data'])) {
-                return "📭 No Bookings Found\n\n" .
-                       "Filter: {$title}\n" .
-                       "Date: " . date('M j, Y') . "\n\n" .
-                       "No bookings match your search criteria.";
-            }
-
-            $bookings = $result['data'];
-            $count = count($bookings);
-
-            // Build response
-            $response = "{$title}\n";
-            $response .= "━━━━━━━━━━━━━━━━━━━━\n";
-            $response .= "Found {$count} " . ($count == 1 ? 'booking' : 'bookings') . "\n\n";
-
-            // Limit to first 10 bookings to avoid message length issues
-            $displayCount = min($count, 10);
-
-            for ($i = 0; $i < $displayCount; $i++) {
-                $booking = $bookings[$i];
-
-                // Build guest name from firstName and lastName
-                $guestName = trim(($booking['firstName'] ?? '') . ' ' . ($booking['lastName'] ?? ''));
-                if (empty($guestName)) {
-                    $guestName = 'N/A';
-                }
-
-                // Look up room name from roomId
-                $roomName = 'N/A';
-                if (isset($booking['roomId'])) {
-                    $roomMapping = $rooms->where('room_id', $booking['roomId'])->first();
-                    if ($roomMapping) {
-                        $roomName = $roomMapping->room_name . ' (Unit ' . $roomMapping->unit_name . ')';
-                    }
-                }
-
-                $response .= "#{$booking['id']}\n";
-                $response .= "Guest: {$guestName}\n";
-                $response .= "Room: {$roomName}\n";
-                $response .= "Dates: " . ($booking['arrival'] ?? 'N/A') . " → " . ($booking['departure'] ?? 'N/A') . "\n";
-
-                if (isset($booking['status'])) {
-                    $statusEmoji = match($booking['status']) {
-                        'confirmed' => '✅',
-                        'request' => '❓',
-                        'cancelled' => '❌',
-                        'new' => '🆕',
-                        default => '•'
-                    };
-                    $response .= "Status: {$statusEmoji} " . ucfirst($booking['status']) . "\n";
-                }
-
-                if (isset($booking['numAdult']) || isset($booking['numChild'])) {
-                    $adults = $booking['numAdult'] ?? 0;
-                    $children = $booking['numChild'] ?? 0;
-                    $response .= "Guests: {$adults} " . ($adults == 1 ? 'adult' : 'adults');
-                    if ($children > 0) {
-                        $response .= ", {$children} " . ($children == 1 ? 'child' : 'children');
-                    }
-                    $response .= "\n";
-                }
-
-                if (isset($booking['price'])) {
-                    $response .= "Price: $" . number_format($booking['price'], 2) . "\n";
-                }
-
-                // Add separator line between bookings (except for last one)
-                if ($i < $displayCount - 1) {
-                    $response .= "─────────────────────\n";
-                }
-                $response .= "\n";
-            }
-
-            if ($count > 10) {
-                $response .= "... and " . ($count - 10) . " more bookings\n";
-                $response .= "(Showing first 10 results)\n";
-            }
-
-            $response .= "\nTo modify: modify booking #[ID]\n";
-            $response .= "To cancel: cancel booking #[ID]";
-
-            return $response;
-
-        } catch (\Exception $e) {
-            Log::error('View bookings failed', [
-                'error' => $e->getMessage(),
-                'parsed' => $parsed
-            ]);
-
-            return "Error fetching bookings: " . $e->getMessage() . "\n\n" .
-                   "Please try again or contact support.";
         }
     }
 
