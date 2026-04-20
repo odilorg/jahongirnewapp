@@ -608,6 +608,44 @@ class TourCalendarBuilder
     }
 
     /**
+     * Prepare view data the slide-over partial needs but shouldn't query
+     * for itself (users list for reassign dropdown, enriched reminders).
+     *
+     * @return array{
+     *   users: \Illuminate\Support\Collection,
+     *   reminders: array<int, array<string, mixed>>,
+     * }
+     */
+    public function buildSlideOverViewData(BookingInquiry $inquiry): array
+    {
+        return [
+            'users'     => \App\Models\User::query()->orderBy('name')->get(['id', 'name']),
+            'reminders' => $this->enrichRemindersForView($inquiry),
+        ];
+    }
+
+    /**
+     * Load pending reminders + tag each with urgency flags so the Blade
+     * drops the inline @php urgency check.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function enrichRemindersForView(BookingInquiry $inquiry): array
+    {
+        $now = now();
+        return $inquiry->pendingReminders()->get()->map(function ($r) use ($now): array {
+            $isOverdue = $r->remind_at < $now;
+            $isDueSoon = ! $isOverdue && $r->remind_at <= $now->copy()->addHours(24);
+            return [
+                'model'       => $r,
+                'is_overdue'  => $isOverdue,
+                'is_due_soon' => $isDueSoon,
+                'border'      => $isOverdue ? '#dc2626' : ($isDueSoon ? '#d97706' : '#d1d5db'),
+            ];
+        })->all();
+    }
+
+    /**
      * Enrich buildWeek() output with grid-view-ready data so the week-grid
      * Blade has zero @php blocks.
      *

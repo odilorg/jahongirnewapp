@@ -561,19 +561,28 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
             ->slideOver()
             ->modalWidth('lg')
             ->modalHeading(fn (): string => $this->getSelectedInquiry()?->reference ?? 'Inquiry')
-            ->modalContent(fn (): \Illuminate\Contracts\View\View => view(
-                'filament.pages.tour-calendar-slideover',
-                [
-                    'inquiry'               => $this->getSelectedInquiry(),
-                    'assignDriverId'        => $this->assignDriverId,
-                    'assignDriverRateId'    => $this->assignDriverRateId,
-                    'assignGuideId'         => $this->assignGuideId,
-                    'assignGuideRateId'     => $this->assignGuideRateId,
-                    'assignAccommodationId' => $this->assignAccommodationId,
-                    'assignAccGuests'       => $this->assignAccGuests,
-                    'assignAccNights'       => $this->assignAccNights,
-                ],
-            ))
+            ->modalContent(function (): \Illuminate\Contracts\View\View {
+                $inquiry = $this->getSelectedInquiry();
+                $slideData = $inquiry
+                    ? app(TourCalendarBuilder::class)->buildSlideOverViewData($inquiry)
+                    : ['users' => collect(), 'reminders' => []];
+
+                return view(
+                    'filament.pages.tour-calendar-slideover',
+                    [
+                        'inquiry'               => $inquiry,
+                        'assignDriverId'        => $this->assignDriverId,
+                        'assignDriverRateId'    => $this->assignDriverRateId,
+                        'assignGuideId'         => $this->assignGuideId,
+                        'assignGuideRateId'     => $this->assignGuideRateId,
+                        'assignAccommodationId' => $this->assignAccommodationId,
+                        'assignAccGuests'       => $this->assignAccGuests,
+                        'assignAccNights'       => $this->assignAccNights,
+                        'users'                 => $slideData['users'],
+                        'pendingReminders'      => $slideData['reminders'],
+                    ],
+                );
+            })
             ->modalFooterActions(fn (): array => $this->getSlideOverActions())
             ->closeModalByClickingAway()
             ->modalCancelAction(false);
