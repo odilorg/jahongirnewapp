@@ -45,6 +45,14 @@ class AppServiceProvider extends ServiceProvider
         // export. Singleton per request — same instance handed to all three
         // observers via constructor injection.
         $this->app->singleton(AutoExportScheduler::class);
+
+        // Phase 3a — Zoho Mail inbound client. Takes an array from config,
+        // which the container cannot auto-resolve; bind explicitly so DI
+        // (and the leads:fetch-zoho-emails command) works.
+        $this->app->bind(
+            \App\Services\Zoho\ZohoMailInboundClient::class,
+            fn () => \App\Services\Zoho\ZohoMailInboundClient::fromConfig(),
+        );
     }
 
     /**

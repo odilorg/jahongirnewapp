@@ -21,6 +21,15 @@ class Kernel extends ConsoleKernel
      */
     protected function schedule(Schedule $schedule): void
     {
+        // Phase 3a (Lead CRM) — pull unseen inbound mail from Zoho and turn
+        // it into leads/interactions. Feature-flagged; the closure short-
+        // circuits until an operator flips LEAD_EMAIL_INGESTION_ENABLED=true.
+        $schedule->command('leads:fetch-zoho-emails')
+            ->everyFiveMinutes()
+            ->when(fn () => (bool) config('zoho.lead_email_ingestion_enabled'))
+            ->withoutOverlapping(10)
+            ->runInBackground();
+
         // Phase 21 — email due reminders every 15 minutes.
         // Idempotent via notified_at marker, so safe to run frequently.
         $schedule->command('inquiry:send-reminders')
