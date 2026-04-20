@@ -126,29 +126,18 @@ class ProcessBookingMessage implements ShouldQueue
     {
         $intent = $parsed['intent'] ?? 'unknown';
 
-        switch ($intent) {
-            case 'check_availability':
-                return app(CheckAvailabilityAction::class)->execute($parsed);
-
-            case 'create_booking':
-                return app(CreateBookingFromMessageAction::class)->execute($parsed, $staff);
-
-            case 'view_bookings':
-                return app(ViewBookingsFromMessageAction::class)->execute($parsed);
-
-            case 'modify_booking':
-                return app(ModifyBookingFromMessageAction::class)->execute($parsed, $staff);
-
-            case 'cancel_booking':
-                return app(CancelBookingFromMessageAction::class)->execute($parsed, $staff);
-
-            default:
-                return "I did not quite understand that. Try:\n\n" .
-                       "- check avail jan 2-3\n" .
-                       "- book room 12 under John Walker jan 2-3 tel +1234567890 email ok@ok.com\n" .
-                       "- cancel booking #123456\n" .
-                       "- help";
-        }
+        return match ($intent) {
+            'check_availability' => app(CheckAvailabilityAction::class)->execute($parsed),
+            'create_booking'     => app(CreateBookingFromMessageAction::class)->execute($parsed, $staff),
+            'view_bookings'      => app(ViewBookingsFromMessageAction::class)->execute($parsed),
+            'modify_booking'     => app(ModifyBookingFromMessageAction::class)->execute($parsed, $staff),
+            'cancel_booking'     => app(CancelBookingFromMessageAction::class)->execute($parsed, $staff),
+            default              => "I did not quite understand that. Try:\n\n" .
+                                    "- check avail jan 2-3\n" .
+                                    "- book room 12 under John Walker jan 2-3 tel +1234567890 email ok@ok.com\n" .
+                                    "- cancel booking #123456\n" .
+                                    "- help",
+        };
     }
 
 }
