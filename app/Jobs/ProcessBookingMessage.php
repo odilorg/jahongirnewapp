@@ -9,13 +9,9 @@ use App\Actions\BookingBot\Handlers\HandleCallbackQueryAction;
 use App\Actions\BookingBot\Handlers\HandlePhoneContactAction;
 use App\Actions\BookingBot\Handlers\ModifyBookingFromMessageAction;
 use App\Actions\BookingBot\Handlers\ViewBookingsFromMessageAction;
-use App\Models\User;
-use App\Models\RoomUnitMapping;
-use App\Services\Beds24BookingService;
 use App\Services\BookingIntentParser;
 use App\Services\StaffAuthorizationService;
 use App\Services\TelegramBotService;
-use App\Services\StaffResponseFormatter;
 use App\Services\TelegramKeyboardService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -36,8 +32,6 @@ class ProcessBookingMessage implements ShouldQueue
         StaffAuthorizationService $authService,
         BookingIntentParser $parser,
         TelegramBotService $telegram,
-        StaffResponseFormatter $formatter,
-        Beds24BookingService $beds24,
         TelegramKeyboardService $keyboard
     ): void {
         try {
@@ -95,7 +89,7 @@ class ProcessBookingMessage implements ShouldQueue
             $parsed = $parser->parse($text);
 
             // Handle command
-            $response = $this->handleCommand($parsed, $staff, $beds24);
+            $response = $this->handleCommand($parsed, $staff);
 
             // Send response with back button for view and check commands
             $intent = $parsed['intent'] ?? 'unknown';
@@ -122,7 +116,7 @@ class ProcessBookingMessage implements ShouldQueue
         }
     }
 
-    protected function handleCommand($parsed, $staff, $beds24): string
+    protected function handleCommand($parsed, $staff): string
     {
         $intent = $parsed['intent'] ?? 'unknown';
 
@@ -139,5 +133,4 @@ class ProcessBookingMessage implements ShouldQueue
                                     "- help",
         };
     }
-
 }
