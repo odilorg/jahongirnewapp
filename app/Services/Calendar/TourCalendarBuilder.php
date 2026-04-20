@@ -588,4 +588,33 @@ class TourCalendarBuilder
             default   => null,
         };
     }
+
+    /**
+     * Attach a pre-rendered lead-status badge style to each unclaimed-lead
+     * entry so the action view blade can drop its @php block.
+     *
+     * @param  array<int, array<string, mixed>>  $leads
+     * @return array<int, array<string, mixed>>
+     */
+    public function enrichUnclaimedLeadsForView(array $leads): array
+    {
+        return array_map(function (array $lead): array {
+            $lead['view'] = [
+                'status_style' => $this->leadStatusBadgeStyle($lead['status'] ?? ''),
+                'status_label' => str_replace('_', ' ', (string) ($lead['status'] ?? '')),
+            ];
+            return $lead;
+        }, $leads);
+    }
+
+    private function leadStatusBadgeStyle(string $status): string
+    {
+        [$bg, $fg] = match ($status) {
+            'new'               => ['#dbeafe', '#1e40af'],
+            'contacted'         => ['#fef3c7', '#92400e'],
+            'awaiting_customer' => ['#ede9fe', '#5b21b6'],
+            default             => ['#f3f4f6', '#6b7280'],
+        };
+        return "font-size: 10px; background: {$bg}; color: {$fg}; padding: 2px 6px; border-radius: 3px; text-transform: uppercase; font-weight: 600;";
+    }
 }

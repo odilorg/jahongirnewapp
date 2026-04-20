@@ -1,11 +1,5 @@
-{{-- Phase 20 — Dispatch Board Action View --}}
-
-@php
-    $renderCard = function (array $c) {
-        $rc = $c['readiness_chips'] ?? [];
-        return compact('c', 'rc');
-    };
-@endphp
+{{-- Phase 20 — Dispatch Board Action View.
+     R2: all view prep moved to TourCalendarBuilder. Zero @php blocks. --}}
 
 {{-- Active leads banner (top) — leads needing operator attention --}}
 @if (! empty($action['unclaimed']))
@@ -14,20 +8,12 @@
             📬 {{ $action['unclaimed_count'] }} Active Lead{{ $action['unclaimed_count'] === 1 ? '' : 's' }}
         </div>
         @foreach ($action['unclaimed'] as $lead)
-            @php
-                $statusColors = [
-                    'new'                => ['bg' => '#dbeafe', 'fg' => '#1e40af'],
-                    'contacted'          => ['bg' => '#fef3c7', 'fg' => '#92400e'],
-                    'awaiting_customer'  => ['bg' => '#ede9fe', 'fg' => '#5b21b6'],
-                ];
-                $sc = $statusColors[$lead['status']] ?? ['bg' => '#f3f4f6', 'fg' => '#6b7280'];
-            @endphp
             <div style="display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 13px; color: #78350f;">
                 <span wire:click="openInquiry({{ $lead['id'] }})" style="cursor: pointer; text-decoration: underline; font-weight: 500;">
                     {{ $lead['customer_name'] }}
                 </span>
-                <span style="font-size: 10px; background: {{ $sc['bg'] }}; color: {{ $sc['fg'] }}; padding: 2px 6px; border-radius: 3px; text-transform: uppercase; font-weight: 600;">
-                    {{ str_replace('_', ' ', $lead['status']) }}
+                <span style="{{ $lead['view']['status_style'] }}">
+                    {{ $lead['view']['status_label'] }}
                 </span>
                 <span style="font-size: 10px; background: rgba(0,0,0,0.08); padding: 2px 6px; border-radius: 3px; text-transform: uppercase;">{{ $lead['source'] }}</span>
                 @if (! $lead['assigned'])
