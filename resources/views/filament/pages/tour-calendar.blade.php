@@ -102,13 +102,13 @@
             @foreach ($data['days'] as $day)
                 <div style="border-left: 3px solid rgba(156, 163, 175, 0.5);" @class([
                     'bg-gray-50 dark:bg-gray-800 px-2 py-2 text-center text-xs font-semibold border-b border-gray-200 dark:border-gray-700',
-                    'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300' => $day->isToday(),
-                    'text-gray-500 dark:text-gray-400' => ! $day->isToday(),
+                    'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300' => $day['is_today'],
+                    'text-gray-500 dark:text-gray-400' => ! $day['is_today'],
                 ])>
-                    {{ $day->format('D') }}<br>
-                    <span class="text-base">{{ $day->format('j') }}</span>
+                    {{ $day['carbon']->format('D') }}<br>
+                    <span class="text-base">{{ $day['carbon']->format('j') }}</span>
                     <div style="font-size: 9px; font-weight: 500; color: #6b7280; text-transform: uppercase; margin-top: 2px; letter-spacing: 0.3px;">
-                        {{ $day->format('M') }}
+                        {{ $day['carbon']->format('M') }}
                     </div>
                 </div>
             @endforeach
@@ -119,41 +119,14 @@
                     {{ $row['name'] }}
                 </div>
                 @for ($i = 0; $i < 7; $i++)
-                    @php $isToday = $data['days'][$i]->isToday(); @endphp
                     <div class="border-b border-gray-200 dark:border-gray-700 p-1.5 min-h-[88px] space-y-1.5"
-                         style="border-left: 3px solid rgba(156, 163, 175, 0.5); {{ $isToday ? 'background: rgba(249, 115, 22, 0.06);' : '' }}">
+                         style="border-left: 3px solid rgba(156, 163, 175, 0.5); {{ $data['days'][$i]['is_today'] ? 'background: rgba(249, 115, 22, 0.06);' : '' }}">
                         @foreach ($row['chips'] as $chip)
                             @if ($chip['day_index'] === $i)
-                                @php
-                                    // Inline styles bypass Tailwind purge — Filament's build
-                                    // strips standard Tailwind color classes not in safelist.
-                                    $chipStyle = match ($chip['display_state']) {
-                                        'ready'                => 'background:#dcfce7;border-color:#4ade80;',              // green
-                                        'paid_needs_attention' => 'background:#dcfce7;border-color:#4ade80;border-left:4px solid #ef4444;', // green + red accent
-                                        'awaiting_payment'     => 'background:#fef3c7;border-color:#f59e0b;',              // amber
-                                        'confirmed_offline'    => 'background:#dbeafe;border-color:#60a5fa;',              // blue
-                                        'lead'                 => 'background:#f3f4f6;border-color:#9ca3af;border-style:dashed;', // gray dashed
-                                        default                => 'background:#f3f4f6;border-color:#d1d5db;',
-                                    };
-$bgClass = 'hover:opacity-90 transition-opacity';
-
-                                    $tooltip = collect([
-                                        $chip['reference'] . ' · ' . $chip['customer_name']
-                                            . ($chip['customer_country'] ? ' (' . $chip['customer_country'] . ')' : ''),
-                                        '📅 ' . $chip['travel_date'] . ' · ' . $chip['duration'] . ' day(s)',
-                                        '👥 ' . $chip['pax_label'] . ' pax',
-                                        $chip['pickup_time'] ? '🕐 ' . $chip['pickup_time'] : null,
-                                        $chip['pickup_point'] ? '📍 ' . $chip['pickup_point'] : null,
-                                        $chip['driver_name'] ? '🚐 Driver: ' . $chip['driver_name'] : null,
-                                        $chip['guide_name'] ? '🧑‍✈️ Guide: ' . $chip['guide_name'] : null,
-                                        count($chip['accommodations']) ? '🏕 ' . implode(', ', $chip['accommodations']) : null,
-                                        $chip['paid_at'] ? '💰 Paid ' . $chip['paid_at'] : null,
-                                    ])->filter()->implode("\n");
-                                @endphp
                                 <div wire:click="openInquiry({{ $chip['id'] }})"
-                                    style="{{ $chipStyle }}"
-                                    title="{{ $tooltip }}"
-                                    class="block rounded-md border px-2 py-1.5 text-xs cursor-pointer relative {{ $bgClass }}">
+                                    style="{{ $chip['view']['style'] }}"
+                                    title="{{ $chip['view']['tooltip'] }}"
+                                    class="block rounded-md border px-2 py-1.5 text-xs cursor-pointer relative {{ $chip['view']['bg_class'] }}">
                                     {{-- Operator badge — corner overlay, no layout impact --}}
                                     @if ($chip['assigned_initials'])
                                         <span title="Assigned: {{ $chip['assigned_to'] }}"
@@ -168,14 +141,10 @@ $bgClass = 'hover:opacity-90 transition-opacity';
                                             {{ $chip['customer_name'] }}
                                         </span>
                                         <span class="shrink-0" style="display: flex; align-items: center; gap: 3px; font-size: 11px; line-height: 1;">
-                                            @if ($chip['tour_type'])
-                                                <span title="{{ $chip['tour_type'] === 'private' ? 'Private tour' : 'Group tour' }}">
-                                                    {{ $chip['tour_type'] === 'private' ? '👤' : '👥' }}
-                                                </span>
+                                            @if ($chip['view']['tour_type_icon'])
+                                                <span title="{{ $chip['tour_type'] === 'private' ? 'Private tour' : 'Group tour' }}">{{ $chip['view']['tour_type_icon'] }}</span>
                                             @endif
-                                            <span title="Source: {{ $chip['source_badge'] }}" style="font-size: 8px;">
-                                                @if ($chip['source_badge'] === 'GYG')🟠@elseif ($chip['source_badge'] === 'WEB')🔵@elseif ($chip['source_badge'] === 'WA')🟢@else⚪@endif
-                                            </span>
+                                            <span title="Source: {{ $chip['source_badge'] }}" style="font-size: 8px;">{{ $chip['view']['source_icon'] }}</span>
                                         </span>
                                     </div>
 
@@ -184,15 +153,7 @@ $bgClass = 'hover:opacity-90 transition-opacity';
                                         <span>⏰ {{ $chip['pickup_time'] ?? '—' }}</span>
                                         <span>·</span>
                                         <span>{{ $chip['pax_label'] }} pax</span>
-                                        <span>
-                                            @if ($chip['paid_at'])
-                                                💰
-                                            @elseif ($chip['status'] === 'awaiting_payment')
-                                                ⏳
-                                            @elseif ($chip['payment_method'] === 'cash')
-                                                💵
-                                            @endif
-                                        </span>
+                                        <span>{{ $chip['view']['payment_icon'] }}</span>
                                     </div>
 
                                     {{-- Row 3: Driver + guide --}}

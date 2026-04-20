@@ -73,7 +73,9 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
         $builder    = app(TourCalendarBuilder::class);
 
         $viewData = [
-            'data'       => $builder->buildWeek($anchor, $statuses, $startFromAnchor, $assignedTo),
+            'data'       => $builder->enrichWeekDataForView(
+                $builder->buildWeek($anchor, $statuses, $startFromAnchor, $assignedTo),
+            ),
             'action'     => null,
             'viewMode'   => $this->viewMode,
         ];
