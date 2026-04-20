@@ -88,6 +88,7 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
         $action['needs_action_today'] = $builder->enrichActionChipsForView($action['needs_action_today'] ?? [], 'urgent');
         $action['tomorrow_prep']      = $builder->enrichActionChipsForView($action['tomorrow_prep']      ?? [], 'warning');
         $action['ready']              = $builder->enrichActionChipsForView($action['ready']             ?? [], 'ready');
+        $action['unclaimed']          = $builder->enrichUnclaimedLeadsForView($action['unclaimed']      ?? []);
 
         $viewData['action'] = $action;
 
