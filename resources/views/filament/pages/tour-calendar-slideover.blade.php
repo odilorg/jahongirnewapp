@@ -53,7 +53,6 @@
                 class="text-[10px] font-medium rounded px-2 py-0.5 text-white"
                 style="background: #16a34a;">🤝 Claim</button>
         @else
-            @php $users = \App\Models\User::orderBy('name')->get(); @endphp
             <div x-data="{ open: false }" style="position: relative;">
                 <button @click="open = !open" type="button"
                     class="text-[10px] rounded px-2 py-0.5"
@@ -720,23 +719,21 @@
         @endif
     </div>
 
-    {{-- Phase 21 — Reminders --}}
-    @php $pendingReminders = $inquiry->pendingReminders()->get(); @endphp
+    {{-- Phase 21 — Reminders. R2: $pendingReminders is prepared by
+         TourCalendarBuilder::buildSlideOverViewData with border color
+         pre-resolved per entry; Blade does no logic. --}}
     <div class="rounded-lg p-3" style="background: rgba(0,0,0,0.03); margin-top: 12px;">
         <div class="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider" style="margin-bottom: 8px;">⏰ Reminders</div>
 
-        @if ($pendingReminders->isNotEmpty())
-            @foreach ($pendingReminders as $r)
-                @php
-                    $isOverdue = $r->remind_at < now();
-                    $isDueSoon = $r->remind_at <= now()->addHours(24) && ! $isOverdue;
-                @endphp
-                <div style="background: white; border-left: 3px solid {{ $isOverdue ? '#dc2626' : ($isDueSoon ? '#d97706' : '#d1d5db') }}; border-radius: 4px; padding: 8px 10px; margin-bottom: 6px;">
+        @if (! empty($pendingReminders))
+            @foreach ($pendingReminders as $reminder)
+                @php $r = $reminder['model']; @endphp
+                <div style="background: white; border-left: 3px solid {{ $reminder['border'] }}; border-radius: 4px; padding: 8px 10px; margin-bottom: 6px;">
                     <div style="font-size: 11px; color: #6b7280;">
                         {{ $r->remind_at->format('M j, H:i') }}
-                        @if ($isOverdue)
+                        @if ($reminder['is_overdue'])
                             <span style="color: #dc2626; font-weight: 600;">· OVERDUE</span>
-                        @elseif ($isDueSoon)
+                        @elseif ($reminder['is_due_soon'])
                             <span style="color: #d97706; font-weight: 600;">· DUE SOON</span>
                         @endif
                     </div>

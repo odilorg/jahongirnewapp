@@ -1,11 +1,10 @@
-# arch-lint baseline — regenerated 2026-04-20T11:19:07+05:00
+# arch-lint baseline — regenerated 2026-04-20T14:44:38+05:00
 # Format: file:line:rule-key (rule-key stable across runs)
 app/Console/Commands/SendDailyRecap.php:52:http-outside-adapter
 app/Console/Commands/TourSendReminders.php:421:http-outside-adapter
 app/Console/Commands/TourSendReminders.php:689:http-outside-adapter
 app/Filament/_archived/Resources/BookingResource.php:253:long-action-closure
 app/Filament/Pages/ExpenseReports.php:147:http-outside-adapter
-app/Filament/Pages/TourCalendar.php:736:long-action-closure
 app/Filament/Resources/BookingInquiryResource.php:1044:long-action-closure
 app/Filament/Resources/BookingInquiryResource.php:1160:long-action-closure
 app/Filament/Resources/BookingInquiryResource.php:1234:long-action-closure
@@ -48,14 +47,12 @@ resources/views/filament/pages/cash-dashboard.blade.php:12:blade-query
 resources/views/filament/pages/reports.blade.php:156:blade-query
 resources/views/filament/pages/reports.blade.php:175:blade-query
 resources/views/filament/pages/reports/transaction-analysis.blade.php:109:long-php-block
-resources/views/filament/pages/tour-calendar-action-card.blade.php:2:long-php-block
-resources/views/filament/pages/tour-calendar.blade.php:127:long-php-block
+resources/views/filament/pages/tour-calendar-slideover.blade.php:348:blade-query
 resources/views/filament/pages/tour-calendar-slideover.blade.php:349:blade-query
-resources/views/filament/pages/tour-calendar-slideover.blade.php:350:blade-query
-resources/views/filament/pages/tour-calendar-slideover.blade.php:368:blade-query
-resources/views/filament/pages/tour-calendar-slideover.blade.php:407:blade-query
-resources/views/filament/pages/tour-calendar-slideover.blade.php:500:blade-query
-resources/views/filament/pages/tour-calendar-slideover.blade.php:533:blade-query
-resources/views/filament/pages/tour-calendar-slideover.blade.php:570:long-php-block
-resources/views/filament/pages/tour-calendar-slideover.blade.php:89:blade-query
+resources/views/filament/pages/tour-calendar-slideover.blade.php:367:blade-query
+resources/views/filament/pages/tour-calendar-slideover.blade.php:406:blade-query
+resources/views/filament/pages/tour-calendar-slideover.blade.php:499:blade-query
+resources/views/filament/pages/tour-calendar-slideover.blade.php:532:blade-query
+resources/views/filament/pages/tour-calendar-slideover.blade.php:569:long-php-block
+resources/views/filament/pages/tour-calendar-slideover.blade.php:88:blade-query
 resources/views/filament/pages/tour-calendar-slideover.blade.php::large-blade
