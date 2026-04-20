@@ -24,15 +24,14 @@ use Illuminate\Support\Facades\Log;
  * abstraction. Kept as one Action with private helpers that mirror the real
  * seams: collect → validate → apply → format. Plan §4.7 updated accordingly.
  *
- * Known preserved defects (fix in separate commit, not this one):
- *   1. RoomUnitMapping queried directly — P6-P7 concern, plan follow-up.
- *   2. Indentation/bracket bug in guardDateAvailability(): $newArrival and
- *      $newDeparture are defined inside the "has date changes" block but read
- *      outside it. For guest-only / room-only modifications this triggers a
- *      "Warning: Undefined variable" and causes an unnecessary (failing)
- *      availability check that's swallowed by the inner try/catch. Behaviour
- *      is preserved byte-for-byte here so this extraction stays behaviour-
- *      neutral; the fix is tracked as a separate ticket with its own test.
+ * Known preserved defect:
+ *   - RoomUnitMapping queried directly — P6-P7 concern, plan follow-up.
+ *
+ * Fixed (was preserved, now corrected with a regression test):
+ *   - guardDateAvailability() previously read $newArrival / $newDeparture
+ *     outside the "has date changes" block, throwing ErrorException for
+ *     guest-only / room-only modifications in production. See
+ *     tests/Feature/BookingBot/ModifyBookingFromMessageActionTest.php.
  */
 final class ModifyBookingFromMessageAction
 {
@@ -262,77 +261,81 @@ final class ModifyBookingFromMessageAction
      * Returns null if the modification should proceed, or a reply string for
      * an early-return (bad date order / room unavailable).
      *
-     * IMPORTANT — preserved bug:
-     * The "$newArrival != $currentArrival" comparison below executes even
-     * when no date changes are present, because the closing brace on the
-     * date-order check closes too early in the original source. For guest-
-     * only / room-only modifications, $newArrival and $newDeparture are
-     * undefined, which in PHP 8 yields "Warning: Undefined variable" and a
-     * null value, forcing $datesChanged=true and triggering a useless
-     * availability check that fails silently inside the inner try/catch.
-     * This extraction reproduces that behaviour byte-for-byte. Fix in
-     * dedicated follow-up commit with a regression test.
+     * Previously contained a production-fatal indentation bug where
+     * $newArrival and $newDeparture were defined inside the "has date changes"
+     * block but read outside it. For guest-only / room-only modifications
+     * this threw ErrorException("Undefined variable $newArrival") in Laravel
+     * production. Fix: early-return when no dates are in $changes — an
+     * availability check makes no sense when the stay isn't moving. All
+     * subsequent variables are now unambiguously defined.
      */
     private function guardDateAvailability(array $changes, array $currentBooking, string $bookingId): ?string
     {
-        if (isset($changes['arrival']) || isset($changes['departure'])) {
-            $newArrival = $changes['arrival'] ?? $currentBooking['arrival'];
-            $newDeparture = $changes['departure'] ?? $currentBooking['departure'];
-
-            if ($newArrival >= $newDeparture) {
-                return "❌ Invalid Dates\n\n" .
-                       "Check-in date must be before check-out date.\n" .
-                       "Requested: {$newArrival} to {$newDeparture}";
-            }
+        // No date changes → nothing to validate, nothing to check with Beds24.
+        if (!isset($changes['arrival']) && !isset($changes['departure'])) {
+            return null;
         }
 
-                $currentArrival = $currentBooking['arrival'];
-                $currentDeparture = $currentBooking['departure'];
-                $datesChanged = ($newArrival != $currentArrival) || ($newDeparture != $currentDeparture);
+        $newArrival = $changes['arrival'] ?? $currentBooking['arrival'];
+        $newDeparture = $changes['departure'] ?? $currentBooking['departure'];
 
-                if ($datesChanged) {
-                    $roomId = $currentBooking['roomId'] ?? null;
-                    $propertyId = $currentBooking['propertyId'] ?? null;
+        if ($newArrival >= $newDeparture) {
+            return "❌ Invalid Dates\n\n" .
+                   "Check-in date must be before check-out date.\n" .
+                   "Requested: {$newArrival} to {$newDeparture}";
+        }
 
-                    if ($roomId && $propertyId) {
-                        try {
-                            Log::info('Checking room availability for date change', [
-                                'booking_id' => $bookingId,
-                                'room_id' => $roomId,
-                                'current' => [$currentArrival, $currentDeparture],
-                                'new' => [$newArrival, $newDeparture]
-                            ]);
+        $currentArrival = $currentBooking['arrival'];
+        $currentDeparture = $currentBooking['departure'];
+        $datesChanged = ($newArrival != $currentArrival) || ($newDeparture != $currentDeparture);
 
-                            $availability = $this->beds24->checkAvailability($newArrival, $newDeparture, [$propertyId]);
+        if (!$datesChanged) {
+            return null;
+        }
 
-                            if ($availability['success']) {
-                                $availableRooms = $availability['availableRooms'] ?? [];
-                                $roomAvailable = false;
+        $roomId = $currentBooking['roomId'] ?? null;
+        $propertyId = $currentBooking['propertyId'] ?? null;
 
-                                foreach ($availableRooms as $availRoom) {
-                                    if ($availRoom['roomId'] == $roomId && $availRoom['quantity'] > 0) {
-                                        $roomAvailable = true;
-                                        break;
-                                    }
-                                }
+        if (!$roomId || !$propertyId) {
+            return null;
+        }
 
-                                if (!$roomAvailable) {
-                                    $roomName = $currentBooking['roomName'] ?? 'Room';
-                                    return "Room Not Available\n\n" .
-                                           "Cannot extend/modify booking #{$bookingId}\n" .
-                                           "Room: {$roomName}\n" .
-                                           "Requested: {$newArrival} to {$newDeparture}\n\n" .
-                                           "This room is booked by another guest during the new period.\n" .
-                                           "Please choose different dates or cancel and rebook.";
-                                }
+        try {
+            Log::info('Checking room availability for date change', [
+                'booking_id' => $bookingId,
+                'room_id' => $roomId,
+                'current' => [$currentArrival, $currentDeparture],
+                'new' => [$newArrival, $newDeparture],
+            ]);
 
-                                Log::info('Room available - proceeding with modification');
-                            }
-                        } catch (\Exception $e) {
-                            Log::warning('Availability check failed: ' . $e->getMessage());
-                        }
+            $availability = $this->beds24->checkAvailability($newArrival, $newDeparture, [$propertyId]);
+
+            if ($availability['success']) {
+                $availableRooms = $availability['availableRooms'] ?? [];
+                $roomAvailable = false;
+
+                foreach ($availableRooms as $availRoom) {
+                    if ($availRoom['roomId'] == $roomId && $availRoom['quantity'] > 0) {
+                        $roomAvailable = true;
+                        break;
                     }
                 }
+
+                if (!$roomAvailable) {
+                    $roomName = $currentBooking['roomName'] ?? 'Room';
+                    return "Room Not Available\n\n" .
+                           "Cannot extend/modify booking #{$bookingId}\n" .
+                           "Room: {$roomName}\n" .
+                           "Requested: {$newArrival} to {$newDeparture}\n\n" .
+                           "This room is booked by another guest during the new period.\n" .
+                           "Please choose different dates or cancel and rebook.";
+                }
+
+                Log::info('Room available - proceeding with modification');
+            }
+        } catch (\Exception $e) {
+            Log::warning('Availability check failed: ' . $e->getMessage());
+        }
 
         return null;
     }
