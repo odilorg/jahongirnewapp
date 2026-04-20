@@ -42,7 +42,8 @@ final class ModifyBookingFromMessageActionTest extends TestCase
             ->andReturn(['data' => [[
                 'arrival' => '2026-12-01',
                 'departure' => '2026-12-02',
-                'guestName' => 'Old Name',
+                'firstName' => 'Old',
+                'lastName' => 'Name',
                 'roomName' => 'Double or Twin',
                 'roomId' => 377291,
                 'propertyId' => 172793,
@@ -68,6 +69,9 @@ final class ModifyBookingFromMessageActionTest extends TestCase
 
         $this->assertStringContainsString('Booking Modified Successfully', $reply);
         $this->assertStringContainsString('#85624740', $reply);
+        // Regression: the summary line read the non-existent 'guestName' key,
+        // so every modify reply used to say "Guest: N/A → New Name".
+        $this->assertStringContainsString('Guest: Old Name → Updated', $reply);
     }
 
     public function test_room_only_modification_does_not_throw_and_skips_availability_check(): void

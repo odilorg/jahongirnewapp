@@ -187,7 +187,7 @@ final class ModifyBookingFromMessageAction
                 if (isset($nameParts[1])) {
                     $changes['lastName'] = $nameParts[1];
                 }
-                $summary[] = "Guest: " . ($currentBooking['guestName'] ?? 'N/A') . " → " . $guest['name'];
+                $summary[] = "Guest: " . $this->currentGuestName($currentBooking) . " → " . $guest['name'];
             }
             if (!empty($guest['phone'])) {
                 $changes['mobile'] = $guest['phone'];
@@ -355,7 +355,7 @@ final class ModifyBookingFromMessageAction
                          " to " . ($changes['departure'] ?? $currentBooking['departure']) . "\n";
         }
         if (!isset($changes['firstName'])) {
-            $response .= "Guest: " . ($currentBooking['guestName'] ?? 'N/A') . "\n";
+            $response .= "Guest: " . $this->currentGuestName($currentBooking) . "\n";
         }
         if (isset($currentBooking['roomName']) && !isset($changes['roomId'])) {
             $response .= "Room: " . $currentBooking['roomName'] . "\n";
@@ -364,5 +364,17 @@ final class ModifyBookingFromMessageAction
         $response .= "\nThe booking has been updated in Beds24.";
 
         return $response;
+    }
+
+    /**
+     * Beds24 getBooking returns firstName/lastName separately. The legacy
+     * 'guestName' key our code used to read does not exist — that's why
+     * modify replies used to say "Guest: N/A".
+     */
+    private function currentGuestName(array $currentBooking): string
+    {
+        $name = trim(($currentBooking['firstName'] ?? '') . ' ' . ($currentBooking['lastName'] ?? ''));
+
+        return $name !== '' ? $name : 'N/A';
     }
 }
