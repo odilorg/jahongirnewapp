@@ -666,15 +666,9 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
                 })
                 ->requiresConfirmation()
                 ->modalDescription('Send Telegram DM to: 🚗 ' . ($inquiry->driver?->full_name ?? '—'))
-                ->action(function () use ($inquiry): void {
-                    $result = app(DriverDispatchNotifier::class)->dispatchSupplier($inquiry, 'driver');
-                    if ($result['ok']) {
-                        Notification::make()->title('Driver dispatch sent')->success()->send();
-                    } else {
-                        $reason = $result['reason'] ?? 'unknown';
-                        Notification::make()->title('Driver dispatch failed')->body($reason)->danger()->persistent()->send();
-                    }
-                });
+                ->action(fn () => $this->runCalendarAction(
+                    app(\App\Actions\Calendar\Dispatch\DispatchDriverAction::class)->handle($inquiry),
+                ));
         }
 
         // Dispatch guide
@@ -694,15 +688,9 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
                 })
                 ->requiresConfirmation()
                 ->modalDescription('Send Telegram DM to: 🧭 ' . ($inquiry->guide?->full_name ?? '—'))
-                ->action(function () use ($inquiry): void {
-                    $result = app(DriverDispatchNotifier::class)->dispatchSupplier($inquiry, 'guide');
-                    if ($result['ok']) {
-                        Notification::make()->title('Guide dispatch sent')->success()->send();
-                    } else {
-                        $reason = $result['reason'] ?? 'unknown';
-                        Notification::make()->title('Guide dispatch failed')->body($reason)->danger()->persistent()->send();
-                    }
-                });
+                ->action(fn () => $this->runCalendarAction(
+                    app(\App\Actions\Calendar\Dispatch\DispatchGuideAction::class)->handle($inquiry),
+                ));
         }
 
         // Dispatch accommodation stays. Label reflects aggregate stay state:
@@ -733,31 +721,9 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
                         ->map(fn ($s) => '🏕 ' . ($s->accommodation?->name ?? '—') . ' · ' . $s->stay_date?->format('M j'))
                         ->implode("\n");
                 })
-                ->action(function () use ($inquiry): void {
-                    $notifier = app(DriverDispatchNotifier::class);
-                    $ok = 0;
-                    $fail = 0;
-
-                    foreach ($inquiry->stays as $stay) {
-                        if (! $stay->accommodation) {
-                            continue;
-                        }
-                        $result = $notifier->dispatchStay($inquiry, $stay);
-                        if ($result['ok']) {
-                            $ok++;
-                        } else {
-                            $fail++;
-                        }
-                    }
-
-                    if ($fail === 0 && $ok > 0) {
-                        Notification::make()->title("Accommodation dispatch sent ({$ok})")->success()->send();
-                    } elseif ($ok > 0) {
-                        Notification::make()->title("Partial: {$ok} sent, {$fail} failed")->warning()->persistent()->send();
-                    } else {
-                        Notification::make()->title('Accommodation dispatch failed')->danger()->persistent()->send();
-                    }
-                });
+                ->action(fn () => $this->runCalendarAction(
+                    app(\App\Actions\Calendar\Dispatch\DispatchAccommodationAction::class)->handle($inquiry),
+                ));
         }
 
         // Open full inquiry pages
@@ -784,6 +750,28 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
 
         return BookingInquiry::with(['driver', 'guide', 'tourProduct', 'stays.accommodation'])
             ->find($this->selectedInquiryId);
+    }
+
+    /**
+     * Translate a framework-agnostic CalendarActionResult into the Filament
+     * notification UX the page uses everywhere. Single conversion point so
+     * Actions stay pure and the presentation rule lives in the page.
+     */
+    private function runCalendarAction(\App\Actions\Calendar\Support\CalendarActionResult $result): void
+    {
+        if ($result->success) {
+            Notification::make()
+                ->title($result->message ?? 'Done')
+                ->success()
+                ->send();
+            return;
+        }
+
+        Notification::make()
+            ->title($result->message ?? 'Action failed')
+            ->danger()
+            ->persistent()
+            ->send();
     }
 
     public static function getNavigationLabel(): string
