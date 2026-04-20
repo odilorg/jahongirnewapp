@@ -19,6 +19,9 @@ class LeadWhatsAppIngestion extends Model
 {
     use HasFactory;
 
+    // Laravel's pluralizer would otherwise name this `lead_whats_app_ingestions`.
+    protected $table = 'lead_whatsapp_ingestions';
+
     public const PROVIDER_WACLI = 'wacli';
 
     public const STATUS_PROCESSED         = 'processed';

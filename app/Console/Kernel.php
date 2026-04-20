@@ -30,6 +30,14 @@ class Kernel extends ConsoleKernel
             ->withoutOverlapping(10)
             ->runInBackground();
 
+        // Phase 3b (Lead CRM) — pull inbound WhatsApp from wacli on vps-main
+        // and turn it into leads/interactions. Same flag-gated pattern.
+        $schedule->command('leads:fetch-wacli-messages')
+            ->everyFiveMinutes()
+            ->when(fn () => (bool) config('wacli.lead_whatsapp_ingestion_enabled'))
+            ->withoutOverlapping(10)
+            ->runInBackground();
+
         // Phase 21 — email due reminders every 15 minutes.
         // Idempotent via notified_at marker, so safe to run frequently.
         $schedule->command('inquiry:send-reminders')

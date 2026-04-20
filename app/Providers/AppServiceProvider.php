@@ -53,6 +53,12 @@ class AppServiceProvider extends ServiceProvider
             \App\Services\Zoho\ZohoMailInboundClient::class,
             fn () => \App\Services\Zoho\ZohoMailInboundClient::fromConfig(),
         );
+
+        // Phase 3b — wacli SSH client. Same array-config story as Zoho.
+        $this->app->bind(
+            \App\Services\Wacli\WacliRemoteClient::class,
+            fn () => \App\Services\Wacli\WacliRemoteClient::fromConfig(),
+        );
     }
 
     /**
