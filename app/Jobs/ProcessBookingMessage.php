@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Actions\BookingBot\Handlers\CancelBookingFromMessageAction;
+use App\Actions\BookingBot\Handlers\CreateBookingFromMessageAction;
 use App\Actions\BookingBot\Handlers\HandleCallbackQueryAction;
 use App\Actions\BookingBot\Handlers\HandlePhoneContactAction;
 use App\Models\User;
@@ -132,7 +133,7 @@ class ProcessBookingMessage implements ShouldQueue
                 return $this->handleCheckAvailability($parsed, $beds24);
 
             case 'create_booking':
-                return $this->handleCreateBooking($parsed, $staff, $beds24);
+                return app(CreateBookingFromMessageAction::class)->execute($parsed, $staff);
 
             case 'view_bookings':
                 return $this->handleViewBookings($parsed, $beds24);
@@ -275,113 +276,6 @@ class ProcessBookingMessage implements ShouldQueue
 
             return "Error checking availability: " . $e->getMessage() . "\n\n" .
                    "Please try again or contact support.";
-        }
-    }
-
-    protected function handleCreateBooking(array $parsed, $staff, $beds24): string
-    {
-        $room = $parsed['room'] ?? null;
-        $guest = $parsed['guest'] ?? null;
-        $dates = $parsed['dates'] ?? null;
-
-        if (!$room || empty($room['unit_name'])) {
-            return 'Please specify a room. Example: book room 12 under...';
-        }
-
-        if (!$guest || empty($guest['name'])) {
-            return 'Please provide guest name. Example: ...under John Walker...';
-        }
-
-        if (!$dates || empty($dates['check_in']) || empty($dates['check_out'])) {
-            return 'Please provide check-in and check-out dates.';
-        }
-
-        $unitName = $room['unit_name'];
-        $propertyHint = $parsed['property'] ?? null;
-
-        // Build query for room lookup
-        $query = RoomUnitMapping::where('unit_name', $unitName);
-
-        // Apply property filter if specified
-        if ($propertyHint) {
-            if (stripos($propertyHint, 'premium') !== false) {
-                $query->where('property_id', '172793'); // Jahongir Premium
-            } elseif (stripos($propertyHint, 'hotel') !== false) {
-                $query->where('property_id', '41097'); // Jahongir Hotel
-            }
-        }
-
-        $matchingRooms = $query->get();
-
-        if ($matchingRooms->isEmpty()) {
-            return 'Room ' . $unitName . ' not found. Please check the room number and try again.';
-        }
-
-        // If multiple rooms with same unit name, need to disambiguate by property
-        if ($matchingRooms->count() > 1) {
-            $propertyList = $matchingRooms->map(function($r) {
-                return $r->property_name . ' (Unit ' . $r->unit_name . ' - ' . $r->room_name . ')';
-            })->join("\n");
-
-            return "Multiple rooms found with unit number {$unitName}:\n\n" .
-                   $propertyList . "\n\n" .
-                   "Please specify the property in your booking command.\n" .
-                   "Example: book room {$unitName} at Premium under [NAME]...\n" .
-                   "Or: book room {$unitName} at Hotel under [NAME]...";
-        }
-
-        $roomMapping = $matchingRooms->first();
-
-        $guestName = $guest['name'];
-        $phone = $guest['phone'] ?? '';
-        $email = $guest['email'] ?? '';
-        $checkIn = $dates['check_in'];
-        $checkOut = $dates['check_out'];
-
-        try {
-            $bookingData = [
-                'property_id' => $roomMapping->property_id,
-                'room_id' => $roomMapping->room_id,
-                'check_in' => $checkIn,
-                'check_out' => $checkOut,
-                'guest_name' => $guestName,
-                'guest_phone' => $phone,
-                'guest_email' => $email,
-                'notes' => 'Created by ' . $staff->name . ' via Telegram Bot'
-            ];
-
-            Log::info('Creating Beds24 booking', ['data' => $bookingData]);
-
-            $result = $beds24->createBooking($bookingData);
-
-            if (isset($result['success']) && $result['success']) {
-                $bookingId = $result['bookId'] ?? 'Unknown';
-
-                return "Booking Created Successfully!\n" .
-                       "Booking ID: #{$bookingId}\n" .
-                       "Room: {$roomMapping->unit_name} ({$roomMapping->room_name})\n" .
-                       "Guest: {$guestName}\n" .
-                       "Phone: {$phone}\n" .
-                       "Email: {$email}\n" .
-                       "Check-in: {$checkIn}\n" .
-                       "Check-out: {$checkOut}\n\n" .
-                       "Booking confirmed in Beds24!";
-            } else {
-                throw new \Exception('Booking creation failed: ' . json_encode($result));
-            }
-
-        } catch (\Exception $e) {
-            Log::error('Booking creation failed', [
-                'error' => $e->getMessage(),
-                'data' => $bookingData ?? []
-            ]);
-
-            return "Booking Failed\n" .
-                   "Room: {$unitName}\n" .
-                   "Guest: {$guestName}\n" .
-                   "Dates: {$checkIn} to {$checkOut}\n\n" .
-                   "Error: {$e->getMessage()}\n\n" .
-                   "Please check the details and try again or create manually in Beds24.";
         }
     }
 
