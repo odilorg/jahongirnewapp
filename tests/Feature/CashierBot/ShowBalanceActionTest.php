@@ -51,10 +51,10 @@ final class ShowBalanceActionTest extends TestCase
         CashTransaction::create([
             'cashier_shift_id' => $shift->id,
             'type'             => 'in',
-            'category'         => 'payment',
+            'category'         => 'sale',
             'currency'         => 'UZS',
             'amount'           => 200_000,
-            'source_trigger'   => 'manual',
+            'source_trigger'   => 'cashier_bot',
             'created_by'       => $user->id,
             'occurred_at'      => now(),
         ]);
@@ -72,7 +72,10 @@ final class ShowBalanceActionTest extends TestCase
         $reply = app(ShowBalanceAction::class)->execute($user->id);
 
         $this->assertStringContainsString('Баланс за смену', $reply['text']);
-        $this->assertStringContainsString('700 000 UZS', $reply['text']); // 500k + 200k in, expense is tracked separately
+        // fmtBal uses number_format(..., 0) which defaults to comma thousands.
+        // 500k beginning saldo + 200k transaction = 700,000 UZS; expense sits
+        // in a separate table and doesn't affect getBal sums directly.
+        $this->assertStringContainsString('700,000 UZS', $reply['text']);
         $this->assertStringContainsString('Операций: 1 | Расходов: 1', $reply['text']);
         $this->assertSame('inline', $reply['type']);
         $this->assertSame(

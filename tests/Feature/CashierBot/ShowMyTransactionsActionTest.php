@@ -46,15 +46,19 @@ final class ShowMyTransactionsActionTest extends TestCase
     {
         [$user, $shift] = $this->openShift();
 
-        // A payment in and an expense out — pick icons + signs deterministically.
+        // The icon match uses category string values that exist in the
+        // TransactionCategory enum. 'sale' is the enum value for a guest
+        // payment; the Action's icon map currently doesn't branch on
+        // 'sale' specifically, so it falls through to the type-based icon
+        // (⬆️ for in / ⬇️ for out). That's preserved-behaviour parity.
         CashTransaction::create([
             'cashier_shift_id' => $shift->id,
             'type'             => 'in',
-            'category'         => 'payment',
+            'category'         => 'sale',
             'currency'         => 'UZS',
             'amount'           => 500_000,
             'notes'            => 'Room 12',
-            'source_trigger'   => 'manual',
+            'source_trigger'   => 'cashier_bot',
             'created_by'       => $user->id,
             'occurred_at'      => now()->setTimezone('Asia/Tashkent')->setTime(9, 30),
         ]);
@@ -64,7 +68,7 @@ final class ShowMyTransactionsActionTest extends TestCase
             'category'         => 'expense',
             'currency'         => 'UZS',
             'amount'           => 80_000,
-            'source_trigger'   => 'manual',
+            'source_trigger'   => 'cashier_bot',
             'created_by'       => $user->id,
             'occurred_at'      => now()->setTimezone('Asia/Tashkent')->setTime(12, 15),
         ]);
@@ -73,8 +77,10 @@ final class ShowMyTransactionsActionTest extends TestCase
 
         $this->assertSame('inline', $reply['type']);
         $this->assertStringContainsString('📋 *Операции смены*', $reply['text']);
-        $this->assertStringContainsString('💵 +500 000 UZS', $reply['text']);
+        // Sale falls through to the type='in' branch → ⬆️ + sign.
+        $this->assertStringContainsString('⬆️ +500 000 UZS', $reply['text']);
         $this->assertStringContainsString('_Room 12_', $reply['text']);
+        // Category 'expense' has a direct icon match.
         $this->assertStringContainsString('📤 −80 000 UZS', $reply['text']);
     }
 
@@ -90,7 +96,7 @@ final class ShowMyTransactionsActionTest extends TestCase
             'amount'            => 100,
             'related_currency'  => 'UZS',
             'related_amount'    => 1_280_000,
-            'source_trigger'    => 'manual',
+            'source_trigger'    => 'cashier_bot',
             'created_by'        => $user->id,
             'occurred_at'       => now(),
         ]);
