@@ -63,12 +63,12 @@ class ExpenseReports extends Page
         $expensesQuery = Expense::query()
             ->whereBetween('expense_date', [$startDate, $endDate])
             ->select(
-                'category_id',
+                'expense_category_id',
                 'hotel_id',
                 DB::raw('SUM(amount) as total_amount')
             )
             ->with('category', 'hotel')
-            ->groupBy('category_id', 'hotel_id');
+            ->groupBy('expense_category_id', 'hotel_id');
 
         if ($hotelId !== 'all') {
             $expensesQuery->where('hotel_id', $hotelId);
