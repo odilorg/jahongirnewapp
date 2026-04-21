@@ -358,28 +358,60 @@ class CashierBotController extends Controller
         $drawer = \App\Models\CashDrawer::where('is_active', true)->first();
         if (!$drawer) { $this->send($chatId, "Нет активной кассы."); return response('OK'); }
 
-        // Prevent multiple open shifts on the same drawer
-        $existingShift = CashierShift::where('cash_drawer_id', $drawer->id)
-            ->where('status', 'open')
-            ->with('user')
-            ->first();
-        if ($existingShift) {
-            $name = $existingShift->user->name ?? 'другой кассир';
-            $this->send($chatId, "⚠️ Касса занята!\n\nСмена уже открыта: {$name}\nОткрыта: " . $existingShift->opened_at->timezone('Asia/Tashkent')->format('d.m H:i') . "\n\nДождитесь закрытия смены.");
+        // Two cashiers (or a Telegram retry) can hit the "open shift" callback
+        // concurrently and both pass the "no open shift on this drawer" read,
+        // ending up with two open shifts on one drawer. Lock the drawer row
+        // and re-check inside the transaction. Mirrors the pattern already
+        // used by CashierShiftService::closeShift().
+        $shift = null;
+        $busyWith = null;
+
+        try {
+            DB::transaction(function () use ($drawer, $s, &$shift, &$busyWith) {
+                \App\Models\CashDrawer::where('id', $drawer->id)->lockForUpdate()->first();
+
+                $existingShift = CashierShift::where('cash_drawer_id', $drawer->id)
+                    ->where('status', 'open')
+                    ->with('user')
+                    ->first();
+                if ($existingShift) {
+                    $busyWith = $existingShift;
+                    return;
+                }
+
+                $shift = CashierShift::create([
+                    'cash_drawer_id' => $drawer->id,
+                    'user_id'        => $s->user_id,
+                    'status'         => 'open',
+                    'opened_at'      => now(),
+                ]);
+
+                // Carry forward balances from the last closed shift on this
+                // drawer, inside the same transaction so a partial open-shift
+                // (shift row but no saldo rows) can't be observed. Order by
+                // created_at with id as a stable tiebreaker for same-second rows.
+                $prevHandover = ShiftHandover::whereHas('outgoingShift', fn($q) => $q->where('cash_drawer_id', $drawer->id))
+                    ->orderByDesc('created_at')
+                    ->orderByDesc('id')
+                    ->first();
+                if ($prevHandover) {
+                    foreach (['UZS' => $prevHandover->counted_uzs, 'USD' => $prevHandover->counted_usd, 'EUR' => $prevHandover->counted_eur] as $cur => $amt) {
+                        if ($amt != 0) {
+                            BeginningSaldo::create(['cashier_shift_id' => $shift->id, 'currency' => $cur, 'amount' => $amt]);
+                        }
+                    }
+                }
+            });
+        } catch (\Throwable $e) {
+            Log::error('CashierBot openShift failed', ['error' => $e->getMessage(), 'drawer' => $drawer->id, 'user' => $s->user_id]);
+            $this->send($chatId, "Не удалось открыть смену. Попробуйте позже.");
             return response('OK');
         }
 
-        $shift = CashierShift::create(['cash_drawer_id' => $drawer->id, 'user_id' => $s->user_id, 'status' => 'open', 'opened_at' => now()]);
-
-        // Carry forward balances from last closed shift on same drawer
-        $prevHandover = ShiftHandover::whereHas('outgoingShift', fn($q) => $q->where('cash_drawer_id', $drawer->id))
-            ->latest('id')->first();
-        if ($prevHandover) {
-            foreach (['UZS' => $prevHandover->counted_uzs, 'USD' => $prevHandover->counted_usd, 'EUR' => $prevHandover->counted_eur] as $cur => $amt) {
-                if ($amt != 0) {
-                    BeginningSaldo::create(['cashier_shift_id' => $shift->id, 'currency' => $cur, 'amount' => $amt]);
-                }
-            }
+        if ($busyWith) {
+            $name = $busyWith->user->name ?? 'другой кассир';
+            $this->send($chatId, "⚠️ Касса занята!\n\nСмена уже открыта: {$name}\nОткрыта: " . $busyWith->opened_at->timezone('Asia/Tashkent')->format('d.m H:i') . "\n\nДождитесь закрытия смены.");
+            return response('OK');
         }
 
         $bal = $this->getBal($shift);
