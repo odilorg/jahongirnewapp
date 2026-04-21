@@ -679,10 +679,14 @@ Session timeout is soft (line 146–150): only applied to idle states, not in-fl
    - **Risk:** Low (IDs are typically monotonic), but safer to use created_at
    - **Fix location:** CashierBotController.php:375–376
 
-4. **Missing unique constraint on BeginningSaldo (shift_id, currency)**
-   - **Issue:** Balance calculation at line 1583–1587 assumes one row per currency; if duplicates exist, balance is wrong
-   - **Risk:** Low (application logic prevents duplicates), but DB-level enforcement is missing
-   - **Fix location:** Migration to add UNIQUE(cashier_shift_id, currency) on beginnning_saldos
+4. ~~**Missing unique constraint on BeginningSaldo (shift_id, currency)**~~ — **[CORRECTED 2026-04-21]**
+   The constraint does exist. Migration `2025_09_22_064137_create_beginning_saldos_table.php:22` adds
+   `$table->unique(['cashier_shift_id', 'currency'])`, and prod `SHOW CREATE TABLE` confirms it as
+   `beginning_saldos_cashier_shift_id_currency_unique`. Pinned by `BeginningSaldoUniquenessTest`.
+   The original finding was based on a false reading — no action needed.
+   Minor cosmetic: the same migration (line 25) also creates a redundant non-unique
+   `index(['cashier_shift_id','currency'])` which duplicates the unique key. Harmless but
+   could be dropped in a later schema cleanup.
 
 5. **Reversal transaction created outside transaction boundary (expense rejection)**
    - **Issue:** reverseExpenseTransaction at line 125–162 is called from handleExpenseAction outside any DB::transaction; if reversal fails, money is lost
@@ -767,8 +771,10 @@ Session timeout is soft (line 146–150): only applied to idle states, not in-fl
 
 ### New Bugs Found (Not in Earlier Recon)
 1. **Reversal transaction created outside transaction boundary:** If reversal fails, money is lost and expense is marked rejected anyway (OwnerBotController.php:125–162)
-2. **Beginning saldo has no uniqueness constraint:** Duplicate rows per (shift, currency) would break balance calc (no DB constraint, only app logic)
-3. **Handover carry-forward uses latest('id') not latest('created_at'):** Non-monotonic IDs could cause wrong prior shift to be selected (low risk, but unsafe)
+2. ~~**Beginning saldo has no uniqueness constraint**~~ — **[INCORRECT, CORRECTED 2026-04-21]** The
+   constraint is present on day one in migration `2025_09_22_064137:22` and confirmed in prod's
+   `SHOW CREATE TABLE`. See §6.1 #4 above. Pinned by `BeginningSaldoUniquenessTest`.
+3. **Handover carry-forward uses latest('id') not latest('created_at'):** Non-monotonic IDs could cause wrong prior shift to be selected (low risk, but unsafe) — **FIXED in commit `3773a69` (B1)**. Now orders by `created_at DESC, id DESC` with an id tiebreaker.
 
 ### Accepted Technical Debt
 - God controller (1,833 LOC) — refactor later, not blocking
