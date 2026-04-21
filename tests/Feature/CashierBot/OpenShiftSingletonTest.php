@@ -134,12 +134,13 @@ final class OpenShiftSingletonTest extends TestCase
         $this->assertSame($drawer->id, $shift->cash_drawer_id);
 
         // Both carried-forward saldo rows exist because they were created inside
-        // the same transaction as the shift row.
+        // the same transaction as the shift row. BeginningSaldo->currency is
+        // cast to the Currency enum, so compare on the backing string value.
         $saldos = BeginningSaldo::where('cashier_shift_id', $shift->id)->get();
         $this->assertCount(2, $saldos, 'UZS + USD carry-forward rows must be created atomically with the shift');
         $this->assertEqualsCanonicalizing(
             ['UZS', 'USD'],
-            $saldos->pluck('currency')->all()
+            $saldos->map(fn($r) => $r->currency instanceof \App\Enums\Currency ? $r->currency->value : (string) $r->currency)->all()
         );
     }
 
@@ -168,7 +169,10 @@ final class OpenShiftSingletonTest extends TestCase
             'closed_at'      => now()->subHours(6),
         ]);
 
-        $newerHandover = ShiftHandover::create([
+        // Eloquent::create() always stamps created_at = now(), so we build
+        // the rows with a specific created_at by new()/save() and then force
+        // the timestamp back to the value we want.
+        $newerHandover = new ShiftHandover([
             'outgoing_shift_id' => $newerShift->id,
             'counted_uzs'       => 7_000_000, // expected winner
             'counted_usd'       => 0,
@@ -176,11 +180,15 @@ final class OpenShiftSingletonTest extends TestCase
             'expected_uzs'      => 7_000_000,
             'expected_usd'      => 0,
             'expected_eur'      => 0,
-            'created_at'        => now()->subHours(6),
-            'updated_at'        => now()->subHours(6),
         ]);
+        $newerHandover->save();
+        $newerHandover->forceFill([
+            'created_at' => now()->subHours(6),
+            'updated_at' => now()->subHours(6),
+        ])->saveQuietly();
+
         // Insert older handover AFTER the newer one so it has a larger id.
-        $olderHandover = ShiftHandover::create([
+        $olderHandover = new ShiftHandover([
             'outgoing_shift_id' => $olderShift->id,
             'counted_uzs'       => 1, // must not be chosen
             'counted_usd'       => 0,
@@ -188,10 +196,16 @@ final class OpenShiftSingletonTest extends TestCase
             'expected_uzs'      => 1,
             'expected_usd'      => 0,
             'expected_eur'      => 0,
-            'created_at'        => now()->subDays(2)->addHours(8),
-            'updated_at'        => now()->subDays(2)->addHours(8),
         ]);
+        $olderHandover->save();
+        $olderHandover->forceFill([
+            'created_at' => now()->subDays(2)->addHours(8),
+            'updated_at' => now()->subDays(2)->addHours(8),
+        ])->saveQuietly();
+
         $this->assertGreaterThan($newerHandover->id, $olderHandover->id, 'id ordering must disagree with created_at ordering for this test to be meaningful');
+        // Sanity: the timestamps actually took.
+        $this->assertTrue($newerHandover->fresh()->created_at->greaterThan($olderHandover->fresh()->created_at), 'fixture created_at must match the ordering the test assumes');
 
         $user = User::factory()->create();
         $session = TelegramPosSession::create([
