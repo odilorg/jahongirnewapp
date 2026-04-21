@@ -45,8 +45,8 @@ class BookingInquiryResource extends Resource
 
     protected static ?string $navigationIcon  = 'heroicon-o-inbox-arrow-down';
     protected static ?string $navigationLabel = 'Bookings';
-    protected static ?string $navigationGroup = 'Operations';
-    protected static ?int    $navigationSort  = 20;
+    protected static ?string $navigationGroup = 'Leads';
+    protected static ?int    $navigationSort  = 10;
     protected static ?string $recordTitleAttribute = 'reference';
 
     public static function getNavigationBadge(): ?string

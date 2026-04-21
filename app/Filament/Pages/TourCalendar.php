@@ -29,8 +29,9 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
 
     protected static ?string $navigationIcon  = 'heroicon-o-calendar-days';
     protected static ?string $navigationLabel = 'Tour Calendar';
-    protected static ?string $navigationGroup = 'Operations';
-    protected static ?int    $navigationSort  = 10;
+    // Top-level sidebar entry (no group) — highest-traffic operator surface.
+    protected static ?string $navigationGroup = null;
+    protected static ?int    $navigationSort  = 1;
 
     protected static string $view = 'filament.pages.tour-calendar';
 

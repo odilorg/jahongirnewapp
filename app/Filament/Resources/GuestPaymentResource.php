@@ -20,7 +20,7 @@ class GuestPaymentResource extends Resource
 
     protected static ?string $navigationIcon  = 'heroicon-o-credit-card';
     protected static ?string $navigationLabel = 'Guest Payments';
-    protected static ?string $navigationGroup = 'Money';
+    protected static ?string $cluster = \App\Filament\Clusters\Money::class;
     protected static ?int    $navigationSort  = 30;
 
     public static function form(Form $form): Form

@@ -1,0 +1,20 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Filament\Clusters;
+
+use Filament\Clusters\Cluster;
+
+/**
+ * Sidebar cluster grouping supplier-management resources (drivers,
+ * guides, accommodations, cars, rates). Clicking this sidebar entry
+ * opens a sub-page with horizontal tabs per resource — see
+ * docs/architecture/LAYER_CHEAT_SHEET.md for placement rules.
+ */
+class Suppliers extends Cluster
+{
+    protected static ?string $navigationIcon  = 'heroicon-o-users';
+    protected static ?string $navigationLabel = 'Suppliers';
+    protected static ?int    $navigationSort  = 30;
+}
