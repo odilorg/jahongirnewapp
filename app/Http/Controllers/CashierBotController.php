@@ -43,6 +43,7 @@ class CashierBotController extends Controller
     protected BotResolverInterface $botResolver;
     protected TelegramTransportInterface $transport;
     protected Beds24BookingService $beds24;
+    protected \App\Services\Cashier\BalanceCalculator $balance;
 
     // Property ID for Beds24 — must match HousekeepingBotController
     protected const PROPERTY_ID = 41097;
@@ -58,6 +59,7 @@ class CashierBotController extends Controller
         BotResolverInterface $botResolver,
         TelegramTransportInterface $transport,
         Beds24BookingService $beds24,
+        \App\Services\Cashier\BalanceCalculator $balance,
     ) {
         $this->ownerAlert = $ownerAlert;
         $this->botPaymentService = $botPaymentService;
@@ -69,6 +71,7 @@ class CashierBotController extends Controller
         $this->botResolver = $botResolver;
         $this->transport = $transport;
         $this->beds24 = $beds24;
+        $this->balance = $balance;
     }
 
     public function handleWebhook(Request $request)
@@ -234,7 +237,7 @@ class CashierBotController extends Controller
             $data === 'payment' => $this->startPayment($s, $chatId),
             $data === 'expense' => $this->startExpense($s, $chatId),
             $data === 'exchange' => $this->startExchange($s, $chatId),
-            $data === 'balance' => $this->showBalance($s, $chatId),
+            $data === 'balance' => $this->dispatchReply($chatId, app(\App\Actions\CashierBot\Handlers\ShowBalanceAction::class)->execute($s->user_id)),
             $data === 'cash_in' => $this->startCashIn($s, $chatId),
             $data === 'confirm_cash_in' => $this->confirmCashIn($s, $chatId, $callbackId),
             $data === 'close_shift' => $this->startClose($s, $chatId),
@@ -252,7 +255,7 @@ class CashierBotController extends Controller
             $data === 'confirm_exchange' => $this->confirmExchange($s, $chatId, $callbackId),
             $data === 'confirm_close' => $this->confirmClose($s, $chatId, $callbackId),
             $data === 'cancel' => $this->showMainMenu($chatId, $s),
-            $data === 'my_txns' => $this->showMyTransactions($s, $chatId),
+            $data === 'my_txns' => $this->dispatchReply($chatId, app(\App\Actions\CashierBot\Handlers\ShowMyTransactionsAction::class)->execute($s->user_id)),
             $data === 'guide' => $this->dispatchGuide($chatId, null),
             str_starts_with($data, 'guide_') => $this->dispatchGuide($chatId, substr($data, 6)),
             default => response('OK'),
@@ -1124,72 +1127,10 @@ class CashierBotController extends Controller
         }
     }
 
-    // ── BALANCE ─────────────────────────────────────────────────
-
-    protected function showBalance($s, int $chatId)
-    {
-        $shift = $this->getShift($s->user_id);
-        if (!$shift) { $this->send($chatId, "Нет открытой смены."); return response('OK'); }
-        $bal = $this->getBal($shift);
-        $txn = CashTransaction::where('cashier_shift_id', $shift->id)->count();
-        $exp = CashExpense::where('cashier_shift_id', $shift->id)->count();
-        $this->send($chatId, "Баланс за смену\n\n" . $this->fmtBal($bal)
-            . "\n\nОпераций: {$txn} | Расходов: {$exp}\nОткрыта: "
-            . $shift->opened_at->timezone('Asia/Tashkent')->format('H:i'),
-            ['inline_keyboard' => [[['text' => 'Назад', 'callback_data' => 'menu']]]], 'inline');
-        return response('OK');
-    }
-
-    protected function showMyTransactions($s, int $chatId)
-    {
-        $shift = $this->getShift($s->user_id);
-        if (!$shift) { $this->send($chatId, "Нет открытой смены."); return response('OK'); }
-
-        $txns = CashTransaction::where('cashier_shift_id', $shift->id)
-            ->drawerTruth()
-            ->orderByDesc('occurred_at')
-            ->limit(20)
-            ->get();
-
-        if ($txns->isEmpty()) {
-            $this->send($chatId, "За эту смену операций ещё нет.", ['inline_keyboard' => [[['text' => '« Меню', 'callback_data' => 'menu']]]], 'inline');
-            return response('OK');
-        }
-
-        $tz   = 'Asia/Tashkent';
-        $lines = ["📋 *Операции смены* (последние {$txns->count()}):\n"];
-        foreach ($txns as $tx) {
-            $typeVal = is_string($tx->type) ? $tx->type : ($tx->type->value ?? 'out');
-            $catVal  = is_string($tx->category) ? $tx->category : ($tx->category?->value ?? '');
-            $cur     = is_string($tx->currency) ? $tx->currency : ($tx->currency?->value ?? '');
-            $amt     = number_format((float) $tx->amount, 0, '.', ' ');
-            $time    = $tx->occurred_at?->timezone($tz)->format('H:i') ?? '?';
-
-            $icon = match(true) {
-                $catVal === 'payment'  => '💵',
-                $catVal === 'expense'  => '📤',
-                $catVal === 'exchange' => '🔄',
-                $catVal === 'cash_in'  => '➕',
-                $typeVal === 'in'      => '⬆️',
-                default                => '⬇️',
-            };
-
-            $sign = $typeVal === 'in' ? '+' : '−';
-
-            // For exchanges show paired leg if available
-            if ($catVal === 'exchange' && $tx->related_amount && $tx->related_currency) {
-                $relCur = is_string($tx->related_currency) ? $tx->related_currency : ($tx->related_currency?->value ?? '');
-                $relAmt = number_format((float) $tx->related_amount, 0, '.', ' ');
-                $lines[] = "{$time}  {$icon} {$sign}{$amt} {$cur} / {$relAmt} {$relCur}";
-            } else {
-                $lines[] = "{$time}  {$icon} {$sign}{$amt} {$cur}" . ($tx->notes ? "  _{$tx->notes}_" : '');
-            }
-        }
-
-        $this->send($chatId, implode("\n", $lines),
-            ['inline_keyboard' => [[['text' => '« Меню', 'callback_data' => 'menu']]]], 'inline');
-        return response('OK');
-    }
+    // showBalance + showMyTransactions were extracted to
+    // App\Actions\CashierBot\Handlers\ShowBalanceAction and
+    // ShowMyTransactionsAction; the router dispatches them via
+    // dispatchReply() above.
 
     // ── CLOSE SHIFT ─────────────────────────────────────────────
 
@@ -1601,39 +1542,24 @@ class CashierBotController extends Controller
         }
     }
 
+    // These three helpers used to be 40 LOC of inline logic. They were
+    // extracted to \App\Services\Cashier\BalanceCalculator so per-intent
+    // Actions can inject and reuse them. Kept as thin delegators here so
+    // the ~20 existing call sites elsewhere in this controller don't need
+    // to change until those intents are extracted.
     protected function getShift(?int $uid): ?CashierShift
     {
-        if (!$uid) return null;
-        return CashierShift::where('user_id', $uid)->where('status', 'open')->latest('opened_at')->first();
+        return $this->balance->getShift($uid);
     }
 
     protected function getBal(CashierShift $shift): array
     {
-        $b = ['UZS' => 0, 'USD' => 0, 'EUR' => 0];
-
-        // Include beginning saldos (carried forward from previous shift)
-        foreach (BeginningSaldo::where('cashier_shift_id', $shift->id)->get() as $bs) {
-            $c = is_string($bs->currency) ? $bs->currency : ($bs->currency->value ?? 'UZS');
-            if (!isset($b[$c])) $b[$c] = 0;
-            $b[$c] += $bs->amount;
-        }
-
-        // Add transactions (drawerTruth excludes beds24_external audit rows)
-        foreach (CashTransaction::where('cashier_shift_id', $shift->id)->drawerTruth()->get() as $tx) {
-            $c = is_string($tx->currency) ? $tx->currency : ($tx->currency->value ?? 'UZS');
-            if (!isset($b[$c])) $b[$c] = 0;
-            $typeVal = is_string($tx->type) ? $tx->type : ($tx->type->value ?? 'out');
-            if ($typeVal === 'in_out') continue; // complex transactions handled separately
-            $b[$c] += ($typeVal === 'in' ? $tx->amount : -$tx->amount);
-        }
-        return $b;
+        return $this->balance->getBal($shift);
     }
 
     protected function fmtBal(array $b): string
     {
-        $p = [];
-        foreach ($b as $c => $a) { if ($a != 0) $p[] = number_format($a, 0) . " {$c}"; }
-        return $p ? implode(' | ', $p) : '0';
+        return $this->balance->fmtBal($b);
     }
 
     protected function menuKb(?CashierShift $shift, ?int $userId = null): array
@@ -1755,20 +1681,24 @@ class CashierBotController extends Controller
         } catch (\Throwable $ignore) {}
     }
 
-    // ── GUIDE / INSTRUCTIONS ────────────────────────────────────
+    // ── Action reply dispatch ───────────────────────────────────
     //
-    // The two guide handlers (main menu + per-topic) were extracted into
-    // App\Actions\CashierBot\Handlers\ShowGuideAction. The Action returns a
-    // reply array { text, kb, type } which this dispatcher passes to
-    // $this->send(). Telegram envelope I/O stays on the controller per the
-    // extraction plan's Option-A seam.
+    // Read-only intents (showGuide, showBalance, showMyTransactions) have
+    // been extracted to App\Actions\CashierBot\Handlers\*. Each Action
+    // returns a reply array { text, kb?, type? } that this dispatcher
+    // hands off to $this->send(). Telegram envelope I/O stays on the
+    // controller per the extraction plan's Option-A seam.
 
-    protected function dispatchGuide(int $chatId, ?string $topic)
+    protected function dispatchReply(int $chatId, array $reply)
     {
-        $reply = app(\App\Actions\CashierBot\Handlers\ShowGuideAction::class)->execute($topic);
         $this->send($chatId, $reply['text'], $reply['kb'] ?? null, $reply['type'] ?? 'reply');
 
         return response('OK');
+    }
+
+    protected function dispatchGuide(int $chatId, ?string $topic)
+    {
+        return $this->dispatchReply($chatId, app(\App\Actions\CashierBot\Handlers\ShowGuideAction::class)->execute($topic));
     }
 
 }
