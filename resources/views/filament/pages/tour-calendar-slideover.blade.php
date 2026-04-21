@@ -681,7 +681,7 @@
         @endif
 
         {{-- Add new reminder --}}
-        <div x-data="{ open: {{ $pendingReminders->isNotEmpty() ? 'false' : 'false' }} }" style="margin-top: 8px;">
+        <div x-data="{ open: false }" style="margin-top: 8px;">
             <button @click="open = !open" type="button"
                 class="w-full text-xs font-medium rounded-md px-3 py-1.5"
                 style="background: #3b82f6; color: white;">
