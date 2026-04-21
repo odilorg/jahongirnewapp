@@ -192,6 +192,7 @@ class CashierBotController extends Controller
         'confirm_expense',
         'confirm_exchange',
         'confirm_close',
+        'confirm_cash_in',
     ];
 
     protected function handleCallback(array $cb)
@@ -235,7 +236,7 @@ class CashierBotController extends Controller
             $data === 'exchange' => $this->startExchange($s, $chatId),
             $data === 'balance' => $this->showBalance($s, $chatId),
             $data === 'cash_in' => $this->startCashIn($s, $chatId),
-            $data === 'confirm_cash_in' => $this->confirmCashIn($s, $chatId),
+            $data === 'confirm_cash_in' => $this->confirmCashIn($s, $chatId, $callbackId),
             $data === 'close_shift' => $this->startClose($s, $chatId),
             $data === 'menu' => $this->showMainMenu($chatId, $s),
             str_starts_with($data, 'guest_') => $this->selectGuest($s, $chatId, $data),
@@ -1047,35 +1048,48 @@ class CashierBotController extends Controller
         return response('OK');
     }
 
-    protected function confirmCashIn($s, int $chatId)
+    protected function confirmCashIn($s, int $chatId, string $callbackId = '')
     {
-        $d = $s->data ?? [];
-        $shift = CashierShift::find($d['shift_id'] ?? 0);
-        if (!$shift || !$shift->isOpen()) {
-            $this->send($chatId, "Смена не найдена или закрыта.");
+        try {
+            $d = $s->data ?? [];
+            $shift = CashierShift::find($d['shift_id'] ?? 0);
+            if (!$shift || !$shift->isOpen()) {
+                $this->send($chatId, "Смена не найдена или закрыта.");
+                if ($callbackId) $this->failCallback($callbackId, 'Shift not found or closed');
+                return $this->showMainMenu($chatId, $s);
+            }
+            if (!User::find($s->user_id)?->hasAnyRole(['super_admin', 'admin', 'manager'])) {
+                $this->send($chatId, "⛔ Недостаточно прав.");
+                if ($callbackId) $this->failCallback($callbackId, 'Insufficient role');
+                return response('OK');
+            }
+            $amt = (float) ($d['amount'] ?? 0);
+            $cur = $d['currency'] ?? 'USD';
+            if ($amt <= 0) {
+                $this->send($chatId, "Сумма не найдена.");
+                if ($callbackId) $this->failCallback($callbackId, 'Amount missing');
+                return $this->showMainMenu($chatId, $s);
+            }
+
+            CashTransaction::create([
+                'cashier_shift_id' => $shift->id,
+                'type'             => 'in',
+                'category'         => 'deposit',
+                'source_trigger'   => 'manual_admin',
+                'currency'         => $cur,
+                'amount'           => $amt,
+                'notes'            => 'Внесение наличных (начальный баланс)',
+                'created_by'       => $s->user_id,
+                'occurred_at'      => now(),
+            ]);
+
+            if ($callbackId) $this->succeedCallback($callbackId);
+            $this->send($chatId, "✅ Внесено: " . number_format($amt, 0) . " {$cur}\nБаланс: " . $this->fmtBal($this->getBal($shift->fresh())));
             return $this->showMainMenu($chatId, $s);
+        } catch (\Throwable $e) {
+            if ($callbackId) $this->failCallback($callbackId, $e->getMessage());
+            throw $e;
         }
-        if (!User::find($s->user_id)?->hasAnyRole(['super_admin', 'admin', 'manager'])) {
-            $this->send($chatId, "⛔ Недостаточно прав."); return response('OK');
-        }
-        $amt = (float) ($d['amount'] ?? 0);
-        $cur = $d['currency'] ?? 'USD';
-        if ($amt <= 0) { $this->send($chatId, "Сумма не найдена."); return $this->showMainMenu($chatId, $s); }
-
-        CashTransaction::create([
-            'cashier_shift_id' => $shift->id,
-            'type'             => 'in',
-            'category'         => 'deposit',
-            'source_trigger'   => 'manual_admin',
-            'currency'         => $cur,
-            'amount'           => $amt,
-            'notes'            => 'Внесение наличных (начальный баланс)',
-            'created_by'       => $s->user_id,
-            'occurred_at'      => now(),
-        ]);
-
-        $this->send($chatId, "✅ Внесено: " . number_format($amt, 0) . " {$cur}\nБаланс: " . $this->fmtBal($this->getBal($shift->fresh())));
-        return $this->showMainMenu($chatId, $s);
     }
 
     // ── BALANCE ─────────────────────────────────────────────────
