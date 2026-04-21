@@ -22,7 +22,7 @@ class ContractResource extends Resource
     protected static ?string $model = Contract::class;
 
     protected static ?string $navigationIcon = 'heroicon-o-document-text';
-    protected static ?string $navigationGroup = 'Finance';
+    protected static ?string $navigationGroup = 'Hotel Management';
     protected static ?int    $navigationSort = 70;
 
     public static function form(Form $form): Form
