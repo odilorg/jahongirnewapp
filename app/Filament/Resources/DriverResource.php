@@ -128,18 +128,27 @@ class DriverResource extends Resource
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\TextColumn::make('first_name')
+                    ->weight('bold')
                     ->searchable(),
                 Tables\Columns\TextColumn::make('last_name')
-                    ->searchable(),
-                Tables\Columns\TextColumn::make('email')
+                    ->weight('bold')
                     ->searchable(),
                 Tables\Columns\TextColumn::make('phone01')
+                    ->fontFamily('mono')
                     ->searchable(),
+                Tables\Columns\TextColumn::make('email')
+                    ->size(Tables\Columns\TextColumn\TextColumnSize::Small)
+                    ->color('gray')
+                    ->searchable()
+                    ->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\TextColumn::make('phone02')
-                    ->searchable(),
+                    ->searchable()
+                    ->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\TextColumn::make('fuel_type')
-                    ->searchable(),
-                Tables\Columns\TextColumn::make('cars.model'),
+                    ->searchable()
+                    ->toggleable(isToggledHiddenByDefault: true),
+                Tables\Columns\TextColumn::make('cars.model')
+                    ->toggleable(isToggledHiddenByDefault: true),
 
                 Tables\Columns\TextColumn::make('total_amount_paid')
                     ->label('Total Amount Paid')
@@ -174,7 +183,13 @@ class DriverResource extends Resource
                 Tables\Actions\BulkActionGroup::make([
                     Tables\Actions\DeleteBulkAction::make(),
                 ]),
-            ]);
+            ])
+            ->headerActions([
+                Tables\Actions\CreateAction::make()->label('New driver')->icon('heroicon-o-plus'),
+            ])
+            ->defaultPaginationPageOption(25)
+            ->paginationPageOptions([10, 25, 50, 100])
+            ->striped();
     }
 
     public static function infolist(Infolist $infolist): Infolist

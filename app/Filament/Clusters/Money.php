@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Filament\Clusters;
 
 use Filament\Clusters\Cluster;
+use Filament\Pages\Enums\SubNavigationPosition;
 
 /**
  * Sidebar cluster grouping all money-related views — guest / supplier
@@ -13,9 +14,10 @@ use Filament\Clusters\Cluster;
  */
 class Money extends Cluster
 {
-    protected static ?string $navigationIcon  = 'heroicon-o-currency-dollar';
-    protected static ?string $navigationLabel = 'Money';
-    protected static ?int    $navigationSort  = 40;
+    protected static ?string $navigationIcon          = 'heroicon-o-currency-dollar';
+    protected static ?string $navigationLabel         = 'Money';
+    protected static ?int    $navigationSort          = 40;
+    protected static SubNavigationPosition $subNavigationPosition = SubNavigationPosition::Top;
 
     public static function canAccess(): bool
     {

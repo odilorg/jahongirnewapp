@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Filament\Clusters;
 
 use Filament\Clusters\Cluster;
+use Filament\Pages\Enums\SubNavigationPosition;
 
 /**
  * Sidebar cluster grouping supplier-management resources (drivers,
@@ -14,9 +15,10 @@ use Filament\Clusters\Cluster;
  */
 class Suppliers extends Cluster
 {
-    protected static ?string $navigationIcon  = 'heroicon-o-users';
-    protected static ?string $navigationLabel = 'Suppliers';
-    protected static ?int    $navigationSort  = 30;
+    protected static ?string $navigationIcon          = 'heroicon-o-users';
+    protected static ?string $navigationLabel         = 'Suppliers';
+    protected static ?int    $navigationSort          = 30;
+    protected static SubNavigationPosition $subNavigationPosition = SubNavigationPosition::Top;
 
     // Visible to any panel user; inner resources retain their own
     // Shield permissions. Override prevents Shield's cluster_* gate
