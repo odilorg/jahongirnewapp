@@ -164,18 +164,15 @@ class CashierBotController extends Controller
 
     protected function handleAuth(int $chatId, array $contact)
     {
-        $phone = preg_replace('/[^0-9]/', '', $contact['phone_number'] ?? '');
-        $user = User::where('phone_number', 'LIKE', '%' . substr($phone, -9))->first();
-        if (!$user) { $this->send($chatId, "Номер не найден. Обратитесь к руководству."); return response('OK'); }
-        TelegramPosSession::updateOrCreate(['chat_id' => $chatId], [
-            'user_id' => $user->id,
-            'state'   => 'main_menu',
-            'data'    => null,
-        ]);
-        // Don't overwrite user telegram_user_id (shared with POS bot)
-        // Remove the phone reply-keyboard so the user can't accidentally re-auth
-        $this->send($chatId, "Добро пожаловать, {$user->name}!", ['remove_keyboard' => true], 'reply');
-        return $this->showMainMenu($chatId, TelegramPosSession::where('chat_id', $chatId)->first());
+        $result = app(\App\Actions\CashierBot\Handlers\HandleAuthAction::class)->execute($chatId, $contact);
+        $reply = $result['reply'];
+        $this->send($chatId, $reply['text'], $reply['kb'] ?? null, $reply['type'] ?? 'reply');
+
+        if (! $result['ok']) {
+            return response('OK');
+        }
+
+        return $this->showMainMenu($chatId, $result['session']);
     }
 
     protected function showMainMenu(int $chatId, $session)
