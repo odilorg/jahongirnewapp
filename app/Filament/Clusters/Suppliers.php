@@ -17,4 +17,12 @@ class Suppliers extends Cluster
     protected static ?string $navigationIcon  = 'heroicon-o-users';
     protected static ?string $navigationLabel = 'Suppliers';
     protected static ?int    $navigationSort  = 30;
+
+    // Visible to any panel user; inner resources retain their own
+    // Shield permissions. Override prevents Shield's cluster_* gate
+    // from hiding the whole sidebar entry.
+    public static function canAccess(): bool
+    {
+        return true;
+    }
 }
