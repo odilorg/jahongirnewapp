@@ -21,7 +21,7 @@ class Reports extends Page implements HasTable
     use InteractsWithTable;
 
     protected static ?string $navigationIcon = 'heroicon-o-chart-bar';
-    protected static ?string $cluster = \App\Filament\Clusters\Money::class;
+    protected static ?string $navigationGroup = 'Finance';
     protected static ?int $navigationSort = 10;
     protected static string $view = 'filament.pages.reports';
 

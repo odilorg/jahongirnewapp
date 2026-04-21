@@ -7,7 +7,7 @@ use Filament\Pages\Page;
 class CashDashboard extends Page
 {
     protected static ?string $navigationIcon = 'heroicon-o-banknotes';
-    protected static ?string $cluster = \App\Filament\Clusters\Money::class;
+    protected static ?string $navigationGroup = 'Finance';
     protected static ?int $navigationSort = 0;
     protected static ?string $navigationLabel = 'Cash Dashboard';
     protected static ?string $title = 'Cash Dashboard';

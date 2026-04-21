@@ -24,7 +24,7 @@ class CashierShiftResource extends Resource
 
     protected static ?string $navigationIcon = 'heroicon-o-clock';
 
-    protected static ?string $cluster = \App\Filament\Clusters\Money::class;
+    protected static ?string $navigationGroup = 'Finance';
 
     protected static ?int $navigationSort = 2;
 
@@ -249,7 +249,7 @@ class CashierShiftResource extends Resource
                     ->visible(fn (CashierShift $record) => $record->isOpen())
                     ->requiresConfirmation()
                     ->action(function (CashierShift $record) {
-                        return redirect()->route('filament.admin.money.resources.cashier-shifts.close-shift', ['record' => $record->id]);
+                        return redirect()->route('filament.admin.resources.cashier-shifts.close-shift', ['record' => $record->id]);
                     }),
 
                 Tables\Actions\Action::make('approve')
@@ -269,7 +269,7 @@ class CashierShiftResource extends Resource
                         $approver = new ApproveShiftAction();
                         $approver->approve($record, auth()->user(), $data['approval_notes'] ?? null);
 
-                        return redirect()->route('filament.admin.money.resources.cashier-shifts.index');
+                        return redirect()->route('filament.admin.resources.cashier-shifts.index');
                     })
                     ->successNotificationTitle('Shift approved successfully'),
 
@@ -292,7 +292,7 @@ class CashierShiftResource extends Resource
                         $approver = new ApproveShiftAction();
                         $approver->reject($record, auth()->user(), $data['rejection_reason']);
 
-                        return redirect()->route('filament.admin.money.resources.cashier-shifts.index');
+                        return redirect()->route('filament.admin.resources.cashier-shifts.index');
                     })
                     ->successNotificationTitle('Shift rejected - cashier will need to recount'),
             ])

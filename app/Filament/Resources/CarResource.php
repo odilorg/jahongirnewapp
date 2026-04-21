@@ -26,7 +26,7 @@ class CarResource extends Resource
 
     protected static ?string $navigationIcon = 'heroicon-o-truck';
 
-    protected static ?string $cluster         = \App\Filament\Clusters\Suppliers::class;
+    protected static ?string $navigationGroup = 'Tour Operations';
     protected static ?int    $navigationSort  = 40;
 
     public static function form(Form $form): Form

@@ -15,7 +15,7 @@ class BookingPaymentReconciliationResource extends Resource
 {
     protected static ?string $model = BookingPaymentReconciliation::class;
     protected static ?string $navigationIcon = 'heroicon-o-scale';
-    protected static ?string $cluster = \App\Filament\Clusters\Money::class;
+    protected static ?string $navigationGroup = 'Finance';
     protected static ?int $navigationSort = 6;
     protected static ?string $navigationLabel = 'Reconciliation';
     protected static ?string $modelLabel = 'Reconciliation';

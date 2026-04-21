@@ -17,7 +17,7 @@
 
                 <div class="flex gap-3">
                     <x-filament::button
-                        :href="route('filament.admin.money.resources.cashier-shifts.view', ['record' => $existingShift->id])"
+                        :href="route('filament.admin.resources.cashier-shifts.view', ['record' => $existingShift->id])"
                         color="primary"
                     >
                         View Current Shift

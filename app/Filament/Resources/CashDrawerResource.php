@@ -17,7 +17,7 @@ class CashDrawerResource extends Resource
 
     protected static ?string $navigationIcon = 'heroicon-o-credit-card';
 
-    protected static ?string $cluster = \App\Filament\Clusters\Money::class;
+    protected static ?string $navigationGroup = 'Finance';
 
     protected static ?int $navigationSort = 1;
 

@@ -27,7 +27,7 @@ class CreateCashTransaction extends CreateRecord
                     ->persistent()
                     ->send();
                     
-                $this->redirect(route('filament.admin.money.resources.cashier-shifts.start-shift'));
+                $this->redirect(route('filament.admin.resources.cashier-shifts.start-shift'));
                 return;
             }
         }

@@ -32,7 +32,7 @@
                                     {{ $expense->description }} &bull; {{ $expense->creator?->name ?? 'System' }}
                                 </p>
                             </div>
-                            <a href="{{ route('filament.admin.money.resources.cash-expenses.index', ['tableFilters[pending][isActive]' => true]) }}"
+                            <a href="{{ route('filament.admin.resources.cash-expenses.index', ['tableFilters[pending][isActive]' => true]) }}"
                                class="text-xs text-amber-600 hover:text-amber-800 dark:text-amber-400 font-medium">
                                 Review &rarr;
                             </a>
@@ -76,7 +76,7 @@
                                     Gap: ${{ number_format($recon->discrepancy_amount, 2) }}
                                 </p>
                             </div>
-                            <a href="{{ route('filament.admin.money.resources.booking-payment-reconciliations.index') }}"
+                            <a href="{{ route('filament.admin.resources.booking-payment-reconciliations.index') }}"
                                class="text-xs text-red-600 hover:text-red-800 dark:text-red-400 font-medium">
                                 Resolve &rarr;
                             </a>
@@ -132,7 +132,7 @@
                     </table>
                 </div>
                 <div class="mt-3 text-right">
-                    <a href="{{ route('filament.admin.money.resources.cash-transactions.index') }}"
+                    <a href="{{ route('filament.admin.resources.cash-transactions.index') }}"
                        class="text-xs text-primary-600 hover:text-primary-800 dark:text-primary-400 font-medium">
                         View all transactions &rarr;
                     </a>
@@ -196,7 +196,7 @@
                     @endforeach
                 </div>
                 <div class="mt-3 text-right">
-                    <a href="{{ route('filament.admin.money.resources.shift-handovers.index') }}"
+                    <a href="{{ route('filament.admin.resources.shift-handovers.index') }}"
                        class="text-xs text-primary-600 hover:text-primary-800 dark:text-primary-400 font-medium">
                         View all handovers &rarr;
                     </a>

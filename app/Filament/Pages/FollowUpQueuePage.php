@@ -32,7 +32,7 @@ class FollowUpQueuePage extends Page
 
     protected static ?string $navigationLabel = 'Follow-up Queue';
 
-    protected static ?string $navigationGroup = 'Leads';
+    protected static ?string $navigationGroup = 'Tour Operations';
 
     protected static ?int $navigationSort = -100;
 

@@ -15,7 +15,7 @@ class CashExpenseResource extends Resource
 {
     protected static ?string $model = CashExpense::class;
     protected static ?string $navigationIcon = 'heroicon-o-receipt-percent';
-    protected static ?string $cluster = \App\Filament\Clusters\Money::class;
+    protected static ?string $navigationGroup = 'Finance';
     protected static ?int $navigationSort = 4;
     protected static ?string $navigationLabel = 'Expenses';
     protected static ?string $modelLabel = 'Expense';

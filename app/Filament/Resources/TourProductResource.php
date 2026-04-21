@@ -32,7 +32,7 @@ class TourProductResource extends Resource
 
     protected static ?string $navigationIcon  = 'heroicon-o-rectangle-stack';
     protected static ?string $navigationLabel = 'Tour Products';
-    protected static ?string $navigationGroup = 'Catalog';
+    protected static ?string $navigationGroup = 'Tour Operations';
     protected static ?int    $navigationSort  = 10;
 
     public static function form(Form $form): Form

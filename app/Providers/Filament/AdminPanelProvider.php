@@ -35,7 +35,6 @@ class AdminPanelProvider extends PanelProvider
             ])
             ->discoverResources(in: app_path('Filament/Resources'), for: 'App\\Filament\\Resources')
             ->discoverPages(in: app_path('Filament/Pages'), for: 'App\\Filament\\Pages')
-            ->discoverClusters(in: app_path('Filament/Clusters'), for: 'App\\Filament\\Clusters')
             ->globalSearch(false)
             ->pages([
                 Pages\Dashboard::class,
@@ -62,15 +61,12 @@ class AdminPanelProvider extends PanelProvider
             ->plugins([
                 FilamentShieldPlugin::make(),
             ])
-            // Sidebar order (top → bottom). Tour Calendar is top-level (no
-            // group) as it's the highest-traffic surface. Groups follow
-            // operator workflow: Leads → Operations → Suppliers (cluster)
-            // → Money (cluster) → reference/config (collapsed).
+            // Single-level sidebar, grouped by business domain. Tour Calendar
+            // stays top-level (no group) as the highest-traffic surface.
             ->navigationGroups([
-                NavigationGroup::make('Leads'),
-                NavigationGroup::make('Operations'),
+                NavigationGroup::make('Tour Operations'),
+                NavigationGroup::make('Finance'),
                 NavigationGroup::make('Hotel Management')->collapsed(),
-                NavigationGroup::make('Catalog')->collapsed(),
                 NavigationGroup::make('Feedback')->collapsed(),
                 NavigationGroup::make('Admin')->collapsed(),
                 NavigationGroup::make('Telegram')->collapsed(),
