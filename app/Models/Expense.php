@@ -13,7 +13,7 @@ class Expense extends Model
     public ?string $start_date = null;
     public ?string $end_date = null;
     protected $fillable = [
-        'category_id',
+        'expense_category_id',
         'name',
         'expense_date',
         'amount',
@@ -30,10 +30,10 @@ class Expense extends Model
         return $this->belongsTo(Hotel::class);
     }
 
-    public function category()
-{
-    return $this->belongsTo(ExpenseCategory::class);
-}
+    public function category(): BelongsTo
+    {
+        return $this->belongsTo(ExpenseCategory::class, 'expense_category_id');
+    }
 
 
 }
