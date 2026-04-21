@@ -19,7 +19,7 @@ class ListCashierShifts extends ListRecords
                 ->icon('heroicon-o-play')
                 ->color('success')
                 ->size('lg')
-                ->url(route('filament.admin.resources.cashier-shifts.start-shift'))
+                ->url(route('filament.admin.money.resources.cashier-shifts.start-shift'))
                 ->visible(fn () => !auth()->user()->hasOpenShifts()),
 
             // Detailed Create Form - Available to managers/admins for advanced setup

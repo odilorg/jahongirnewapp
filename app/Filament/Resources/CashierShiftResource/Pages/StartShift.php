@@ -132,7 +132,7 @@ class StartShift extends Page
                             ->success()
                             ->send();
 
-                        $this->redirect(route('filament.admin.resources.cashier-shifts.view', ['record' => $shift->id]));
+                        $this->redirect(route('filament.admin.money.resources.cashier-shifts.view', ['record' => $shift->id]));
                     } catch (\Illuminate\Validation\ValidationException $e) {
                         Notification::make()
                             ->title('Cannot Start Shift')
