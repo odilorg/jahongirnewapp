@@ -47,7 +47,7 @@ class CashierShiftResource extends Resource
 
     public static function getNavigationGroup(): ?string
     {
-        return 'Cash Management';
+        return 'Finance';
     }
 
     public static function form(Form $form): Form
