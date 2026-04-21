@@ -42,7 +42,7 @@ class ExpenseResource extends Resource
                     ->default(session('last_selected_hotel_id')) // Set the default value
                     ->required(),
                 // ->numeric(),
-                Select::make('category_id')
+                Select::make('expense_category_id')
                     ->relationship('category', 'name')
                     ->createOptionForm([
                         TextInput::make('name')
