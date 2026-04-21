@@ -16,4 +16,9 @@ class Money extends Cluster
     protected static ?string $navigationIcon  = 'heroicon-o-currency-dollar';
     protected static ?string $navigationLabel = 'Money';
     protected static ?int    $navigationSort  = 40;
+
+    public static function canAccess(): bool
+    {
+        return true;
+    }
 }
