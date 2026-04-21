@@ -36,8 +36,16 @@ class CashierBotSecurityTest extends TestCase
         $response->assertStatus(403);
     }
 
-    public function test_webhook_rejects_when_secret_not_configured(): void
+    public function test_webhook_passes_through_when_secret_not_configured(): void
     {
+        // VerifyTelegramWebhook runs in migration mode: when the bot's
+        // webhook_secret is unset, the middleware logs a one-shot warning
+        // and lets the request through. This is an intentional staged-
+        // rollout behavior (see middleware docblock "MIGRATION MODE"), not
+        // a bug. The earlier test asserted the pre-rollout behavior where
+        // unset-secret was a hard 403 — it hasn't been updated since the
+        // migration-mode change. Unskip / tighten once every bot is cut
+        // over and the middleware drops migration mode.
         config(['services.cashier_bot.webhook_secret' => '']);
 
         $response = $this->postJson('/api/telegram/cashier/webhook', [
@@ -46,7 +54,7 @@ class CashierBotSecurityTest extends TestCase
             'X-Telegram-Bot-Api-Secret-Token' => 'anything',
         ]);
 
-        $response->assertStatus(403);
+        $response->assertStatus(200);
     }
 
     public function test_webhook_accepts_request_with_valid_secret(): void

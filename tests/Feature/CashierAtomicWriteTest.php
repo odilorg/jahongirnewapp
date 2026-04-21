@@ -112,7 +112,8 @@ class CashierAtomicWriteTest extends TestCase
         });
 
         $shift->refresh();
-        $this->assertEquals('closed', $shift->status);
+        // status is cast to ShiftStatus enum; compare on ->value.
+        $this->assertSame('closed', $shift->status->value);
         $this->assertEquals(1, ShiftHandover::where('outgoing_shift_id', $shift->id)->count());
         $this->assertEquals(1, EndSaldo::where('cashier_shift_id', $shift->id)->count());
     }
@@ -139,8 +140,8 @@ class CashierAtomicWriteTest extends TestCase
         }
 
         $shift->refresh();
-        // Shift should still be open
-        $this->assertEquals('open', $shift->status);
+        // Shift should still be open (enum comparison).
+        $this->assertSame('open', $shift->status->value);
         // No handover should exist
         $this->assertEquals(0, ShiftHandover::where('outgoing_shift_id', $shift->id)->count());
     }
@@ -416,7 +417,10 @@ class CashierAtomicWriteTest extends TestCase
 
         DB::transaction(function () use ($shift) {
             $lockedShift = CashierShift::where('id', $shift->id)->lockForUpdate()->first();
-            if (!$lockedShift || $lockedShift->status !== 'open') {
+            // status is cast to ShiftStatus enum; compare on ->value to keep
+            // the test's inline re-implementation of the guard in lock-step
+            // with the service.
+            if (!$lockedShift || $lockedShift->status->value !== 'open') {
                 throw new \RuntimeException('Shift already closed or not found');
             }
 
@@ -430,7 +434,7 @@ class CashierAtomicWriteTest extends TestCase
         });
 
         $shift->refresh();
-        $this->assertEquals('closed', $shift->status);
+        $this->assertSame('closed', $shift->status->value);
         $this->assertEquals(1, ShiftHandover::where('outgoing_shift_id', $shift->id)->count());
     }
 }
