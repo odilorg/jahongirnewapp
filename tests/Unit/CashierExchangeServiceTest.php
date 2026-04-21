@@ -2,6 +2,7 @@
 
 namespace Tests\Unit;
 
+use App\Enums\TransactionType;
 use App\Models\CashDrawer;
 use App\Models\CashierShift;
 use App\Models\CashTransaction;
@@ -51,17 +52,23 @@ class CashierExchangeServiceTest extends TestCase
         $txns = CashTransaction::where('reference', $ref)->get();
         $this->assertCount(2, $txns);
 
-        $inTx = $txns->firstWhere('type', 'in');
-        $outTx = $txns->firstWhere('type', 'out');
+        // CashTransaction.type is cast to TransactionType enum — firstWhere
+        // uses strict comparison, so the raw string 'in'/'out' never matches
+        // the enum object. Use the enum constants.
+        $inTx = $txns->firstWhere('type', TransactionType::IN);
+        $outTx = $txns->firstWhere('type', TransactionType::OUT);
 
+        // Both currency and related_currency on CashTransaction are cast to
+        // the Currency enum. Compare on ->value so the assertions are stable
+        // across the cast.
         $this->assertEquals(100, $inTx->amount);
-        $this->assertEquals('USD', $inTx->currency);
-        $this->assertEquals('UZS', $inTx->related_currency);
+        $this->assertSame('USD', $inTx->currency->value);
+        $this->assertSame('UZS', $inTx->related_currency->value);
         $this->assertEquals(1280000, $inTx->related_amount);
 
         $this->assertEquals(1280000, $outTx->amount);
-        $this->assertEquals('UZS', $outTx->currency);
-        $this->assertEquals('USD', $outTx->related_currency);
+        $this->assertSame('UZS', $outTx->currency->value);
+        $this->assertSame('USD', $outTx->related_currency->value);
         $this->assertEquals(100, $outTx->related_amount);
     }
 

@@ -61,12 +61,13 @@ class CashierExpenseServiceTest extends TestCase
         $this->assertEquals(50000, $expense->amount);
         $this->assertEquals('Office supplies', $expense->description);
 
-        // Linked out-transaction must exist
+        // Linked out-transaction must exist. type/category are cast to
+        // enums; compare on ->value so the test survives the cast.
         $tx = CashTransaction::where('cashier_shift_id', $shift->id)->first();
         $this->assertNotNull($tx);
-        $this->assertEquals('out', $tx->type);
+        $this->assertSame('out', $tx->type->value);
         $this->assertEquals(50000, $tx->amount);
-        $this->assertEquals('expense', $tx->category);
+        $this->assertSame('expense', $tx->category->value);
     }
 
     public function test_rejects_expense_on_closed_shift(): void

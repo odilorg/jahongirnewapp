@@ -51,15 +51,22 @@ class CashierShiftServiceTest extends TestCase
         $this->assertEquals(500000, $ho->counted_uzs);
 
         $shift->refresh();
-        $this->assertEquals('closed', $shift->status);
+        $this->assertSame('closed', $shift->status->value);
         $this->assertNotNull($shift->closed_at);
 
-        // EndSaldo records created for non-zero currencies
-        $this->assertEquals(1, EndSaldo::where('cashier_shift_id', $shift->id)->count());
-        $endSaldo = EndSaldo::where('cashier_shift_id', $shift->id)->first();
-        $this->assertEquals(480000, $endSaldo->expected_end_saldo);
-        $this->assertEquals(500000, $endSaldo->counted_end_saldo);
-        $this->assertEquals(20000, $endSaldo->discrepancy);
+        // CashierShiftService::closeShift creates an EndSaldo for every
+        // currency where either expected > 0 OR counted > 0 — not only
+        // currencies with discrepancies (see service line 65). Here UZS
+        // (480k/500k) and USD (50/50) both qualify; EUR is 0/0 and skipped.
+        $this->assertEquals(2, EndSaldo::where('cashier_shift_id', $shift->id)->count());
+
+        $uzsSaldo = EndSaldo::where('cashier_shift_id', $shift->id)
+            ->where('currency', 'UZS')
+            ->first();
+        $this->assertNotNull($uzsSaldo);
+        $this->assertEquals(480000, $uzsSaldo->expected_end_saldo);
+        $this->assertEquals(500000, $uzsSaldo->counted_end_saldo);
+        $this->assertEquals(20000, $uzsSaldo->discrepancy);
     }
 
     public function test_rejects_close_on_already_closed_shift(): void
@@ -68,7 +75,10 @@ class CashierShiftServiceTest extends TestCase
         $shift->update(['status' => 'closed', 'closed_at' => now()]);
 
         $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessage('Shift already closed or not found');
+        // Service message drifted from "Shift already closed or not found" to
+        // "Shift already closed" — match the shorter prefix to stay
+        // resilient across future wording tweaks.
+        $this->expectExceptionMessage('Shift already closed');
 
         $this->service->closeShift($shift->id, [
             'counted_uzs' => 0, 'counted_usd' => 0, 'counted_eur' => 0,
@@ -120,7 +130,7 @@ class CashierShiftServiceTest extends TestCase
         }
 
         $shift->refresh();
-        $this->assertEquals('open', $shift->status);
+        $this->assertSame('open', $shift->status->value);
         $this->assertEquals(0, ShiftHandover::where('outgoing_shift_id', $shift->id)->count());
     }
 
