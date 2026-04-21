@@ -123,7 +123,7 @@ class CloseShift extends ViewRecord
                             ->success()
                             ->send();
 
-                        return redirect()->route('filament.admin.money.resources.cashier-shifts.index');
+                        return redirect()->route('filament.admin.resources.cashier-shifts.index');
                     } catch (\Throwable $e) {
                         Notification::make()
                             ->title('Error Closing Shift')

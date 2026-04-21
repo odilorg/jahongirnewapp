@@ -29,7 +29,7 @@ class CreateCashierShift extends CreateRecord
                 ->persistent()
                 ->send();
                 
-            $this->redirect(route('filament.admin.money.resources.cashier-shifts.view', ['record' => $existingShift->id]));
+            $this->redirect(route('filament.admin.resources.cashier-shifts.view', ['record' => $existingShift->id]));
             return;
         }
         

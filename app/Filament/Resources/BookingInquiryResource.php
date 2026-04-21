@@ -45,7 +45,7 @@ class BookingInquiryResource extends Resource
 
     protected static ?string $navigationIcon  = 'heroicon-o-inbox-arrow-down';
     protected static ?string $navigationLabel = 'Bookings';
-    protected static ?string $navigationGroup = 'Leads';
+    protected static ?string $navigationGroup = 'Tour Operations';
     protected static ?int    $navigationSort  = 10;
     protected static ?string $recordTitleAttribute = 'reference';
 

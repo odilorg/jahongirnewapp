@@ -11,7 +11,7 @@ class GroupMatches extends Page
 {
     protected static ?string $navigationIcon  = 'heroicon-o-user-group';
     protected static ?string $navigationLabel = 'Group Matches';
-    protected static ?string $navigationGroup = 'Operations';
+    protected static ?string $navigationGroup = 'Tour Operations';
     protected static ?int    $navigationSort  = 30;
 
     protected static string $view = 'filament.pages.group-matches';
