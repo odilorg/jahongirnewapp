@@ -60,17 +60,19 @@ class AdminPanelProvider extends PanelProvider
             ->plugins([
                 FilamentShieldPlugin::make(),
             ])
-            // Phase 17 — logical grouping. Order matters: visible top → bottom.
-            // Core daily actions (Operations/Money/Suppliers) stay expanded;
-            // low-frequency groups (Catalog/Feedback) start collapsed.
-            // Filament rule: group-level icons conflict with item-level icons.
-            // Items already have icons, so groups stay icon-less — just order + collapsed state.
+            // Sidebar order (top → bottom). Tour Calendar is top-level (no
+            // group) as it's the highest-traffic surface. Groups follow
+            // operator workflow: Leads → Operations → Suppliers (cluster)
+            // → Money (cluster) → reference/config (collapsed).
             ->navigationGroups([
+                NavigationGroup::make('Leads'),
                 NavigationGroup::make('Operations'),
-                NavigationGroup::make('Money'),
-                NavigationGroup::make('Suppliers'),
+                NavigationGroup::make('Hotel Management')->collapsed(),
                 NavigationGroup::make('Catalog')->collapsed(),
                 NavigationGroup::make('Feedback')->collapsed(),
+                NavigationGroup::make('Telegram')->collapsed(),
+                NavigationGroup::make('Users Management')->collapsed(),
+                NavigationGroup::make('Settings')->collapsed(),
             ])
             ->authMiddleware([
                 Authenticate::class,

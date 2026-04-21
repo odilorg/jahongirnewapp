@@ -21,7 +21,7 @@ class SupplierPaymentResource extends Resource
 
     protected static ?string $navigationIcon  = 'heroicon-o-banknotes';
     protected static ?string $navigationLabel = 'Supplier Payments';
-    protected static ?string $navigationGroup = 'Money';
+    protected static ?string $cluster = \App\Filament\Clusters\Money::class;
     protected static ?int    $navigationSort  = 10;
 
     public static function form(Form $form): Form

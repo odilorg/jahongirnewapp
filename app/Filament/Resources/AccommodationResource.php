@@ -27,7 +27,7 @@ class AccommodationResource extends Resource
 
     protected static ?string $navigationIcon  = 'heroicon-o-home-modern';
     protected static ?string $navigationLabel = 'Accommodations';
-    protected static ?string $navigationGroup = 'Suppliers';
+    protected static ?string $cluster         = \App\Filament\Clusters\Suppliers::class;
     protected static ?int    $navigationSort  = 30;
 
     public static function form(Form $form): Form

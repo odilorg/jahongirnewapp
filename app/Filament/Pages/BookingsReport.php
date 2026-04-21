@@ -19,7 +19,7 @@ class BookingsReport extends Page implements Tables\Contracts\HasTable
     protected static bool $shouldRegisterNavigation = false;
 
     protected static ?string $navigationIcon = 'heroicon-o-chart-bar';
-    protected static ?string $navigationGroup = 'Reports';
+    protected static ?string $cluster = \App\Filament\Clusters\Money::class;
     protected static ?string $title = 'Bookings Report';
 
     // ───────────────────────────────────────────────

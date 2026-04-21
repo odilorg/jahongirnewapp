@@ -14,7 +14,7 @@ class ShiftHandoverResource extends Resource
 {
     protected static ?string $model = ShiftHandover::class;
     protected static ?string $navigationIcon = 'heroicon-o-arrow-path';
-    protected static ?string $navigationGroup = 'Cash Management';
+    protected static ?string $cluster = \App\Filament\Clusters\Money::class;
     protected static ?int $navigationSort = 5;
     protected static ?string $navigationLabel = 'Shift Handovers';
     protected static ?string $modelLabel = 'Shift Handover';
