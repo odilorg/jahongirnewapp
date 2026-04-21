@@ -21,7 +21,9 @@ class ContractResource extends Resource
 {
     protected static ?string $model = Contract::class;
 
-    protected static ?string $navigationIcon = 'heroicon-o-rectangle-stack';
+    protected static ?string $navigationIcon = 'heroicon-o-document-text';
+    protected static ?string $cluster        = \App\Filament\Clusters\Money::class;
+    protected static ?int    $navigationSort = 70;
 
     public static function form(Form $form): Form
     {

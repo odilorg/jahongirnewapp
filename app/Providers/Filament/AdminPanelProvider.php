@@ -36,6 +36,7 @@ class AdminPanelProvider extends PanelProvider
             ->discoverResources(in: app_path('Filament/Resources'), for: 'App\\Filament\\Resources')
             ->discoverPages(in: app_path('Filament/Pages'), for: 'App\\Filament\\Pages')
             ->discoverClusters(in: app_path('Filament/Clusters'), for: 'App\\Filament\\Clusters')
+            ->globalSearch(false)
             ->pages([
                 Pages\Dashboard::class,
             ])
@@ -71,6 +72,7 @@ class AdminPanelProvider extends PanelProvider
                 NavigationGroup::make('Hotel Management')->collapsed(),
                 NavigationGroup::make('Catalog')->collapsed(),
                 NavigationGroup::make('Feedback')->collapsed(),
+                NavigationGroup::make('Admin')->collapsed(),
                 NavigationGroup::make('Telegram')->collapsed(),
                 NavigationGroup::make('Users Management')->collapsed(),
                 NavigationGroup::make('Settings')->collapsed(),
