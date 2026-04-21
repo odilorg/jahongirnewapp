@@ -75,9 +75,13 @@ final class BeginningSaldoUniquenessTest extends TestCase
         $this->assertSame(2, BeginningSaldo::whereIn('cashier_shift_id', [$shiftA->id, $shiftB->id])->count());
     }
 
+    private int $drawerSeq = 0;
+
     private function openShift(): CashierShift
     {
-        $drawer = CashDrawer::create(['name' => 'Test drawer', 'is_active' => true]);
+        // cash_drawers.name is UNIQUE, so give each drawer a distinct name.
+        $this->drawerSeq++;
+        $drawer = CashDrawer::create(['name' => "Test drawer #{$this->drawerSeq}", 'is_active' => true]);
         $user = User::factory()->create();
 
         return CashierShift::create([
