@@ -177,12 +177,14 @@ class CashierBotController extends Controller
 
     protected function showMainMenu(int $chatId, $session)
     {
-        $session->update(['state' => 'main_menu', 'data' => null]);
-        $shift = $this->getShift($session->user_id);
-        $st = $shift ? "Смена открыта" : "Смена закрыта";
-        $bal = $shift ? "\nБаланс: " . $this->fmtBal($this->getBal($shift)) : '';
-        $this->send($chatId, "Кассир-бот | {$st}{$bal}");
-        $this->send($chatId, "Выберите действие:", $this->menuKb($shift, $session->user_id), 'inline');
+        // Delegates to ShowMainMenuAction which owns the status-line +
+        // keyboard-building logic (including menuKb() which used to live
+        // inline below). Kept as a delegator because ~18 internal call
+        // sites still invoke $this->showMainMenu(...) directly.
+        foreach (app(\App\Actions\CashierBot\Handlers\ShowMainMenuAction::class)->execute($session) as $reply) {
+            $this->send($chatId, $reply['text'], $reply['kb'] ?? null, $reply['type'] ?? 'reply');
+        }
+
         return response('OK');
     }
 
@@ -1559,22 +1561,8 @@ class CashierBotController extends Controller
         return $this->balance->fmtBal($b);
     }
 
-    protected function menuKb(?CashierShift $shift, ?int $userId = null): array
-    {
-        if (!$shift) return ['inline_keyboard' => [[['text' => 'Открыть смену', 'callback_data' => 'open_shift']], [['text' => '📖 Инструкция', 'callback_data' => 'guide']]]];
-        $isAdmin = $userId && User::find($userId)?->hasAnyRole(['super_admin', 'admin', 'manager']);
-        $kb = [
-            [['text' => '💵 Оплата', 'callback_data' => 'payment'], ['text' => '📤 Расход', 'callback_data' => 'expense']],
-            [['text' => '🔄 Обмен', 'callback_data' => 'exchange'], ['text' => '💰 Баланс', 'callback_data' => 'balance']],
-            [['text' => '📋 Мои операции', 'callback_data' => 'my_txns']],
-        ];
-        if ($isAdmin) {
-            $kb[] = [['text' => '➕ Внести', 'callback_data' => 'cash_in']];
-        }
-        $kb[] = [['text' => '🔒 Закрыть смену', 'callback_data' => 'close_shift'], ['text' => '📖 Инструкция', 'callback_data' => 'guide']];
-        return ['inline_keyboard' => $kb];
-    }
-
+    // menuKb was moved into ShowMainMenuAction::buildKeyboard. It was
+    // only used by showMainMenu, so the Action owns it now.
 
     /**
      * Parse amount and currency from flexible user input.
