@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Filament\Clusters;
 
 use Filament\Clusters\Cluster;
-use Filament\Pages\Enums\SubNavigationPosition;
+use Filament\Pages\SubNavigationPosition;
 
 /**
  * Sidebar cluster grouping supplier-management resources (drivers,
