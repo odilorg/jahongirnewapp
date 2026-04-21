@@ -27,9 +27,10 @@ class ExpenseResource extends Resource
 {
     protected static ?string $model = Expense::class;
 
-    protected static ?string $navigationIcon = 'heroicon-o-banknotes';
-    protected static ?string $navigationGroup = 'Tour Operations';
-    protected static ?int    $navigationSort = 50;
+    protected static ?string $navigationIcon  = 'heroicon-o-banknotes';
+    // Top-level (no group) directly below Dashboard, above Tour Calendar.
+    protected static ?string $navigationGroup = null;
+    protected static ?int    $navigationSort  = 0;
 
     public static function form(Form $form): Form
     {
