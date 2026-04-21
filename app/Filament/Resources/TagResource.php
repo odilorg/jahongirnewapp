@@ -27,6 +27,13 @@ class TagResource extends Resource
     protected static ?string $navigationGroup = 'Tour Operations';
     protected static ?int    $navigationSort  = 90;
 
+    // Hidden from sidebar — table is empty + no UI consumer yet.
+    // Reachable at /admin/tags by URL when needed.
+    public static function shouldRegisterNavigation(): bool
+    {
+        return false;
+    }
+
     public static function form(Form $form): Form
     {
         return $form
