@@ -147,7 +147,11 @@ final class BookingListFormatter
             $countHint = $rowCount > count($rows) ? " ({$rowCount})" : '';
             $out .= "{$heading}{$countHint}\n";
             foreach ($rows as $b) {
-                $out .= '  ' . $this->renderRow($b, $rooms, $mixedProperty) . "\n";
+                // renderRow now returns "{base}\n{snippet?}\n…" — indent only
+                // the first (base) line so snippet lines keep their deeper
+                // indent provided by renderSnippets().
+                $rendered = $this->renderRow($b, $rooms, $mixedProperty);
+                $out .= '  ' . $rendered;
             }
             $out .= "\n";
         }
@@ -162,14 +166,20 @@ final class BookingListFormatter
     {
         $out = '';
         foreach ($bookings as $b) {
-            $out .= $this->renderRow($b, $rooms, $mixedProperty) . "\n";
+            $out .= $this->renderRow($b, $rooms, $mixedProperty);
         }
         return $out;
     }
 
     /**
-     * One booking line. Compact so 30 rows fit in one Telegram message
-     * even for long guest names and group bookings.
+     * Render one booking "unit" — the compact base row plus any optional
+     * snippet lines (💬 guest comments, 📝 operator notes) on the next
+     * lines. Snippet lines don't count toward max_rows per Phase 10.1
+     * rule 5 — they render under the row they belong to.
+     *
+     * For collapsed group rows, snippets come from the master (first)
+     * member only — locked rule to keep output predictable without
+     * concatenating mismatched sibling comments.
      */
     private function renderRow(array $b, Collection $rooms, bool $mixedProperty): string
     {
@@ -187,7 +197,66 @@ final class BookingListFormatter
         $nightsLabel  = $nights >= 2 ? " · {$nights}n" : '';
         $statusLabel  = $this->statusLabel((string) ($b['status'] ?? ''));
 
-        return "#{$id} · {$guest} · {$propAndUnits}{$nightsLabel}{$statusLabel}";
+        $out = "#{$id} · {$guest} · {$propAndUnits}{$nightsLabel}{$statusLabel}\n";
+        $out .= $this->renderSnippets($b);
+
+        return $out;
+    }
+
+    /**
+     * Optional indented snippet lines for comments + notes. Honors
+     * per-type enable flags; snippets that sanitize down to empty are
+     * skipped entirely.
+     */
+    private function renderSnippets(array $b): string
+    {
+        $out = '';
+        $cap = max(5, (int) config('hotel_booking_bot.view.snippet_max_chars', 40));
+
+        if ((bool) config('hotel_booking_bot.view.show_comments', true)) {
+            $c = $this->sanitizeSnippet((string) ($b['comments'] ?? ''));
+            if ($c !== '') {
+                $out .= '      💬 ' . $this->clipSnippet($c, $cap) . "\n";
+            }
+        }
+
+        if ((bool) config('hotel_booking_bot.view.show_notes', true)) {
+            $n = $this->sanitizeSnippet((string) ($b['notes'] ?? ''));
+            if ($n !== '') {
+                $out .= '      📝 ' . $this->clipSnippet($n, $cap) . "\n";
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * Locked sanitation rule (Phase 10.1):
+     *   - trim leading/trailing whitespace
+     *   - replace newlines (\r\n / \n / \r) with " / "
+     *   - collapse any run of whitespace into a single space
+     * Returns empty string when nothing useful remains.
+     */
+    private function sanitizeSnippet(string $raw): string
+    {
+        $s = trim($raw);
+        if ($s === '') {
+            return '';
+        }
+        $s = preg_replace('/\r\n|\r|\n/u', ' / ', $s) ?? $s;
+        $s = preg_replace('/\s+/u', ' ', $s) ?? $s;
+        // Collapse consecutive "/" separators that arise from blank lines
+        // in the source text (e.g. "a\n\n\nb" → "a / / / b" → "a / b").
+        $s = preg_replace('#(?:\s*/\s*){2,}#u', ' / ', $s) ?? $s;
+        return trim($s, " \t/");
+    }
+
+    private function clipSnippet(string $s, int $cap): string
+    {
+        if (mb_strlen($s) <= $cap) {
+            return $s;
+        }
+        return mb_substr($s, 0, $cap - 1) . '…';
     }
 
     /**
