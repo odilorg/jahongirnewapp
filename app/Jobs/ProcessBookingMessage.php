@@ -9,6 +9,7 @@ use App\Actions\BookingBot\Handlers\HandleCallbackQueryAction;
 use App\Actions\BookingBot\Handlers\HandlePhoneContactAction;
 use App\Actions\BookingBot\Handlers\ModifyBookingFromMessageAction;
 use App\Actions\BookingBot\Handlers\ViewBookingsFromMessageAction;
+use App\Services\BookingBot\IntentParseException;
 use App\Services\BookingIntentParser;
 use App\Services\StaffAuthorizationService;
 use App\Services\TelegramBotService;
@@ -113,6 +114,37 @@ class ProcessBookingMessage implements ShouldQueue
                 $telegram->sendMessage($chatId, $guestForward);
             }
 
+        } catch (IntentParseException $e) {
+            // Intent parser (local or LLM) couldn't parse the message.
+            // Do NOT leak raw cURL / JSON errors to the operator — ship
+            // a menu-hint reply instead. The sanitized exception message
+            // is logged for debugging only.
+            //
+            // Operator inputs carry PII (guest names, phone numbers,
+            // emails). Log length + prefix by default; opt in to full
+            // payload via LOG_BOOKING_BOT_DEBUG_PAYLOADS=true.
+            $text = $text ?? '';
+            $logPayload = [
+                'error'          => $e->getMessage(),
+                'message_len'    => mb_strlen($text),
+                'message_prefix' => mb_substr($text, 0, 40),
+            ];
+            if ((bool) config('logging.booking_bot.debug_payloads', false)) {
+                $logPayload['message'] = $text;
+                $logPayload['update']  = $this->update;
+            }
+            Log::warning('Booking Bot Intent Parse Failed', $logPayload);
+
+            if (isset($chatId) && isset($telegram)) {
+                $telegram->sendMessage(
+                    $chatId,
+                    "I couldn't parse that. Try one of:\n" .
+                    "• bookings today\n" .
+                    "• arrivals today\n" .
+                    "• cancel 12345\n" .
+                    "• or tap a menu button with /menu"
+                );
+            }
         } catch (\Exception $e) {
             Log::error('Process Booking Message Error', [
                 'error' => $e->getMessage(),
