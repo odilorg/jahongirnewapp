@@ -63,10 +63,11 @@ final class ViewBookingsFromMessageAction
             $bookings = $result['data'] ?? [];
 
             return $this->formatter->format(
-                bookings: is_array($bookings) ? $bookings : [],
-                title:    $plan['title'],
-                rooms:    $rooms,
-                mode:     $plan['mode'],
+                bookings:      is_array($bookings) ? $bookings : [],
+                title:         $plan['title'],
+                rooms:         $rooms,
+                mode:          $plan['mode'],
+                referenceDate: $plan['referenceDate'] ?? null,
             );
 
         } catch (\Exception $e) {
@@ -85,7 +86,7 @@ final class ViewBookingsFromMessageAction
      * {filters, title, mode} or a string (operator-facing early response,
      * e.g. range-cap rejection).
      *
-     * @return array{filters: array<string, mixed>, title: string, mode: string}|string
+     * @return array{filters: array<string, mixed>, title: string, mode: string, referenceDate?: string}|string
      */
     private function buildQueryPlan(array $parsed, $rooms): array|string
     {
@@ -199,6 +200,19 @@ final class ViewBookingsFromMessageAction
                 if ($from !== null && $to !== null) {
                     $filters['arrivalTo']     = $to;
                     $filters['departureFrom'] = $from;
+
+                    // Phase 10.2: single-day stays-overlap → sectioned view
+                    // (Arriving / In-house / Departing). Multi-day ranges
+                    // keep Phase 9.2 date-grouping.
+                    if ($from === $to) {
+                        return [
+                            'filters'       => $filters,
+                            'title'         => 'Bookings ' . $this->rangeTitle($from, $to),
+                            'mode'          => BookingListFormatter::MODE_SECTIONED,
+                            'referenceDate' => $from,
+                        ];
+                    }
+
                     return [
                         'filters' => $filters,
                         'title'   => 'Bookings ' . $this->rangeTitle($from, $to),

@@ -285,6 +285,136 @@ final class BookingListFormatterTest extends TestCase
         $this->assertStringContainsString('📝 Staff note', $out);
     }
 
+    // ─── Phase 10.2 — sectioned view for single-day queries ───────────────
+
+    public function test_sectioned_splits_into_arriving_inhouse_departing(): void
+    {
+        $ref = '2026-04-22';
+
+        $bookings = [
+            // Arriving today (a == ref)
+            $this->booking(101, $ref, '2026-04-25', firstName: 'Arr'),
+            // In-house (a < ref < d)
+            $this->booking(201, '2026-04-19', '2026-04-25', firstName: 'InH'),
+            // Departing today (d == ref)
+            $this->booking(301, '2026-04-19', $ref, firstName: 'Dep'),
+        ];
+
+        $out = $this->fmt->format($bookings, 'Bookings 22 Apr 2026', $this->rooms(), BookingListFormatter::MODE_SECTIONED, $ref);
+
+        $this->assertStringContainsString('🛬 Arriving', $out);
+        $this->assertStringContainsString('🏨 In-house', $out);
+        $this->assertStringContainsString('🛫 Departing', $out);
+
+        // Each booking lands in exactly one section (ids must appear).
+        $this->assertStringContainsString('#101', $out);
+        $this->assertStringContainsString('#201', $out);
+        $this->assertStringContainsString('#301', $out);
+
+        // Ordering: Arriving block before In-house before Departing.
+        $this->assertLessThan(strpos($out, '🏨'), strpos($out, '🛬'));
+        $this->assertLessThan(strpos($out, '🛫'), strpos($out, '🏨'));
+    }
+
+    public function test_sectioned_no_bucket_overlap(): void
+    {
+        $ref = '2026-04-22';
+        $bookings = [
+            $this->booking(101, $ref, '2026-04-25', firstName: 'X'),
+            $this->booking(301, '2026-04-20', $ref, firstName: 'Y'),
+        ];
+        $out = $this->fmt->format($bookings, 'Bookings', $this->rooms(), BookingListFormatter::MODE_SECTIONED, $ref);
+
+        // #101 appears under arriving heading, NOT under departing heading.
+        $posA = strpos($out, '🛬 Arriving');
+        $posD = strpos($out, '🛫 Departing');
+        $pos101 = strpos($out, '#101');
+        $pos301 = strpos($out, '#301');
+
+        $this->assertNotFalse($posA);
+        $this->assertNotFalse($posD);
+        $this->assertGreaterThan($posA, $pos101);
+        $this->assertLessThan($posD, $pos101);        // #101 before Departing heading
+        $this->assertGreaterThan($posD, $pos301);     // #301 after Departing heading
+    }
+
+    public function test_sectioned_skips_empty_sections(): void
+    {
+        $ref = '2026-04-22';
+        // Only arrivals — no in-house, no departures.
+        $bookings = [
+            $this->booking(101, $ref, '2026-04-25', firstName: 'A'),
+            $this->booking(102, $ref, '2026-04-24', firstName: 'B'),
+        ];
+        $out = $this->fmt->format($bookings, 'Bookings', $this->rooms(), BookingListFormatter::MODE_SECTIONED, $ref);
+
+        $this->assertStringContainsString('🛬 Arriving', $out);
+        $this->assertStringNotContainsString('🏨 In-house', $out);
+        $this->assertStringNotContainsString('🛫 Departing', $out);
+    }
+
+    public function test_sectioned_heading_uses_today_suffix_for_todays_date(): void
+    {
+        $today = date('Y-m-d');
+        $bookings = [$this->booking(1, $today, date('Y-m-d', strtotime('+2 days')))];
+        $out = $this->fmt->format($bookings, 'Bookings today', $this->rooms(), BookingListFormatter::MODE_SECTIONED, $today);
+
+        $this->assertStringContainsString('🛬 Arriving today', $out);
+    }
+
+    public function test_sectioned_heading_uses_date_suffix_for_non_today_date(): void
+    {
+        $bookings = [$this->booking(1, '2030-05-05', '2030-05-07')];
+        $out = $this->fmt->format($bookings, 'Bookings 5 May 2030', $this->rooms(), BookingListFormatter::MODE_SECTIONED, '2030-05-05');
+
+        $this->assertStringContainsString('🛬 Arriving 5 May', $out);
+        $this->assertStringNotContainsString('today', $out);
+    }
+
+    public function test_sectioned_arriving_sorted_by_arrival_ascending(): void
+    {
+        $ref = '2026-04-22';
+        $bookings = [
+            // Same arrival date, different ids — sort falls back stably.
+            $this->booking(102, $ref, '2026-04-25', firstName: 'B'),
+            $this->booking(101, $ref, '2026-04-24', firstName: 'A'),
+        ];
+        $out = $this->fmt->format($bookings, 'Bookings', $this->rooms(), BookingListFormatter::MODE_SECTIONED, $ref);
+        $this->assertNotFalse(strpos($out, '🛬'));
+    }
+
+    public function test_sectioned_inhouse_sorted_by_departure_soonest_first(): void
+    {
+        $ref = '2026-04-22';
+        $bookings = [
+            $this->booking(203, '2026-04-18', '2026-05-01', firstName: 'LeavingLast'),
+            $this->booking(201, '2026-04-19', '2026-04-23', firstName: 'LeavingFirst'),
+            $this->booking(202, '2026-04-20', '2026-04-26', firstName: 'LeavingMid'),
+        ];
+        $out = $this->fmt->format($bookings, 'Bookings', $this->rooms(), BookingListFormatter::MODE_SECTIONED, $ref);
+
+        $pos201 = strpos($out, '#201');
+        $pos202 = strpos($out, '#202');
+        $pos203 = strpos($out, '#203');
+        $this->assertLessThan($pos202, $pos201);
+        $this->assertLessThan($pos203, $pos202);
+    }
+
+    public function test_sectioned_collapse_and_snippets_preserved_inside_sections(): void
+    {
+        $ref = '2026-04-22';
+        // Two siblings same-guest same-dates in arriving section.
+        $a1 = $this->booking(101, $ref, '2026-04-25', firstName: 'Grp', lastName: 'X', roomId: '555');
+        $a2 = $this->booking(102, $ref, '2026-04-25', firstName: 'Grp', lastName: 'X', roomId: '556');
+        $a1['comments'] = 'Non Smoking Requested';
+
+        $out = $this->fmt->format([$a1, $a2], 'Bookings', $this->rooms(), BookingListFormatter::MODE_SECTIONED, $ref);
+
+        $this->assertStringContainsString('×2', $out);
+        $this->assertStringContainsString('💬 Non Smoking Requested', $out);
+        $this->assertStringNotContainsString('#102', $out);
+    }
+
     public function test_collapsed_group_uses_master_only_snippet(): void
     {
         // Three siblings, each with different comments. Only master's
