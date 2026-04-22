@@ -165,33 +165,41 @@ final class LogSanitizer
         return $parts[0] ?? $trimmed;
     }
 
+    /**
+     * Truncate a free-text value to at most $max characters, with PII
+     * scrubbed BEFORE truncation so that a phone or email sitting in
+     * the first N chars cannot leak into logs.
+     *
+     * Phase 10.7.1: scrub-before-truncate is now the default for every
+     * free-text path. Previously `truncate()` was a raw substring cut
+     * and only `commandPreview()` scrubbed — which meant nested keys
+     * (e.g. webhook `data.message.text`) leaked raw phone digits when
+     * the phone fell inside the 60-char head. One helper, one safe
+     * behavior, no unsafe-by-default path left in the codebase.
+     *
+     *   "book room 12 tel +998901234567 email alice@x.com"
+     *   → "book room 12 tel +*** email ***@***"
+     */
     public static function truncate(?string $text, int $max = self::FREE_TEXT_MAX): ?string
     {
         if ($text === null) {
             return null;
         }
-        if (mb_strlen($text) <= $max) {
-            return $text;
+        $scrubbed = self::scrubEmbeddedPii($text);
+        if (mb_strlen($scrubbed) <= $max) {
+            return $scrubbed;
         }
-        return mb_substr($text, 0, $max - 1) . '…';
+        return mb_substr($scrubbed, 0, $max - 1) . '…';
     }
 
     /**
-     * Produce a bounded preview of a user-supplied command string with
-     * embedded PII scrubbed inline. Used in error paths where we want
-     * operator-debuggable context ("what did they type?") without
-     * carrying phones / emails straight into the log.
-     *
-     *   "book room 12 tel +998901234567 email alice@x.com"  (60 char max)
-     *   → "book room 12 tel +***REDACTED*** email ***@***"
+     * Bounded 40-char preview of a user-supplied command string.
+     * Thin alias over truncate() kept for readability at error-path
+     * call sites ("what did the operator type?").
      */
     public static function commandPreview(?string $text, int $max = 40): ?string
     {
-        if ($text === null) {
-            return null;
-        }
-        $scrubbed = self::scrubEmbeddedPii($text);
-        return self::truncate($scrubbed, $max);
+        return self::truncate($text, $max);
     }
 
     private static function scrubEmbeddedPii(string $text): string

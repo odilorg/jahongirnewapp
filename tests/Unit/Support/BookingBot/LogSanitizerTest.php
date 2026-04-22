@@ -110,6 +110,48 @@ final class LogSanitizerTest extends TestCase
         $this->assertNull(LogSanitizer::truncate(null));
     }
 
+    // Phase 10.7.1 — scrub BEFORE truncate. The Booking Bot Webhook
+    // Received log was leaking operator phones that sat in the first
+    // 60 chars of message.text because truncate() was a raw substring.
+    // The fix: truncate() now scrubs phone/email patterns before
+    // applying the length cap. There is no remaining code path that
+    // truncates raw free text.
+    public function test_truncate_scrubs_phone_and_email_before_truncation(): void
+    {
+        $input = 'book room 12 tel +998999999999 email test@gmail.com';
+        $out = (string) LogSanitizer::truncate($input, 100);
+
+        $this->assertStringNotContainsString('+998999999999', $out);
+        $this->assertStringNotContainsString('test@gmail.com', $out);
+        $this->assertStringContainsString('+***', $out);
+        $this->assertStringContainsString('***@***', $out);
+        // The non-PII prefix must still be visible for operator debugging.
+        $this->assertStringContainsString('book room 12', $out);
+    }
+
+    public function test_truncate_scrubs_phone_inside_default_60_char_head(): void
+    {
+        // Reproducer for the exact gap found in live verification:
+        // phone sits at offset 46..58 of a 59-char string, well inside
+        // the default 60-char truncate boundary.
+        $input = 'book room 12 at jahongir hotel under TEST tel +998999999999';
+        $out = (string) LogSanitizer::truncate($input);
+
+        $this->assertStringNotContainsString('+998999999999', $out);
+        $this->assertStringContainsString('+***', $out);
+    }
+
+    public function test_truncate_preserves_scrub_when_also_truncating(): void
+    {
+        $input = 'prefix tel +998999999999 and email foo@bar.com then long tail goes past the cap here';
+        $out = (string) LogSanitizer::truncate($input, 40);
+
+        $this->assertStringNotContainsString('+998999999999', $out);
+        $this->assertStringNotContainsString('foo@bar.com', $out);
+        // Truncated output is still bounded.
+        $this->assertLessThanOrEqual(40, mb_strlen($out));
+    }
+
     // ── commandPreview() ──────────────────────────────────────────────
 
     public function test_command_preview_scrubs_embedded_phone(): void
@@ -287,9 +329,18 @@ final class LogSanitizerTest extends TestCase
                 ],
             ],
         ]);
-        $text = $out['data']['message']['text'];
-        $this->assertSame(60, mb_strlen((string) $text));
-        $this->assertStringEndsWith('…', (string) $text);
+        $text = (string) $out['data']['message']['text'];
+
+        // Phase 10.7.1 contract: raw phone/email MUST be scrubbed in the
+        // webhook text field, regardless of whether the value is also
+        // truncated. (Pre-10.7.1 this test asserted exact 60-char
+        // truncation of the raw string — which was the bug.)
+        $this->assertStringNotContainsString('+998901234567', $text);
+        $this->assertStringNotContainsString('alice@example.com', $text);
+        $this->assertStringContainsString('+***', $text);
+        $this->assertStringContainsString('***@***', $text);
+        $this->assertLessThanOrEqual(60, mb_strlen($text));
+
         $this->assertSame('Operator', $out['data']['message']['from']['firstName']);
         $this->assertSame('op', $out['data']['message']['from']['username']);
     }
