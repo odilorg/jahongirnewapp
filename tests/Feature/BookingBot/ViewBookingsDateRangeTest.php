@@ -203,7 +203,8 @@ final class ViewBookingsDateRangeTest extends TestCase
             'dates'  => ['check_in' => '2026-05-05', 'check_out' => '2026-05-08'],
         ]);
 
-        $this->assertStringContainsString('Bookings 5 May → 8 May 2026 (2 found)', $reply);
+        // Phase 9.2 compact header: "{title} · {count}".
+        $this->assertStringContainsString('Bookings 5 May → 8 May 2026 · 2', $reply);
         $this->assertLessThan(strpos($reply, '#2'), strpos($reply, '#1')); // sorted asc
     }
 
