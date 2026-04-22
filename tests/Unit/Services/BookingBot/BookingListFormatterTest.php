@@ -66,12 +66,13 @@ final class BookingListFormatterTest extends TestCase
         ];
         $out = $this->fmt->format($bookings, 'Bookings', $this->rooms(), BookingListFormatter::MODE_STAYS);
 
-        // Name is abbreviated to O.Insight; exactly one row should appear.
-        $this->assertSame(1, substr_count($out, 'O.Insight'), 'only one collapsed row for the group');
+        // Phase 10.3 — "Orient Insight" fits in 22 chars so name stays
+        // full (no initials). Exactly one collapsed row renders.
+        $this->assertSame(1, substr_count($out, 'Orient Insight'), 'only one collapsed row for the group');
         $this->assertStringContainsString('×4', $out);
         $this->assertStringContainsString('#101', $out);
-        // All four units present in the collapsed row.
-        $this->assertStringContainsString('12,14,10,5', $out);
+        // All four units present in the collapsed row, "#" prefix applied.
+        $this->assertStringContainsString('#12,14,10,5', $out);
         $this->assertStringNotContainsString('#102', $out);
         $this->assertStringNotContainsString('#103', $out);
         $this->assertMatchesRegularExpression('/Mon 20 Apr \(4\)/', $out);
@@ -90,19 +91,22 @@ final class BookingListFormatterTest extends TestCase
         $this->assertStringNotContainsString('×2', $out);
     }
 
-    public function test_name_abbreviation_multi_given_name(): void
+    public function test_name_abbreviation_drops_middle_names(): void
     {
+        // Phase 10.3: first + surname only, no initials.
         $bookings = [$this->booking(1, '2026-05-05', '2026-05-07', firstName: 'Jose Miguel Frances', lastName: 'Hierro')];
         $out = $this->fmt->format($bookings, 'Bookings', $this->rooms());
-        $this->assertStringContainsString('J.M.F.Hierro', $out);
-        $this->assertStringNotContainsString('Jose Miguel', $out);
+        $this->assertStringContainsString('Jose Hierro', $out);
+        $this->assertStringNotContainsString('Miguel', $out);
+        $this->assertStringNotContainsString('J.M.F.', $out);
     }
 
-    public function test_name_abbreviation_slash_suffix_trimmed(): void
+    public function test_name_slash_suffix_trimmed_and_case_normalized(): void
     {
         $bookings = [$this->booking(1, '2026-05-05', '2026-05-07', firstName: 'Jacques TURRI', lastName: '/Airport transfer 12 $/ 7,30 am / 19.04.26')];
         $out = $this->fmt->format($bookings, 'Bookings', $this->rooms());
-        $this->assertStringContainsString('J.TURRI /Airport', $out);
+        // ALL-CAPS TURRI → Turri; slash tail preserved as "/Airport".
+        $this->assertStringContainsString('Jacques Turri /Airport', $out);
         $this->assertStringNotContainsString('transfer', $out);
         $this->assertStringNotContainsString('7,30', $out);
     }
@@ -283,6 +287,100 @@ final class BookingListFormatterTest extends TestCase
         $this->assertStringNotContainsString('💬', $out);
         $this->assertStringNotContainsString('Guest request', $out);
         $this->assertStringContainsString('📝 Staff note', $out);
+    }
+
+    // ─── Phase 10.3 — readability pass ─────────────────────────────────────
+
+    public function test_all_caps_name_converts_to_title_case(): void
+    {
+        $bookings = [$this->booking(1, '2026-05-05', '2026-05-07', firstName: 'DAVIDE', lastName: 'BATTISTA')];
+        $out = $this->fmt->format($bookings, 'Bookings', $this->rooms());
+        $this->assertStringContainsString('Davide Battista', $out);
+        $this->assertStringNotContainsString('DAVIDE BATTISTA', $out);
+        $this->assertStringNotContainsString('D.BATTISTA', $out);
+    }
+
+    public function test_name_code_stripping_removes_booking_refs(): void
+    {
+        $bookings = [$this->booking(1, '2026-05-05', '2026-05-07', firstName: 'Orient Insight', lastName: 'ER-04')];
+        $out = $this->fmt->format($bookings, 'Bookings', $this->rooms());
+        // "ER-04" is a booking reference, not a surname.
+        $this->assertStringNotContainsString('ER-04', $out);
+        $this->assertStringContainsString('Orient Insight', $out);
+    }
+
+    public function test_name_code_stripping_removes_rp_code_and_plus_suffix(): void
+    {
+        $bookings = [$this->booking(1, '2026-05-05', '2026-05-07', firstName: 'Marco Polo', lastName: '/MR. NINA LEONTOWICZ rp. 4/100')];
+        $out = $this->fmt->format($bookings, 'Bookings', $this->rooms());
+        // Slash tail reduced, "rp. 4/100" stripped before processing.
+        $this->assertStringNotContainsString('rp.', $out);
+        $this->assertStringNotContainsString('4/100', $out);
+        $this->assertStringContainsString('Marco Polo /MR', $out);
+    }
+
+    public function test_entity_name_in_quotes_preserved_verbatim(): void
+    {
+        $bookings = [$this->booking(1, '2026-05-05', '2026-05-07', firstName: '«MYSILKWAYTRIPS»', lastName: '/GRAILLON Remy Denis Charles')];
+        $out = $this->fmt->format($bookings, 'Bookings', $this->rooms());
+        // Entity preserved (not humanized). The 22-char cap still applies,
+        // so the ALL-CAPS brand stays intact and only the tail gets clipped.
+        $this->assertStringContainsString('«MYSILKWAYTRIPS»', $out);
+        // Tail ("/GRAILLON…") starts with the slash marker — confirms the
+        // slash path fired, even though the ellipsis lands mid-word.
+        $this->assertMatchesRegularExpression('#«MYSILKWAYTRIPS» /G\S+…#u', $out);
+    }
+
+    public function test_person_with_allcaps_surname_is_humanized_not_treated_as_entity(): void
+    {
+        // Regression: "Jacques TURRI" used to trip ALL-CAPS entity path.
+        // Entity rule now requires quotes OR a single bare ALL-CAPS
+        // brand word of ≥ 8 letters. "TURRI" does neither.
+        $bookings = [$this->booking(1, '2026-05-05', '2026-05-07', firstName: 'Jacques', lastName: 'TURRI')];
+        $out = $this->fmt->format($bookings, 'Bookings', $this->rooms());
+        $this->assertStringContainsString('Jacques Turri', $out);
+        $this->assertStringNotContainsString('TURRI', $out);
+    }
+
+    public function test_particle_prefixes_attach_to_surname_given_first(): void
+    {
+        $bookings = [$this->booking(1, '2026-05-05', '2026-05-07', firstName: 'van den Doel', lastName: 'Elsbeth')];
+        $out = $this->fmt->format($bookings, 'Bookings', $this->rooms());
+        // Given name moves to front; particles stay with the surname.
+        $this->assertStringContainsString('Elsbeth van den Doel', $out);
+        $this->assertStringNotContainsString('v.d.D.', $out);
+    }
+
+    public function test_short_normal_name_passed_through_unchanged(): void
+    {
+        $bookings = [$this->booking(1, '2026-05-05', '2026-05-07', firstName: 'Graham', lastName: 'Jones')];
+        $out = $this->fmt->format($bookings, 'Bookings', $this->rooms());
+        $this->assertStringContainsString('Graham Jones', $out);
+        $this->assertStringNotContainsString('G.Jones', $out);
+    }
+
+    public function test_safety_net_uses_initial_plus_surname_when_too_long(): void
+    {
+        // First+Last is >22 chars → fall back to "F.Surname".
+        $bookings = [$this->booking(1, '2026-05-05', '2026-05-07', firstName: 'Bartholomew', lastName: 'Featherstonehaugh')];
+        $out = $this->fmt->format($bookings, 'Bookings', $this->rooms());
+        $this->assertMatchesRegularExpression('/B\.Featherstonehaugh|Bartholomew…/u', $out);
+    }
+
+    public function test_unit_label_uses_hash_prefix_single_property(): void
+    {
+        $bookings = [$this->booking(1, '2026-05-05', '2026-05-07', roomId: '555', propertyId: '41097')];
+        $out = $this->fmt->format($bookings, 'Bookings', $this->rooms());
+        $this->assertStringContainsString(' · #12 · ', $out);
+    }
+
+    public function test_unit_label_uses_hash_prefix_mixed_property(): void
+    {
+        $b1 = $this->booking(1, '2026-05-05', '2026-05-07', roomId: '555', propertyId: '41097', firstName: 'A');
+        $b2 = $this->booking(2, '2026-05-05', '2026-05-07', roomId: '777', propertyId: '172793', firstName: 'Z');
+        $out = $this->fmt->format([$b1, $b2], 'Bookings', $this->rooms());
+        $this->assertStringContainsString('Hotel #12', $out);
+        $this->assertStringContainsString('Prem #21', $out);
     }
 
     // ─── Phase 10.2 — sectioned view for single-day queries ───────────────

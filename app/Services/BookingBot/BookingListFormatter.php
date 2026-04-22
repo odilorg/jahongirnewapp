@@ -371,13 +371,25 @@ final class BookingListFormatter
     }
 
     /**
-     * Abbreviate a guest name. Rules:
-     *  - First up to 3 given-name initials, then full last name.
-     *    "Jose Miguel Frances Hierro" → "J.M.F.Hierro"
-     *  - If name has a slash-suffix note, keep only the portion up to the
-     *    first slash plus ≤ 8 chars of note:
-     *    "Jacques TURRI /Airport transfer 12$/..." → "J.TURRI /Airport"
-     *  - Hard cap at MAX_GUEST_CHARS characters; ellipsis appended if trimmed.
+     * Readable guest-name renderer (Phase 10.3 — conservative).
+     *
+     * Pipeline, in order (slash handling happens AFTER normalization):
+     *   1. Strip booking-code noise ("ER-04", "rp. 4/100", "+1", etc.)
+     *   2. Normalize case: full ALL-CAPS tokens → Title-case
+     *   3. Split on the first "/" into head + tail; keep head for naming,
+     *      tail reduced to " /<first-word>" (max 10 chars)
+     *   4. Detect entity-like names (quotes, long ALL-CAPS, mixed alnum
+     *      codes) → return head verbatim (trim only), with tail appended.
+     *      Don't try to humanize.
+     *   5. For person-like names:
+     *      - join multi-word particle prefixes (van / de / den / del /
+     *        la / le / di / do / dos / af / bin / ibn / el / al) to the
+     *        SURNAME so they render after the first name.
+     *      - "first + surname" only — drop middle names.
+     *      - single-word name stays as-is.
+     *   6. As a safety net: if the final string > 22 chars, fall back
+     *      to "F.Surname" initials (only one given-name initial), then
+     *      clip with "…" if still too long.
      */
     private function abbreviateGuest(string $first, string $last): string
     {
@@ -386,36 +398,201 @@ final class BookingListFormatter
             return 'N/A';
         }
 
-        $slashPos = strpos($raw, '/');
-        $tail = '';
-        if ($slashPos !== false) {
-            $head = trim(substr($raw, 0, $slashPos));
-            $after = trim(substr($raw, $slashPos + 1));
-            $afterFirst = $after === '' ? '' : (explode(' ', $after)[0] ?? '');
-            if (strlen($afterFirst) > 8) {
-                $afterFirst = substr($afterFirst, 0, 8);
+        // Step 1 — strip Beds24 booking-code noise.
+        $cleaned = $this->stripNameCodes($raw);
+        if ($cleaned === '') {
+            $cleaned = $raw;
+        }
+
+        // Step 2 — split slash into head / tail BEFORE normalization so
+        // quirky tails don't pollute the head decision, but we still
+        // normalize each side separately.
+        [$head, $tail] = $this->splitSlashTail($cleaned);
+
+        // Step 3 — entity detection on the ORIGINAL head (case intact).
+        // Catches "«MYSILKWAYTRIPS»" and similar agency brands before
+        // case normalization wipes the ALL-CAPS signal.
+        if ($this->looksLikeEntity($head)) {
+            return $this->clip(trim($head) . $tail);
+        }
+
+        // Step 4 — normalize case on the head only (tail is often free
+        // text like "Airport", "group", "Nicole" — leave it alone).
+        $head = $this->normalizeCase($head);
+
+        // Step 5 — first + surname only; particles join surname.
+        $result = $this->firstAndSurname($head);
+
+        $out = $result . $tail;
+        if (mb_strlen($out) <= self::MAX_GUEST_CHARS) {
+            return $out;
+        }
+
+        // Step 6 — safety net. If first+surname is itself too long, use
+        // "F.Surname" then clip.
+        $result = $this->initialPlusSurname($head);
+        return $this->clip($result . $tail);
+    }
+
+    /**
+     * Strip common Beds24 booking-code / tour-reference / adjunct tokens
+     * from a raw name so abbreviation operates on the actual name only.
+     */
+    private function stripNameCodes(string $raw): string
+    {
+        $patterns = [
+            '/\s+rp\.?\s*\d+(?:\/\d+)?/iu',     // "rp. 4/100"
+            '/\s+ER-?\d+(?:[-\/]\S*)?/iu',      // "ER-04", "ER-04-22/2026"
+            '/\s+SRE\d+(?:[-\/]\S*)?/iu',       // "SRE04-22/2026"
+            '/\s*\+\d+/u',                      // "+1", "+2"
+        ];
+        $out = $raw;
+        foreach ($patterns as $p) {
+            $out = preg_replace($p, '', $out) ?? $out;
+        }
+        return trim($out);
+    }
+
+    /**
+     * Returns [head, tail] where tail is either "" or " /<first-word>".
+     * The first-word cap is 10 chars — enough for "Airport", "Nicole",
+     * "GRAILLON", "group" etc.
+     *
+     * @return array{0: string, 1: string}
+     */
+    private function splitSlashTail(string $cleaned): array
+    {
+        $slashPos = strpos($cleaned, '/');
+        if ($slashPos === false) {
+            return [$cleaned, ''];
+        }
+        $head  = trim(substr($cleaned, 0, $slashPos));
+        $after = ltrim(substr($cleaned, $slashPos + 1));
+        if ($after === '') {
+            return [$head, ''];
+        }
+        $firstWord = explode(' ', $after)[0] ?? '';
+        $firstWord = preg_replace('/[^\p{L}\p{N}-]/u', '', $firstWord) ?? $firstWord;
+        if ($firstWord === '') {
+            return [$head, ''];
+        }
+        if (mb_strlen($firstWord) > 10) {
+            $firstWord = mb_substr($firstWord, 0, 10);
+        }
+        return [$head, ' /' . $firstWord];
+    }
+
+    /**
+     * Convert full ALL-CAPS tokens to Title-Case; leave mixed-case names
+     * alone. Keeps particles lowercase ("van den Doel" stays as typed).
+     */
+    private function normalizeCase(string $s): string
+    {
+        $s = trim($s);
+        if ($s === '') {
+            return '';
+        }
+        $words = preg_split('/\s+/u', $s) ?: [$s];
+        $out = [];
+        foreach ($words as $w) {
+            $letters = preg_replace('/[^\p{L}]/u', '', $w) ?? $w;
+            // Token is ALL CAPS if every letter char is uppercase AND it
+            // has ≥ 2 letters (single letters are usually initials).
+            if (mb_strlen($letters) >= 2 && mb_strtoupper($letters) === $letters) {
+                $out[] = mb_convert_case(mb_strtolower($w), MB_CASE_TITLE, 'UTF-8');
+            } else {
+                $out[] = $w;
             }
-            $tail = $afterFirst !== '' ? ' /' . $afterFirst : '';
-            $raw = $head;
         }
+        return implode(' ', $out);
+    }
 
-        $parts = preg_split('/\s+/', trim($raw));
-        if ($parts === false || $parts === []) {
-            return $this->clip(($raw ?: 'N/A') . $tail);
+    /**
+     * Entity heuristic — deliberately narrow, because mis-firing here
+     * means a real person's name gets "preserved" instead of humanized.
+     * A name counts as an entity ONLY when:
+     *   1. it contains quote marks (French «», straight ", curly "","",
+     *      apostrophes)  — strong, unambiguous brand signal, OR
+     *   2. it is a SINGLE token that is ALL-CAPS and ≥ 8 letters
+     *      ("MYSILKWAYTRIPS" standalone — a brand word without quotes).
+     *
+     * Regular people with ALL-CAPS names ("DAVIDE BATTISTA", "Jacques
+     * TURRI") are NOT entities — those belong to case-normalization.
+     */
+    private function looksLikeEntity(string $head): bool
+    {
+        if ($head === '') {
+            return false;
         }
+        // Quote marks (various): unambiguous entity signal.
+        if (preg_match('/[«»"\x{201C}\x{201D}\x{201E}\x{201A}\x{2018}\x{2019}\']/u', $head) === 1) {
+            return true;
+        }
+        // Single bare ALL-CAPS brand word (≥ 8 letters, no spaces).
+        if (! str_contains($head, ' ')) {
+            $letters = preg_replace('/[^\p{L}]/u', '', $head) ?? '';
+            if (mb_strlen($letters) >= 8 && mb_strtoupper($letters) === $letters) {
+                return true;
+            }
+        }
+        return false;
+    }
 
+    /**
+     * Drop middle names: keep only the first word + surname. Particles
+     * (van, de, den, del, la, le, di, dos, af, bin, ibn, el, al) that
+     * precede the final word are joined to the surname so they render
+     * AFTER the first name ("van den Doel Elsbeth" → "Elsbeth van den Doel").
+     */
+    private function firstAndSurname(string $head): string
+    {
+        $parts = preg_split('/\s+/u', trim($head)) ?: [];
+        if ($parts === []) {
+            return $head;
+        }
         if (count($parts) === 1) {
-            return $this->clip($parts[0] . $tail);
+            return $parts[0];
         }
 
-        $surname = array_pop($parts);
-        $initials = array_map(
-            static fn (string $p) => mb_substr($p, 0, 1) . '.',
-            array_slice($parts, 0, 3),
-        );
-        $result = implode('', $initials) . $surname . $tail;
+        // "van den Doel Elsbeth" pattern: particles sit BEFORE surname,
+        // given name at the end. Detect by "first tokens are particles".
+        $particles = ['van','von','de','den','der','del','della','di','do','dos','da','das','la','le','el','al','af','bin','ibn','ben','st','st.','saint'];
+        $leadingParticles = 0;
+        foreach ($parts as $p) {
+            if (in_array(mb_strtolower($p), $particles, true)) {
+                $leadingParticles++;
+            } else {
+                break;
+            }
+        }
+        if ($leadingParticles > 0 && $leadingParticles < count($parts) - 1) {
+            // e.g. ["van","den","Doel","Elsbeth"] → surname "van den Doel"
+            // given "Elsbeth". Move given name to front.
+            $given   = array_pop($parts);
+            $surname = implode(' ', $parts);
+            return $given . ' ' . $surname;
+        }
 
-        return $this->clip($result);
+        // Standard "First [Middle…] Last" — drop middles.
+        // Also join trailing particles that precede the final word:
+        // "Doel van den" (not typical) — skip for v1.
+        $first = array_shift($parts);
+        $last  = array_pop($parts);
+        return trim($first . ' ' . $last);
+    }
+
+    private function initialPlusSurname(string $head): string
+    {
+        $parts = preg_split('/\s+/u', trim($head)) ?: [];
+        if ($parts === []) {
+            return $head;
+        }
+        if (count($parts) === 1) {
+            return $parts[0];
+        }
+        $first = array_shift($parts);
+        $last  = array_pop($parts) ?: '';
+        return mb_substr($first, 0, 1) . '.' . $last;
     }
 
     private function clip(string $s): string
@@ -429,9 +606,13 @@ final class BookingListFormatter
     /**
      * Render the property/unit part of the row.
      *
-     *  Single-property reply:  "14"                    or "10, 12, 14" for a group
-     *  Mixed-property reply:   "Hotel 14"              or "Hotel 10,12,14"
-     *  Unknown room:           "?"                     (never bare blank)
+     *  Single-property reply:  "#14"              or "#10,12,14" for a group
+     *  Mixed-property reply:   "Hotel #14"        or "Hotel #10,12,14"
+     *  Unknown room:           "?"                (never bare blank)
+     *
+     * The "#" makes unambiguous that the number is a room number
+     * (Phase 10.3 — "Hotel 4" was read as "4 hotels"). "#" never collides
+     * with the leading "#<bookingId>" because position differs.
      *
      * @param array<int, mixed>                $roomIds
      * @param Collection<int, RoomUnitMapping> $rooms
@@ -455,11 +636,17 @@ final class BookingListFormatter
             $propShort ??= $this->shortProperty((string) $m->property_name);
         }
         $unitsJoined = implode(',', array_unique($units));
+        if ($unitsJoined === '') {
+            return '?';
+        }
+
+        // "#" prefix makes it unambiguous this is a room/unit number.
+        $unitsLabel = '#' . $unitsJoined;
 
         if ($mixedProperty && $propShort !== null) {
-            return $propShort . ' ' . $unitsJoined;
+            return $propShort . ' ' . $unitsLabel;
         }
-        return $unitsJoined !== '' ? $unitsJoined : '?';
+        return $unitsLabel;
     }
 
     /**
