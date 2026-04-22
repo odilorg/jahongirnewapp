@@ -120,8 +120,9 @@ class StaffAuthorizationService
                "You can now create bookings.\n\n" .
                "*Try these commands:*\n" .
                "• `check avail jan 2-3`\n" .
-               "• `book room 12 under John Walker jan 2-3 tel +1234567890 email ok@ok.com`\n" .
-               "• `today's bookings`";
+               "• `book room 12 at jahongir hotel under John Walker jan 2-3 tel +998901112233 email ok@ok.com at 50 usd/night`\n" .
+               "• `bookings today`\n\n" .
+               "Type /help anytime for the full command guide.";
     }
 
     /**

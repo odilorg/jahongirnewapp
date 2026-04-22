@@ -11,6 +11,7 @@ use App\Actions\BookingBot\Handlers\ModifyBookingFromMessageAction;
 use App\Actions\BookingBot\Handlers\ViewBookingsFromMessageAction;
 use App\Services\BookingBot\IntentParseException;
 use App\Services\BookingIntentParser;
+use App\Support\BookingBot\HelpContent;
 use App\Support\BookingBot\LogSanitizer;
 use App\Services\StaffAuthorizationService;
 use App\Services\TelegramBotService;
@@ -75,10 +76,22 @@ class ProcessBookingMessage implements ShouldQueue
                 return;
             }
 
-            // Handle greetings and help — show main menu without hitting the AI parser
-            $greetings = ['hi', 'hello', 'hey', 'hola', 'help', '/help', '/start', 'menu', 'привет', 'салам'];
-            if (in_array(strtolower(trim($text)), $greetings)) {
-                $welcomeMessage = "🏨 *Booking Bot*\n\nChoose an option or type your command:";
+            // Handle /help explicitly — show examples-per-intent guide
+            // with a back-to-menu button. This is a behavior-training
+            // surface: only examples that we know the parser accepts.
+            $normalized = strtolower(trim($text));
+            $helpTokens = ['help', '/help'];
+            if (in_array($normalized, $helpTokens, true)) {
+                $telegram->sendMessage($chatId, HelpContent::render(), [
+                    'reply_markup' => $keyboard->formatForApi($keyboard->getBackButton()),
+                ]);
+                return;
+            }
+
+            // Handle greetings — show main menu without hitting the AI parser
+            $greetings = ['hi', 'hello', 'hey', 'hola', '/start', 'menu', '/menu', 'привет', 'салам'];
+            if (in_array($normalized, $greetings, true)) {
+                $welcomeMessage = "🏨 *Booking Bot*\n\nChoose an option or type your command.\nType /help for examples.";
 
                 $telegram->sendMessage($chatId, $welcomeMessage, [
                     'parse_mode' => 'Markdown',
@@ -143,7 +156,7 @@ class ProcessBookingMessage implements ShouldQueue
                     "• bookings today\n" .
                     "• arrivals today\n" .
                     "• cancel 12345\n" .
-                    "• or tap a menu button with /menu"
+                    "Type /help for full examples, or /menu to return."
                 );
             }
         } catch (\Exception $e) {

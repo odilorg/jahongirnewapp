@@ -39,7 +39,23 @@ class TelegramBotService
     public function setWebhook(string $url): array
     {
         $bot = $this->resolver->resolve('booking');
-        $result = $this->transport->setWebhook($bot, $url);
+
+        // Forward the configured secret_token so Telegram starts sending
+        // X-Telegram-Bot-Api-Secret-Token on every update. Without this
+        // the webhook middleware (verify.telegram.webhook:booking) falls
+        // back to migration-mode and accepts every request unsigned.
+        // See docs/audits/2026-04-22-booking-bot-auth.md (Finding B5).
+        $secretToken = (string) config('services.telegram_booking_bot.secret_token', '');
+
+        if ($secretToken === '') {
+            Log::warning(
+                'TelegramBotService::setWebhook called with no secret_token configured — webhook will remain UNENFORCED until TELEGRAM_BOOKING_SECRET_TOKEN is set.',
+                ['url' => $url],
+            );
+            $result = $this->transport->setWebhook($bot, $url);
+        } else {
+            $result = $this->transport->setWebhook($bot, $url, $secretToken);
+        }
 
         return ['ok' => $result->ok, 'result' => $result->result];
     }
