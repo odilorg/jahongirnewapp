@@ -65,6 +65,53 @@ final class ViewBookingsDateRangeTest extends TestCase
         $this->assertArrayNotHasKey('arrivalFrom', $captured);
     }
 
+    public function test_single_day_query_triggers_sectioned_view(): void
+    {
+        // Phase 10.2: same filter call, but mode must be SECTIONED so the
+        // formatter triages into Arriving / In-house / Departing.
+        $captured = null;
+        $bookings = [
+            ['id' => 101, 'arrival' => '2026-05-05', 'departure' => '2026-05-08',
+             'firstName' => 'Arr', 'lastName' => 'Guest', 'roomId' => '555', 'propertyId' => '41097', 'numAdult' => 2],
+            ['id' => 201, 'arrival' => '2026-05-02', 'departure' => '2026-05-07',
+             'firstName' => 'InH', 'lastName' => 'Guest', 'roomId' => '555', 'propertyId' => '41097', 'numAdult' => 2],
+            ['id' => 301, 'arrival' => '2026-05-01', 'departure' => '2026-05-05',
+             'firstName' => 'Dep', 'lastName' => 'Guest', 'roomId' => '555', 'propertyId' => '41097', 'numAdult' => 2],
+        ];
+        $beds24 = $this->mockBeds24Returns($captured, bookings: $bookings);
+
+        $reply = $this->action($beds24)->execute([
+            'intent' => 'view_bookings',
+            'dates'  => ['check_in' => '2026-05-05', 'check_out' => '2026-05-05'],
+        ]);
+
+        $this->assertStringContainsString('🛬 Arriving', $reply);
+        $this->assertStringContainsString('🏨 In-house', $reply);
+        $this->assertStringContainsString('🛫 Departing', $reply);
+    }
+
+    public function test_multi_day_range_still_uses_grouped_stays_mode_not_sectioned(): void
+    {
+        $captured = null;
+        $bookings = [
+            ['id' => 1, 'arrival' => '2026-05-06', 'departure' => '2026-05-08',
+             'firstName' => 'A', 'lastName' => 'B', 'roomId' => '555', 'propertyId' => '41097', 'numAdult' => 2],
+        ];
+        $beds24 = $this->mockBeds24Returns($captured, bookings: $bookings);
+
+        $reply = $this->action($beds24)->execute([
+            'intent' => 'view_bookings',
+            'dates'  => ['check_in' => '2026-05-05', 'check_out' => '2026-05-08'],
+        ]);
+
+        // Multi-day: no section headings.
+        $this->assertStringNotContainsString('🛬 Arriving', $reply);
+        $this->assertStringNotContainsString('🏨 In-house', $reply);
+        $this->assertStringNotContainsString('🛫 Departing', $reply);
+        // But still shows header + row.
+        $this->assertStringContainsString('Bookings 5 May → 8 May 2026 · 1', $reply);
+    }
+
     public function test_range_within_cap_uses_stays_overlap_semantics(): void
     {
         $captured = null;

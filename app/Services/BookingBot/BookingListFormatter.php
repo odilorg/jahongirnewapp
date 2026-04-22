@@ -32,18 +32,21 @@ final class BookingListFormatter
     public const MODE_DEPARTURES = 'departures';
     public const MODE_STAYS      = 'stays';
     public const MODE_NONE       = 'none';
+    public const MODE_SECTIONED  = 'sectioned'; // Phase 10.2: single-day triage view
 
     private const MAX_GUEST_CHARS = 22;
 
     /**
-     * @param array<int, array<string, mixed>> $bookings Raw Beds24 /bookings rows.
-     * @param Collection<int, RoomUnitMapping> $rooms    For unit_name/room_name lookup.
+     * @param array<int, array<string, mixed>> $bookings    Raw Beds24 /bookings rows.
+     * @param Collection<int, RoomUnitMapping> $rooms       For unit_name/room_name lookup.
+     * @param string|null                      $referenceDate Y-m-d anchor for sectioned mode.
      */
     public function format(
         array $bookings,
         string $title,
         Collection $rooms,
         string $mode = self::MODE_STAYS,
+        ?string $referenceDate = null,
     ): string {
         $count = count($bookings);
         if ($count === 0) {
@@ -51,6 +54,12 @@ final class BookingListFormatter
         }
 
         $maxRows = (int) config('hotel_booking_bot.view.max_rows', 30);
+
+        // SECTIONED mode (Phase 10.2): triage single-day query into
+        // Arriving / In-house / Departing. Requires a reference date.
+        if ($mode === self::MODE_SECTIONED && $referenceDate !== null) {
+            return $this->renderSectioned($bookings, $title, $rooms, $referenceDate, $count, $maxRows);
+        }
 
         $sortKey = $this->sortKey($mode);
         usort($bookings, static fn (array $a, array $b) => strcmp(
@@ -82,6 +91,108 @@ final class BookingListFormatter
             : '';
 
         return $header . "\n\n" . rtrim($body) . $footer;
+    }
+
+    /**
+     * Triage a single-day query into three operational sections.
+     *
+     *   🛬 Arriving ({N})  — arrival == referenceDate;           sorted by arrival
+     *   🏨 In-house ({N})  — arrival <  referenceDate < departure; sorted by departure (soonest first)
+     *   🛫 Departing ({N}) — departure == referenceDate;         sorted by departure
+     *
+     * Buckets are mutually exclusive. Empty sections are skipped. Collapse
+     * and snippets are preserved per-section (reuses renderRow).
+     */
+    private function renderSectioned(
+        array $bookings,
+        string $title,
+        Collection $rooms,
+        string $referenceDate,
+        int $rawCount,
+        int $maxRows,
+    ): string {
+        $arriving = $inHouse = $departing = [];
+        foreach ($bookings as $b) {
+            $a = (string) ($b['arrival'] ?? '');
+            $d = (string) ($b['departure'] ?? '');
+            if ($a === $referenceDate) {
+                $arriving[] = $b;
+            } elseif ($d === $referenceDate) {
+                $departing[] = $b;
+            } elseif ($a < $referenceDate && $d > $referenceDate) {
+                $inHouse[] = $b;
+            }
+            // else: booking doesn't overlap referenceDate — shouldn't be here,
+            // but silently skip rather than render miscategorized.
+        }
+
+        usort($arriving,  static fn ($x, $y) => strcmp((string) $x['arrival'],  (string) $y['arrival']));
+        usort($inHouse,   static fn ($x, $y) => strcmp((string) $x['departure'], (string) $y['departure']));
+        usort($departing, static fn ($x, $y) => strcmp((string) $x['departure'], (string) $y['departure']));
+
+        $arrivingC  = $this->collapseGroups($arriving);
+        $inHouseC   = $this->collapseGroups($inHouse);
+        $departingC = $this->collapseGroups($departing);
+
+        // Global overflow across sections combined (Rule 7).
+        $allCollapsed = array_merge($arrivingC, $inHouseC, $departingC);
+        $hasMixedProperty = $allCollapsed
+            ? count(array_unique(array_map(static fn ($b) => (string) ($b['propertyId'] ?? ''), $allCollapsed))) > 1
+            : false;
+
+        $budget = $maxRows;
+        $arrivingShown  = array_slice($arrivingC,  0, max(0, $budget));
+        $budget        -= count($arrivingShown);
+        $inHouseShown   = array_slice($inHouseC,   0, max(0, $budget));
+        $budget        -= count($inHouseShown);
+        $departingShown = array_slice($departingC, 0, max(0, $budget));
+
+        $overflow = (count($arrivingC) - count($arrivingShown))
+                  + (count($inHouseC)  - count($inHouseShown))
+                  + (count($departingC) - count($departingShown));
+
+        $dateSuffix = $this->sectionDateSuffix($referenceDate);
+
+        $body = '';
+        $body .= $this->renderSection("🛬 Arriving{$dateSuffix}", count($arrivingC),  $arrivingShown,  $rooms, $hasMixedProperty);
+        $body .= $this->renderSection("🏨 In-house",                count($inHouseC),   $inHouseShown,   $rooms, $hasMixedProperty);
+        $body .= $this->renderSection("🛫 Departing{$dateSuffix}",  count($departingC), $departingShown, $rooms, $hasMixedProperty);
+
+        $header = "{$title} · {$rawCount}";
+        $footer = $overflow > 0 ? "\n+{$overflow} more (narrow your query)" : '';
+
+        return $header . "\n\n" . rtrim($body) . $footer;
+    }
+
+    /** @param array<int, array<string, mixed>> $shown */
+    private function renderSection(string $heading, int $totalCount, array $shown, Collection $rooms, bool $mixedProperty): string
+    {
+        if ($totalCount === 0) {
+            return ''; // Rule 6: skip empty sections entirely.
+        }
+
+        $out = "{$heading} ({$totalCount})\n";
+        foreach ($shown as $b) {
+            $out .= '  ' . $this->renderRow($b, $rooms, $mixedProperty);
+        }
+        return $out . "\n"; // trailing blank line between sections
+    }
+
+    /**
+     * "today" when the reference date equals today (local server time),
+     * otherwise a short date label "5 May", "22 Apr", etc.
+     */
+    private function sectionDateSuffix(string $referenceDate): string
+    {
+        $today = date('Y-m-d');
+        if ($referenceDate === $today) {
+            return ' today';
+        }
+        try {
+            return ' ' . CarbonImmutable::parse($referenceDate)->format('j M');
+        } catch (\Throwable) {
+            return '';
+        }
     }
 
     private function sortKey(string $mode): string
