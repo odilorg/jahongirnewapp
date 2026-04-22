@@ -1,7 +1,14 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Actions\BookingBot\Handlers;
 
+use App\Actions\BookingBot\BuildBeds24BookingPayloadAction;
+use App\Actions\BookingBot\ResolveBotBookingChargeAction;
+use App\DTO\BotBookingRequestData;
+use App\DTO\ResolvedBotBookingChargeData;
+use App\Exceptions\BookingBot\BotBookingChargeResolutionException;
 use App\Models\RoomUnitMapping;
 use App\Models\User;
 use App\Services\Beds24BookingService;
@@ -12,12 +19,15 @@ use Illuminate\Support\Facades\Log;
  *
  * The room-lookup query concern (unit_name + optional property hint) lives
  * on the RoomUnitMapping model via forUnit() / matchingPropertyHint() scopes
- * per principle 2. This Action just composes them.
+ * per principle 2. Charge resolution and payload construction are their
+ * own Actions; this handler just orchestrates.
  */
 final class CreateBookingFromMessageAction
 {
     public function __construct(
         private readonly Beds24BookingService $beds24,
+        private readonly ResolveBotBookingChargeAction $chargeResolver,
+        private readonly BuildBeds24BookingPayloadAction $payloadBuilder,
     ) {}
 
     public function execute(array $parsed, User $staff): string
@@ -65,33 +75,57 @@ final class CreateBookingFromMessageAction
 
         $roomMapping = $matchingRooms->first();
 
-        $guestName = $guest['name'];
-        $phone = $guest['phone'] ?? '';
-        $email = $guest['email'] ?? '';
-        $checkIn = $dates['check_in'];
-        $checkOut = $dates['check_out'];
+        $guestName = (string) $guest['name'];
+        $phone = (string) ($guest['phone'] ?? '');
+        $email = (string) ($guest['email'] ?? '');
+        $checkIn = (string) $dates['check_in'];
+        $checkOut = (string) $dates['check_out'];
+
+        $charge = $parsed['charge'] ?? [];
+        $inputPricePerNight = isset($charge['price_per_night']) && $charge['price_per_night'] !== ''
+            ? (float) $charge['price_per_night']
+            : null;
+        $inputCurrency = isset($charge['currency']) && $charge['currency'] !== ''
+            ? strtoupper((string) $charge['currency'])
+            : null;
+
+        $notes = 'Created by ' . $staff->name . ' via Telegram Bot';
+
+        $data = new BotBookingRequestData(
+            propertyId:         $roomMapping->property_id,
+            roomId:             $roomMapping->room_id,
+            arrival:            $checkIn,
+            departure:          $checkOut,
+            firstName:          $this->firstName($guestName),
+            lastName:           $this->lastName($guestName),
+            email:              $email === '' ? null : $email,
+            mobile:             $phone === '' ? null : $phone,
+            numAdult:           2,
+            numChild:           0,
+            notes:              $notes,
+            inputPricePerNight: $inputPricePerNight,
+            inputCurrency:      $inputCurrency,
+        );
 
         try {
-            $bookingData = [
-                'property_id' => $roomMapping->property_id,
-                'room_id' => $roomMapping->room_id,
-                'check_in' => $checkIn,
-                'check_out' => $checkOut,
-                'guest_name' => $guestName,
-                'guest_phone' => $phone,
-                'guest_email' => $email,
-                'notes' => 'Created by ' . $staff->name . ' via Telegram Bot',
-            ];
+            $resolvedCharge = $this->chargeResolver->execute($data);
+        } catch (BotBookingChargeResolutionException $e) {
+            Log::info('Booking bot: charge resolution rejected', [
+                'error' => $e->getMessage(),
+                'staff' => $staff->id,
+            ]);
 
-            Log::info('Creating Beds24 booking', ['data' => $bookingData]);
+            return "Could not create booking: {$e->getMessage()}";
+        }
 
-            $result = $this->beds24->createBooking($bookingData);
+        $payload = $this->payloadBuilder->execute($data, $resolvedCharge, $notes);
+
+        try {
+            Log::info('Creating Beds24 booking', ['payload' => $payload]);
+
+            $result = $this->beds24->createBookingFromPayload($payload);
 
             if (isset($result['success']) && $result['success']) {
-                // Beds24BookingService::createBooking() returns 'bookingId' (canonical)
-                // with 'id' as an alias. The old handler read a non-existent 'bookId'
-                // key, which is why the reply said "#Unknown" for every successful
-                // booking. Fixed in-Action; not a refactor regression.
                 $bookingId = $result['bookingId'] ?? $result['id'] ?? 'Unknown';
 
                 return "Booking Created Successfully!\n" .
@@ -101,7 +135,8 @@ final class CreateBookingFromMessageAction
                        "Phone: {$phone}\n" .
                        "Email: {$email}\n" .
                        "Check-in: {$checkIn}\n" .
-                       "Check-out: {$checkOut}\n\n" .
+                       "Check-out: {$checkOut}\n" .
+                       $this->chargeLine($resolvedCharge) . "\n\n" .
                        "Booking confirmed in Beds24!";
             }
 
@@ -110,7 +145,7 @@ final class CreateBookingFromMessageAction
         } catch (\Exception $e) {
             Log::error('Booking creation failed', [
                 'error' => $e->getMessage(),
-                'data' => $bookingData ?? [],
+                'payload' => $payload ?? [],
             ]);
 
             return "Booking Failed\n" .
@@ -120,5 +155,32 @@ final class CreateBookingFromMessageAction
                    "Error: {$e->getMessage()}\n\n" .
                    "Please check the details and try again or create manually in Beds24.";
         }
+    }
+
+    private function chargeLine(ResolvedBotBookingChargeData $charge): string
+    {
+        if (! $charge->hasCharge) {
+            return 'Charge: not added';
+        }
+
+        $price  = number_format((float) $charge->pricePerNight, 2, '.', ' ');
+        $total  = number_format((float) $charge->totalAmount, 2, '.', ' ');
+        $cur    = (string) $charge->currency;
+        $source = $charge->source === 'auto' ? 'auto (room base price)' : 'manual';
+
+        return "Charge: {$price} {$cur}/night × {$charge->nights} nights = {$total} {$cur}\n" .
+               "Source: {$source}";
+    }
+
+    private function firstName(string $fullName): string
+    {
+        $parts = explode(' ', trim($fullName), 2);
+        return $parts[0] ?? $fullName;
+    }
+
+    private function lastName(string $fullName): string
+    {
+        $parts = explode(' ', trim($fullName), 2);
+        return $parts[1] ?? ($parts[0] ?? '');
     }
 }
