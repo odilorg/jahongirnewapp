@@ -95,12 +95,22 @@ class ProcessBookingMessage implements ShouldQueue
             $intent = $parsed['intent'] ?? 'unknown';
             $needsBackButton = in_array($intent, ['view_bookings', 'check_availability']);
 
+            // Handlers may append a guest-forward message, delimited by
+            // a fixed marker, for the operator to copy-paste to the guest.
+            // We send it as a SECOND Telegram message so Telegram mobile's
+            // long-press-copy grabs the guest text cleanly.
+            [$primary, $guestForward] = $this->splitGuestForward($response);
+
             if ($needsBackButton) {
-                $telegram->sendMessage($chatId, $response, [
+                $telegram->sendMessage($chatId, $primary, [
                     'reply_markup' => $keyboard->formatForApi($keyboard->getBackButton())
                 ]);
             } else {
-                $telegram->sendMessage($chatId, $response);
+                $telegram->sendMessage($chatId, $primary);
+            }
+
+            if ($guestForward !== null && $guestForward !== '') {
+                $telegram->sendMessage($chatId, $guestForward);
             }
 
         } catch (\Exception $e) {
@@ -114,6 +124,29 @@ class ProcessBookingMessage implements ShouldQueue
                 $telegram->sendMessage($chatId, 'Error: ' . $e->getMessage());
             }
         }
+    }
+
+    /**
+     * Marker that Handlers can append to split their reply into
+     * (1) operator receipt and (2) guest-forward copy-paste message.
+     * Kept in sync with the same constant in the booking-bot Handlers.
+     */
+    public const GUEST_FORWARD_MARKER = "\n---GUEST-FORWARD---\n";
+
+    /**
+     * @return array{0: string, 1: ?string}
+     */
+    private function splitGuestForward(string $response): array
+    {
+        $pos = strpos($response, self::GUEST_FORWARD_MARKER);
+        if ($pos === false) {
+            return [$response, null];
+        }
+
+        $primary = substr($response, 0, $pos);
+        $guest   = substr($response, $pos + strlen(self::GUEST_FORWARD_MARKER));
+
+        return [rtrim($primary), $guest === false ? null : trim($guest)];
     }
 
     protected function handleCommand($parsed, $staff): string

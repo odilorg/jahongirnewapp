@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace App\Actions\BookingBot\Handlers;
 
 use App\Actions\BookingBot\BuildBeds24BookingPayloadAction;
+use App\Actions\BookingBot\FormatGuestConfirmationAction;
 use App\Actions\BookingBot\ResolveBotBookingChargeAction;
+use App\Jobs\ProcessBookingMessage;
 use App\DTO\BotBookingRequestData;
 use App\DTO\ResolvedBotBookingChargeData;
 use App\Exceptions\BookingBot\BotBookingChargeResolutionException;
@@ -37,6 +39,7 @@ final class CreateGroupBookingFromMessageAction
         private readonly Beds24BookingService $beds24,
         private readonly ResolveBotBookingChargeAction $chargeResolver,
         private readonly BuildBeds24BookingPayloadAction $payloadBuilder,
+        private readonly FormatGuestConfirmationAction $guestConfirmation,
     ) {}
 
     public function execute(array $parsed, User $staff): string
@@ -186,8 +189,9 @@ final class CreateGroupBookingFromMessageAction
         $masterId = $createdIds[0];
         $siblings = array_slice($createdIds, 1);
         $firstCharge = $resolveds[0] ?? ResolvedBotBookingChargeData::none(1);
+        $firstData   = null;
 
-        return $this->successMessage(
+        $operatorReceipt = $this->successMessage(
             masterId:   $masterId,
             siblingIds: $siblings,
             rooms:      $perRoomList,
@@ -198,6 +202,36 @@ final class CreateGroupBookingFromMessageAction
             checkOut:   $checkOut,
             charge:     $firstCharge,
         );
+
+        // Build a DTO that represents the group's shared guest + stay.
+        // Room/property are taken from the master booking; resolver has
+        // already confirmed same-property via Rule 6 so either works.
+        $firstData = new BotBookingRequestData(
+            propertyId:         $perRoomList[0]->property_id,
+            roomId:             $perRoomList[0]->room_id,
+            arrival:            $checkIn,
+            departure:          $checkOut,
+            firstName:          $this->firstName($guestName),
+            lastName:           $this->lastName($guestName),
+            email:              $email === '' ? null : $email,
+            mobile:             $phone === '' ? null : $phone,
+            numAdult:           2,
+            numChild:           0,
+            notes:              null,
+            inputPricePerNight: null,
+            inputCurrency:      null,
+        );
+
+        $guestText = $this->guestConfirmation->execute(
+            $firstData,
+            $firstCharge,
+            $perRoomList,
+            $createdIds,
+        );
+
+        return $guestText === ''
+            ? $operatorReceipt
+            : $operatorReceipt . ProcessBookingMessage::GUEST_FORWARD_MARKER . $guestText;
     }
 
     /**
