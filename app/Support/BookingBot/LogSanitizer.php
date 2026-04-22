@@ -86,7 +86,11 @@ final class LogSanitizer
         try {
             return self::walk($context);
         } catch (Throwable $e) {
-            return ['_sanitize_error' => $e->getMessage()];
+            // Breadcrumb carries the exception CLASS only, never the
+            // message — `getMessage()` can echo the offending input
+            // (malformed UTF-8, invalid regex, etc.), which defeats the
+            // point of the sanitizer. Class name is enough to debug.
+            return ['_sanitize_error' => get_class($e)];
         }
     }
 
@@ -173,6 +177,41 @@ final class LogSanitizer
     }
 
     /**
+     * Produce a bounded preview of a user-supplied command string with
+     * embedded PII scrubbed inline. Used in error paths where we want
+     * operator-debuggable context ("what did they type?") without
+     * carrying phones / emails straight into the log.
+     *
+     *   "book room 12 tel +998901234567 email alice@x.com"  (60 char max)
+     *   → "book room 12 tel +***REDACTED*** email ***@***"
+     */
+    public static function commandPreview(?string $text, int $max = 40): ?string
+    {
+        if ($text === null) {
+            return null;
+        }
+        $scrubbed = self::scrubEmbeddedPii($text);
+        return self::truncate($scrubbed, $max);
+    }
+
+    private static function scrubEmbeddedPii(string $text): string
+    {
+        // Phone-like: "+" followed by 8+ digits, allowing spaces/dashes.
+        $text = preg_replace(
+            '/\+(?:[\d][\s\-]?){8,}/u',
+            '+***',
+            $text,
+        ) ?? $text;
+        // Email-like: local@domain.tld
+        $text = preg_replace(
+            '/\S+@\S+\.\S+/u',
+            '***@***',
+            $text,
+        ) ?? $text;
+        return $text;
+    }
+
+    /**
      * @param array<array-key, mixed> $context
      * @return array<array-key, mixed>
      */
@@ -249,8 +288,16 @@ final class LogSanitizer
         $decoded = json_decode($value, true);
         if (is_array($decoded)) {
             $clean = self::walk($decoded);
-            return json_encode($clean, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: self::truncate($value) ?? $value;
+            $reencoded = json_encode($clean, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            if ($reencoded === false) {
+                // Fail CLOSED. Falling back to the original string would
+                // leak PII that was already redacted in $clean — we must
+                // not ship the raw input just because re-encoding failed.
+                return '***';
+            }
+            return $reencoded;
         }
-        return self::truncate($value) ?? $value;
+        // Not JSON — truncate as plain free-text.
+        return self::truncate($value) ?? '***';
     }
 }

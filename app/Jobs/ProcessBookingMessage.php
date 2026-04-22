@@ -128,7 +128,7 @@ class ProcessBookingMessage implements ShouldQueue
             $logPayload = [
                 'error'          => $e->getMessage(),
                 'message_len'    => mb_strlen($text),
-                'message_prefix' => mb_substr($text, 0, 40),
+                'message_prefix' => LogSanitizer::commandPreview($text),
             ];
             if ((bool) config('logging.booking_bot.debug_payloads', false)) {
                 $logPayload['message'] = $text;
@@ -147,11 +147,24 @@ class ProcessBookingMessage implements ShouldQueue
                 );
             }
         } catch (\Exception $e) {
-            Log::error('Process Booking Message Error', LogSanitizer::context([
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString(),
-                'update' => $this->update,
-            ]));
+            // Operator messages often embed PII (phone, email) inside
+            // the Telegram `message.text` free string. LogSanitizer's
+            // `text` rule truncates at 60 chars, but short PII sits in
+            // that head. Replace the update payload with a compact
+            // summary: IDs + text length + 40-char prefix. Full payload
+            // only when LOG_BOOKING_BOT_DEBUG_PAYLOADS=true.
+            $text = $this->update['message']['text'] ?? '';
+            $errorPayload = [
+                'error'          => $e->getMessage(),
+                'trace'          => $e->getTraceAsString(),
+                'update_id'      => $this->update['update_id'] ?? null,
+                'message_len'    => mb_strlen((string) $text),
+                'message_prefix' => LogSanitizer::commandPreview((string) $text),
+            ];
+            if ((bool) config('logging.booking_bot.debug_payloads', false)) {
+                $errorPayload['update'] = $this->update;
+            }
+            Log::error('Process Booking Message Error', $errorPayload);
 
             if (isset($chatId) && isset($telegram)) {
                 $telegram->sendMessage($chatId, 'Error: ' . $e->getMessage());

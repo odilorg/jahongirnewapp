@@ -65,6 +65,18 @@ final class LogRedactionTest extends TestCase
         Log::swap($sink);
     }
 
+    public function test_log_swap_sink_actually_captures_default_channel(): void
+    {
+        // Sanity guard — if someone reroutes booking-bot logs to a
+        // named channel in the future, Log::swap() here would miss
+        // them and every PII assertion in the next test would silently
+        // pass. This probe fails loudly when the sink isn't wired.
+        Log::info('probe', ['leak_sentinel' => 'PROBE_MARKER']);
+        $this->assertNotEmpty($this->captured);
+        $this->assertSame('probe', $this->captured[0]['message']);
+        $this->assertSame('PROBE_MARKER', $this->captured[0]['context']['leak_sentinel']);
+    }
+
     public function test_sentinel_pii_does_not_appear_in_any_log_context_when_flag_off(): void
     {
         // Exercise the 4 call sites that previously leaked PII, via
@@ -121,6 +133,48 @@ final class LogRedactionTest extends TestCase
                 self::SENTINEL_FREE_TAIL, $encoded,
                 "free-text tail leaked past 60-char truncation in log '{$entry['message']}'"
             );
+        }
+    }
+
+    public function test_process_booking_message_generic_catch_does_not_leak_update_pii(): void
+    {
+        // Dispatch a ProcessBookingMessage with a PII-laden update,
+        // force the handler to hit the generic \Exception catch by
+        // supplying a malformed update that trips the chat_id access.
+        // The goal: the catch's Log::error MUST sanitize $this->update.
+        $update = [
+            'update_id' => 99,
+            'message' => [
+                // Intentionally missing 'message_id'/'chat' — forces an
+                // unhandled \Exception after initial PII-bearing text
+                // has been captured into the log scope.
+                'text' => 'book room 12 tel ' . self::SENTINEL_PHONE
+                        . ' email ' . self::SENTINEL_EMAIL
+                        . ' note ' . self::SENTINEL_FREE,
+            ],
+        ];
+
+        try {
+            (new \App\Jobs\ProcessBookingMessage($update))->handle(
+                app(\App\Services\StaffAuthorizationService::class),
+                app(\App\Services\BookingIntentParser::class),
+                app(\App\Services\TelegramBotService::class),
+                app(\App\Services\TelegramKeyboardService::class),
+            );
+        } catch (\Throwable) {
+            // Don't care if the Job bubbles — we only need to observe
+            // whatever the generic catch emitted.
+        }
+
+        foreach ($this->captured as $entry) {
+            $encoded = json_encode($entry['context'] ?? [], JSON_UNESCAPED_UNICODE);
+            $this->assertIsString($encoded);
+            $this->assertStringNotContainsString(self::SENTINEL_PHONE, $encoded,
+                'phone leaked via generic \\Exception catch in ProcessBookingMessage');
+            $this->assertStringNotContainsString(self::SENTINEL_EMAIL, $encoded,
+                'email leaked via generic \\Exception catch in ProcessBookingMessage');
+            $this->assertStringNotContainsString(self::SENTINEL_FREE_TAIL, $encoded,
+                'free-text tail leaked via generic \\Exception catch in ProcessBookingMessage');
         }
     }
 

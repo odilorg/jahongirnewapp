@@ -110,6 +110,38 @@ final class LogSanitizerTest extends TestCase
         $this->assertNull(LogSanitizer::truncate(null));
     }
 
+    // ── commandPreview() ──────────────────────────────────────────────
+
+    public function test_command_preview_scrubs_embedded_phone(): void
+    {
+        $out = LogSanitizer::commandPreview('book room 12 tel +998901234567', 100);
+        $this->assertStringContainsString('+***', (string) $out);
+        $this->assertStringNotContainsString('901234567', (string) $out);
+    }
+
+    public function test_command_preview_scrubs_embedded_email(): void
+    {
+        $out = LogSanitizer::commandPreview('book for alice@example.com please', 100);
+        $this->assertStringContainsString('***@***', (string) $out);
+        $this->assertStringNotContainsString('alice@example.com', (string) $out);
+    }
+
+    public function test_command_preview_scrubs_then_truncates(): void
+    {
+        $out = LogSanitizer::commandPreview(
+            'book room 12 tel +998901234567 email alice@example.com extra tail that must be dropped',
+            40,
+        );
+        $this->assertSame(40, mb_strlen((string) $out));
+        $this->assertStringNotContainsString('901234567', (string) $out);
+        $this->assertStringNotContainsString('alice@example.com', (string) $out);
+    }
+
+    public function test_command_preview_null_passthrough(): void
+    {
+        $this->assertNull(LogSanitizer::commandPreview(null));
+    }
+
     // ── context() — depth + key-aware dispatch ────────────────────────
 
     public function test_context_sanitizes_known_keys_at_depth_0(): void
