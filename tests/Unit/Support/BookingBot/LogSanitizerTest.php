@@ -117,7 +117,7 @@ final class LogSanitizerTest extends TestCase
         $out = LogSanitizer::context([
             'phone' => '+998901234567',
             'email' => 'john@example.com',
-            'firstName' => 'Jose Miguel',
+            'firstName' => 'Jose',
             'lastName'  => 'Hierro',
             'text'   => str_repeat('x', 200),
             'bookingId' => 85711302,
@@ -126,11 +126,29 @@ final class LogSanitizerTest extends TestCase
 
         $this->assertSame('+998****567', $out['phone']);
         $this->assertSame('j***@example.com', $out['email']);
+        // firstName is kept — Beds24 stores just the given name here.
         $this->assertSame('Jose', $out['firstName']);
-        $this->assertSame('Hierro', $out['lastName']);
+        // lastName is ALWAYS masked — surname alone is the most
+        // identifying half of a name.
+        $this->assertSame('***', $out['lastName']);
         $this->assertSame(60, mb_strlen((string) $out['text']));
         $this->assertSame(85711302, $out['bookingId']);
         $this->assertSame(41097, $out['propertyId']);
+    }
+
+    public function test_lastname_is_fully_masked_not_passed_through(): void
+    {
+        $out = LogSanitizer::context(['lastName' => 'SENTINEL_SINGLEWORD']);
+        $this->assertSame('***', $out['lastName']);
+    }
+
+    public function test_guestname_full_name_is_reduced_to_first_token(): void
+    {
+        $out = LogSanitizer::context(['guestName' => 'Karim Wahab']);
+        $this->assertSame('Karim', $out['guestName']);
+
+        $out2 = LogSanitizer::context(['guest_name' => 'Jose Miguel Frances Hierro']);
+        $this->assertSame('Jose', $out2['guest_name']);
     }
 
     public function test_context_recurses_into_nested_payload(): void

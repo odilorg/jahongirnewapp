@@ -39,8 +39,26 @@ final class LogSanitizer
     /** Keys whose leaf string value should be email-redacted. */
     private const EMAIL_KEYS = ['email', 'guest_email', 'guestemail'];
 
-    /** Keys whose leaf string value should be name-redacted (first name only). */
-    private const NAME_KEYS = ['firstname', 'lastname', 'guestname', 'guest_name', 'guestfirstname', 'guestlastname', 'name'];
+    /**
+     * Keys whose leaf string value is a FULL name that should be reduced
+     * to its first token ("Karim Wahab" → "Karim"). Single-token values
+     * pass through — those are assumed already short (first name only).
+     */
+    private const FULL_NAME_KEYS = ['guestname', 'guest_name', 'name'];
+
+    /**
+     * Keys whose leaf string value is already the SURNAME field. Always
+     * masked opaquely — surname alone is the most identifying half of
+     * a name and should never appear in INFO logs.
+     */
+    private const SURNAME_KEYS = ['lastname', 'guestlastname', 'surname'];
+
+    /**
+     * Keys whose leaf string value is already the FIRST NAME field.
+     * Kept as-is per architect's first-name-only policy (operationally
+     * useful for incident response, low sensitivity on its own).
+     */
+    private const FIRSTNAME_KEYS = ['firstname', 'guestfirstname'];
 
     /** Keys whose leaf string value should be truncated to FREE_TEXT_MAX chars. */
     private const FREE_TEXT_KEYS = ['text', 'message', 'comments', 'notes', 'content', 'grouppnote', 'groupnote'];
@@ -189,7 +207,14 @@ final class LogSanitizer
         if (in_array($lowerKey, self::EMAIL_KEYS, true)) {
             return self::email($value);
         }
-        if (in_array($lowerKey, self::NAME_KEYS, true)) {
+        if (in_array($lowerKey, self::SURNAME_KEYS, true)) {
+            return self::maskSurname($value);
+        }
+        if (in_array($lowerKey, self::FIRSTNAME_KEYS, true)) {
+            // First-name fields are already short + safe per policy.
+            return $value;
+        }
+        if (in_array($lowerKey, self::FULL_NAME_KEYS, true)) {
             return self::name($value);
         }
         if (in_array($lowerKey, self::JSON_STRING_KEYS, true)) {
@@ -200,6 +225,18 @@ final class LogSanitizer
         }
 
         return $value;
+    }
+
+    /**
+     * Surname fields are always opaque in logs — a surname alone is the
+     * most identifying half of a name and carries no incident-response
+     * value that `firstName` doesn't already provide. Returns the mask
+     * `'***'` for any non-empty string; preserves null/empty.
+     */
+    private static function maskSurname(string $value): string
+    {
+        $trimmed = trim($value);
+        return $trimmed === '' ? $trimmed : '***';
     }
 
     /**
