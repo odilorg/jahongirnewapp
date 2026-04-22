@@ -81,4 +81,19 @@ return [
             ],
         ],
     ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | View-bookings limits (Phase 9 — date/range view)
+    |--------------------------------------------------------------------------
+    | max_range_days — soft cap on the width of a date range an operator
+    |   may request via view-bookings ("bookings may 1-10"). Over the cap
+    |   returns a "narrow your query" message without hitting Beds24.
+    | max_rows        — cap on the number of bookings rendered in the
+    |   reply. Overflow reads "+X more (narrow your query)".
+    */
+    'view' => [
+        'max_range_days' => (int) env('HOTEL_BOT_VIEW_MAX_RANGE_DAYS', 31),
+        'max_rows'       => (int) env('HOTEL_BOT_VIEW_MAX_ROWS', 30),
+    ],
 ];
