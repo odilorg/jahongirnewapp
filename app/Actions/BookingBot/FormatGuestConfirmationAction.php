@@ -10,8 +10,8 @@ use App\Models\RoomUnitMapping;
 use Carbon\CarbonImmutable;
 
 /**
- * Formats the bilingual (EN+RU) guest-forward text the operator copies
- * out of Telegram and sends to the guest via WhatsApp / email / SMS.
+ * Formats the English-only guest-forward text the operator copies out
+ * of Telegram and sends to the guest via WhatsApp / email / SMS.
  *
  * Phase 8.1 — operator-forward mode. No auto-send. No markdown (plain
  * text renders identically on WhatsApp, email, Telegram, and SMS).
@@ -53,8 +53,7 @@ final class FormatGuestConfirmationAction
         $defaults = (array) config('hotel_booking_bot.guest_confirmation.defaults', []);
 
         $firstName  = trim($data->firstName);
-        $nameEn     = (string) ($property['name_en'] ?? '');
-        $nameRu     = (string) ($property['name_ru'] ?? $nameEn);
+        $name       = (string) ($property['name_en'] ?? '');
         $address    = (string) ($property['address'] ?? '');
         $mapsLink   = (string) ($property['maps_link'] ?? '');
         $phone      = (string) ($defaults['phone'] ?? '');
@@ -77,19 +76,17 @@ final class FormatGuestConfirmationAction
         $adults = $data->numAdult . ' ' . ($data->numAdult === 1 ? 'adult' : 'adults');
 
         $lines = [
-            'Booking confirmation / Подтверждение брони',
+            'Booking confirmation',
             '',
             "Hello, {$firstName}!",
-            "Здравствуйте, {$firstName}!",
             '',
-            "Your reservation at {$nameEn} is confirmed.",
-            "Ваше бронирование в {$nameRu} подтверждено.",
+            "Your reservation at {$name} is confirmed.",
             '',
-            "Hotel / Отель: {$nameEn}",
-            "Dates / Даты: {$arrivalHuman} → {$departureHuman} ({$nights} {$nightsWord})",
-            "Rooms / Номера: {$roomsList}",
-            "Guests / Гости: {$adults}",
-            "Reference / Номер брони: {$reference}",
+            "Hotel: {$name}",
+            "Dates: {$arrivalHuman} → {$departureHuman} ({$nights} {$nightsWord})",
+            "Rooms: {$roomsList}",
+            "Guests: {$adults}",
+            "Reference: {$reference}",
         ];
 
         $chargeBlock = $this->chargeBlock($charge, count($rooms));
@@ -100,20 +97,20 @@ final class FormatGuestConfirmationAction
 
         $lines = array_merge($lines, [
             '',
-            "Check-in / Заезд: from {$checkIn}",
-            "Check-out / Выезд: until {$checkOut}",
+            "Check-in: from {$checkIn}",
+            "Check-out: until {$checkOut}",
         ]);
 
         if ($address !== '') {
-            $lines[] = "Address / Адрес: {$address}";
+            $lines[] = "Address: {$address}";
         }
         if ($mapsLink !== '') {
-            $lines[] = "Map / Карта: {$mapsLink}";
+            $lines[] = "Map: {$mapsLink}";
         }
 
         $lines = array_merge($lines, [
             '',
-            'Need help? / Нужна помощь?',
+            'Need help?',
         ]);
         if ($phone !== '') {
             $lines[] = "Phone: {$phone}";
@@ -125,8 +122,7 @@ final class FormatGuestConfirmationAction
         $lines = array_merge($lines, [
             '',
             'See you soon!',
-            'Ждём вас!',
-            "— {$nameEn}",
+            "— {$name}",
         ]);
 
         return implode("\n", $lines);
@@ -146,11 +142,11 @@ final class FormatGuestConfirmationAction
         $nWord    = $this->nightsWord($nights);
 
         if ($roomsCount === 1) {
-            return "Price / Стоимость: {$price} {$cur} per night × {$nights} {$nWord} = {$perRoom} {$cur}";
+            return "Price: {$price} {$cur} per night × {$nights} {$nWord} = {$perRoom} {$cur}";
         }
 
-        return "Price / Стоимость: {$price} {$cur} per room per night × {$nights} {$nWord}\n" .
-               "Group total / Общая сумма: {$groupTtl} {$cur}";
+        return "Price: {$price} {$cur} per room per night × {$nights} {$nWord}\n" .
+               "Group total: {$groupTtl} {$cur}";
     }
 
     private function humanDate(string $ymd): string

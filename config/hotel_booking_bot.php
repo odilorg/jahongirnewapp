@@ -69,15 +69,13 @@ return [
         'properties' => [
             // Jahongir Hotel
             '41097' => [
-                'name_en'    => env('HOTEL_BOT_HOTEL_NAME_EN', 'Jahongir Hotel'),
-                'name_ru'    => env('HOTEL_BOT_HOTEL_NAME_RU', 'Отель Jahongir'),
+                'name_en'    => env('HOTEL_BOT_HOTEL_NAME', 'Jahongir Hotel'),
                 'address'    => env('HOTEL_BOT_HOTEL_ADDRESS', 'Samarkand, Uzbekistan'),
                 'maps_link'  => env('HOTEL_BOT_HOTEL_MAPS', 'https://maps.google.com/?q=Jahongir+Hotel+Samarkand'),
             ],
             // Jahongir Premium
             '172793' => [
-                'name_en'    => env('HOTEL_BOT_PREMIUM_NAME_EN', 'Jahongir Premium'),
-                'name_ru'    => env('HOTEL_BOT_PREMIUM_NAME_RU', 'Jahongir Premium'),
+                'name_en'    => env('HOTEL_BOT_PREMIUM_NAME', 'Jahongir Premium'),
                 'address'    => env('HOTEL_BOT_PREMIUM_ADDRESS', 'Samarkand, Uzbekistan'),
                 'maps_link'  => env('HOTEL_BOT_PREMIUM_MAPS', 'https://maps.google.com/?q=Jahongir+Premium+Samarkand'),
             ],

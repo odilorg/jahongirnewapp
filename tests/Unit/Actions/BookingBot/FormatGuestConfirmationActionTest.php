@@ -32,13 +32,11 @@ final class FormatGuestConfirmationActionTest extends TestCase
             'hotel_booking_bot.guest_confirmation.defaults.check_out_time' => '12:00',
             'hotel_booking_bot.guest_confirmation.properties.41097'        => [
                 'name_en'   => 'Jahongir Hotel',
-                'name_ru'   => 'Отель Jahongir',
                 'address'   => '9 Kamil Khoramiy, Samarkand',
                 'maps_link' => 'https://maps.google.com/?q=Jahongir+Hotel',
             ],
             'hotel_booking_bot.guest_confirmation.properties.172793'       => [
                 'name_en'   => 'Jahongir Premium',
-                'name_ru'   => 'Jahongir Premium',
                 'address'   => '42 Registan St, Samarkand',
                 'maps_link' => 'https://maps.google.com/?q=Jahongir+Premium',
             ],
@@ -71,7 +69,7 @@ final class FormatGuestConfirmationActionTest extends TestCase
         $this->assertSame('', $out);
     }
 
-    public function test_single_room_with_manual_charge_bilingual(): void
+    public function test_single_room_with_manual_charge_english_only(): void
     {
         $out = $this->action->execute(
             $this->data(),
@@ -80,23 +78,23 @@ final class FormatGuestConfirmationActionTest extends TestCase
             [1001],
         );
 
-        $this->assertStringContainsString('Booking confirmation / Подтверждение брони', $out);
+        $this->assertStringContainsString('Booking confirmation', $out);
         $this->assertStringContainsString('Hello, John!', $out);
-        $this->assertStringContainsString('Здравствуйте, John!', $out);
         $this->assertStringContainsString('Your reservation at Jahongir Hotel is confirmed.', $out);
-        $this->assertStringContainsString('Ваше бронирование в Отель Jahongir подтверждено.', $out);
-        $this->assertStringContainsString('Hotel / Отель: Jahongir Hotel', $out);
-        $this->assertStringContainsString('Rooms / Номера: 12 — Double Room', $out);
-        $this->assertStringContainsString('Reference / Номер брони: #1001', $out);
-        $this->assertStringContainsString('Price / Стоимость: 80.00 USD per night × 2 nights = 160.00 USD', $out);
-        $this->assertStringContainsString('Check-in / Заезд: from 14:00', $out);
-        $this->assertStringContainsString('Check-out / Выезд: until 12:00', $out);
-        $this->assertStringContainsString('Address / Адрес: 9 Kamil Khoramiy, Samarkand', $out);
-        $this->assertStringContainsString('Map / Карта: https://maps.google.com/?q=Jahongir+Hotel', $out);
+        $this->assertStringContainsString('Hotel: Jahongir Hotel', $out);
+        $this->assertStringContainsString('Rooms: 12 — Double Room', $out);
+        $this->assertStringContainsString('Reference: #1001', $out);
+        $this->assertStringContainsString('Price: 80.00 USD per night × 2 nights = 160.00 USD', $out);
+        $this->assertStringContainsString('Check-in: from 14:00', $out);
+        $this->assertStringContainsString('Check-out: until 12:00', $out);
+        $this->assertStringContainsString('Address: 9 Kamil Khoramiy, Samarkand', $out);
+        $this->assertStringContainsString('Map: https://maps.google.com/?q=Jahongir+Hotel', $out);
         $this->assertStringContainsString('Phone: +998 94 880 11 99', $out);
         $this->assertStringContainsString('WhatsApp: +998 94 880 11 99', $out);
         $this->assertStringContainsString('See you soon!', $out);
         $this->assertStringContainsString('— Jahongir Hotel', $out);
+        // Regression: no Cyrillic characters should leak in.
+        $this->assertDoesNotMatchRegularExpression('/[А-Яа-яЁё]/u', $out);
     }
 
     public function test_single_room_one_night_uses_singular_night_word(): void
@@ -123,7 +121,6 @@ final class FormatGuestConfirmationActionTest extends TestCase
         );
 
         $this->assertStringNotContainsString('Price', $out);
-        $this->assertStringNotContainsString('Стоимость', $out);
         $this->assertStringNotContainsString('not added', $out);
     }
 
@@ -139,12 +136,11 @@ final class FormatGuestConfirmationActionTest extends TestCase
             [2001, 2002],
         );
 
-        $this->assertStringContainsString('Hotel / Отель: Jahongir Premium', $out);
-        $this->assertStringContainsString('Ваше бронирование в Jahongir Premium подтверждено.', $out);
-        $this->assertStringContainsString('Rooms / Номера: 11 — Standard Double, 12 — Double or Twin', $out);
-        $this->assertStringContainsString('Reference / Номер брони: #2001 / #2002', $out);
-        $this->assertStringContainsString('Price / Стоимость: 80.00 USD per room per night × 2 nights', $out);
-        $this->assertStringContainsString('Group total / Общая сумма: 320.00 USD', $out);
+        $this->assertStringContainsString('Hotel: Jahongir Premium', $out);
+        $this->assertStringContainsString('Rooms: 11 — Standard Double, 12 — Double or Twin', $out);
+        $this->assertStringContainsString('Reference: #2001 / #2002', $out);
+        $this->assertStringContainsString('Price: 80.00 USD per room per night × 2 nights', $out);
+        $this->assertStringContainsString('Group total: 320.00 USD', $out);
     }
 
     public function test_group_without_charge(): void
@@ -159,7 +155,7 @@ final class FormatGuestConfirmationActionTest extends TestCase
             [3001, 3002],
         );
 
-        $this->assertStringContainsString('Reference / Номер брони: #3001 / #3002', $out);
+        $this->assertStringContainsString('Reference: #3001 / #3002', $out);
         $this->assertStringNotContainsString('Price', $out);
         $this->assertStringNotContainsString('Group total', $out);
     }
