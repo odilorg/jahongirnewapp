@@ -28,10 +28,19 @@ final class CreateBookingFromMessageAction
         private readonly Beds24BookingService $beds24,
         private readonly ResolveBotBookingChargeAction $chargeResolver,
         private readonly BuildBeds24BookingPayloadAction $payloadBuilder,
+        private readonly CreateGroupBookingFromMessageAction $groupAction,
     ) {}
 
     public function execute(array $parsed, User $staff): string
     {
+        // Parser emits $parsed['rooms'] (plural) when the operator booked
+        // multiple rooms in one command. Delegate to the group path — it
+        // shares the same resolver + payload builder.
+        $rooms = $parsed['rooms'] ?? null;
+        if (is_array($rooms) && count($rooms) > 1) {
+            return $this->groupAction->execute($parsed, $staff);
+        }
+
         $room = $parsed['room'] ?? null;
         $guest = $parsed['guest'] ?? null;
         $dates = $parsed['dates'] ?? null;

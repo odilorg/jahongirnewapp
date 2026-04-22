@@ -367,6 +367,59 @@ class Beds24BookingService
     }
 
     /**
+     * Create multiple Beds24 bookings from already-prepared payloads and
+     * (optionally) link them as a group.
+     *
+     * Contract (verified against Beds24 v2 on 2026-04-22 probe):
+     *   - Input: list of single-booking payloads matching the shape produced
+     *     by BuildBeds24BookingPayloadAction (propertyId, roomId, dates,
+     *     guest, status, notes, optional invoiceItems).
+     *   - When $makeGroup is true, each payload is tagged with
+     *     actions.makeGroup=true before POST.
+     *   - Beds24 returns an array of per-booking results in the SAME order
+     *     as the input. First element is the master (new.id, no masterId);
+     *     subsequent elements are siblings (new.id + new.masterId).
+     *
+     * This method does NOT roll back on partial failure — the caller owns
+     * atomicity (Phase 7 Rule 3 — capture created ids, cancel on any
+     * failure). That keeps the adapter business-rule-free per principle 7.
+     */
+    public function createMultipleBookingsFromPayloads(array $payloads, bool $makeGroup = true): array
+    {
+        if ($makeGroup) {
+            foreach ($payloads as &$payload) {
+                $payload['actions'] = array_merge(
+                    $payload['actions'] ?? [],
+                    ['makeGroup' => true],
+                );
+            }
+            unset($payload);
+        }
+
+        Log::info('Beds24 Create Group Booking Request', [
+            'count'     => count($payloads),
+            'makeGroup' => $makeGroup,
+            'payload'   => $payloads,
+        ]);
+
+        $response = $this->apiCall('POST', '/bookings', $payloads);
+
+        $result = $response->json();
+
+        Log::info('Beds24 Create Group Booking Response', ['response' => $result]);
+
+        if (!$response->successful()) {
+            throw new \Exception('Beds24 API HTTP error: ' . $response->status());
+        }
+
+        if (!is_array($result)) {
+            throw new \Exception('Unexpected Beds24 response: ' . json_encode($result));
+        }
+
+        return $result;
+    }
+
+    /**
      * Get booking details
      */
     public function getBooking(string $bookingId): array
