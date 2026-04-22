@@ -199,6 +199,111 @@ final class BookingListFormatterTest extends TestCase
         $this->assertStringContainsString('4n', $out);
     }
 
+    // ─── Phase 10.1 — inline snippets for comments / notes ────────────────
+
+    public function test_renders_comments_snippet_with_speech_icon(): void
+    {
+        config(['hotel_booking_bot.view.snippet_max_chars' => 40]);
+        $b = $this->booking(1, '2026-05-05', '2026-05-07');
+        $b['comments'] = 'Non Smoking Requested';
+        $out = $this->fmt->format([$b], 'Bookings', $this->rooms());
+        $this->assertStringContainsString('💬 Non Smoking Requested', $out);
+    }
+
+    public function test_renders_notes_snippet_with_memo_icon(): void
+    {
+        $b = $this->booking(1, '2026-05-05', '2026-05-07');
+        $b['notes'] = 'Transferred from Deluxe triple to Superior Double';
+        $out = $this->fmt->format([$b], 'Bookings', $this->rooms());
+        // Cap 40: snippet = first 39 chars of source + "…".
+        $this->assertStringContainsString('📝 Transferred from Deluxe triple to Super…', $out);
+    }
+
+    public function test_renders_both_snippets_comments_first(): void
+    {
+        $b = $this->booking(1, '2026-05-05', '2026-05-07');
+        $b['comments'] = 'Early check-in';
+        $b['notes']    = 'VIP guest';
+        $out = $this->fmt->format([$b], 'Bookings', $this->rooms());
+        $posC = strpos($out, '💬');
+        $posN = strpos($out, '📝');
+        $this->assertNotFalse($posC);
+        $this->assertNotFalse($posN);
+        $this->assertLessThan($posN, $posC);
+    }
+
+    public function test_snippet_truncates_to_configured_cap_with_ellipsis(): void
+    {
+        config(['hotel_booking_bot.view.snippet_max_chars' => 20]);
+        $b = $this->booking(1, '2026-05-05', '2026-05-07');
+        $b['comments'] = 'Hello, is it possible to get a double bed?';
+        $out = $this->fmt->format([$b], 'Bookings', $this->rooms());
+        // Cap 20: snippet = first 19 chars + "…".
+        $this->assertStringContainsString('💬 Hello, is it possib…', $out);
+        $this->assertStringNotContainsString('double bed', $out);
+    }
+
+    public function test_empty_and_whitespace_only_text_is_not_rendered(): void
+    {
+        $b = $this->booking(1, '2026-05-05', '2026-05-07');
+        $b['comments'] = '';
+        $b['notes']    = "   \n  \t ";
+        $out = $this->fmt->format([$b], 'Bookings', $this->rooms());
+        $this->assertStringNotContainsString('💬', $out);
+        $this->assertStringNotContainsString('📝', $out);
+    }
+
+    public function test_snippet_sanitizes_newlines_into_slash_separator(): void
+    {
+        $b = $this->booking(1, '2026-05-05', '2026-05-07');
+        $b['comments'] = "Hello\nThank you\n\nNon Smoking";
+        $out = $this->fmt->format([$b], 'Bookings', $this->rooms());
+        $this->assertStringContainsString('💬 Hello / Thank you / Non Smoking', $out);
+        $this->assertStringNotContainsString("\n💬", $out === '' ? 'x' : '💬 Hello' . "\n" . 'Thank');
+    }
+
+    public function test_snippet_collapses_repeated_whitespace(): void
+    {
+        $b = $this->booking(1, '2026-05-05', '2026-05-07');
+        $b['comments'] = "  Room   with    double   bed   ";
+        $out = $this->fmt->format([$b], 'Bookings', $this->rooms());
+        $this->assertStringContainsString('💬 Room with double bed', $out);
+    }
+
+    public function test_show_comments_flag_off_hides_comments_but_keeps_notes(): void
+    {
+        config([
+            'hotel_booking_bot.view.show_comments' => false,
+            'hotel_booking_bot.view.show_notes'    => true,
+        ]);
+        $b = $this->booking(1, '2026-05-05', '2026-05-07');
+        $b['comments'] = 'Guest request';
+        $b['notes']    = 'Staff note';
+        $out = $this->fmt->format([$b], 'Bookings', $this->rooms());
+        $this->assertStringNotContainsString('💬', $out);
+        $this->assertStringNotContainsString('Guest request', $out);
+        $this->assertStringContainsString('📝 Staff note', $out);
+    }
+
+    public function test_collapsed_group_uses_master_only_snippet(): void
+    {
+        // Three siblings, each with different comments. Only master's
+        // should render. Locked rule: no sibling snippet concatenation.
+        $m1 = $this->booking(101, '2026-05-05', '2026-05-07', firstName: 'Group', lastName: 'X', roomId: '555');
+        $m2 = $this->booking(102, '2026-05-05', '2026-05-07', firstName: 'Group', lastName: 'X', roomId: '556');
+        $m3 = $this->booking(103, '2026-05-05', '2026-05-07', firstName: 'Group', lastName: 'X', roomId: '557');
+        $m1['comments'] = 'Master request';
+        $m2['comments'] = 'Sibling 1 request';
+        $m3['comments'] = 'Sibling 2 request';
+
+        $out = $this->fmt->format([$m1, $m2, $m3], 'Bookings', $this->rooms());
+        $this->assertStringContainsString('💬 Master request', $out);
+        $this->assertStringNotContainsString('Sibling 1', $out);
+        $this->assertStringNotContainsString('Sibling 2', $out);
+        // Collapsed indicator still present.
+        $this->assertStringContainsString('×3', $out);
+    }
+
     /**
      * @return array<string, mixed>
      */
