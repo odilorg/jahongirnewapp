@@ -52,8 +52,20 @@ Output ONLY valid JSON, no additional text:
   "booking_id": "12345",
   "filter_type": "arrivals_today|departures_today|current|new",
   "search_string": "guest name to search",
-  "notes": "special requests"
+  "notes": "special requests",
+  "charge": {
+    "price_per_night": 80,
+    "currency": "USD"
+  }
 }
+
+Charge rules:
+- Only emit "charge" for create_booking intents.
+- "price_per_night" is a number (no currency symbol in the value).
+- "currency" is one of USD, UZS, EUR. Omit the "charge" key entirely if
+  the operator did not state a price.
+- If the operator says "total 200" without per-night, still omit
+  "charge" (v1 does not support total-only input).
 
 Property names:
 - "Jahongir Hotel" or "Hotel" or "jahongir hotel" → property: "jahongir_hotel"
@@ -95,6 +107,10 @@ Examples:
 
 - "modify booking 12345 to jan 5-7"
   → intent: modify_booking, booking_id: "12345", dates: jan 5-7
+
+- "book room 12 under John Walker jan 2-3 tel +123 at 80 usd/night"
+  → intent: create_booking, room.unit_name: "12", guest.name: "John Walker",
+    dates: jan 2-3, charge: {price_per_night: 80, currency: "USD"}
 PROMPT;
 
         try {

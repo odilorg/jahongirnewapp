@@ -284,11 +284,15 @@ class Beds24BookingService
     }
 
     /**
-     * Create a booking in Beds24
+     * Create a booking in Beds24 from the legacy flat-array shape.
+     *
+     * Kept for existing callers. Internally delegates to
+     * createBookingFromPayload() so the HTTP/response-parsing code path
+     * has exactly one implementation.
      */
     public function createBooking(array $data): array
     {
-        $payload = [[
+        $payload = [
             'propertyId' => (int) $data['property_id'],
             'roomId' => (int) $data['room_id'],
             'arrival' => $data['check_in'],
@@ -301,12 +305,28 @@ class Beds24BookingService
             'numChild' => $data['num_children'] ?? 0,
             'status' => 'confirmed',
             'notes' => $data['notes'] ?? 'Created via Telegram Bot',
-        ]];
+        ];
 
-        Log::info('Beds24 Create Booking Request', ['payload' => $payload]);
+        return $this->createBookingFromPayload($payload);
+    }
+
+    /**
+     * Create a booking from an already-prepared Beds24 single-booking
+     * payload. Beds24 expects the booking object wrapped in an array;
+     * we wrap here so callers pass a plain associative array.
+     *
+     * Used by the hotel-booking-bot flow, where the payload (including
+     * optional invoiceItems) is built by BuildBeds24BookingPayloadAction.
+     * Keeps this adapter free of booking-business rules.
+     */
+    public function createBookingFromPayload(array $payload): array
+    {
+        $requestBody = [$payload];
+
+        Log::info('Beds24 Create Booking Request', ['payload' => $requestBody]);
 
         try {
-            $response = $this->apiCall('POST', '/bookings', $payload);
+            $response = $this->apiCall('POST', '/bookings', $requestBody);
 
             $result = $response->json();
 
@@ -320,11 +340,11 @@ class Beds24BookingService
             // For single booking: [{success: true, new: {id: 123, ...}}]
             if (is_array($result) && count($result) > 0) {
                 $firstResult = $result[0];
-                
+
                 if (isset($firstResult['success']) && $firstResult['success']) {
                     // Extract booking ID from 'new' or 'id' field
                     $bookingId = $firstResult['new']['id'] ?? $firstResult['id'] ?? null;
-                    
+
                     return [
                         'success' => true,
                         'bookingId' => $bookingId,
@@ -332,7 +352,7 @@ class Beds24BookingService
                         'data' => $firstResult,
                     ];
                 }
-                
+
                 // Check for errors
                 if (isset($firstResult['errors'])) {
                     throw new \Exception('Beds24 API errors: ' . json_encode($firstResult['errors']));
