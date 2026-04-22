@@ -11,7 +11,7 @@ use App\Services\BookingIntentParser;
 use App\Support\BookingBot\DateRangeParser;
 use App\Support\BookingBot\MessageNormalizer;
 use Mockery;
-use PHPUnit\Framework\TestCase;
+use Tests\TestCase;
 
 /**
  * Coordinator dispatch tests. Uses REAL LocalIntentParser and

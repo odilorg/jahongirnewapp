@@ -8,6 +8,7 @@ use App\Services\BookingBot\DeepSeekIntentParser;
 use App\Services\BookingBot\IntentParseException;
 use App\Services\BookingBot\LocalIntentParser;
 use App\Support\BookingBot\MessageNormalizer;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Coordinator: try the local regex parser first; on no-match, fall
@@ -40,6 +41,7 @@ class BookingIntentParser
 
         $local = $this->local->tryParse($normalized);
         if ($local !== null) {
+            $this->logParse('local', $message, $local['intent'] ?? null);
             return $local;
         }
 
@@ -47,7 +49,24 @@ class BookingIntentParser
         // normalized form — DeepSeek's prompt examples preserve case
         // sensitivity for guest names and property names, and we don't
         // want to hand it a pre-mangled input.
-        return $this->remote->parse($message);
+        $remote = $this->remote->parse($message);
+        $this->logParse('llm', $message, $remote['intent'] ?? null);
+        return $remote;
+    }
+
+    /**
+     * Single log line per parse — operator-usage telemetry. After
+     * a few days of production data we can measure local coverage
+     * (target: 70–80%) and expand regex patterns where LLM handles
+     * commands that have clear grammar.
+     */
+    private function logParse(string $path, string $message, ?string $intent): void
+    {
+        Log::info('booking_bot.intent_parsed', [
+            'path'    => $path,
+            'message' => $message,
+            'intent'  => $intent,
+        ]);
     }
 
     public function validate(array $parsed): bool

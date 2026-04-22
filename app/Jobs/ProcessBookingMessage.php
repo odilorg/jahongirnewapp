@@ -9,6 +9,7 @@ use App\Actions\BookingBot\Handlers\HandleCallbackQueryAction;
 use App\Actions\BookingBot\Handlers\HandlePhoneContactAction;
 use App\Actions\BookingBot\Handlers\ModifyBookingFromMessageAction;
 use App\Actions\BookingBot\Handlers\ViewBookingsFromMessageAction;
+use App\Services\BookingBot\IntentParseException;
 use App\Services\BookingIntentParser;
 use App\Services\StaffAuthorizationService;
 use App\Services\TelegramBotService;
@@ -113,6 +114,27 @@ class ProcessBookingMessage implements ShouldQueue
                 $telegram->sendMessage($chatId, $guestForward);
             }
 
+        } catch (IntentParseException $e) {
+            // Intent parser (local or LLM) couldn't parse the message.
+            // Do NOT leak raw cURL / JSON errors to the operator — ship
+            // a menu-hint reply instead. The sanitized exception message
+            // is logged for debugging only.
+            Log::warning('Booking Bot Intent Parse Failed', [
+                'error'   => $e->getMessage(),
+                'message' => $text ?? null,
+                'update'  => $this->update,
+            ]);
+
+            if (isset($chatId) && isset($telegram)) {
+                $telegram->sendMessage(
+                    $chatId,
+                    "I couldn't parse that. Try one of:\n" .
+                    "• bookings today\n" .
+                    "• arrivals today\n" .
+                    "• cancel 12345\n" .
+                    "• or tap a menu button with /menu"
+                );
+            }
         } catch (\Exception $e) {
             Log::error('Process Booking Message Error', [
                 'error' => $e->getMessage(),
