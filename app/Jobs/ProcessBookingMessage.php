@@ -11,6 +11,7 @@ use App\Actions\BookingBot\Handlers\ModifyBookingFromMessageAction;
 use App\Actions\BookingBot\Handlers\ViewBookingsFromMessageAction;
 use App\Services\BookingBot\IntentParseException;
 use App\Services\BookingIntentParser;
+use App\Support\BookingBot\LogSanitizer;
 use App\Services\StaffAuthorizationService;
 use App\Services\TelegramBotService;
 use App\Services\TelegramKeyboardService;
@@ -146,11 +147,11 @@ class ProcessBookingMessage implements ShouldQueue
                 );
             }
         } catch (\Exception $e) {
-            Log::error('Process Booking Message Error', [
+            Log::error('Process Booking Message Error', LogSanitizer::context([
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
-                'update' => $this->update
-            ]);
+                'update' => $this->update,
+            ]));
 
             if (isset($chatId) && isset($telegram)) {
                 $telegram->sendMessage($chatId, 'Error: ' . $e->getMessage());
