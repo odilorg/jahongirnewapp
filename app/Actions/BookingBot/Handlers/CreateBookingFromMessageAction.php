@@ -14,6 +14,7 @@ use App\Exceptions\BookingBot\BotBookingChargeResolutionException;
 use App\Models\RoomUnitMapping;
 use App\Models\User;
 use App\Services\Beds24BookingService;
+use App\Support\BookingBot\LogSanitizer;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -133,7 +134,7 @@ final class CreateBookingFromMessageAction
         $payload = $this->payloadBuilder->execute($data, $resolvedCharge, $notes);
 
         try {
-            Log::info('Creating Beds24 booking', ['payload' => $payload]);
+            Log::info('Creating Beds24 booking', LogSanitizer::context(['payload' => $payload]));
 
             $result = $this->beds24->createBookingFromPayload($payload);
 
@@ -167,10 +168,10 @@ final class CreateBookingFromMessageAction
             throw new \Exception('Booking creation failed: ' . json_encode($result));
 
         } catch (\Exception $e) {
-            Log::error('Booking creation failed', [
+            Log::error('Booking creation failed', LogSanitizer::context([
                 'error' => $e->getMessage(),
                 'payload' => $payload ?? [],
-            ]);
+            ]));
 
             return "Booking Failed\n" .
                    "Room: {$unitName}\n" .

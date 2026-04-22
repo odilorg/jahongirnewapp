@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\BookingBot;
 
+use App\Support\BookingBot\LogSanitizer;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Log;
 use OpenAI;
@@ -56,7 +57,7 @@ class DeepSeekIntentParser
 
             $content = $response->choices[0]->message->content ?? '';
 
-            Log::info('DeepSeek Booking Intent Response', ['content' => $content]);
+            Log::info('DeepSeek Booking Intent Response', LogSanitizer::context(['content' => $content]));
 
             // DeepSeek occasionally wraps JSON in a markdown code fence.
             $content = trim($content);
@@ -75,16 +76,16 @@ class DeepSeekIntentParser
 
             return $parsed;
         } catch (IntentParseException $e) {
-            Log::error('Booking Intent Parse Error', [
+            Log::error('Booking Intent Parse Error', LogSanitizer::context([
                 'message' => $message,
                 'error'   => $e->getMessage(),
-            ]);
+            ]));
             throw $e;
         } catch (\Throwable $e) {
-            Log::error('Booking Intent Parse Error', [
+            Log::error('Booking Intent Parse Error', LogSanitizer::context([
                 'message' => $message,
                 'error'   => $e->getMessage(),
-            ]);
+            ]));
             // Sanitize transport-layer errors (cURL messages, URLs) so
             // upstream never surfaces raw network noise to operators.
             throw new IntentParseException('Intent parser unavailable: ' . $e->getMessage(), 0, $e);

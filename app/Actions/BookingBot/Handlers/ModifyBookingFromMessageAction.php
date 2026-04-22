@@ -5,6 +5,7 @@ namespace App\Actions\BookingBot\Handlers;
 use App\Models\RoomUnitMapping;
 use App\Models\User;
 use App\Services\Beds24BookingService;
+use App\Support\BookingBot\LogSanitizer;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -93,15 +94,15 @@ final class ModifyBookingFromMessageAction
                 return $availabilityReply;
             }
 
-            Log::info('Modifying booking', [
+            Log::info('Modifying booking', LogSanitizer::context([
                 'booking_id' => $bookingId,
                 'changes' => $changes,
                 'staff' => $staff->name,
-            ]);
+            ]));
 
             $result = $this->beds24->modifyBooking($bookingId, $changes);
 
-            Log::info('Modify booking API response', ['result' => $result]);
+            Log::info('Modify booking API response', LogSanitizer::context(['result' => $result]));
 
             // Beds24 responses vary: sometimes {success: true}, sometimes an
             // array with success on the first element, sometimes success is

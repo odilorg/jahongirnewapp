@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Support\BookingBot\LogSanitizer;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Cache;
@@ -323,14 +324,14 @@ class Beds24BookingService
     {
         $requestBody = [$payload];
 
-        Log::info('Beds24 Create Booking Request', ['payload' => $requestBody]);
+        Log::info('Beds24 Create Booking Request', LogSanitizer::context(['payload' => $requestBody]));
 
         try {
             $response = $this->apiCall('POST', '/bookings', $requestBody);
 
             $result = $response->json();
 
-            Log::info('Beds24 Create Booking Response', ['response' => $result]);
+            Log::info('Beds24 Create Booking Response', LogSanitizer::context(['response' => $result]));
 
             if (!$response->successful()) {
                 throw new \Exception('Beds24 API HTTP error: ' . $response->status());
@@ -396,17 +397,17 @@ class Beds24BookingService
             unset($payload);
         }
 
-        Log::info('Beds24 Create Group Booking Request', [
+        Log::info('Beds24 Create Group Booking Request', LogSanitizer::context([
             'count'     => count($payloads),
             'makeGroup' => $makeGroup,
             'payload'   => $payloads,
-        ]);
+        ]));
 
         $response = $this->apiCall('POST', '/bookings', $payloads);
 
         $result = $response->json();
 
-        Log::info('Beds24 Create Group Booking Response', ['response' => $result]);
+        Log::info('Beds24 Create Group Booking Response', LogSanitizer::context(['response' => $result]));
 
         if (!$response->successful()) {
             throw new \Exception('Beds24 API HTTP error: ' . $response->status());
@@ -440,13 +441,13 @@ class Beds24BookingService
             'comment' => $reason ? 'Cancelled: ' . $reason : 'Cancelled via Telegram Bot',
         ]];
 
-        Log::info('Beds24 Cancel Booking Request', ['payload' => $payload]);
+        Log::info('Beds24 Cancel Booking Request', LogSanitizer::context(['payload' => $payload]));
 
         $response = $this->apiCall('POST', '/bookings', $payload);
 
         $result = $response->json();
         
-        Log::info('Beds24 Cancel Booking Response', ['response' => $result]);
+        Log::info('Beds24 Cancel Booking Response', LogSanitizer::context(['response' => $result]));
 
         return $result;
     }
@@ -570,24 +571,24 @@ class Beds24BookingService
             foreach ($propertyIds as $propertyId) {
                 $propertyFilters = array_merge($filters, ['propertyId' => (int)$propertyId]);
 
-                Log::info('Beds24 Get Bookings Request', [
+                Log::info('Beds24 Get Bookings Request', LogSanitizer::context([
                     'propertyId' => $propertyId,
-                    'filters' => $propertyFilters
-                ]);
+                    'filters' => $propertyFilters,
+                ]));
 
                 $response = $this->apiCall('GET', '/bookings', $propertyFilters);
 
                 $result = $response->json();
 
-                Log::info('Beds24 Get Bookings Response', [
+                Log::info('Beds24 Get Bookings Response', LogSanitizer::context([
                     'propertyId' => $propertyId,
                     'status_code' => $response->status(),
                     'count' => $result['count'] ?? 0,
                     'success' => $response->successful(),
                     'has_data' => isset($result['data']),
                     'data_count' => isset($result['data']) ? count($result['data']) : 0,
-                    'sample_booking' => isset($result['data'][0]) ? array_keys($result['data'][0]) : []
-                ]);
+                    'sample_booking' => isset($result['data'][0]) ? array_keys($result['data'][0]) : [],
+                ]));
 
                 if ($response->successful() && isset($result['data']) && is_array($result['data'])) {
                     $allBookings = array_merge($allBookings, $result['data']);
@@ -811,18 +812,18 @@ class Beds24BookingService
             $payload[] = $booking;
         }
 
-        Log::info('Beds24 Create Multiple Bookings Request', [
+        Log::info('Beds24 Create Multiple Bookings Request', LogSanitizer::context([
             'payload' => $payload,
             'count' => count($payload),
-            'makeGroup' => $makeGroup
-        ]);
+            'makeGroup' => $makeGroup,
+        ]));
 
         try {
             $response = $this->apiCall('POST', '/bookings', $payload);
 
             $result = $response->json();
 
-            Log::info('Beds24 Create Multiple Bookings Response', ['response' => $result]);
+            Log::info('Beds24 Create Multiple Bookings Response', LogSanitizer::context(['response' => $result]));
 
             if (!$response->successful() || (isset($result['success']) && !$result['success'])) {
                 throw new \Exception('Beds24 API error: ' . json_encode($result));
@@ -896,11 +897,11 @@ class Beds24BookingService
 
             $guestName = trim($firstName . ' ' . $lastName);
 
-            Log::info('Beds24 fetchGuestInfo: Result', [
+            Log::info('Beds24 fetchGuestInfo: Result', LogSanitizer::context([
                 'booking_id' => $bookingId,
                 'guest_name' => $guestName,
                 'info_items_count' => count($infoItems),
-            ]);
+            ]));
 
             return [
                 'guest_name' => $guestName,

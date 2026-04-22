@@ -4,6 +4,7 @@ namespace App\Actions\BookingBot\Handlers;
 
 use App\Models\User;
 use App\Services\Beds24BookingService;
+use App\Support\BookingBot\LogSanitizer;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -61,7 +62,7 @@ final class CancelBookingFromMessageAction
             $reason = 'Cancelled by ' . $staff->name . ' via Telegram Bot';
             $result = $this->beds24->cancelBooking($bookingId, $reason);
 
-            Log::info('Cancel booking API response', ['result' => $result]);
+            Log::info('Cancel booking API response', LogSanitizer::context(['result' => $result]));
 
             // Beds24 API sometimes returns array [{"success": true, ...}] and
             // sometimes implies success by absence of error — handle both.
