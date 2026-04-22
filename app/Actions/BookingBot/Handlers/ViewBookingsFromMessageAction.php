@@ -1,195 +1,268 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Actions\BookingBot\Handlers;
 
 use App\Models\RoomUnitMapping;
 use App\Services\Beds24BookingService;
-use Illuminate\Support\Collection;
+use App\Services\BookingBot\BookingListFormatter;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Log;
 
 /**
  * Handles "view bookings" intent from @j_booking_hotel_bot.
  *
- * Serves both typed-text intents (handleCommand) and inline-button
- * filter_type callbacks (view_arrivals_today, view_departures_today,
- * view_current, view_new). Same orchestration — the caller sets the
- * filter_type in $parsed. Reply formatting is kept as a private helper.
+ * Serves:
+ *   - inline-button callbacks (view_arrivals_today, view_departures_today,
+ *     view_current, view_new) via filter_type
+ *   - typed queries: "bookings today", "arrivals may 5-10",
+ *     "departures next week", "bookings on may 5", "bookings may 5-7"
+ *
+ * Phase 9 rules (see memory project_hotel_bot_charges):
+ *   A. default semantics — stays overlap [from, to]
+ *      (arrival <= to AND departure >= from)
+ *   B. single date = 1-day range
+ *   C. max range width — 31 days (config)
+ *   E. combinable: filter_type (arrivals/departures/new) + dates
+ *   F. group/sort by relevant date (arrival/departure depending on mode)
+ *   G. empty state: "No bookings found for {title}."
+ *   H. month without year → next occurrence (parser responsibility)
+ *   I. property hint narrows the filter when supplied
  */
 final class ViewBookingsFromMessageAction
 {
     public function __construct(
         private readonly Beds24BookingService $beds24,
+        private readonly BookingListFormatter $formatter,
     ) {}
 
     public function execute(array $parsed): string
     {
         try {
-            $filters = [];
-            $filterType = $parsed['filter_type'] ?? null;
-
             $rooms = RoomUnitMapping::all();
-            $propertyIds = $rooms->pluck('property_id')->unique()->toArray();
-            $filters['propertyId'] = $propertyIds;
 
-            if ($filterType) {
-                switch ($filterType) {
-                    case 'arrivals_today':
-                        $today = date('Y-m-d');
-                        $filters['arrivalFrom'] = $today;
-                        $filters['arrivalTo'] = $today;
-                        $title = "Arrivals Today (" . date('M j, Y') . ")";
-                        break;
-
-                    case 'departures_today':
-                        $today = date('Y-m-d');
-                        $filters['departureFrom'] = $today;
-                        $filters['departureTo'] = $today;
-                        $title = "Departures Today (" . date('M j, Y') . ")";
-                        break;
-
-                    case 'current':
-                        // In-house guests: arrived by today, leaving after today.
-                        $today = date('Y-m-d');
-                        $filters['arrivalTo'] = $today;
-                        $filters['departureFrom'] = date('Y-m-d', strtotime('+1 day'));
-                        $title = "Current Bookings (In-House)";
-                        break;
-
-                    case 'new':
-                        $filters['status'] = ['new', 'request'];
-                        $title = "New Bookings (Unconfirmed)";
-                        break;
-
-                    default:
-                        $filters['arrivalFrom'] = date('Y-m-d');
-                        $title = "Upcoming Bookings";
-                }
-            } else {
-                $filters['arrivalFrom'] = date('Y-m-d');
-                $title = "Upcoming Bookings";
+            $plan = $this->buildQueryPlan($parsed, $rooms);
+            if (is_string($plan)) {
+                return $plan; // early exit (validation error)
             }
 
-            if (isset($parsed['search_string']) && !empty($parsed['search_string'])) {
-                $filters['searchString'] = $parsed['search_string'];
-                $title = "Search Results: " . $parsed['search_string'];
-            }
+            Log::info('Fetching bookings', [
+                'filters' => $plan['filters'],
+                'title'   => $plan['title'],
+                'mode'    => $plan['mode'],
+            ]);
 
-            $dates = $parsed['dates'] ?? null;
-            if ($dates) {
-                if (!empty($dates['check_in'])) {
-                    $filters['arrivalFrom'] = $dates['check_in'];
-                }
-                if (!empty($dates['check_out'])) {
-                    $filters['arrivalTo'] = $dates['check_out'];
-                }
-            }
-
-            Log::info('Fetching bookings', ['filters' => $filters, 'title' => $title]);
-
-            $result = $this->beds24->getBookings($filters);
+            $result = $this->beds24->getBookings($plan['filters']);
 
             Log::info('Bookings result', [
                 'success' => $result['success'] ?? false,
-                'count' => $result['count'] ?? 0,
-                'has_data' => isset($result['data']),
-                'data_empty' => empty($result['data']),
+                'count'   => $result['count'] ?? 0,
             ]);
 
-            if (!isset($result['data']) || empty($result['data'])) {
-                return "📭 No Bookings Found\n\n" .
-                       "Filter: {$title}\n" .
-                       "Date: " . date('M j, Y') . "\n\n" .
-                       "No bookings match your search criteria.";
-            }
+            $bookings = $result['data'] ?? [];
 
-            return $this->formatBookingsReply($result['data'], $title, $rooms);
+            return $this->formatter->format(
+                bookings: is_array($bookings) ? $bookings : [],
+                title:    $plan['title'],
+                rooms:    $rooms,
+                mode:     $plan['mode'],
+            );
 
         } catch (\Exception $e) {
             Log::error('View bookings failed', [
-                'error' => $e->getMessage(),
+                'error'  => $e->getMessage(),
                 'parsed' => $parsed,
             ]);
 
-            return "Error fetching bookings: " . $e->getMessage() . "\n\n" .
-                   "Please try again or contact support.";
+            return 'Error fetching bookings: ' . $e->getMessage() .
+                   "\n\nPlease try again or contact support.";
         }
     }
 
     /**
-     * Render the booking list reply. Extracted only for readability; still a
-     * private, behaviour-preserving helper on this Action.
+     * Resolve the query plan from parsed intent. Returns either an array
+     * {filters, title, mode} or a string (operator-facing early response,
+     * e.g. range-cap rejection).
+     *
+     * @return array{filters: array<string, mixed>, title: string, mode: string}|string
      */
-    private function formatBookingsReply(array $bookings, string $title, Collection $rooms): string
+    private function buildQueryPlan(array $parsed, $rooms): array|string
     {
-        $count = count($bookings);
+        $filters     = [];
+        $filterType  = $parsed['filter_type'] ?? null;
+        $propertyIds = $rooms->pluck('property_id')->unique()->values()->toArray();
+        $filters['propertyId'] = $propertyIds;
 
-        $response = "{$title}\n";
-        $response .= "━━━━━━━━━━━━━━━━━━━━\n";
-        $response .= "Found {$count} " . ($count == 1 ? 'booking' : 'bookings') . "\n\n";
+        $dates = $parsed['dates'] ?? null;
+        [$from, $to] = $this->resolveDateRange($dates);
 
-        // Telegram has a message-length ceiling; cap at 10 and hint at the rest.
-        $displayCount = min($count, 10);
-
-        for ($i = 0; $i < $displayCount; $i++) {
-            $booking = $bookings[$i];
-
-            $guestName = trim(($booking['firstName'] ?? '') . ' ' . ($booking['lastName'] ?? ''));
-            if (empty($guestName)) {
-                $guestName = 'N/A';
+        // Range-width cap (Rule C). Only applies when a range is present.
+        if ($from !== null && $to !== null) {
+            $widthDays = (int) CarbonImmutable::parse($from)->diffInDays(CarbonImmutable::parse($to)) + 1;
+            $cap = (int) config('hotel_booking_bot.view.max_range_days', 31);
+            if ($widthDays > $cap) {
+                return "Range too large (max {$cap} days, got {$widthDays}). Please narrow your request.";
             }
-
-            $roomName = 'N/A';
-            if (isset($booking['roomId'])) {
-                $roomMapping = $rooms->where('room_id', $booking['roomId'])->first();
-                if ($roomMapping) {
-                    $roomName = $roomMapping->room_name . ' (Unit ' . $roomMapping->unit_name . ')';
-                }
-            }
-
-            $response .= "#{$booking['id']}\n";
-            $response .= "Guest: {$guestName}\n";
-            $response .= "Room: {$roomName}\n";
-            $response .= "Dates: " . ($booking['arrival'] ?? 'N/A') . " → " . ($booking['departure'] ?? 'N/A') . "\n";
-
-            if (isset($booking['status'])) {
-                $statusEmoji = match ($booking['status']) {
-                    'confirmed' => '✅',
-                    'request' => '❓',
-                    'cancelled' => '❌',
-                    'new' => '🆕',
-                    default => '•',
-                };
-                $response .= "Status: {$statusEmoji} " . ucfirst($booking['status']) . "\n";
-            }
-
-            if (isset($booking['numAdult']) || isset($booking['numChild'])) {
-                $adults = $booking['numAdult'] ?? 0;
-                $children = $booking['numChild'] ?? 0;
-                $response .= "Guests: {$adults} " . ($adults == 1 ? 'adult' : 'adults');
-                if ($children > 0) {
-                    $response .= ", {$children} " . ($children == 1 ? 'child' : 'children');
-                }
-                $response .= "\n";
-            }
-
-            if (isset($booking['price'])) {
-                $response .= "Price: $" . number_format($booking['price'], 2) . "\n";
-            }
-
-            if ($i < $displayCount - 1) {
-                $response .= "─────────────────────\n";
-            }
-            $response .= "\n";
         }
 
-        if ($count > 10) {
-            $response .= "... and " . ($count - 10) . " more bookings\n";
-            $response .= "(Showing first 10 results)\n";
+        // Shortcut handling: "today".
+        if ($filterType === 'today' || (is_string($filterType) && strtolower($filterType) === 'today')) {
+            $today = date('Y-m-d');
+            $from = $from ?? $today;
+            $to   = $to ?? $today;
+            $filterType = null; // route to default stays-overlap
         }
 
-        $response .= "\nTo modify: modify booking #[ID]\n";
-        $response .= "To cancel: cancel booking #[ID]";
+        // Search string path (unchanged).
+        if (isset($parsed['search_string']) && $parsed['search_string'] !== '') {
+            $filters['searchString'] = (string) $parsed['search_string'];
+            return [
+                'filters' => $filters,
+                'title'   => 'Search: ' . $parsed['search_string'],
+                'mode'    => BookingListFormatter::MODE_NONE,
+            ];
+        }
 
-        return $response;
+        switch ($filterType) {
+            case 'arrivals_today':
+                $today = date('Y-m-d');
+                $filters['arrivalFrom'] = $today;
+                $filters['arrivalTo']   = $today;
+                return [
+                    'filters' => $filters,
+                    'title'   => 'Arrivals Today (' . date('M j, Y') . ')',
+                    'mode'    => BookingListFormatter::MODE_ARRIVALS,
+                ];
+
+            case 'departures_today':
+                $today = date('Y-m-d');
+                $filters['departureFrom'] = $today;
+                $filters['departureTo']   = $today;
+                return [
+                    'filters' => $filters,
+                    'title'   => 'Departures Today (' . date('M j, Y') . ')',
+                    'mode'    => BookingListFormatter::MODE_DEPARTURES,
+                ];
+
+            case 'arrivals':
+                if ($from === null || $to === null) {
+                    return 'Please provide a date or range for arrivals. Example: arrivals may 5-10';
+                }
+                $filters['arrivalFrom'] = $from;
+                $filters['arrivalTo']   = $to;
+                return [
+                    'filters' => $filters,
+                    'title'   => 'Arrivals ' . $this->rangeTitle($from, $to),
+                    'mode'    => BookingListFormatter::MODE_ARRIVALS,
+                ];
+
+            case 'departures':
+                if ($from === null || $to === null) {
+                    return 'Please provide a date or range for departures. Example: departures may 5-10';
+                }
+                $filters['departureFrom'] = $from;
+                $filters['departureTo']   = $to;
+                return [
+                    'filters' => $filters,
+                    'title'   => 'Departures ' . $this->rangeTitle($from, $to),
+                    'mode'    => BookingListFormatter::MODE_DEPARTURES,
+                ];
+
+            case 'current':
+                $today = date('Y-m-d');
+                $filters['arrivalTo']     = $today;
+                $filters['departureFrom'] = date('Y-m-d', strtotime('+1 day'));
+                return [
+                    'filters' => $filters,
+                    'title'   => 'Current Bookings (In-House)',
+                    'mode'    => BookingListFormatter::MODE_STAYS,
+                ];
+
+            case 'new':
+                $filters['status'] = ['new', 'request'];
+                if ($from !== null && $to !== null) {
+                    // Stays overlap semantics when a range is supplied.
+                    $filters['arrivalTo']     = $to;
+                    $filters['departureFrom'] = $from;
+                }
+                return [
+                    'filters' => $filters,
+                    'title'   => 'New Bookings' .
+                        (($from && $to) ? ' — ' . $this->rangeTitle($from, $to) : ' (Unconfirmed)'),
+                    'mode'    => BookingListFormatter::MODE_NONE,
+                ];
+
+            default:
+                // No filter_type: stays-overlap semantics when a range is
+                // supplied, otherwise "upcoming from today" (legacy).
+                if ($from !== null && $to !== null) {
+                    $filters['arrivalTo']     = $to;
+                    $filters['departureFrom'] = $from;
+                    return [
+                        'filters' => $filters,
+                        'title'   => 'Bookings ' . $this->rangeTitle($from, $to),
+                        'mode'    => BookingListFormatter::MODE_STAYS,
+                    ];
+                }
+
+                $filters['arrivalFrom'] = date('Y-m-d');
+                return [
+                    'filters' => $filters,
+                    'title'   => 'Upcoming Bookings',
+                    'mode'    => BookingListFormatter::MODE_ARRIVALS,
+                ];
+        }
+    }
+
+    /**
+     * Resolve $parsed['dates'] into a normalized [from, to] pair.
+     * A single date (check_in without check_out, or equal) becomes a
+     * one-day range (Rule B).
+     *
+     * @return array{0: ?string, 1: ?string}
+     */
+    private function resolveDateRange(?array $dates): array
+    {
+        if (! $dates) {
+            return [null, null];
+        }
+
+        $in  = $this->normalizeYmd($dates['check_in']  ?? null);
+        $out = $this->normalizeYmd($dates['check_out'] ?? null);
+
+        if ($in !== null && $out === null) {
+            $out = $in; // Rule B: single date → 1-day range.
+        }
+        if ($out !== null && $in === null) {
+            $in = $out;
+        }
+
+        return [$in, $out];
+    }
+
+    private function normalizeYmd(mixed $value): ?string
+    {
+        if (! is_string($value) || $value === '') {
+            return null;
+        }
+        try {
+            return CarbonImmutable::parse($value)->format('Y-m-d');
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    private function rangeTitle(string $from, string $to): string
+    {
+        $a = CarbonImmutable::parse($from);
+        $b = CarbonImmutable::parse($to);
+        if ($a->isSameDay($b)) {
+            return $a->format('j M Y');
+        }
+        if ($a->format('Y') === $b->format('Y')) {
+            return $a->format('j M') . ' → ' . $b->format('j M Y');
+        }
+        return $a->format('j M Y') . ' → ' . $b->format('j M Y');
     }
 }
