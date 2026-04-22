@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace App\Actions\BookingBot\Handlers;
 
 use App\Actions\BookingBot\BuildBeds24BookingPayloadAction;
+use App\Actions\BookingBot\FormatGuestConfirmationAction;
 use App\Actions\BookingBot\ResolveBotBookingChargeAction;
+use App\Jobs\ProcessBookingMessage;
 use App\DTO\BotBookingRequestData;
 use App\DTO\ResolvedBotBookingChargeData;
 use App\Exceptions\BookingBot\BotBookingChargeResolutionException;
@@ -29,6 +31,7 @@ final class CreateBookingFromMessageAction
         private readonly ResolveBotBookingChargeAction $chargeResolver,
         private readonly BuildBeds24BookingPayloadAction $payloadBuilder,
         private readonly CreateGroupBookingFromMessageAction $groupAction,
+        private readonly FormatGuestConfirmationAction $guestConfirmation,
     ) {}
 
     public function execute(array $parsed, User $staff): string
@@ -137,16 +140,28 @@ final class CreateBookingFromMessageAction
             if (isset($result['success']) && $result['success']) {
                 $bookingId = $result['bookingId'] ?? $result['id'] ?? 'Unknown';
 
-                return "Booking Created Successfully!\n" .
-                       "Booking ID: #{$bookingId}\n" .
-                       "Room: {$roomMapping->unit_name} ({$roomMapping->room_name})\n" .
-                       "Guest: {$guestName}\n" .
-                       "Phone: {$phone}\n" .
-                       "Email: {$email}\n" .
-                       "Check-in: {$checkIn}\n" .
-                       "Check-out: {$checkOut}\n" .
-                       $this->chargeLine($resolvedCharge) . "\n\n" .
-                       "Booking confirmed in Beds24!";
+                $operatorReceipt =
+                    "Booking Created Successfully!\n" .
+                    "Booking ID: #{$bookingId}\n" .
+                    "Room: {$roomMapping->unit_name} ({$roomMapping->room_name})\n" .
+                    "Guest: {$guestName}\n" .
+                    "Phone: {$phone}\n" .
+                    "Email: {$email}\n" .
+                    "Check-in: {$checkIn}\n" .
+                    "Check-out: {$checkOut}\n" .
+                    $this->chargeLine($resolvedCharge) . "\n\n" .
+                    "Booking confirmed in Beds24!";
+
+                $guestText = $this->guestConfirmation->execute(
+                    $data,
+                    $resolvedCharge,
+                    [$roomMapping],
+                    [$bookingId],
+                );
+
+                return $guestText === ''
+                    ? $operatorReceipt
+                    : $operatorReceipt . ProcessBookingMessage::GUEST_FORWARD_MARKER . $guestText;
             }
 
             throw new \Exception('Booking creation failed: ' . json_encode($result));

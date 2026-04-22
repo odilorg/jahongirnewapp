@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\BookingBot;
 
 use App\Actions\BookingBot\BuildBeds24BookingPayloadAction;
+use App\Actions\BookingBot\FormatGuestConfirmationAction;
 use App\Actions\BookingBot\Handlers\CreateGroupBookingFromMessageAction;
 use App\Actions\BookingBot\ResolveBotBookingChargeAction;
 use App\Models\RoomUnitMapping;
@@ -246,6 +247,7 @@ final class CreateGroupBookingFromMessageActionTest extends TestCase
             $beds24,
             new ResolveBotBookingChargeAction(),
             new BuildBeds24BookingPayloadAction(),
+            new FormatGuestConfirmationAction(),
         );
     }
 

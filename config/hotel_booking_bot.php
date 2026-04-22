@@ -37,4 +37,50 @@ return [
 
         'invoice_item_description' => 'Room charge',
     ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Guest-forward confirmation (Phase 8.1 — operator copy-paste mode)
+    |--------------------------------------------------------------------------
+    | When enabled, after a successful single OR group booking the bot
+    | sends a SECOND Telegram message to the operator containing a clean,
+    | bilingual, plain-text confirmation the operator can forward verbatim
+    | to the guest via WhatsApp / email / Telegram / SMS.
+    |
+    | Nothing is auto-sent to the guest in Phase 8.1. That comes in Phase 8.2
+    | after operators confirm copy quality in real use.
+    |
+    | Property-specific values (address, maps link) live under
+    | `properties.<propertyId>`; shared values (phone, WA, check-in/out
+    | times) live under `defaults`. Override any string via .env — no code
+    | deploy needed.
+    */
+    'guest_confirmation' => [
+        'enabled' => env('HOTEL_BOT_GUEST_CONFIRMATION_ENABLED', false),
+
+        'defaults' => [
+            'phone'          => env('HOTEL_BOT_RECEPTION_PHONE', '+998 94 880 11 99'),
+            'whatsapp'       => env('HOTEL_BOT_RECEPTION_WA', '+998 94 880 11 99'),
+            'check_in_time'  => env('HOTEL_BOT_CHECK_IN_TIME', '14:00'),
+            'check_out_time' => env('HOTEL_BOT_CHECK_OUT_TIME', '12:00'),
+        ],
+
+        // Keys are Beds24 property IDs (string).
+        'properties' => [
+            // Jahongir Hotel
+            '41097' => [
+                'name_en'    => env('HOTEL_BOT_HOTEL_NAME_EN', 'Jahongir Hotel'),
+                'name_ru'    => env('HOTEL_BOT_HOTEL_NAME_RU', 'Отель Jahongir'),
+                'address'    => env('HOTEL_BOT_HOTEL_ADDRESS', 'Samarkand, Uzbekistan'),
+                'maps_link'  => env('HOTEL_BOT_HOTEL_MAPS', 'https://maps.google.com/?q=Jahongir+Hotel+Samarkand'),
+            ],
+            // Jahongir Premium
+            '172793' => [
+                'name_en'    => env('HOTEL_BOT_PREMIUM_NAME_EN', 'Jahongir Premium'),
+                'name_ru'    => env('HOTEL_BOT_PREMIUM_NAME_RU', 'Jahongir Premium'),
+                'address'    => env('HOTEL_BOT_PREMIUM_ADDRESS', 'Samarkand, Uzbekistan'),
+                'maps_link'  => env('HOTEL_BOT_PREMIUM_MAPS', 'https://maps.google.com/?q=Jahongir+Premium+Samarkand'),
+            ],
+        ],
+    ],
 ];
