@@ -13,6 +13,7 @@ use App\Services\StaffAuthorizationService;
 use App\Services\TelegramBotService;
 use App\Services\TelegramKeyboardService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Log;
 use Mockery;
 use Tests\TestCase;
 
@@ -66,13 +67,27 @@ final class ProcessBookingMessageParserFallbackTest extends TestCase
         $keyboard->shouldReceive('getBackButton')->zeroOrMoreTimes();
         $this->app->instance(TelegramKeyboardService::class, $keyboard);
 
+        // Capture structured log context so we can assert no PII leaks.
+        /** @var array<int, array<string, mixed>> $logCalls */
+        $logCalls = [];
+        Log::swap(new class($logCalls) {
+            public function __construct(private array &$calls) {}
+            public function __call(string $method, array $args): void
+            {
+                $this->calls[] = ['level' => $method, 'message' => $args[0] ?? null, 'context' => $args[1] ?? []];
+            }
+        });
+
+        // Real operator input carrying realistic PII (guest + phone).
+        $piiMessage = 'book room 12 under John Walker jan 2-3 tel +1234567890 email alice@example.com';
+
         $update = [
             'update_id' => 1,
             'message' => [
                 'message_id' => 1,
                 'chat'       => ['id' => 12345],
                 'from'       => ['id' => 1, 'username' => 'op'],
-                'text'       => 'something the parser choked on',
+                'text'       => $piiMessage,
                 'date'       => time(),
             ],
         ];
@@ -93,5 +108,17 @@ final class ProcessBookingMessageParserFallbackTest extends TestCase
         $this->assertStringNotContainsString('cURL', $capturedReply);
         $this->assertStringNotContainsString('http', $capturedReply);
         $this->assertStringNotContainsString('deepseek', strtolower($capturedReply));
+
+        // Log hygiene: no log context may contain the full PII payload
+        // (phone, email) by default — only length + 40-char prefix.
+        $this->assertNotEmpty($logCalls, 'parse failure must be logged');
+        foreach ($logCalls as $call) {
+            $encoded = json_encode($call['context'] ?? []);
+            $this->assertIsString($encoded);
+            $this->assertStringNotContainsString('+1234567890', $encoded,
+                'phone number leaked into log context');
+            $this->assertStringNotContainsString('alice@example.com', $encoded,
+                'email leaked into log context');
+        }
     }
 }

@@ -119,11 +119,21 @@ class ProcessBookingMessage implements ShouldQueue
             // Do NOT leak raw cURL / JSON errors to the operator — ship
             // a menu-hint reply instead. The sanitized exception message
             // is logged for debugging only.
-            Log::warning('Booking Bot Intent Parse Failed', [
-                'error'   => $e->getMessage(),
-                'message' => $text ?? null,
-                'update'  => $this->update,
-            ]);
+            //
+            // Operator inputs carry PII (guest names, phone numbers,
+            // emails). Log length + prefix by default; opt in to full
+            // payload via LOG_BOOKING_BOT_DEBUG_PAYLOADS=true.
+            $text = $text ?? '';
+            $logPayload = [
+                'error'          => $e->getMessage(),
+                'message_len'    => mb_strlen($text),
+                'message_prefix' => mb_substr($text, 0, 40),
+            ];
+            if ((bool) config('logging.booking_bot.debug_payloads', false)) {
+                $logPayload['message'] = $text;
+                $logPayload['update']  = $this->update;
+            }
+            Log::warning('Booking Bot Intent Parse Failed', $logPayload);
 
             if (isset($chatId) && isset($telegram)) {
                 $telegram->sendMessage(

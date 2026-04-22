@@ -59,14 +59,28 @@ class BookingIntentParser
      * a few days of production data we can measure local coverage
      * (target: 70–80%) and expand regex patterns where LLM handles
      * commands that have clear grammar.
+     *
+     * Operator inputs routinely carry PII (guest names, phone numbers,
+     * emails). Default log shape omits the full payload — we record
+     * length + a 40-char prefix only. Set
+     * LOG_BOOKING_BOT_DEBUG_PAYLOADS=true (→ config logging.booking_bot.
+     * debug_payloads) in the env for debugging sessions to opt into
+     * full-message capture.
      */
     private function logParse(string $path, string $message, ?string $intent): void
     {
-        Log::info('booking_bot.intent_parsed', [
-            'path'    => $path,
-            'message' => $message,
-            'intent'  => $intent,
-        ]);
+        $payload = [
+            'path'           => $path,
+            'message_len'    => mb_strlen($message),
+            'message_prefix' => mb_substr($message, 0, 40),
+            'intent'         => $intent,
+        ];
+
+        if ((bool) config('logging.booking_bot.debug_payloads', false)) {
+            $payload['message'] = $message;
+        }
+
+        Log::info('booking_bot.intent_parsed', $payload);
     }
 
     public function validate(array $parsed): bool
