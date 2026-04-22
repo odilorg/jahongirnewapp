@@ -128,4 +128,18 @@ return [
         ],
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Booking-bot logging posture
+    |--------------------------------------------------------------------------
+    | Used by App\Support\BookingBot\LogSanitizer + callers in the
+    | booking-bot pipeline. Default: redact guest PII (phone, email,
+    | name), truncate free-text, keep IDs and operational fields. Flip
+    | LOG_BOOKING_BOT_DEBUG_PAYLOADS=true for short-lived debugging to
+    | bypass the sanitizer entirely.
+    */
+    'booking_bot' => [
+        'debug_payloads' => env('LOG_BOOKING_BOT_DEBUG_PAYLOADS', false),
+    ],
+
 ];
