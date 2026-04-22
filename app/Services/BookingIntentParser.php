@@ -1,196 +1,88 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Services;
 
+use App\Services\BookingBot\DeepSeekIntentParser;
+use App\Services\BookingBot\IntentParseException;
+use App\Services\BookingBot\LocalIntentParser;
+use App\Support\BookingBot\MessageNormalizer;
 use Illuminate\Support\Facades\Log;
-use OpenAI;
-use Carbon\Carbon;
 
+/**
+ * Coordinator: try the local regex parser first; on no-match, fall
+ * through to the DeepSeek LLM adapter. Same public API as before the
+ * split so every handler + test keeps working unchanged.
+ *
+ * Phase 10.4 commits 1–4 build this class up incrementally. Commit 5
+ * adds the observability log line and the operator-friendly error
+ * surface in ProcessBookingMessage.
+ *
+ * Stable seam (PROTECT across future phases): `parse(string): array`.
+ * Retry / caching / metrics wrappers in later phases MUST compose
+ * around DeepSeekIntentParser without changing this contract.
+ */
 class BookingIntentParser
 {
+    public function __construct(
+        private readonly LocalIntentParser $local,
+        private readonly DeepSeekIntentParser $remote,
+        private readonly MessageNormalizer $normalizer,
+    ) {}
+
     /**
-     * Parse natural language booking request into structured data
+     * @return array<string, mixed>
+     * @throws IntentParseException
      */
     public function parse(string $message): array
     {
-        $currentDate = Carbon::now()->toDateString();
-        
-        $systemPrompt = <<<PROMPT
-You are a booking intent parser for a hotel staff member. Extract structured data from natural language booking commands.
+        $normalized = $this->normalizer->normalize($message);
 
-Today's date is: {$currentDate}
-
-Your task:
-1. Identify the intent (check_availability, create_booking, modify_booking, cancel_booking, view_bookings)
-2. Extract dates in YYYY-MM-DD format
-3. Extract room identifiers (unit names like "12", "22" or room types like "double")
-4. Extract guest information (name, phone, email)
-5. Extract property name if mentioned
-
-Output ONLY valid JSON, no additional text:
-{
-  "intent": "check_availability|create_booking|modify_booking|cancel_booking|view_bookings",
-  "confidence": 0.0-1.0,
-  "dates": {
-    "check_in": "YYYY-MM-DD",
-    "check_out": "YYYY-MM-DD"
-  },
-  "room": {
-    "unit_name": "12",
-    "room_type": "double"
-  },
-  "rooms": [
-    {"unit_name": "12", "property": "jahongir_hotel"},
-    {"unit_name": "14", "property": "jahongir_premium"}
-  ],
-  "guest": {
-    "name": "Full Name",
-    "phone": "+1234567890",
-    "email": "email@example.com"
-  },
-  "property": "jahongir",
-  "booking_id": "12345",
-  "filter_type": "arrivals_today|departures_today|current|new|arrivals|departures|today",
-  "search_string": "guest name to search",
-  "notes": "special requests",
-  "charge": {
-    "price_per_night": 80,
-    "currency": "USD"
-  }
-}
-
-Charge rules:
-- Only emit "charge" for create_booking intents.
-- "price_per_night" is a number (no currency symbol in the value).
-- "currency" is one of USD, UZS, EUR. Omit the "charge" key entirely if
-  the operator did not state a price.
-- If the operator says "total 200" without per-night, still omit
-  "charge" (v1 does not support total-only input).
-- For multi-room bookings (rooms[]), a single "charge" applies to EVERY
-  room (per-room per-night). Do not split or divide. Emit one "charge"
-  block, not one per room.
-
-Property names:
-- "Jahongir Hotel" or "Hotel" or "jahongir hotel" → property: "jahongir_hotel"
-- "Jahongir Premium" or "Premium" or "jahongir premium" → property: "jahongir_premium"
-
-Examples:
-- "book room 12 under John Walker jan 2-3 tel +1234567890 email ok@ok.com"
-  → intent: create_booking, room.unit_name: "12", guest.name: "John Walker", dates: jan 2-3
-  
-- "book room 12 at Premium under John Walker jan 2-3 tel +123"
-  → intent: create_booking, room.unit_name: "12", property: "jahongir_premium", guest.name: "John Walker"
-  
-- "book room 14 at Hotel under Jane Doe jan 5-6 tel +456"
-  → intent: create_booking, room.unit_name: "14", property: "jahongir_hotel", guest.name: "Jane Doe"
-  
-- "check avail jan 5-7"
-  → intent: check_availability, dates: jan 5-7
-  
-- "book rooms 12 and 14 under John Walker jan 5-7 tel +123"
-  → intent: create_booking, rooms: [{unit_name: "12"}, {unit_name: "14"}]
-  
-- "cancel booking 12345"
-  → intent: cancel_booking, booking_id: "12345"
-
-- "view today's arrivals" or "show arrivals today" or "today arrivals"
-  → intent: view_bookings, filter_type: "arrivals_today"
-
-- "view today's departures" or "show departures today" or "today departures"
-  → intent: view_bookings, filter_type: "departures_today"
-
-- "view current bookings" or "show current" or "in-house guests"
-  → intent: view_bookings, filter_type: "current"
-
-- "view new bookings" or "show new" or "unconfirmed bookings"
-  → intent: view_bookings, filter_type: "new"
-
-- "search for John Smith" or "find booking John Smith"
-  → intent: view_bookings, search_string: "John Smith"
-
-- "bookings today"
-  → intent: view_bookings, filter_type: "today"
-
-- "bookings on may 5" or "who is staying on may 5"
-  → intent: view_bookings, dates: {check_in: "<current or next year>-05-05", check_out: "<same>-05-05"}
-
-- "bookings may 5-10"
-  → intent: view_bookings, dates: {check_in: "<current or next year>-05-05", check_out: "<same>-05-10"}
-
-- "arrivals may 5-10"
-  → intent: view_bookings, filter_type: "arrivals", dates: {check_in: "<current or next year>-05-05", check_out: "<same>-05-10"}
-
-- "departures next week"
-  → intent: view_bookings, filter_type: "departures", dates: {check_in: "<next monday YYYY-MM-DD>", check_out: "<next sunday YYYY-MM-DD>"}
-
-IMPORTANT for view_bookings date parsing:
-- If the user mentions a month without a year, pick the NEXT occurrence
-  of that month (today or later). Never pick a past year.
-- If only one date is given ("may 5"), set BOTH check_in and check_out
-  to that date — a single-day range.
-
-- "modify booking 12345 to jan 5-7"
-  → intent: modify_booking, booking_id: "12345", dates: jan 5-7
-
-- "book room 12 under John Walker jan 2-3 tel +123 at 80 usd/night"
-  → intent: create_booking, room.unit_name: "12", guest.name: "John Walker",
-    dates: jan 2-3, charge: {price_per_night: 80, currency: "USD"}
-PROMPT;
-
-        try {
-            // Create OpenAI client with custom base URL for DeepSeek
-            $client = OpenAI::factory()
-                ->withApiKey(config('openai.api_key'))
-                ->withBaseUri(config('openai.base_url'))
-                ->withHttpClient(new \GuzzleHttp\Client(['timeout' => config('openai.request_timeout')]))
-                ->make();
-
-            $response = $client->chat()->create([
-                'model' => 'deepseek-chat',
-                'messages' => [
-                    ['role' => 'system', 'content' => $systemPrompt],
-                    ['role' => 'user', 'content' => $message]
-                ],
-                'temperature' => 0.1,
-                'max_tokens' => 500,
-            ]);
-
-            $content = $response->choices[0]->message->content ?? '';
-
-            Log::info('DeepSeek Booking Intent Response', ['content' => $content]);
-
-            // DeepSeek occasionally wraps JSON in a markdown code fence
-            // (```json ... ``` or ``` ... ```). Strip it before decoding.
-            $content = trim($content);
-            $content = preg_replace('/^```(?:json)?\s*/i', '', $content);
-            $content = preg_replace('/\s*```\s*$/', '', $content);
-
-            $parsed = json_decode($content, true);
-
-            if (json_last_error() !== JSON_ERROR_NONE) {
-                throw new \Exception('Failed to parse DeepSeek response: ' . json_last_error_msg());
-            }
-
-            // Validate required fields
-            if (!isset($parsed['intent'])) {
-                throw new \Exception('Intent not found in parsed response');
-            }
-
-            return $parsed;
-
-        } catch (\Exception $e) {
-            Log::error('Booking Intent Parse Error', [
-                'message' => $message,
-                'error' => $e->getMessage()
-            ]);
-            
-            throw new \Exception('Failed to parse booking intent: ' . $e->getMessage());
+        $local = $this->local->tryParse($normalized);
+        if ($local !== null) {
+            $this->logParse('local', $message, $local['intent'] ?? null);
+            return $local;
         }
+
+        // Pass the ORIGINAL message to the LLM, not the lowercased
+        // normalized form — DeepSeek's prompt examples preserve case
+        // sensitivity for guest names and property names, and we don't
+        // want to hand it a pre-mangled input.
+        $remote = $this->remote->parse($message);
+        $this->logParse('llm', $message, $remote['intent'] ?? null);
+        return $remote;
     }
 
     /**
-     * Validate parsed intent
+     * Single log line per parse — operator-usage telemetry. After
+     * a few days of production data we can measure local coverage
+     * (target: 70–80%) and expand regex patterns where LLM handles
+     * commands that have clear grammar.
+     *
+     * Operator inputs routinely carry PII (guest names, phone numbers,
+     * emails). Default log shape omits the full payload — we record
+     * length + a 40-char prefix only. Set
+     * LOG_BOOKING_BOT_DEBUG_PAYLOADS=true (→ config logging.booking_bot.
+     * debug_payloads) in the env for debugging sessions to opt into
+     * full-message capture.
      */
+    private function logParse(string $path, string $message, ?string $intent): void
+    {
+        $payload = [
+            'path'           => $path,
+            'message_len'    => mb_strlen($message),
+            'message_prefix' => mb_substr($message, 0, 40),
+            'intent'         => $intent,
+        ];
+
+        if ((bool) config('logging.booking_bot.debug_payloads', false)) {
+            $payload['message'] = $message;
+        }
+
+        Log::info('booking_bot.intent_parsed', $payload);
+    }
+
     public function validate(array $parsed): bool
     {
         $validIntents = [
@@ -198,9 +90,9 @@ PROMPT;
             'create_booking',
             'modify_booking',
             'cancel_booking',
-            'view_bookings'
+            'view_bookings',
         ];
 
-        return isset($parsed['intent']) && in_array($parsed['intent'], $validIntents);
+        return isset($parsed['intent']) && in_array($parsed['intent'], $validIntents, true);
     }
 }
