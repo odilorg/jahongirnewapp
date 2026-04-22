@@ -6,6 +6,7 @@ namespace Tests\Feature\BookingBot;
 
 use App\Actions\BookingBot\BuildBeds24BookingPayloadAction;
 use App\Actions\BookingBot\Handlers\CreateBookingFromMessageAction;
+use App\Actions\BookingBot\Handlers\CreateGroupBookingFromMessageAction;
 use App\Actions\BookingBot\ResolveBotBookingChargeAction;
 use App\Models\RoomUnitMapping;
 use App\Models\User;
@@ -186,10 +187,14 @@ final class CreateBookingWithChargeTest extends TestCase
 
     private function action(Beds24BookingService $beds24): CreateBookingFromMessageAction
     {
+        $resolver = new ResolveBotBookingChargeAction();
+        $builder  = new BuildBeds24BookingPayloadAction();
+
         return new CreateBookingFromMessageAction(
             $beds24,
-            new ResolveBotBookingChargeAction(),
-            new BuildBeds24BookingPayloadAction(),
+            $resolver,
+            $builder,
+            new CreateGroupBookingFromMessageAction($beds24, $resolver, $builder),
         );
     }
 

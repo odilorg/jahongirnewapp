@@ -66,6 +66,9 @@ Charge rules:
   the operator did not state a price.
 - If the operator says "total 200" without per-night, still omit
   "charge" (v1 does not support total-only input).
+- For multi-room bookings (rooms[]), a single "charge" applies to EVERY
+  room (per-room per-night). Do not split or divide. Emit one "charge"
+  block, not one per room.
 
 Property names:
 - "Jahongir Hotel" or "Hotel" or "jahongir hotel" → property: "jahongir_hotel"
