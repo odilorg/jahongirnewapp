@@ -50,7 +50,7 @@ Output ONLY valid JSON, no additional text:
   },
   "property": "jahongir",
   "booking_id": "12345",
-  "filter_type": "arrivals_today|departures_today|current|new",
+  "filter_type": "arrivals_today|departures_today|current|new|arrivals|departures|today",
   "search_string": "guest name to search",
   "notes": "special requests",
   "charge": {
@@ -107,6 +107,27 @@ Examples:
 
 - "search for John Smith" or "find booking John Smith"
   → intent: view_bookings, search_string: "John Smith"
+
+- "bookings today"
+  → intent: view_bookings, filter_type: "today"
+
+- "bookings on may 5" or "who is staying on may 5"
+  → intent: view_bookings, dates: {check_in: "<current or next year>-05-05", check_out: "<same>-05-05"}
+
+- "bookings may 5-10"
+  → intent: view_bookings, dates: {check_in: "<current or next year>-05-05", check_out: "<same>-05-10"}
+
+- "arrivals may 5-10"
+  → intent: view_bookings, filter_type: "arrivals", dates: {check_in: "<current or next year>-05-05", check_out: "<same>-05-10"}
+
+- "departures next week"
+  → intent: view_bookings, filter_type: "departures", dates: {check_in: "<next monday YYYY-MM-DD>", check_out: "<next sunday YYYY-MM-DD>"}
+
+IMPORTANT for view_bookings date parsing:
+- If the user mentions a month without a year, pick the NEXT occurrence
+  of that month (today or later). Never pick a past year.
+- If only one date is given ("may 5"), set BOTH check_in and check_out
+  to that date — a single-day range.
 
 - "modify booking 12345 to jan 5-7"
   → intent: modify_booking, booking_id: "12345", dates: jan 5-7
