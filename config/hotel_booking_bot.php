@@ -95,5 +95,14 @@ return [
     'view' => [
         'max_range_days' => (int) env('HOTEL_BOT_VIEW_MAX_RANGE_DAYS', 31),
         'max_rows'       => (int) env('HOTEL_BOT_VIEW_MAX_ROWS', 30),
+
+        // Phase 10.1 — inline snippet of guest comments / operator notes
+        // on each booking row. Snippet lines render UNDER the row and do
+        // not count toward max_rows (a booking "unit" = base row + its
+        // optional snippet lines). Either flag may be turned off via env
+        // without a code change.
+        'snippet_max_chars' => (int) env('HOTEL_BOT_VIEW_SNIPPET_MAX', 40),
+        'show_comments'     => (bool) env('HOTEL_BOT_VIEW_SHOW_COMMENTS', true),
+        'show_notes'        => (bool) env('HOTEL_BOT_VIEW_SHOW_NOTES', true),
     ],
 ];
