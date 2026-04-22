@@ -18,7 +18,14 @@ use OpenAI;
  * No retry, no timeout bump: those are deferred to Phase 10.6 per
  * scope lock.
  */
-final class DeepSeekIntentParser
+/**
+ * Not `final` so the coordinator's unit test can Mockery-mock it
+ * without an IntentParserInterface. Per Phase 10.4 architect plan,
+ * YAGNI: two concrete strategies + coordinator composition beats an
+ * interface that would exist only for tests. Revisit when a third
+ * strategy (retry wrapper) appears.
+ */
+class DeepSeekIntentParser
 {
     /**
      * @throws IntentParseException on network failure, JSON decode

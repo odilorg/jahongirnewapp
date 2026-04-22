@@ -6,23 +6,28 @@ namespace App\Services;
 
 use App\Services\BookingBot\DeepSeekIntentParser;
 use App\Services\BookingBot\IntentParseException;
+use App\Services\BookingBot\LocalIntentParser;
+use App\Support\BookingBot\MessageNormalizer;
 
 /**
- * Coordinator that routes bot-intent parsing between strategies.
+ * Coordinator: try the local regex parser first; on no-match, fall
+ * through to the DeepSeek LLM adapter. Same public API as before the
+ * split so every handler + test keeps working unchanged.
  *
- * Phase 10.4 commit 1 — this class is now a thin coordinator. The full
- * DeepSeek body has moved to `DeepSeekIntentParser`; this class simply
- * delegates. Commits 2–5 will add `LocalIntentParser`, `MessageNormalizer`,
- * wire a try-local-first path, log which parser handled each message, and
- * surface an operator-friendly error via `IntentParseException`.
+ * Phase 10.4 commits 1–4 build this class up incrementally. Commit 5
+ * adds the observability log line and the operator-friendly error
+ * surface in ProcessBookingMessage.
  *
- * Public API (`parse()`, `validate()`) is the single seam every future
- * wrapper (retry, cache, metrics) must compose around. Keep stable.
+ * Stable seam (PROTECT across future phases): `parse(string): array`.
+ * Retry / caching / metrics wrappers in later phases MUST compose
+ * around DeepSeekIntentParser without changing this contract.
  */
 class BookingIntentParser
 {
     public function __construct(
+        private readonly LocalIntentParser $local,
         private readonly DeepSeekIntentParser $remote,
+        private readonly MessageNormalizer $normalizer,
     ) {}
 
     /**
@@ -31,6 +36,17 @@ class BookingIntentParser
      */
     public function parse(string $message): array
     {
+        $normalized = $this->normalizer->normalize($message);
+
+        $local = $this->local->tryParse($normalized);
+        if ($local !== null) {
+            return $local;
+        }
+
+        // Pass the ORIGINAL message to the LLM, not the lowercased
+        // normalized form — DeepSeek's prompt examples preserve case
+        // sensitivity for guest names and property names, and we don't
+        // want to hand it a pre-mangled input.
         return $this->remote->parse($message);
     }
 
