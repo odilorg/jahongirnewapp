@@ -167,7 +167,16 @@ Route::post('/telegram/kitchen/webhook', [\App\Http\Controllers\KitchenBotContro
     ->middleware('verify.telegram.webhook:kitchen')
     ->name('telegram.kitchen.webhook');
 
-// GYG routes moved to routes/gyg.php (registered without /api prefix)
+// GYG routes at /api/gyg/1/* (legacy path GYG portal saves as Path=/api/gyg/)
+// Also registered at /1/* via routes/gyg.php for direct access
+Route::prefix('gyg/1')->middleware('gyg.auth')->group(function () {
+    Route::get('/get-availabilities/',  [\App\Http\Controllers\GygController::class, 'getAvailabilities']);
+    Route::post('/reserve/',            [\App\Http\Controllers\GygController::class, 'reserve']);
+    Route::post('/cancel-reservation/', [\App\Http\Controllers\GygController::class, 'cancelReservation']);
+    Route::post('/book/',               [\App\Http\Controllers\GygController::class, 'book']);
+    Route::post('/cancel-booking/',     [\App\Http\Controllers\GygController::class, 'cancelBooking']);
+    Route::post('/notify/',             [\App\Http\Controllers\GygController::class, 'notify']);
+});
 
 // ============================================================
 // Internal Telegram Bot Proxy API
