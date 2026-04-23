@@ -99,10 +99,31 @@ class GygService
             return $this->error('INVALID_PRODUCT', 'Product not found: ' . $productId);
         }
 
-        // Validate categories
+        // Validate participant count against product min/max before checking vacancies
+        $totalRequested  = collect($bookingItems)->sum('count');
+        $minParticipants = $product->min_participants ?? 1;
+        $maxParticipants = $product->max_participants;
+
+        if ($totalRequested < $minParticipants) {
+            return [
+                'errorCode'               => 'INVALID_PARTICIPANTS_CONFIGURATION',
+                'errorMessage'            => "The activity requires a minimum of {$minParticipants} participants",
+                'participantsConfiguration' => ['min' => $minParticipants, 'max' => $maxParticipants],
+            ];
+        }
+        if ($maxParticipants !== null && $totalRequested > $maxParticipants) {
+            return [
+                'errorCode'               => 'INVALID_PARTICIPANTS_CONFIGURATION',
+                'errorMessage'            => "The activity cannot be reserved for more than {$maxParticipants} participants",
+                'participantsConfiguration' => ['min' => $minParticipants, 'max' => $maxParticipants],
+            ];
+        }
+
+        // Validate categories against this product's supported categories only
+        $supportedCategories = collect($product->price_categories ?? [])->pluck('category')->toArray();
         foreach ($bookingItems as $item) {
-            if (! in_array($item['category'] ?? '', self::VALID_CATEGORIES)) {
-                return $this->error('INVALID_TICKET_CATEGORY', 'Invalid category: ' . ($item['category'] ?? 'null'));
+            if (! in_array($item['category'] ?? '', $supportedCategories)) {
+                return $this->error('INVALID_TICKET_CATEGORY', 'Category not supported by this product: ' . ($item['category'] ?? 'null'));
             }
         }
 
@@ -112,7 +133,6 @@ class GygService
             return $this->error('VALIDATION_FAILURE', 'Invalid dateTime format');
         }
 
-        $totalRequested = collect($bookingItems)->sum('count');
         $reservationRef = $this->generateReservationReference();
         $expiresAt      = Carbon::now()->addMinutes(self::RESERVATION_HOLD_MINUTES);
 
@@ -124,14 +144,13 @@ class GygService
                 ->lockForUpdate()
                 ->first();
 
-            if ($availability && $availability->vacancies < $totalRequested) {
+            // Slot must exist and have enough vacancies
+            if (! $availability || $availability->vacancies < $totalRequested) {
                 $error = $this->error('NO_AVAILABILITY', 'Not enough vacancies for the requested slot');
                 return;
             }
 
-            if ($availability) {
-                $availability->decrement('vacancies', $totalRequested);
-            }
+            $availability->decrement('vacancies', $totalRequested);
 
             GygReservation::create([
                 'reservation_reference' => $reservationRef,
