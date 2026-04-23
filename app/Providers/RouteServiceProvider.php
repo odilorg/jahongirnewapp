@@ -33,6 +33,10 @@ class RouteServiceProvider extends ServiceProvider
                 ->prefix('api')
                 ->group(base_path('routes/api.php'));
 
+            // GYG routes at /1/* — no /api prefix (GYG spec requirement)
+            Route::middleware('api')
+                ->group(base_path('routes/gyg.php'));
+
             Route::middleware('web')
                 ->group(base_path('routes/web.php'));
         });
