@@ -122,8 +122,14 @@ class GygService
         // Validate categories against this product's supported categories only
         $supportedCategories = collect($product->price_categories ?? [])->pluck('category')->toArray();
         foreach ($bookingItems as $item) {
-            if (! in_array($item['category'] ?? '', $supportedCategories)) {
-                return $this->error('INVALID_TICKET_CATEGORY', 'Category not supported by this product: ' . ($item['category'] ?? 'null'));
+            $category = $item['category'] ?? '';
+            if (! in_array($category, $supportedCategories)) {
+                // GYG spec requires ticketCategory field in this error response
+                return [
+                    'errorCode'      => 'INVALID_TICKET_CATEGORY',
+                    'errorMessage'   => 'Category not supported by this product: ' . $category,
+                    'ticketCategory' => $category,
+                ];
             }
         }
 
