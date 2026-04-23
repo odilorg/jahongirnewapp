@@ -35,7 +35,7 @@ class RouteServiceProvider extends ServiceProvider
 
             // GYG routes at /1/* — no throttle middleware (GYG has own rate limiting;
             // throttle uses cache which can cause 500s before the controller runs)
-            Route::group(base_path('routes/gyg.php'));
+            Route::group([], base_path('routes/gyg.php'));
 
             Route::middleware('web')
                 ->group(base_path('routes/web.php'));
