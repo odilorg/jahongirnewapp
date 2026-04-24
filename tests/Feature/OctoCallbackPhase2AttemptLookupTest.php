@@ -182,17 +182,17 @@ class OctoCallbackPhase2AttemptLookupTest extends TestCase
         $this->assertEquals(OctoPaymentAttempt::STATUS_PAID, $attempt->status);
     }
 
-    /** Stamp failure must never withhold the 200 or roll back the inquiry. */
-    public function test_returns_200_even_when_attempt_stamp_fails(): void
+    /**
+     * Confirm that inquiry confirmation + 200 response are independent of the
+     * attempt stamp. The stampAttempt() try/catch is the implementation guarantee;
+     * to exercise the catch path directly would require mocking OctoPaymentAttempt::update()
+     * to throw — deferred until the DB test helper supports model-level injection.
+     */
+    public function test_inquiry_confirmed_and_200_returned_on_success(): void
     {
         $inquiry = $this->makeInquiry();
-        $attempt = $this->makeAttempt($inquiry);
+        $this->makeAttempt($inquiry);
 
-        // Force the attempt's update to fail by making the row read-only via
-        // a deleted table would be heavy — instead we verify resilience by
-        // confirming 200 is returned even if the attempt status stays unchanged
-        // (the independent try/catch is the implementation guarantee; we test
-        // the end-to-end: inquiry is confirmed AND response is 200).
         $this->postCallback(self::TRANSACTION)->assertOk();
 
         $inquiry->refresh();
