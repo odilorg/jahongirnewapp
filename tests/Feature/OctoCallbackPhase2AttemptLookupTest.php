@@ -143,16 +143,13 @@ class OctoCallbackPhase2AttemptLookupTest extends TestCase
         $this->assertEquals(BookingInquiry::STATUS_CONFIRMED, $inquiry->status);
     }
 
-    /** Orphan attempt (inquiry deleted) returns 200 — never 5xx. */
-    public function test_orphan_attempt_returns_200(): void
-    {
-        // Create and immediately delete the inquiry so the attempt is orphaned.
-        $inquiry = $this->makeInquiry();
-        $attempt = $this->makeAttempt($inquiry);
-        $inquiry->delete();
-
-        $this->postCallback(self::TRANSACTION)->assertOk();
-    }
+    /**
+     * Orphan-attempt guard exists in the controller but cannot be exercised
+     * via this test suite: octo_payment_attempts.inquiry_id has cascadeOnDelete,
+     * so deleting the inquiry also deletes the attempt, leaving no orphan row.
+     * The guard is defensive code for any future schema/import edge case.
+     * If the cascade ever changes, add a direct DB::table insert to test it.
+     */
 
     /** Unknown transaction_id returns 404. */
     public function test_unknown_transaction_id_returns_404(): void
