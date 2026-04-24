@@ -21,6 +21,14 @@ return [
         'url'                  => env('OCTO_API_URL'),
         'tsp_id'               => env('OCTO_TSP_ID'),
         'fallback_usd_uzs_rate' => env('OCTO_FALLBACK_USD_UZS_RATE', 12100),
+
+        // CF-proxied relay on vps-main (Germany) used as a fallback when
+        // the direct Octo call from Jahongir VPS times out — Uzbek ISP
+        // routing between 161.97.129.31 and secure.octo.uz drops
+        // periodically. Relay fronts the same /prepare_payment endpoint
+        // and is gated by CF-level IP allowlist + shared secret header.
+        'relay_url'    => env('OCTO_RELAY_URL'),
+        'relay_secret' => env('OCTO_RELAY_SECRET'),
     ],
 
     'telegram' => [

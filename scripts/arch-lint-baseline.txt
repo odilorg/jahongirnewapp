@@ -1,4 +1,4 @@
-# arch-lint baseline — regenerated 2026-04-24T10:27:21+05:00
+# arch-lint baseline — regenerated 2026-04-24T13:27:42+05:00
 # Format: file:line:rule-key (rule-key stable across runs)
 app/Console/Commands/SendDailyRecap.php:52:http-outside-adapter
 app/Console/Commands/TourSendReminders.php:421:http-outside-adapter
@@ -37,11 +37,11 @@ app/Services/ExchangeRateService.php:193:http-outside-adapter
 app/Services/ExchangeRateService.php:242:http-outside-adapter
 app/Services/GygNotifier.php:139:http-outside-adapter
 app/Services/Messaging/WhatsAppSender.php:54:http-outside-adapter
-app/Services/OctoPaymentService.php:115:http-outside-adapter
-app/Services/OctoPaymentService.php:193:http-outside-adapter
-app/Services/OctoPaymentService.php:284:http-outside-adapter
-app/Services/OctoPaymentService.php:68:http-outside-adapter
-app/Services/OctoPaymentService.php:89:http-outside-adapter
+app/Services/OctoPaymentService.php:169:http-outside-adapter
+app/Services/OctoPaymentService.php:190:http-outside-adapter
+app/Services/OctoPaymentService.php:216:http-outside-adapter
+app/Services/OctoPaymentService.php:56:http-outside-adapter
+app/Services/OctoPaymentService.php:87:http-outside-adapter
 app/Services/TurfirmaService.php:97:http-outside-adapter
 resources/views/filament/pages/cash-dashboard.blade.php:12:blade-query
 resources/views/filament/pages/reports.blade.php:156:blade-query
