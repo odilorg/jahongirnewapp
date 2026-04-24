@@ -50,6 +50,7 @@ class OctoPaymentService
     private function postToOcto(array $payload, string $logContext): \Illuminate\Http\Client\Response
     {
         $directException = null;
+        $response        = null;
 
         try {
             $response = Http::timeout(self::DIRECT_TIMEOUT_SECONDS)
@@ -82,14 +83,44 @@ class OctoPaymentService
             return $response;
         }
 
-        $relayResponse = Http::timeout(self::RELAY_TIMEOUT_SECONDS)
-            ->withHeaders(['X-Relay-Secret' => $this->relaySecret])
-            ->post($this->relayUrl, $payload);
+        try {
+            $relayResponse = Http::timeout(self::RELAY_TIMEOUT_SECONDS)
+                ->withHeaders(['X-Relay-Secret' => $this->relaySecret])
+                ->post($this->relayUrl, $payload);
+        } catch (\Throwable $relayException) {
+            Log::error('Octo both direct and relay failed', [
+                'context'        => $logContext,
+                'direct_error'   => $directException?->getMessage(),
+                'direct_status'  => $response?->status(),
+                'relay_error'    => $relayException->getMessage(),
+            ]);
+
+            throw new \RuntimeException(
+                'Octo unreachable: direct + relay both failed. ' .
+                'direct=' . ($directException?->getMessage() ?? 'status ' . ($response?->status() ?? 'n/a')) . '; ' .
+                'relay=' . $relayException->getMessage(),
+                0,
+                $relayException,
+            );
+        }
 
         Log::info('Octo relay call result', [
             'context' => $logContext,
             'status'  => $relayResponse->status(),
         ]);
+
+        // If relay ALSO returned non-2xx, this still bubbles up to the
+        // caller's `$response->successful()` check which throws. Log an
+        // explicit error for the both-fail case so ops sees it separately
+        // from "direct failed + relay saved us" events.
+        if (! $relayResponse->successful()) {
+            Log::error('Octo both direct and relay returned non-2xx', [
+                'context'       => $logContext,
+                'direct_status' => $response?->status(),
+                'relay_status'  => $relayResponse->status(),
+                'relay_body'    => mb_substr($relayResponse->body(), 0, 300),
+            ]);
+        }
 
         return $relayResponse;
     }
@@ -258,7 +289,14 @@ class OctoPaymentService
             unset($payload['tsp_id']);
         }
 
-        Log::info('Octo Payment Request Payload', $payload);
+        // Redact the shop secret before logging — logs get shipped, read,
+        // and cached. Matches the inquiry-path convention (line ~346) where
+        // only non-credential fields are logged.
+        $sanitizedPayload = $payload;
+        if (isset($sanitizedPayload['octo_secret'])) {
+            $sanitizedPayload['octo_secret'] = '***redacted***';
+        }
+        Log::info('Octo Payment Request Payload', $sanitizedPayload);
 
         $response = $this->postToOcto($payload, 'booking_' . $booking->id);
 
