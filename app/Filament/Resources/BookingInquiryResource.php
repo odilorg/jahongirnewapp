@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Filament\Resources;
 
+use App\Actions\Payment\GeneratePaymentLinkAction;
 use App\Filament\Resources\BookingInquiryResource\Pages;
 use App\Models\Accommodation;
 use App\Models\BookingInquiry;
@@ -764,6 +765,20 @@ class BookingInquiryResource extends Resource
                             ->size(TextColumnSize::Small)
                             ->color('gray')
                             ->sortable(),
+
+                        // Cash-due badge — only renders when the split payment
+                        // leaves cash owed at pickup. Orange signals "action
+                        // pending at pickup" so the driver/ops see it on the
+                        // row without opening the detail page. Rows without
+                        // cash (full_online or no payment yet) render blank.
+                        Tables\Columns\TextColumn::make('amount_cash_usd')
+                            ->label('Cash due')
+                            ->badge()
+                            ->color('warning')
+                            ->size(TextColumnSize::Small)
+                            ->formatStateUsing(fn ($state): string => (float) $state > 0
+                                ? '$' . number_format((float) $state, 2) . ' cash'
+                                : ''),
                     ])->alignment(Alignment::End),
                 ])->from('md'),
             ])
@@ -855,57 +870,116 @@ class BookingInquiryResource extends Resource
                             && blank($record->payment_link))
                         // Prefill from price_quoted (Phase 8.3a) so a catalog-calculated
                         // quote flows straight through to Octo without retyping.
-                        // Operator can still override in the modal.
+                        // Split-payment defaults to full_online (checkbox on) —
+                        // the common case. Operator unchecks only when guest
+                        // wants to pay part in cash at pickup.
                         ->fillForm(fn (BookingInquiry $record): array => [
-                            'price' => $record->price_quoted ? (string) $record->price_quoted : '',
+                            'total'        => $record->price_quoted ? (string) $record->price_quoted : '',
+                            'full_online'  => true,
+                            'online'       => $record->price_quoted ? (string) $record->price_quoted : '',
+                            'cash_display' => '0.00',
                         ])
                         ->form([
-                            Forms\Components\TextInput::make('price')
-                                ->label('Total price for group (USD)')
+                            Forms\Components\TextInput::make('total')
+                                ->label('Total tour price (USD)')
                                 ->prefix('$')
                                 ->required()
                                 ->numeric()
                                 ->step('0.01')
-                                ->helperText('Generates Octo link, saves it to the inquiry, and opens WhatsApp prefilled with the message.'),
+                                ->minValue(0.01)
+                                ->live(onBlur: true)
+                                ->afterStateUpdated(function ($state, Forms\Set $set, Forms\Get $get): void {
+                                    // When total changes and full_online is on,
+                                    // online follows. Cash always recalculates.
+                                    if ($get('full_online')) {
+                                        $set('online', $state);
+                                    }
+                                    $total  = (float) ($state ?? 0);
+                                    $online = (float) ($get('online') ?? 0);
+                                    $set('cash_display', number_format(max(0, $total - $online), 2, '.', ''));
+                                })
+                                ->helperText('This is the agreed tour price. Saved to the inquiry as the quote.'),
+
+                            Forms\Components\Checkbox::make('full_online')
+                                ->label('Charge full amount online')
+                                ->default(true)
+                                ->live()
+                                ->afterStateUpdated(function (bool $state, Forms\Set $set, Forms\Get $get): void {
+                                    // Toggle on → force online = total, cash = 0.
+                                    // Toggle off → leave online editable; operator
+                                    // types the split. Cash mirrors via total-online.
+                                    if ($state) {
+                                        $total = (string) ($get('total') ?? '');
+                                        $set('online', $total);
+                                        $set('cash_display', '0.00');
+                                    }
+                                }),
+
+                            Forms\Components\TextInput::make('online')
+                                ->label('Online payment amount (USD)')
+                                ->prefix('$')
+                                ->required()
+                                ->numeric()
+                                ->step('0.01')
+                                ->minValue(BookingInquiry::MIN_ONLINE_USD)
+                                ->disabled(fn (Forms\Get $get): bool => (bool) $get('full_online'))
+                                ->dehydrated()
+                                ->live(onBlur: true)
+                                ->afterStateUpdated(function ($state, Forms\Set $set, Forms\Get $get): void {
+                                    $total  = (float) ($get('total') ?? 0);
+                                    $online = (float) ($state ?? 0);
+                                    $set('cash_display', number_format(max(0, $total - $online), 2, '.', ''));
+                                })
+                                ->helperText('This is the amount the guest will pay now via secure link.')
+                                ->rule(function (Forms\Get $get) {
+                                    $total = (float) ($get('total') ?? 0);
+
+                                    return function (string $attribute, $value, \Closure $fail) use ($total): void {
+                                        if ((float) $value > $total + 0.01) {
+                                            $fail('Online amount cannot exceed total tour price.');
+                                        }
+                                    };
+                                }),
+
+                            Forms\Components\TextInput::make('cash_display')
+                                ->label('Remaining cash at pickup (USD)')
+                                ->prefix('$')
+                                ->disabled()
+                                ->dehydrated(false)
+                                ->helperText('Guest will pay this amount directly to driver/guide.'),
                         ])
                         ->modalSubmitActionLabel('Generate & open WhatsApp')
-                        ->action(function (BookingInquiry $record, array $data, $livewire): void {
-                            try {
-                                $result = app(OctoPaymentService::class)
-                                    ->createPaymentLinkForInquiry($record, (float) $data['price']);
-                            } catch (\Throwable $e) {
+                        ->before(function (BookingInquiry $record): void {
+                            // Defense-in-depth: visibility hides this action
+                            // when a link exists, but two operators clicking
+                            // simultaneously would both pass that check. This
+                            // re-checks at action time so the second loser
+                            // halts cleanly instead of orphaning an Octo txn.
+                            if (filled($record->payment_link)) {
                                 Notification::make()
-                                    ->title('Octo payment link failed')
-                                    ->body(mb_substr($e->getMessage(), 0, 300))
-                                    ->danger()
+                                    ->title('Payment link already exists')
+                                    ->body('Another operator just generated one. Use "Resend existing link" instead.')
+                                    ->warning()
                                     ->persistent()
                                     ->send();
 
+                                throw new \Filament\Support\Exceptions\Halt();
+                            }
+                        })
+                        ->action(function (BookingInquiry $record, array $data, $livewire): void {
+                            $total  = (float) $data['total'];
+                            $online = (bool) ($data['full_online'] ?? false) ? $total : (float) $data['online'];
+
+                            try {
+                                $result = app(GeneratePaymentLinkAction::class)->execute($record, $total, $online);
+                            } catch (\Throwable $e) {
+                                Notification::make()->title('Octo payment link failed')
+                                    ->body(mb_substr($e->getMessage(), 0, 300))
+                                    ->danger()->persistent()->send();
                                 return;
                             }
 
-                            $priceFormatted = '$' . number_format((float) $data['price'], 2);
-
-                            $record->update([
-                                'price_quoted'         => $data['price'],
-                                'currency'             => 'USD',
-                                'payment_method'       => BookingInquiry::PAYMENT_ONLINE,
-                                'payment_link'         => $result['url'],
-                                'payment_link_sent_at' => now(),
-                                'octo_transaction_id'  => $result['transaction_id'],
-                                'status'               => BookingInquiry::STATUS_AWAITING_PAYMENT,
-                            ]);
-
-                            static::openWhatsApp(
-                                $record,
-                                $livewire,
-                                'wa_generate_and_send',
-                                [
-                                    'price' => $priceFormatted,
-                                    'link'  => $result['url'],
-                                ],
-                                "Payment link generated & sent ({$priceFormatted})",
-                            );
+                            static::openWhatsApp($record, $livewire, $result['template_key'], $result['template_extras'], $result['audit_label']);
                         }),
 
                     Tables\Actions\Action::make('waPaymentLink')

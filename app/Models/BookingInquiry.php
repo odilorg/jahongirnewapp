@@ -54,6 +54,18 @@ class BookingInquiry extends Model
     public const PAYMENT_CASH        = 'cash';
     public const PAYMENT_CARD_OFFICE = 'card_office';
 
+    public const PAYMENT_SPLIT_FULL    = 'full_online';
+    public const PAYMENT_SPLIT_PARTIAL = 'partial';
+
+    public const PAYMENT_SPLITS = [
+        self::PAYMENT_SPLIT_FULL,
+        self::PAYMENT_SPLIT_PARTIAL,
+    ];
+
+    // Octo requires a minimum reasonable amount. $10 prevents accidental
+    // $1 links and keeps transaction fees from dominating the charge.
+    public const MIN_ONLINE_USD = 10;
+
     // Tour type (private / group) — matches TourProduct::TYPE_*.
     // Stored on the inquiry so the quote calculator can resolve the
     // correct pricing tier even if the underlying tour product later
@@ -139,6 +151,9 @@ class BookingInquiry extends Model
         'commission_rate',
         'commission_amount',
         'net_revenue',
+        'amount_online_usd',
+        'amount_cash_usd',
+        'payment_split',
         'payment_method',
         'payment_link',
         'payment_link_sent_at',
@@ -195,6 +210,8 @@ class BookingInquiry extends Model
         'commission_rate'           => 'decimal:2',
         'commission_amount'         => 'decimal:2',
         'net_revenue'               => 'decimal:2',
+        'amount_online_usd'         => 'decimal:2',
+        'amount_cash_usd'           => 'decimal:2',
         'driver_cost'               => 'decimal:2',
         'driver_cost_override'      => 'boolean',
         'guide_cost'                => 'decimal:2',
