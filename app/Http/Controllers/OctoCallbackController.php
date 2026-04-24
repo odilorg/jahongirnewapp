@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Booking;
 use App\Models\BookingInquiry;
 use App\Models\GuestPayment;
+use App\Models\OctoPaymentAttempt;
 use App\Services\BookingInquiryNotifier;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -83,7 +84,15 @@ class OctoCallbackController extends Controller
     /**
      * New BookingInquiry payment path.
      *
-     * Lookup by octo_transaction_id (indexed) — no regex parsing needed.
+     * Phase 2 lookup order:
+     *  1. OctoPaymentAttempt by transaction_id (attempt-first, for all links
+     *     generated via GeneratePaymentLinkAction since Phase 1).
+     *  2. BookingInquiry.octo_transaction_id fallback for pre-Phase-1 links
+     *     that have no attempt row — logged so we can remove this path in
+     *     Phase 5 once all legacy links have expired.
+     *
+     * After inquiry processing the matched attempt's status is stamped
+     * (paid/failed) in a separate try/catch that never withholds the 200.
      *
      * Safety guards (in order):
      *  1. Idempotency: if paid_at is already set, this is a duplicate
@@ -107,7 +116,35 @@ class OctoCallbackController extends Controller
      */
     private function handleInquiryCallback(string $transactionId, string $status, $paidSum)
     {
-        $inquiry = BookingInquiry::where('octo_transaction_id', $transactionId)->first();
+        // Phase 2 — attempt-first lookup.
+        $attempt = OctoPaymentAttempt::where('transaction_id', $transactionId)->first();
+        $inquiry = null;
+
+        if ($attempt) {
+            $inquiry = $attempt->inquiry;
+
+            if (! $inquiry) {
+                // Orphan: attempt row exists but inquiry was deleted. Return 200
+                // so Octo does not retry — a retry cannot recover a deleted inquiry.
+                Log::error('Octo callback: attempt found but parent inquiry missing (orphan)', [
+                    'transaction_id' => $transactionId,
+                    'attempt_id'     => $attempt->id,
+                ]);
+
+                return response()->json(['status' => 'ok', 'note' => 'orphan_attempt']);
+            }
+        } else {
+            // Fallback for pre-Phase-1 links with no attempt row. Remove this
+            // branch in Phase 5 once all legacy links have paid or expired.
+            $inquiry = BookingInquiry::where('octo_transaction_id', $transactionId)->first();
+
+            if ($inquiry) {
+                Log::info('Octo callback: resolved via legacy octo_transaction_id (no attempt row)', [
+                    'transaction_id' => $transactionId,
+                    'reference'      => $inquiry->reference,
+                ]);
+            }
+        }
 
         if (! $inquiry) {
             Log::warning('Octo callback: no inquiry matching transaction', [
@@ -147,6 +184,9 @@ class OctoCallbackController extends Controller
                         . '[' . now()->format('Y-m-d H:i') . '] ⚠️ PAYMENT RECEIVED ON ' . mb_strtoupper($priorStatus)
                         . " INQUIRY — human review required. txn={$transactionId}",
                 ]);
+
+                // Stamp attempt paid — money received even under terminal-status review.
+                $this->stampAttempt($attempt, OctoPaymentAttempt::STATUS_PAID, $transactionId);
 
                 Log::error('BookingInquiry: payment received on terminal-status inquiry', [
                     'reference'      => $inquiry->reference,
@@ -198,10 +238,14 @@ class OctoCallbackController extends Controller
                 'status'             => 'recorded',
             ]);
 
+            // Stamp attempt paid after inquiry confirmed + GuestPayment recorded.
+            $this->stampAttempt($attempt, OctoPaymentAttempt::STATUS_PAID, $transactionId);
+
             Log::info('BookingInquiry marked paid via Octo', [
                 'reference'      => $inquiry->reference,
                 'transaction_id' => $transactionId,
                 'uzs_paid'       => $paidSum,
+                'via_attempt'    => $attempt?->id,
             ]);
 
             try {
@@ -222,14 +266,42 @@ class OctoCallbackController extends Controller
                 'internal_notes' => $existing . "[{$stamp}] Octo payment {$status} (txn {$transactionId})",
             ]);
 
+            // Stamp attempt failed.
+            $this->stampAttempt($attempt, OctoPaymentAttempt::STATUS_FAILED, $transactionId);
+
             Log::warning('BookingInquiry payment unsuccessful', [
                 'reference'      => $inquiry->reference,
                 'transaction_id' => $transactionId,
                 'status'         => $status,
+                'via_attempt'    => $attempt?->id,
             ]);
         }
 
         return response()->json(['status' => 'ok']);
+    }
+
+    /**
+     * Stamp the attempt's terminal status (paid/failed) after the inquiry
+     * has been updated. Independent try/catch so a DB hiccup here never
+     * withholds the 200 response or rolls back the confirmed inquiry.
+     * No-ops silently when $attempt is null (legacy path, no attempt row).
+     */
+    private function stampAttempt(?OctoPaymentAttempt $attempt, string $newStatus, string $transactionId): void
+    {
+        if (! $attempt) {
+            return;
+        }
+
+        try {
+            $attempt->update(['status' => $newStatus]);
+        } catch (\Throwable $e) {
+            Log::error('Octo callback: failed to stamp attempt status', [
+                'attempt_id'     => $attempt->id,
+                'transaction_id' => $transactionId,
+                'target_status'  => $newStatus,
+                'error'          => $e->getMessage(),
+            ]);
+        }
     }
 
     public function success(Request $request)
