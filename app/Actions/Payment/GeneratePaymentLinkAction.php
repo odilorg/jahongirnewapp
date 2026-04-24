@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Actions\Payment;
 
 use App\Models\BookingInquiry;
+use App\Models\OctoPaymentAttempt;
 use App\Services\OctoPaymentService;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
@@ -93,6 +94,28 @@ class GeneratePaymentLinkAction
                 'payment_link_sent_at' => now(),
                 'octo_transaction_id'  => $octoResult['transaction_id'],
                 'status'               => BookingInquiry::STATUS_AWAITING_PAYMENT,
+            ]);
+
+            // Phase 1 of regenerate-rollout — shadow mode: write the attempt
+            // row for every generate but nothing reads it yet (callback still
+            // uses booking_inquiries.octo_transaction_id). Phase 2 flips the
+            // callback to resolve via this table. Writing in shadow mode now
+            // means zero cold-start for Phase 2 in prod: every live link
+            // already has a matching attempt row.
+            //
+            // Exchange rate is derived from the UZS amount the service
+            // actually sent to Octo (uzs_amount / online), avoiding a service
+            // signature change. Accurate to 4dp — fine for audit.
+            OctoPaymentAttempt::create([
+                'inquiry_id'              => $inquiry->id,
+                'transaction_id'          => $octoResult['transaction_id'],
+                'amount_online_usd'       => $online,
+                'price_quoted_at_attempt' => $total,
+                'exchange_rate_used'      => $online > 0
+                    ? round($octoResult['uzs_amount'] / $online, 4)
+                    : null,
+                'uzs_amount'              => $octoResult['uzs_amount'],
+                'status'                  => OctoPaymentAttempt::STATUS_ACTIVE,
             ]);
         });
 
