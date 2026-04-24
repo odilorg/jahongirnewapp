@@ -15,13 +15,83 @@ class OctoPaymentService
     protected string $secret;
     protected string $apiUrl;
     protected ?string $tspId;
+    protected ?string $relayUrl;
+    protected ?string $relaySecret;
+
+    // Tight timeout on the direct path — when Uzbek ISP routing drops,
+    // cURL hangs the full default 30s per retry. 10s is enough for a
+    // healthy direct call and bounds the fallback switch cost.
+    private const DIRECT_TIMEOUT_SECONDS = 10;
+    private const RELAY_TIMEOUT_SECONDS  = 15;
 
     public function __construct()
     {
-        $this->shopId = config('services.octo.shop_id');
-        $this->secret = config('services.octo.secret');
-        $this->apiUrl = config('services.octo.url');
-        $this->tspId  = config('services.octo.tsp_id'); // optional
+        $this->shopId      = config('services.octo.shop_id');
+        $this->secret      = config('services.octo.secret');
+        $this->apiUrl      = config('services.octo.url');
+        $this->tspId       = config('services.octo.tsp_id'); // optional
+        $this->relayUrl    = config('services.octo.relay_url');    // optional
+        $this->relaySecret = config('services.octo.relay_secret'); // optional
+    }
+
+    /**
+     * POST to Octo with a try-direct-then-relay fallback.
+     *
+     * Direct path hits secure.octo.uz. When that fails (timeout, connection
+     * refused, 5xx — any non-2xx), we retry via the CF-proxied relay on
+     * vps-main. The relay fronts the SAME upstream endpoint, so a 200 from
+     * either path is semantically identical to the caller.
+     *
+     * Relay is skipped if not configured (missing env vars) — behavior then
+     * is identical to pre-fallback code.
+     *
+     * @param  string  $logContext  Short tag for log correlation ("booking_12" / "inquiry_5").
+     */
+    private function postToOcto(array $payload, string $logContext): \Illuminate\Http\Client\Response
+    {
+        $directException = null;
+
+        try {
+            $response = Http::timeout(self::DIRECT_TIMEOUT_SECONDS)
+                ->post($this->apiUrl, $payload);
+
+            if ($response->successful()) {
+                return $response;
+            }
+
+            Log::warning('Octo direct call returned non-2xx, trying relay', [
+                'context' => $logContext,
+                'status'  => $response->status(),
+                'body'    => mb_substr($response->body(), 0, 300),
+            ]);
+        } catch (\Throwable $e) {
+            $directException = $e;
+            Log::warning('Octo direct call threw, trying relay', [
+                'context' => $logContext,
+                'error'   => $e->getMessage(),
+            ]);
+        }
+
+        // Relay not configured — surface the direct failure as before so
+        // callers see identical behavior to pre-fallback code.
+        if (! $this->relayUrl || ! $this->relaySecret) {
+            if ($directException) {
+                throw $directException;
+            }
+
+            return $response;
+        }
+
+        $relayResponse = Http::timeout(self::RELAY_TIMEOUT_SECONDS)
+            ->withHeaders(['X-Relay-Secret' => $this->relaySecret])
+            ->post($this->relayUrl, $payload);
+
+        Log::info('Octo relay call result', [
+            'context' => $logContext,
+            'status'  => $relayResponse->status(),
+        ]);
+
+        return $relayResponse;
     }
 
     /**
@@ -190,7 +260,7 @@ class OctoPaymentService
 
         Log::info('Octo Payment Request Payload', $payload);
 
-        $response = Http::post($this->apiUrl, $payload);
+        $response = $this->postToOcto($payload, 'booking_' . $booking->id);
 
         Log::info('Octo Payment Response', [
             'status' => $response->status(),
@@ -281,7 +351,7 @@ class OctoPaymentService
             'exchange_rate' => $exchangeRate,
         ]);
 
-        $response = Http::post($this->apiUrl, $payload);
+        $response = $this->postToOcto($payload, 'inquiry_' . $inquiry->id);
 
         Log::info('Octo Payment Response (inquiry)', [
             'reference' => $inquiry->reference,
