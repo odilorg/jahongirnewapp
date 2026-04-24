@@ -92,9 +92,12 @@ class OctoCallbackSplitPaymentTest extends TestCase
         // Simulates a row that existed before the split-payment migration
         // ran (backfill skipped this one because e.g. it was cancelled at
         // the time, then later revived). No amount_online_usd populated.
+        // Legacy state = amount_online_usd NULL (backfill skipped this row,
+        // e.g. it was status=cancelled at migration time, then revived).
+        // amount_cash_usd has default(0) at DB level, so it's 0 not null.
         $inquiry = $this->makeInquiry([
             'amount_online_usd' => null,
-            'amount_cash_usd'   => null,
+            'amount_cash_usd'   => 0.00,
             'payment_split'     => BookingInquiry::PAYMENT_SPLIT_FULL,
             'octo_transaction_id' => 'inquiry_legacy_test',
         ]);
