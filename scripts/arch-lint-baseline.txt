@@ -1,17 +1,17 @@
-# arch-lint baseline — regenerated 2026-04-21T20:41:41+05:00
+# arch-lint baseline — regenerated 2026-04-24T10:27:21+05:00
 # Format: file:line:rule-key (rule-key stable across runs)
 app/Console/Commands/SendDailyRecap.php:52:http-outside-adapter
 app/Console/Commands/TourSendReminders.php:421:http-outside-adapter
 app/Console/Commands/TourSendReminders.php:689:http-outside-adapter
 app/Filament/_archived/Resources/BookingResource.php:253:long-action-closure
 app/Filament/Pages/ExpenseReports.php:147:http-outside-adapter
-app/Filament/Resources/BookingInquiryResource.php:1044:long-action-closure
-app/Filament/Resources/BookingInquiryResource.php:1160:long-action-closure
+app/Filament/Resources/BookingInquiryResource.php:1118:long-action-closure
 app/Filament/Resources/BookingInquiryResource.php:1234:long-action-closure
-app/Filament/Resources/BookingInquiryResource.php:1264:long-action-closure
-app/Filament/Resources/BookingInquiryResource.php:1356:long-action-closure
-app/Filament/Resources/BookingInquiryResource.php:1448:long-action-closure
-app/Filament/Resources/BookingInquiryResource.php:872:long-action-closure
+app/Filament/Resources/BookingInquiryResource.php:1308:long-action-closure
+app/Filament/Resources/BookingInquiryResource.php:1338:long-action-closure
+app/Filament/Resources/BookingInquiryResource.php:1430:long-action-closure
+app/Filament/Resources/BookingInquiryResource.php:1522:long-action-closure
+app/Filament/Resources/BookingInquiryResource.php:969:long-action-closure
 app/Filament/Resources/CashierShiftResource/Pages/CloseShift.php:82:long-action-closure
 app/Filament/Resources/CashierShiftResource/Pages/StartShift.php:121:long-action-closure
 app/Filament/Resources/ContractResource.php:122:long-action-closure
