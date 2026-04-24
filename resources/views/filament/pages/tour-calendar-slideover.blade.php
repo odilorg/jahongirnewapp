@@ -536,6 +536,23 @@
             </button>
         </div>
 
+        {{-- Split payment breakdown. Only shown when a split actually
+             exists (amount_online_usd populated). Cash > 0 is flagged in
+             orange so drivers/ops see "money still to collect at pickup"
+             without digging into the inquiry. --}}
+        @if ($inquiry->amount_online_usd !== null)
+            <div class="flex justify-between text-xs text-gray-800 dark:text-gray-200">
+                <span>Online paid</span>
+                <span>${{ number_format((float) $inquiry->amount_online_usd, 2) }}</span>
+            </div>
+            @if ((float) $inquiry->amount_cash_usd > 0)
+                <div class="flex justify-between text-xs font-medium" style="color: #d97706;">
+                    <span>Cash due at pickup</span>
+                    <span>${{ number_format((float) $inquiry->amount_cash_usd, 2) }}</span>
+                </div>
+            @endif
+        @endif
+
         @if ($payments['totals']['gross'] > 0)
             <div class="flex justify-between text-sm text-gray-900 dark:text-gray-100">
                 <span>{{ $payments['totals']['has_commission'] ? 'Gross (guest paid)' : 'Revenue' }}</span>

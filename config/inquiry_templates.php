@@ -78,6 +78,29 @@ Please let me know after payment 🙂
 TXT,
 
     /*
+     * Split-payment variant — sent when operator splits the quote between
+     * online (Octo link now) and cash (paid at pickup). Explicitly names
+     * both amounts so the guest has no doubt what they owe where, and
+     * clarifies the confirmation trigger (online payment only, not cash).
+     *
+     * Extras expected: {total}, {online}, {cash}, {link}
+     */
+    'wa_generate_and_send_partial' => <<<TXT
+Perfect 👍
+
+Total price: {total}
+
+Pay online now: {online}
+{link}
+
+Remaining {cash} will be paid in cash at pickup.
+
+Your booking is confirmed once the online payment is completed.
+
+Please let me know after payment 🙂
+TXT,
+
+    /*
      * Driver dispatch template — sent via tg-direct (Odil's personal
      * Telegram) when an operator hits "Dispatch via Telegram" in the
      * admin. Uzbek by default since dispatch goes to local drivers.

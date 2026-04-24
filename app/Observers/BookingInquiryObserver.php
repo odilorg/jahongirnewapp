@@ -58,6 +58,38 @@ class BookingInquiryObserver
             $inquiry->guide_cost_override       = false;
             $inquiry->guide_cost_override_reason = null;
         }
+
+        $this->assertSplitPaymentInvariant($inquiry);
+    }
+
+    /**
+     * Warn when online + cash drift from price_quoted on partial inquiries.
+     *
+     * Non-blocking by design: price_quoted can legitimately be edited outside
+     * the payment modal (quote corrections, cost recalcs). Blocking saves
+     * here would frustrate operators. Logging preserves an audit trail so
+     * drift is visible without breaking workflows.
+     */
+    private function assertSplitPaymentInvariant(BookingInquiry $inquiry): void
+    {
+        if ($inquiry->payment_split !== BookingInquiry::PAYMENT_SPLIT_PARTIAL) {
+            return;
+        }
+
+        $total  = (float) ($inquiry->price_quoted ?? 0);
+        $online = (float) ($inquiry->amount_online_usd ?? 0);
+        $cash   = (float) ($inquiry->amount_cash_usd ?? 0);
+
+        if (abs(($online + $cash) - $total) > 0.01) {
+            Log::warning('BookingInquiry split-payment invariant drift', [
+                'inquiry_id'        => $inquiry->id,
+                'reference'         => $inquiry->reference,
+                'price_quoted'      => $total,
+                'amount_online_usd' => $online,
+                'amount_cash_usd'   => $cash,
+                'diff'              => round(($online + $cash) - $total, 2),
+            ]);
+        }
     }
 
     public function updated(BookingInquiry $inquiry): void

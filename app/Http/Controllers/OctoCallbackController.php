@@ -176,11 +176,22 @@ class OctoCallbackController extends Controller
 
             // Phase 16.3 — record as guest payment. Observer will auto-set
             // paid_at + closed_by_user_id when received sum reaches price_quoted.
+            //
+            // Split-payment: amount_online_usd is what Octo actually charged.
+            // Fall back to price_quoted for legacy rows (pre-split migration)
+            // that have no amount_online_usd populated. Recording the quote
+            // total on a partial payment would silently over-credit the guest
+            // and flip paid_at prematurely — that is the bug this guards.
+            $recordedAmount = (float) ($inquiry->amount_online_usd ?? $inquiry->price_quoted ?? 0);
+            $paymentType    = $recordedAmount >= (float) ($inquiry->price_quoted ?? 0)
+                ? GuestPayment::TYPE_FULL
+                : GuestPayment::TYPE_BALANCE;
+
             \App\Models\GuestPayment::create([
                 'booking_inquiry_id' => $inquiry->id,
-                'amount'             => (float) ($inquiry->price_quoted ?? 0),
+                'amount'             => $recordedAmount,
                 'currency'           => 'USD',
-                'payment_type'       => 'full',
+                'payment_type'       => $paymentType,
                 'payment_method'     => 'octo',
                 'payment_date'       => now()->toDateString(),
                 'reference'          => (string) $transactionId,
