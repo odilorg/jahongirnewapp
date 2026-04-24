@@ -11,7 +11,7 @@ use App\Models\CashierShift;
 use App\Models\CashTransaction;
 use App\Models\User;
 use App\Services\BotPaymentService;
-use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
@@ -31,7 +31,7 @@ use Tests\TestCase;
  */
 class LegacyPaymentFallbackBlockTest extends TestCase
 {
-    use RefreshDatabase;
+    use DatabaseTransactions;
 
     private TestableLegacyBlockController $controller;
     private BotPaymentService $botPaymentServiceMock;

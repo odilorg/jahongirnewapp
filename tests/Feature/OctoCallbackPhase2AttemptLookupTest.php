@@ -7,7 +7,7 @@ namespace Tests\Feature;
 use App\Models\BookingInquiry;
 use App\Models\GuestPayment;
 use App\Models\OctoPaymentAttempt;
-use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\Log;
 use Tests\TestCase;
 
@@ -26,7 +26,7 @@ use Tests\TestCase;
  */
 class OctoCallbackPhase2AttemptLookupTest extends TestCase
 {
-    use RefreshDatabase;
+    use DatabaseTransactions;
 
     private const TRANSACTION = 'inquiry_99_Phase2T';
 

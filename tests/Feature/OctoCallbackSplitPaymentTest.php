@@ -6,7 +6,7 @@ namespace Tests\Feature;
 
 use App\Models\BookingInquiry;
 use App\Models\GuestPayment;
-use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Tests\TestCase;
 
 /**
@@ -20,7 +20,7 @@ use Tests\TestCase;
  */
 class OctoCallbackSplitPaymentTest extends TestCase
 {
-    use RefreshDatabase;
+    use DatabaseTransactions;
 
     private function makeInquiry(array $overrides = []): BookingInquiry
     {

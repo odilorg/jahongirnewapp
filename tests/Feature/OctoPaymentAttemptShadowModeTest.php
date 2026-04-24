@@ -8,7 +8,7 @@ use App\Actions\Payment\GeneratePaymentLinkAction;
 use App\Models\BookingInquiry;
 use App\Models\OctoPaymentAttempt;
 use App\Services\OctoPaymentService;
-use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Mockery\MockInterface;
 use Tests\TestCase;
 
@@ -20,7 +20,7 @@ use Tests\TestCase;
  */
 class OctoPaymentAttemptShadowModeTest extends TestCase
 {
-    use RefreshDatabase;
+    use DatabaseTransactions;
 
     private GeneratePaymentLinkAction $action;
     private MockInterface $octo;
