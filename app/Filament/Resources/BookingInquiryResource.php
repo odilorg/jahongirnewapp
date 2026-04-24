@@ -982,6 +982,116 @@ class BookingInquiryResource extends Resource
                             static::openWhatsApp($record, $livewire, $result['template_key'], $result['template_extras'], $result['audit_label']);
                         }),
 
+                    // ── Phase 3: regenerate link — supersedes the current
+                    // active attempt and sends a fresh link. Only visible
+                    // when there IS an active attempt (status=active) AND
+                    // the inquiry is still awaiting payment. Operators need
+                    // this when a customer's link expires or they need a
+                    // different amount split.
+                    Tables\Actions\Action::make('waRegenerateAndSend')
+                        ->label('WA: Regenerate & send new link')
+                        ->icon('heroicon-o-arrow-path')
+                        ->color('warning')
+                        ->visible(fn (BookingInquiry $record): bool => $record->status === BookingInquiry::STATUS_AWAITING_PAYMENT
+                            && $record->activePaymentAttempt()->exists())
+                        ->fillForm(fn (BookingInquiry $record): array => [
+                            'total'        => $record->price_quoted ? (string) $record->price_quoted : '',
+                            'full_online'  => abs((float) ($record->amount_online_usd ?? 0) - (float) ($record->price_quoted ?? 0)) < 0.01,
+                            'online'       => $record->amount_online_usd ? (string) $record->amount_online_usd : ($record->price_quoted ? (string) $record->price_quoted : ''),
+                            'cash_display' => number_format(max(0, (float) ($record->price_quoted ?? 0) - (float) ($record->amount_online_usd ?? 0)), 2, '.', ''),
+                            'confirmed'    => false,
+                        ])
+                        ->form([
+                            Forms\Components\Placeholder::make('warning_notice')
+                                ->label('')
+                                ->content('⚠️ The current payment link will be invalidated. The customer cannot use it after you regenerate.'),
+
+                            Forms\Components\TextInput::make('total')
+                                ->label('Total tour price (USD)')
+                                ->prefix('$')
+                                ->required()
+                                ->numeric()
+                                ->step('0.01')
+                                ->minValue(0.01)
+                                ->live(onBlur: true)
+                                ->afterStateUpdated(function ($state, Forms\Set $set, Forms\Get $get): void {
+                                    if ($get('full_online')) {
+                                        $set('online', $state);
+                                    }
+                                    $total  = (float) ($state ?? 0);
+                                    $online = (float) ($get('online') ?? 0);
+                                    $set('cash_display', number_format(max(0, $total - $online), 2, '.', ''));
+                                })
+                                ->helperText('Agreed tour price — will overwrite the stored quote.'),
+
+                            Forms\Components\Checkbox::make('full_online')
+                                ->label('Charge full amount online')
+                                ->live()
+                                ->afterStateUpdated(function (bool $state, Forms\Set $set, Forms\Get $get): void {
+                                    if ($state) {
+                                        $set('online', (string) ($get('total') ?? ''));
+                                        $set('cash_display', '0.00');
+                                    }
+                                }),
+
+                            Forms\Components\TextInput::make('online')
+                                ->label('Online payment amount (USD)')
+                                ->prefix('$')
+                                ->required()
+                                ->numeric()
+                                ->step('0.01')
+                                ->minValue(BookingInquiry::MIN_ONLINE_USD)
+                                ->disabled(fn (Forms\Get $get): bool => (bool) $get('full_online'))
+                                ->dehydrated()
+                                ->live(onBlur: true)
+                                ->afterStateUpdated(function ($state, Forms\Set $set, Forms\Get $get): void {
+                                    $total  = (float) ($get('total') ?? 0);
+                                    $online = (float) ($state ?? 0);
+                                    $set('cash_display', number_format(max(0, $total - $online), 2, '.', ''));
+                                })
+                                ->helperText('Amount the guest will pay now via the new secure link.')
+                                ->rule(function (Forms\Get $get) {
+                                    $total = (float) ($get('total') ?? 0);
+
+                                    return function (string $attribute, $value, \Closure $fail) use ($total): void {
+                                        if ((float) $value > $total + 0.01) {
+                                            $fail('Online amount cannot exceed total tour price.');
+                                        }
+                                    };
+                                }),
+
+                            Forms\Components\TextInput::make('cash_display')
+                                ->label('Remaining cash at pickup (USD)')
+                                ->prefix('$')
+                                ->disabled()
+                                ->dehydrated(false)
+                                ->helperText('Guest pays this directly to the driver/guide.'),
+
+                            Forms\Components\Checkbox::make('confirmed')
+                                ->label('I understand the current payment link will be invalidated')
+                                ->required()
+                                ->accepted()
+                                ->validationMessages([
+                                    'accepted' => 'You must confirm before regenerating the link.',
+                                ]),
+                        ])
+                        ->modalSubmitActionLabel('Regenerate & open WhatsApp')
+                        ->action(function (BookingInquiry $record, array $data, $livewire): void {
+                            $total  = (float) $data['total'];
+                            $online = (bool) ($data['full_online'] ?? false) ? $total : (float) $data['online'];
+
+                            try {
+                                $result = app(GeneratePaymentLinkAction::class)->execute($record, $total, $online);
+                            } catch (\Throwable $e) {
+                                Notification::make()->title('Regeneration failed')
+                                    ->body(mb_substr($e->getMessage(), 0, 300))
+                                    ->danger()->persistent()->send();
+                                return;
+                            }
+
+                            static::openWhatsApp($record, $livewire, $result['template_key'], $result['template_extras'], $result['audit_label']);
+                        }),
+
                     Tables\Actions\Action::make('waPaymentLink')
                         ->label('WA: Resend existing link')
                         ->icon('heroicon-o-link')
