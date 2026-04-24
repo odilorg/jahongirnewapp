@@ -265,6 +265,23 @@ class BookingInquiry extends Model
         return $this->hasMany(GuestPayment::class)->where('status', 'recorded');
     }
 
+    // All Octo link attempts ever made for this inquiry (append-only
+    // history). Most inquiries have exactly one active attempt; operators
+    // who regenerate end up with superseded + active pairs.
+    public function paymentAttempts(): HasMany
+    {
+        return $this->hasMany(OctoPaymentAttempt::class, 'inquiry_id')
+            ->orderByDesc('created_at');
+    }
+
+    // Convenience: the current link (what the callback should resolve to
+    // on a successful payment). Null if inquiry has never had a link.
+    public function activePaymentAttempt()
+    {
+        return $this->hasOne(OctoPaymentAttempt::class, 'inquiry_id')
+            ->where('status', OctoPaymentAttempt::STATUS_ACTIVE);
+    }
+
     public function reminders()
     {
         return $this->hasMany(InquiryReminder::class)->orderBy('remind_at');
