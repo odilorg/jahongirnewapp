@@ -26,3 +26,5 @@ storage/fonts/
 
 # Tour export (Phase 8.3b) — staged temp files are never committed.
 /storage/app/tours-export/
+.env.testing
+config/*.backup*
