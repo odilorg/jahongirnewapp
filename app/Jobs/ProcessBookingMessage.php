@@ -100,6 +100,14 @@ class ProcessBookingMessage implements ShouldQueue
                 return;
             }
 
+            // /pay command — intercept before LLM so "pay Name Amount"
+            // is never mis-parsed as create_booking intent.
+            if (preg_match('/^\/pay\b/i', $text)) {
+                app(\App\Actions\BookingBot\HandlePayCommandAction::class)
+                    ->execute($chatId, $text, $telegram);
+                return;
+            }
+
             // Parse intent with OpenAI
             $parsed = $parser->parse($text);
 
