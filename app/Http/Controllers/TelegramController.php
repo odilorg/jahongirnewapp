@@ -14,6 +14,9 @@ use App\Models\TelegramConversation;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use App\Models\BookingInquiry;
+use App\Services\OctoPaymentService;
+use Illuminate\Support\Facades\DB;
 
 class TelegramController extends Controller
 {
@@ -81,6 +84,11 @@ class TelegramController extends Controller
                 return $this->listBookings($chatId);
 
             default:
+                // /pay command: /pay <name> <amount> [<tour>]
+                if (preg_match('/^\/pay\s+/i', $text)) {
+                    return $this->handlePayCommand($chatId, $text);
+                }
+
                 // If user is in a conversation flow, handle typed input there
                 $conversation = $this->getActiveConversation($chatId);
                 if ($conversation) {
@@ -128,6 +136,13 @@ class TelegramController extends Controller
                 return $this->handleCreateFlow($conversation, $callbackData, true);
             } elseif ($flowType === 'update') {
                 return $this->handleUpdateFlow($conversation, $callbackData, true);
+            } elseif ($flowType === 'pay') {
+                if ($callbackData === 'pay_confirm') {
+                    return $this->executePayLink($chatId, $conversation);
+                }
+                $this->endConversation($conversation);
+                $this->sendTelegramMessage($chatId, "❌ Payment link cancelled.");
+                return response('OK');
             }
         }
 
@@ -589,4 +604,160 @@ class TelegramController extends Controller
         ];
         $this->sendRawTelegramRequest('answerCallbackQuery', $payload);
     }
+
+    /* ------------------------------------------------------------------
+     * PAY COMMAND: /pay <name> <amount> [<tour>]
+     * ------------------------------------------------------------------ */
+
+    /**
+     * Parse /pay command and show a confirmation step.
+     *
+     * Formats accepted:
+     *   /pay Delphine Ettori 153
+     *   /pay Delphine Ettori 153 Samarkand City Tour
+     */
+    protected function handlePayCommand(string $chatId, string $text): mixed
+    {
+        $body = trim(preg_replace('/^\/pay\s+/i', '', $text));
+
+        // Parse: everything before the first money token = name,
+        // the money token = amount, everything after = optional tour label.
+        if (!preg_match('/^(.+?)\s+\$?(\d+(?:\.\d{1,2})?)\s*(.*)$/s', $body, $m)) {
+            $this->sendTelegramMessage($chatId,
+                "❌ Couldn't parse that.
+
+Usage:
+"
+                . "/pay <name> <amount>
+"
+                . "/pay <name> <amount> <tour>
+
+"
+                . "Examples:
+"
+                . "/pay Delphine Ettori 153
+"
+                . "/pay John Smith 250 Samarkand City Tour");
+            return response('OK');
+        }
+
+        $name   = trim($m[1]);
+        $amount = (float) $m[2];
+        $tour   = trim($m[3]) ?: null;
+
+        if (strlen($name) < 2) {
+            $this->sendTelegramMessage($chatId, "❌ Name is too short (minimum 2 characters).");
+            return response('OK');
+        }
+        if ($amount < 1 || $amount > 50000) {
+            $this->sendTelegramMessage($chatId, "❌ Amount must be between \$1 and \$50,000.");
+            return response('OK');
+        }
+
+        // Store in conversation for the confirmation step
+        TelegramConversation::updateOrCreate(
+            ['chat_id' => $chatId],
+            [
+                'step'       => 1,
+                'data'       => [
+                    'flow_type' => 'pay',
+                    'name'      => $name,
+                    'amount'    => $amount,
+                    'tour'      => $tour,
+                ],
+                'updated_at' => now(),
+            ]
+        );
+
+        $amountDisplay = '$' . number_format($amount, 0);
+        $tourLine      = $tour ? "\n📦 {$tour}" : '';
+
+        $this->sendRawTelegramRequest('sendMessage', [
+            'chat_id'      => $chatId,
+            'text'         => "💳 Generate payment link?\n\n👤 {$name}\n💵 {$amountDisplay}{$tourLine}",
+            'reply_markup' => json_encode([
+                'inline_keyboard' => [[
+                    ['text' => '✅ Confirm', 'callback_data' => 'pay_confirm'],
+                    ['text' => '❌ Cancel',  'callback_data' => 'pay_cancel'],
+                ]],
+            ]),
+        ]);
+
+        return response('OK');
+    }
+
+    /**
+     * User confirmed — create the inquiry and call Octo.
+     * Wrapped in a DB transaction so no orphan row is left on Octo failure.
+     */
+    protected function executePayLink(string $chatId, TelegramConversation $conversation): mixed
+    {
+        $data   = $conversation->data ?? [];
+        $name   = $data['name']   ?? 'Guest';
+        $amount = (float) ($data['amount'] ?? 0);
+        $tour   = $data['tour']   ?? null;
+
+        $this->endConversation($conversation);
+
+        if ($amount <= 0) {
+            $this->sendTelegramMessage($chatId, "❌ Invalid amount. Use /pay to try again.");
+            return response('OK');
+        }
+
+        try {
+            $inquiry = null;
+            $result  = null;
+
+            DB::transaction(function () use ($name, $amount, $tour, &$inquiry, &$result) {
+                $inquiry = BookingInquiry::create([
+                    'reference'          => BookingInquiry::generateReference(),
+                    'source'             => BookingInquiry::SOURCE_MANUAL,
+                    'tour_name_snapshot' => $tour ?? 'Manual Payment',
+                    'customer_name'      => $name,
+                    'customer_email'     => 'manual@jahongir-travel.uz',
+                    'customer_phone'     => '+00000000000',
+                    'people_adults'      => 1,
+                    'price_quoted'       => $amount,
+                    'status'             => BookingInquiry::STATUS_AWAITING_PAYMENT,
+                    'submitted_at'       => now(),
+                    'ip_address'         => '0.0.0.0',
+                ]);
+
+                $result = app(OctoPaymentService::class)
+                    ->createPaymentLinkForInquiry($inquiry, $amount);
+            });
+
+            $uzsFormatted  = number_format($result['uzs_amount']);
+            $amountDisplay = '$' . number_format($amount, 0);
+            $tourLine      = ($tour) ? "\n📦 {$tour}" : '';
+
+            $this->sendRawTelegramRequest('sendMessage', [
+                'chat_id'    => $chatId,
+                'text'       => "💳 *Payment link ready*\n\n"
+                              . "👤 {$name}\n"
+                              . "💵 {$amountDisplay} → {$uzsFormatted} UZS"
+                              . $tourLine . "\n\n"
+                              . "🔗 {$result['url']}\n\n"
+                              . "📋 `{$inquiry->reference}`",
+                'parse_mode' => 'Markdown',
+                'reply_markup' => json_encode([
+                    'inline_keyboard' => [[
+                        ['text' => '🔗 Open link', 'url' => $result['url']],
+                    ]],
+                ]),
+            ]);
+
+        } catch (\Throwable $e) {
+            Log::error('PayCommand: Octo link generation failed', [
+                'name'   => $name,
+                'amount' => $amount,
+                'error'  => $e->getMessage(),
+            ]);
+            $this->sendTelegramMessage($chatId,
+                "❌ Failed to generate payment link. Octo error — please try again or generate manually.");
+        }
+
+        return response('OK');
+    }
+
 }
