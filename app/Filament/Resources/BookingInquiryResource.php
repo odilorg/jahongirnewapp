@@ -1723,6 +1723,40 @@ class BookingInquiryResource extends Resource
                             Notification::make()->title('Note added')->success()->send();
                         }),
 
+                    Tables\Actions\Action::make('resendReceipt')
+                        ->label('Resend receipt')
+                        ->icon('heroicon-o-paper-airplane')
+                        ->color('gray')
+                        ->visible(fn (BookingInquiry $record): bool =>
+                            $record->paid_at !== null
+                        )
+                        ->requiresConfirmation()
+                        ->modalHeading('Resend payment receipt?')
+                        ->modalDescription(fn (BookingInquiry $record): string =>
+                            $record->receipt_sent_at
+                                ? 'Already sent on ' . $record->receipt_sent_at->format('M j, H:i') . '. Resend to guest anyway?'
+                                : 'Send payment receipt to guest (email + WhatsApp).'
+                        )
+                        ->modalSubmitActionLabel('Resend')
+                        ->action(function (BookingInquiry $record): void {
+                            $result = app(\App\Actions\Payment\SendReceiptAction::class)
+                                ->execute($record, force: true);
+
+                            if ($result->success) {
+                                Notification::make()
+                                    ->title('Receipt sent')
+                                    ->body('Channels: ' . ($result->payload['channels'] ?? 'unknown'))
+                                    ->success()
+                                    ->send();
+                            } else {
+                                Notification::make()
+                                    ->title('Receipt failed')
+                                    ->body($result->message ?? 'Check logs for details.')
+                                    ->danger()
+                                    ->send();
+                            }
+                        }),
+
                     Tables\Actions\EditAction::make(),
                 ])
                     ->label('Actions')

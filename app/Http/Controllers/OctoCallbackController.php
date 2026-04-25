@@ -283,6 +283,17 @@ class OctoCallbackController extends Controller
                     'error'     => $e->getMessage(),
                 ]);
             }
+
+            // Guest receipt — email + WhatsApp. Failure must never block the 200.
+            try {
+                app(\App\Actions\Payment\SendReceiptAction::class)
+                    ->execute($inquiry, force: false, uzsAmountRaw: (string) $paidSum);
+            } catch (\Throwable $e) {
+                Log::warning('SendReceiptAction failed in webhook', [
+                    'reference' => $inquiry->reference,
+                    'error'     => $e->getMessage(),
+                ]);
+            }
         } else {
             // Leave status as-is (probably still awaiting_payment) so the
             // operator can retry. Append an audit note for traceability.

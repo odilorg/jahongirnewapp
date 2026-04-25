@@ -188,6 +188,7 @@ class BookingInquiry extends Model
         'confirmed_at',
         'cancelled_at',
         'submitted_at',
+        'receipt_sent_at',
         'ip_address',
         'user_agent',
     ];
@@ -207,6 +208,7 @@ class BookingInquiry extends Model
         'driver_dispatched_at'      => 'datetime',
         'guide_dispatched_at'       => 'datetime',
         'submitted_at'              => 'datetime',
+        'receipt_sent_at'           => 'datetime',
         'commission_rate'           => 'decimal:2',
         'commission_amount'         => 'decimal:2',
         'net_revenue'               => 'decimal:2',
