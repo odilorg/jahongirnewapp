@@ -120,6 +120,32 @@ class OctoCallbackController extends Controller
         $attempt = OctoPaymentAttempt::where('transaction_id', $transactionId)->first();
         $inquiry = null;
 
+        // Phase 4 — terminal-attempt guard.
+        // If the attempt row is already in a terminal state, return 200 immediately
+        // without touching the inquiry. Three cases:
+        //   superseded — operator regenerated the link; a newer attempt covers this
+        //                inquiry. The old link may still fire because Octo keeps it
+        //                live until its own TTL expires. Silently ignore.
+        //   paid       — duplicate webhook retry. 200 so Octo stops retrying.
+        //   failed     — second failure callback. 200 so Octo stops retrying.
+        // Returning a non-200 here would cause Octo to keep retrying the callback,
+        // potentially triggering unintended logic on a later attempt.
+        if ($attempt && in_array($attempt->status, [
+            OctoPaymentAttempt::STATUS_PAID,
+            OctoPaymentAttempt::STATUS_FAILED,
+            OctoPaymentAttempt::STATUS_SUPERSEDED,
+        ], true)) {
+            Log::info('Octo callback ignored: attempt already in terminal state', [
+                'attempt_id'     => $attempt->id,
+                'attempt_status' => $attempt->status,
+                'transaction_id' => $transactionId,
+                'inquiry_id'     => $attempt->inquiry_id,
+                'octo_status'    => $status,
+            ]);
+
+            return response()->json(['status' => 'ok', 'note' => 'attempt_terminal_' . $attempt->status]);
+        }
+
         if ($attempt) {
             $inquiry = $attempt->inquiry;
 
