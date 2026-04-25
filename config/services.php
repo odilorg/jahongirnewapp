@@ -31,8 +31,12 @@ return [
         'relay_secret' => env('OCTO_RELAY_SECRET'),
 
         // Phase S — callback signature verification.
-        // Default OFF: logs candidate hashes so we can learn the scheme from
-        // real callbacks. Flip to true once Octo's exact scheme is confirmed.
+        // Formula (from help.octo.uz/en/notifications):
+        //   SHA1( unique_key + octo_payment_UUID + status )
+        // unique_key is a SEPARATE secret from OCTO technical team —
+        // NOT octo_secret. Find it at merchant.octo.uz → Integration settings,
+        // or request from Octo support for shop_id 27061.
+        'unique_key'                => env('OCTO_UNIQUE_KEY'),
         'verify_callback_signature' => (bool) env('OCTO_VERIFY_CALLBACK_SIGNATURE', false),
     ],
 

@@ -363,13 +363,11 @@ class OctoCallbackController extends Controller
      */
     private function guardSignature(Request $request): ?\Illuminate\Http\JsonResponse
     {
-        $received  = (string) $request->input('signature', '');
-        $hashKey   = (string) $request->input('hash_key', '');
-        $shopTxn   = (string) $request->input('shop_transaction_id', '');
-        $status    = (string) $request->input('status', '');
-        $totalSum  = (string) $request->input('total_sum', '');
-        $shopId    = (string) config('services.octo.shop_id', '');
-        $secret    = (string) config('services.octo.secret', '');
+        $received   = (string) $request->input('signature', '');
+        $octoUuid   = (string) $request->input('octo_payment_UUID', '');
+        $shopTxn    = (string) $request->input('shop_transaction_id', '');
+        $status     = (string) $request->input('status', '');
+        $uniqueKey  = (string) config('services.octo.unique_key', '');
 
         // Step 1 — presence check (always enforced).
         if ($received === '') {
@@ -380,16 +378,14 @@ class OctoCallbackController extends Controller
             return response()->json(['error' => 'signature required'], 403);
         }
 
-        // Step 2 — log candidate hashes to learn the scheme from real callbacks.
-        // Candidates are derived from the fields most commonly used in
-        // Uzbek payment gateway signature schemes.
+        // Step 2 — verify signature.
+        // Formula confirmed from help.octo.uz/en/notifications:
+        //   SHA1( unique_key + octo_payment_UUID + status )
+        // unique_key is a separate Octo credential (NOT octo_secret).
+        // Set OCTO_UNIQUE_KEY in .env (get from merchant.octo.uz → Integration
+        // settings, or ask Octo support for shop_id 27061).
         $candidates = [
-            'sha1(hashKey+secret)'         => strtoupper(sha1($hashKey . $secret)),
-            'sha1(secret+hashKey)'         => strtoupper(sha1($secret . $hashKey)),
-            'sha1(shopId+hashKey+secret)'  => strtoupper(sha1($shopId . $hashKey . $secret)),
-            'sha1(hashKey+status+secret)'  => strtoupper(sha1($hashKey . $status . $secret)),
-            'sha1(shopId+status+hashKey)'  => strtoupper(sha1($shopId . $status . $hashKey)),
-            'sha1(hashKey+shopTxn+secret)' => strtoupper(sha1($hashKey . $shopTxn . $secret)),
+            'sha1(uniqueKey+octoUuid+status)' => strtoupper(sha1($uniqueKey . $octoUuid . $status)),
         ];
 
         $matchedScheme = null;
@@ -400,12 +396,11 @@ class OctoCallbackController extends Controller
             }
         }
 
-        Log::info('Octo callback: signature candidates', [
-            'received'       => $received,
-            'matched_scheme' => $matchedScheme,
-            'candidates'     => $candidates,
-            'hash_key'       => $hashKey,
-            'transaction_id' => $shopTxn,
+        Log::info('Octo callback: signature check', [
+            'transaction_id'  => $shopTxn,
+            'matched'         => $matchedScheme !== null,
+            'unique_key_set'  => $uniqueKey !== '',
+            'enforce'         => (bool) config('services.octo.verify_callback_signature', false),
         ]);
 
         // Step 3 — enforce only when flag is on.
