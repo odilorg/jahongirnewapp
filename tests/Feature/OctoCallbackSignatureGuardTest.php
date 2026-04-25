@@ -25,7 +25,7 @@ class OctoCallbackSignatureGuardTest extends TestCase
 {
     use DatabaseTransactions;
 
-    private function post(array $payload): \Illuminate\Testing\TestResponse
+    private function postOcto(array $payload): \Illuminate\Testing\TestResponse
     {
         return $this->postJson(route('octo.callback'), $payload);
     }
@@ -47,13 +47,13 @@ class OctoCallbackSignatureGuardTest extends TestCase
         $payload = $this->basePayload();
         unset($payload['signature']);
 
-        $this->post($payload)->assertStatus(403);
+        $this->postOcto($payload)->assertStatus(403);
     }
 
     /** 2. Empty signature string returns 403. */
     public function test_empty_signature_returns_403(): void
     {
-        $this->post($this->basePayload(['signature' => '']))->assertStatus(403);
+        $this->postOcto($this->basePayload(['signature' => '']))->assertStatus(403);
     }
 
     /** 3. With signature present and flag OFF, unknown transaction returns 404 (not 403). */
@@ -61,7 +61,7 @@ class OctoCallbackSignatureGuardTest extends TestCase
     {
         config(['services.octo.verify_callback_signature' => false]);
 
-        $this->post($this->basePayload())->assertStatus(404);
+        $this->postOcto($this->basePayload())->assertStatus(404);
     }
 
     /** 4. With flag ON and wrong signature, returns 403. */
@@ -69,7 +69,7 @@ class OctoCallbackSignatureGuardTest extends TestCase
     {
         config(['services.octo.verify_callback_signature' => true]);
 
-        $this->post($this->basePayload(['signature' => 'WRONG-SIG']))->assertStatus(403);
+        $this->postOcto($this->basePayload(['signature' => 'WRONG-SIG']))->assertStatus(403);
     }
 
     /** 5. With flag OFF and wrong signature, guard passes (logs warning, continues). */
@@ -78,7 +78,7 @@ class OctoCallbackSignatureGuardTest extends TestCase
         config(['services.octo.verify_callback_signature' => false]);
 
         // Unknown transaction → 404, but NOT 403 (guard passed, just no matching txn)
-        $this->post($this->basePayload(['signature' => 'WRONG-SIG']))->assertStatus(404);
+        $this->postOcto($this->basePayload(['signature' => 'WRONG-SIG']))->assertStatus(404);
     }
 
     /** 6. Missing signature is logged at warning level. */
@@ -91,6 +91,6 @@ class OctoCallbackSignatureGuardTest extends TestCase
 
         $payload = $this->basePayload();
         unset($payload['signature']);
-        $this->post($payload);
+        $this->postOcto($payload);
     }
 }
