@@ -36,6 +36,8 @@ class OctoCallbackPhase2AttemptLookupTest extends TestCase
             'shop_transaction_id' => $txn,
             'status'              => $status,
             'total_sum'           => $sum,
+            'signature'           => 'TEST-SIG-PLACEHOLDER',
+            'hash_key'            => 'test-hash-key',
         ]);
     }
 

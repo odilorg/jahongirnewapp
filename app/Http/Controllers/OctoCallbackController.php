@@ -16,6 +16,11 @@ class OctoCallbackController extends Controller
     {
         Log::info('Octo callback data:', $request->all());
 
+        // Phase S — signature guard (presence always enforced; crypto flag-gated).
+        if ($guard = $this->guardSignature($request)) {
+            return $guard;
+        }
+
         $transactionId = (string) $request->input('shop_transaction_id', '');
         $status        = (string) $request->input('status', '');
         $paidSum       = $request->input('total_sum');
@@ -339,6 +344,82 @@ class OctoCallbackController extends Controller
                 'error'          => $e->getMessage(),
             ]);
         }
+    }
+
+    /**
+     * Phase S — signature guard.
+     *
+     * Step 1: presence check — real Octo callbacks always carry a `signature`
+     * field. Missing signature → likely a probe or spoof → 403 immediately,
+     * regardless of the feature flag.
+     *
+     * Step 2: cryptographic check (flag-gated). Logs candidate hashes from
+     * known fields against the received signature so we can confirm Octo's
+     * exact scheme from the first real callback after deployment. Once
+     * confirmed, flip `services.octo.verify_callback_signature` to true.
+     *
+     * The method NEVER throws — it returns a JSON 403 response on failure
+     * and the caller returns it, or it returns null to continue.
+     */
+    private function guardSignature(Request $request): ?\Illuminate\Http\JsonResponse
+    {
+        $received  = (string) $request->input('signature', '');
+        $hashKey   = (string) $request->input('hash_key', '');
+        $shopTxn   = (string) $request->input('shop_transaction_id', '');
+        $status    = (string) $request->input('status', '');
+        $totalSum  = (string) $request->input('total_sum', '');
+        $shopId    = (string) config('services.octo.shop_id', '');
+        $secret    = (string) config('services.octo.secret', '');
+
+        // Step 1 — presence check (always enforced).
+        if ($received === '') {
+            Log::warning('Octo callback: missing signature field — possible probe or spoof', [
+                'transaction_id' => $shopTxn,
+                'status'         => $status,
+            ]);
+            return response()->json(['error' => 'signature required'], 403);
+        }
+
+        // Step 2 — log candidate hashes to learn the scheme from real callbacks.
+        // Candidates are derived from the fields most commonly used in
+        // Uzbek payment gateway signature schemes.
+        $candidates = [
+            'sha1(hashKey+secret)'         => strtoupper(sha1($hashKey . $secret)),
+            'sha1(secret+hashKey)'         => strtoupper(sha1($secret . $hashKey)),
+            'sha1(shopId+hashKey+secret)'  => strtoupper(sha1($shopId . $hashKey . $secret)),
+            'sha1(hashKey+status+secret)'  => strtoupper(sha1($hashKey . $status . $secret)),
+            'sha1(shopId+status+hashKey)'  => strtoupper(sha1($shopId . $status . $hashKey)),
+            'sha1(hashKey+shopTxn+secret)' => strtoupper(sha1($hashKey . $shopTxn . $secret)),
+        ];
+
+        $matchedScheme = null;
+        foreach ($candidates as $name => $val) {
+            if ($val === $received) {
+                $matchedScheme = $name;
+                break;
+            }
+        }
+
+        Log::info('Octo callback: signature candidates', [
+            'received'       => $received,
+            'matched_scheme' => $matchedScheme,
+            'candidates'     => $candidates,
+            'hash_key'       => $hashKey,
+            'transaction_id' => $shopTxn,
+        ]);
+
+        // Step 3 — enforce only when flag is on.
+        if ((bool) config('services.octo.verify_callback_signature', false)) {
+            if ($matchedScheme === null) {
+                Log::warning('Octo callback: signature mismatch — rejecting', [
+                    'received'       => $received,
+                    'transaction_id' => $shopTxn,
+                ]);
+                return response()->json(['error' => 'invalid signature'], 403);
+            }
+        }
+
+        return null;
     }
 
     public function success(Request $request)

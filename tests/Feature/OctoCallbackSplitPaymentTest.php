@@ -48,6 +48,8 @@ class OctoCallbackSplitPaymentTest extends TestCase
             'shop_transaction_id' => $transactionId,
             'status'              => $status,
             'total_sum'           => $uzsSum,
+            'signature'           => 'TEST-SIG-PLACEHOLDER',
+            'hash_key'            => 'test-hash-key',
         ]);
     }
 

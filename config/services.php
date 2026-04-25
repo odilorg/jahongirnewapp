@@ -29,6 +29,11 @@ return [
         // and is gated by CF-level IP allowlist + shared secret header.
         'relay_url'    => env('OCTO_RELAY_URL'),
         'relay_secret' => env('OCTO_RELAY_SECRET'),
+
+        // Phase S — callback signature verification.
+        // Default OFF: logs candidate hashes so we can learn the scheme from
+        // real callbacks. Flip to true once Octo's exact scheme is confirmed.
+        'verify_callback_signature' => (bool) env('OCTO_VERIFY_CALLBACK_SIGNATURE', false),
     ],
 
     'telegram' => [
