@@ -103,7 +103,12 @@ class InquirySendPaymentReminders extends Command
             $result = $this->whatsApp->send($phone, $message);
 
             if ($result->success) {
-                $inquiry->update(['payment_reminder_sent_at' => now()]);
+                // System-state timestamp — bypass mass-assignment so a future
+                // $fillable regression cannot silently disable idempotency
+                // (production incident 2026-04-26: column was missing from
+                // $fillable, update() no-op'd, hourly cron resent the same
+                // reminder).
+                $inquiry->forceFill(['payment_reminder_sent_at' => now()])->save();
 
                 $this->appendNote($inquiry, 'Payment reminder sent via WhatsApp');
 
