@@ -14,6 +14,84 @@ Newest entries at top.
 
 ---
 
+## 2026-04-26 — Repeated payment reminders (hourly WhatsApp spam)
+
+**Symptom.** Guest on inquiry `INQ-2026-000059` (Ruyi Ma Meiklejohn)
+received the same payment-reminder WhatsApp message every hour for at
+least 3 consecutive hours (16:00, 17:00, 18:00 in the inquiry's
+`internal_notes`). `payment_reminder_sent_at` stayed `NULL` in the DB
+even though the success branch had clearly run (audit trail in
+`internal_notes` confirmed three "Payment reminder sent via WhatsApp"
+appendNote() calls).
+
+**Root cause.** `payment_reminder_sent_at` was registered in
+`BookingInquiry::$casts` but **missing from `$fillable`**. Eloquent's
+`$inquiry->update(['payment_reminder_sent_at' => now()])` silently
+dropped the attribute (mass-assignment guard, no exception, no log).
+The hourly cron query `whereNull('payment_reminder_sent_at')` therefore
+re-selected the same row at every tick within the 3-day
+`MAX_DAYS_OLD` window. Other writes in the success branch
+(`appendNote()` writing `internal_notes`) worked because
+`internal_notes` *is* fillable — masking the bug from a quick
+"did the success branch run?" audit.
+
+**Why our tests didn't catch it.** No regression test ran the command
+twice and asserted only one outbound send. Local dev has no test DB
+configured, and the deploy script does not run `phpunit`.
+
+**Mitigation (before fix deployed).**
+Manual DB update with `whereNull` guard, applied via `mysql`:
+```sql
+UPDATE booking_inquiries
+SET payment_reminder_sent_at = NOW()
+WHERE reference = 'INQ-2026-000059'
+  AND payment_reminder_sent_at IS NULL;
+```
+Stopped further sends within 21 minutes of the next cron tick.
+
+**Fix.**
+- `BookingInquiry::$fillable` — added `'payment_reminder_sent_at'`
+  (insurance for any future caller, e.g. Filament).
+- `InquirySendPaymentReminders.php:106` — replaced
+  `$inquiry->update([...])` with `$inquiry->forceFill([...])->save()`
+  for the timestamp. Defense-in-depth: even if a future change drops
+  the column from `$fillable`, the command keeps working. Inline
+  comment references this incident.
+- New regression test `tests/Feature/InquirySendPaymentRemindersTest.php`
+  (4 cases: persistence after success, no resend on second run,
+  4-hour window guard, paid_at guard). Run on VPS test DB
+  (`jahongirnewapp_test`) before deploy: 4 passed, 10 assertions.
+
+**Audit.** Searched for the same pattern on other system-state
+timestamps:
+- `paid_at` — written via direct attribute assignment
+  (`$this->paid_at = now()`) in `BookingInquiry.php:322`, bypasses
+  `$fillable`. Safe.
+- `payment_link_sent_at` — written via `update()` in
+  `GeneratePaymentLinkAction.php:114`, but field IS in `$fillable`.
+  Safe.
+- No other broken writes found.
+
+**Architectural takeaway.** Never rely on mass assignment for
+system-state transitions (timestamps, status changes, financial
+fields). Use `forceFill()->save()` or explicit `DB::table()` updates.
+Mass-assignment failures are silent — the worst kind of bug.
+
+**Follow-up (Phase 2, deferred).**
+- Atomic claim before send (prevent duplicate sends across overlapping
+  workers).
+- Split `payment_reminder_attempted_at` / `_sent_at` / `_failed_at`
+  semantics with attempt counter and last-error column.
+- Extract send logic into `app/Actions/Inquiry/SendPaymentReminderAction.php`
+  per six-layer architecture.
+
+**Backup reference.** No DB schema change. Single-row data update
+captured in this file.
+
+**Commit.** `e527c2c9` · tag `release-2026-04-26-fillable-fix`.
+
+---
+
 ## 2026-04-20 — `@j_booking_hotel_bot` not responding
 
 **Symptom.** Hotel-availability Telegram bot (`@j_booking_hotel_bot`)
