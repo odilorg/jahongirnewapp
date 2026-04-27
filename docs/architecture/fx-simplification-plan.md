@@ -142,7 +142,7 @@ Code change:
 - Add a new method on `BotPaymentService` (e.g. `recordPaymentSimple()`) that:
   - takes `(amount, currency, reference_rate, actual_rate, override_reason)`,
   - computes `deviation_pct`,
-  - validates against the 5%/25% thresholds (throws `App\Exceptions\Fx\InvalidFxOverrideException` on >25% or missing reason),
+  - validates against the 3%/15% thresholds (throws `App\Exceptions\Fx\InvalidFxOverrideException` on >15% or missing reason),
   - writes `CashTransaction` with the new 4 columns populated,
   - **also** still populates the old fields (frozen-DTO equivalents) so existing readers (admin panels, ledger projections) keep working.
 - The Filament `UtilityUsage` form / Cashier bot form is NOT changed in this phase — old flow still runs.
@@ -288,3 +288,77 @@ If approved, Phase 0 audit is the next concrete step (read-only, ~1 hour).
 3. **Phase 3b column drops** — do the Filament admin pages currently render the old `presentation_*` / `override_tier` columns anywhere users care about? If yes, those readers need to be retired before the columns go.
 
 Answers can come one at a time as Phases run; only #1 needs to land before Phase 1 ships.
+
+---
+
+## Appendix A — Phase 0 audit findings (read-only, 2026-04-27)
+
+### A.1 Per-duplicate verdict
+
+| Logical class | Location A | Location B | A imports | B imports | Verdict |
+|---|---|---|---:|---:|---|
+| `OverridePolicyEvaluator` | `app/Services/OverridePolicyEvaluator.php` | `app/Services/Fx/OverridePolicyEvaluator.php` | **0** | 6 | **A is dead** (marked `@deprecated` in docblock). Delete in Phase 3. |
+| `FxManagerApprovalService` | `app/Services/FxManagerApprovalService.php` | `app/Services/Fx/FxManagerApprovalService.php` | 2 (tests) | 2 (cmd + test) | **Both have callers, different APIs.** A: `request/resolve/consume(PaymentPresentation)`. B: `createRequest/approve/reject/expireStale/findConsumable/consume(scalars)`. The CLI command (`ExpireManagerApprovals`) imports B by full namespace. Both die in Phase 3. |
+| `FxSyncService` | `app/Services/FxSyncService.php` | `app/Services/Fx/FxSyncService.php` | 4 (`FxSyncJob`, `BotPaymentService::preparePayment`, 2 tests) | **0** | **A is live, B is dead.** B is the would-be migration target that was never wired. Delete B in Phase 3. |
+| `PaymentPresentation` | `app/DTO/PaymentPresentation.php` | `app/DTOs/Fx/PaymentPresentation.php` | 8 | 1 (only B's own dead `FxSyncService`) | **A is the canonical DTO.** B is structurally different (different field shape — `uzsPresented` vs `uzsAmount`, etc.) and was never adopted. Delete B + its `FxSyncService` together. |
+| `RecordPaymentData` | `app/DTO/RecordPaymentData.php` | _(no B copy)_ | 5 | — | Single location. |
+
+### A.2 Singleton classes confirmed (no duplicates)
+
+- `App\Enums\OverrideTier` — single, 13 imports.
+- `App\Models\FxManagerApproval` — single, 4 imports.
+- `App\Exceptions\ManagerApprovalRequiredException` — single, thrown only at `BotPaymentService.php:141`.
+
+### A.3 Container bindings
+
+`AppServiceProvider` has **no explicit bindings** for any of the duplicated services. Laravel auto-resolves by full class name. Result:
+- `BotPaymentService` constructor pulls Location A `FxSyncService` + Location A `FxManagerApprovalService` + Location B `OverridePolicyEvaluator` (via the alias `FxOverridePolicyEvaluator`).
+- `ExpireManagerApprovals` command pulls Location B `FxManagerApprovalService` by full namespace.
+- The wiring is **mismatched on purpose** — different consumers reach different copies. Phase 3 deletion has to remove both A and B copies of `FxManagerApprovalService` together with the command itself.
+
+### A.4 Pending FxManagerApproval rows
+
+Not directly queried in the audit; the production logs and the meter-deploy verification both showed zero in-flight approval state. Phase 2 must reconfirm via a one-shot SQL count before flipping the cashier flow:
+```
+SELECT status, COUNT(*) FROM fx_manager_approvals GROUP BY status;
+```
+If non-zero `Pending`/`Approved` exist on Phase 2 deploy day, drain them via `ExpireManagerApprovals` first.
+
+### A.5 Stale-second-copy hypothesis — confirmed (b)
+
+> `app/Services/*` is live; `app/Services/Fx/*` was a partial migration that never finished.
+
+Evidence: Location A copies all have callers; Location B copies are unused except where a single new piece of code (`ExpireManagerApprovals`) explicitly reaches into B. The B-namespace files are remnants of an abandoned cleanup.
+
+### A.6 Risks Phase 1 must respect
+
+1. **Mocking mismatch in `BotPaymentServiceOverrideTest` / `GroupPaymentIntegrationTest`** — they bind Location A services. Phase 1 must not change `BotPaymentService` constructor signature.
+2. **`PaymentPresentation` Locations A and B have different field shapes.** Phase 1's `recordPaymentSimple()` must take primitives or a new DTO, not blindly accept either copy.
+3. **Serialized jobs in Redis** that reference `BotPaymentService::recordPayment` only by class name are safe (container resolves by name); but renaming to `recordPaymentSimple` happens only in Phase 3, after the queue drains.
+4. **`ExpireManagerApprovals` command + Location B `FxManagerApprovalService` are coupled.** Phase 3 must delete both as one unit.
+
+### A.7 Phase 3 deletion list (verified safe to remove)
+
+- `app/Services/OverridePolicyEvaluator.php` (Location A — dead, `@deprecated`)
+- `app/Services/Fx/FxSyncService.php` (Location B — never called)
+- `app/DTOs/Fx/PaymentPresentation.php` (Location B — used only by dead Location B `FxSyncService`)
+- `app/Services/FxManagerApprovalService.php` (Location A — replaced by simple flow)
+- `app/Services/Fx/FxManagerApprovalService.php` (Location B — replaced by simple flow)
+- `app/Console/Commands/ExpireManagerApprovals.php` (no more approvals)
+- `app/Enums/OverrideTier.php` (no more tiers)
+- `app/Exceptions/ManagerApprovalRequiredException.php` (never thrown after Phase 2)
+- `app/Models/FxManagerApproval.php` + `fx_manager_approvals` table (Phase 3b)
+
+### A.8 Open questions for ops before Phase 3
+
+1. **Filament admin pages**: are `cash_transactions.override_tier` or `presentation_*` rendered to user-visible columns anywhere? If yes, those readers must be retired before the columns drop in Phase 3b.
+2. **Ledger reader scope**: `CashierPaymentAdapter` + `LedgerEntry` read FX fields. Phase 3 must keep historical reads working — verify the adapter tolerates `NULL` new columns and falls back to old columns for legacy rows.
+3. **Pending approvals**: re-confirm zero `Pending`/`Approved` rows on `fx_manager_approvals` immediately before Phase 3 drops the table.
+
+### A.9 Phase 1 unblock summary
+
+- Phase 1 (additive migration + dual-write) is **green to start**: all classes it must coexist with are identified.
+- Phase 1 must leave alone: A-namespace `FxSyncService`, A-namespace `PaymentPresentation`, A-namespace `FxManagerApprovalService`, all enums/models/exceptions.
+- Phase 1 may freely add new classes/files in any namespace.
+- Phase 2 will introduce `recordPaymentSimple()` alongside the old `recordPayment()` — no risk of breaking tests because the old path is preserved.
+- Phase 3 deletion list is locked above (A.7); 3 questions for ops (A.8) need answers before 3b runs.
