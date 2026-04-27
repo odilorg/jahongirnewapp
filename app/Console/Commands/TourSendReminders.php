@@ -33,6 +33,7 @@ class TourSendReminders extends Command
 
     public function __construct(
         private WhatsAppSender $whatsApp,
+        private \App\Services\TourReminderDispatcher $reminderDispatcher,
     ) {
         parent::__construct();
         $this->ownerChatId        = (int) config('services.owner_alert_bot.owner_chat_id', env('OWNER_TELEGRAM_ID', '0'));
@@ -150,78 +151,53 @@ class TourSendReminders extends Command
     {
         $this->info('--- Phase 2: WhatsApp Guest Reminders ---');
 
-        $sent    = 0;
-        $skipped = 0;
-        $failed  = 0;
+        $sent = $skipped = $failed = 0;
         $phonesThisRun = [];
 
         foreach ($inquiries as $inquiry) {
             $phone = $this->whatsApp->normalizePhone($inquiry->customer_phone);
-
-            if (! $phone) {
-                $this->warn("  ⚠ Skipping {$inquiry->customer_name} — no valid phone.");
-                $skipped++;
-
-                continue;
-            }
-
-            if (isset($phonesThisRun[$phone])) {
+            if ($phone !== null && isset($phonesThisRun[$phone])) {
                 $this->warn("  ⚠ Skipping {$inquiry->customer_name} — duplicate phone.");
                 $skipped++;
-
                 continue;
             }
-
-            // Idempotency via tour_reminder_logs
-            $alreadySent = DB::table('tour_reminder_logs')
-                ->where('booking_inquiry_id', $inquiry->id)
-                ->where('channel', 'whatsapp')
-                ->where('scheduled_for_date', $tomorrow)
-                ->exists();
-
-            if ($alreadySent) {
-                $this->warn("  ⚠ Skipping {$inquiry->customer_name} — already sent for {$tomorrow}.");
-                $skipped++;
-
-                continue;
-            }
-
-            $message = $this->buildGuestMessage($inquiry, $dateLabel);
-
-            $this->info("  📱 WhatsApp → {$phone} ({$inquiry->customer_name})");
-            $phonesThisRun[$phone] = true;
 
             if ($dryRun) {
+                $this->info("  [DRY] {$inquiry->reference} · {$inquiry->customer_name}");
                 $sent++;
-
+                if ($phone !== null) $phonesThisRun[$phone] = true;
                 continue;
             }
 
-            $result = $this->whatsApp->send($phone, $message);
+            // Delegate to the shared dispatcher — same path used by the
+            // hourly catch-up command and the on-confirm fast-path job.
+            // The dispatcher re-checks guest_reminder_sent_at, status,
+            // 24h window and stamps the marker on success only.
+            $result = $this->reminderDispatcher->sendGuestReminder($inquiry, source: 'daily_batch');
 
-            $status = $result->success ? 'sent' : 'failed';
-            DB::table('tour_reminder_logs')->insert([
-                'booking_inquiry_id' => $inquiry->id,
-                'channel'            => 'whatsapp',
-                'phone'              => $phone,
-                'status'             => $status,
-                'error_message'      => $result->success ? null : $result->error,
-                'scheduled_for_date' => $tomorrow,
-                'reminded_at'        => now(),
-                'created_at'         => now(),
-                'updated_at'         => now(),
-            ]);
-
-            if ($result->success) {
+            if ($result['ok']) {
                 $sent++;
-                $this->info("     ✅ Sent");
+                if ($phone !== null) $phonesThisRun[$phone] = true;
+                $this->info("  ✅ {$inquiry->reference} (lead={$result['lead_time_minutes']}m)");
+            } elseif (in_array($result['reason'] ?? '', ['already_sent', 'out_of_window'], true)) {
+                $skipped++;
             } else {
                 $failed++;
-                $this->error("     ❌ Failed: {$result->error}");
+                $this->error("  ❌ {$inquiry->reference} · " . ($result['reason'] ?? 'unknown'));
             }
         }
 
         $this->info("WhatsApp summary: {$sent} sent, {$skipped} skipped, {$failed} failed.");
+    }
+
+    /**
+     * Public proxy for TourReminderDispatcher. The hourly catch-up command
+     * and the on-confirm fast-path job both call this so all three
+     * reminder paths render identical messages.
+     */
+    public function buildGuestMessagePublic(\App\Models\BookingInquiry $inquiry, string $dateLabel): string
+    {
+        return $this->buildGuestMessage($inquiry, $dateLabel);
     }
 
     /**

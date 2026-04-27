@@ -122,6 +122,16 @@ class Kernel extends ConsoleKernel
             ->timezone('Asia/Tashkent')
             ->withoutOverlapping();
 
+        // Hourly catch-up for guest reminders. Catches bookings made AFTER
+        // the 20:00 batch (post-cutoff) and same-day bookings — incident
+        // 2026-04-27 surfaced this gap. Idempotent via guest_reminder_sent_at;
+        // re-running over an already-stamped row is a no-op.
+        $schedule->command('tour:send-late-guest-reminders')
+            ->cron('17 * * * *')   // off-zero minute to spread API load
+            ->timezone('Asia/Tashkent')
+            ->withoutOverlapping()
+            ->runInBackground();
+
         // Post-tour review requests at 10:00 Tashkent — WhatsApp/email guests whose tour ended yesterday
         $schedule->command('tour:send-review-requests')
             ->dailyAt('10:00')

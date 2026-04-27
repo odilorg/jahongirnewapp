@@ -4,8 +4,12 @@ declare(strict_types=1);
 
 namespace App\Actions\Inquiry;
 
+use App\Jobs\SendTourReminderJob;
 use App\Models\BookingInquiry;
+use App\Services\TourReminderDispatcher;
+use Carbon\Carbon;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -70,7 +74,57 @@ class ConfirmBookingAction
             'internal_notes'      => $newNotes,
         ])->save();
 
-        return $inquiry->refresh();
+        $inquiry->refresh();
+
+        // Fast-path: if the tour departs within 24h, kick off the
+        // guest WA reminder immediately so the operator's "Confirm
+        // booking" click visibly sends the WA. Cron is the safety net.
+        // afterCommit() is mandatory — without it the job can run
+        // before this DB transaction commits and re-fetch a stale row.
+        $this->maybeDispatchFastPathReminder($inquiry);
+
+        return $inquiry;
+    }
+
+    /**
+     * Dispatch the on-confirm fast-path reminder job iff the tour is
+     * within the next 24h AND the marker is still NULL. The job itself
+     * re-validates both conditions, so this guard is a courtesy
+     * (avoids queueing a no-op job for tours days away).
+     */
+    private function maybeDispatchFastPathReminder(BookingInquiry $inquiry): void
+    {
+        if ($inquiry->guest_reminder_sent_at !== null) {
+            return;
+        }
+
+        $departure = app(TourReminderDispatcher::class)->departureAt($inquiry);
+        if ($departure === null) {
+            return;
+        }
+
+        $minutesUntil = Carbon::now('Asia/Tashkent')->diffInMinutes($departure, false);
+        if ($minutesUntil < 0 || $minutesUntil > 24 * 60) {
+            return;
+        }
+
+        try {
+            // afterCommit() defers the *job execution* until the
+            // surrounding DB tx commits — prevents the queue worker
+            // from re-fetching a row that's not yet visible. Works in
+            // tests with Bus::fake() because the dispatch itself is
+            // captured synchronously; the afterCommit semantic is
+            // a property of the dispatched job's metadata, not of the
+            // dispatch call.
+            SendTourReminderJob::dispatch($inquiry->id)->afterCommit();
+        } catch (\Throwable $e) {
+            // Never let queue dispatch failure rollback the confirm.
+            // The hourly cron will pick this up within ~1 hour.
+            Log::warning('ConfirmBookingAction: fast-path dispatch failed; cron will catch up', [
+                'inquiry_id' => $inquiry->id,
+                'error'      => $e->getMessage(),
+            ]);
+        }
     }
 
     private function guardStatus(BookingInquiry $inquiry): void
