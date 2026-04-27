@@ -6,6 +6,23 @@ use App\Services\Meters\MeterReadingChainService;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
+/**
+ * Utility reading (Показания / pokazaniya).
+ *
+ * Treated as a strict ledger row. Every write — Filament form, tinker,
+ * future API, batch import — must pass through the saving guard below
+ * which delegates to MeterReadingChainService. Direct DB::table()
+ * inserts or UtilityUsage::insert() (which bypasses model events) are
+ * prohibited; the (meter_id, usage_date) UNIQUE index is the last-line
+ * backstop against concurrent submits.
+ *
+ * Invariants the chain guard enforces:
+ *  - meter_previous == prior reading's meter_latest (unless override+reason
+ *    OR is_meter_reset)
+ *  - meter_latest >= meter_previous (unless is_meter_reset)
+ *  - usage_date strictly after the latest existing reading on the meter
+ *  - meter_difference is recomputed from latest − previous on every save
+ */
 class UtilityUsage extends Model
 {
     use HasFactory;
