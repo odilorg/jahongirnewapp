@@ -167,12 +167,14 @@ class TourCalendarBuilder
             $reasons[] = 'unpaid';
         }
 
-        // Driver
+        // Driver — read the authoritative column. The previous version
+        // grepped `internal_notes` for "Calendar dispatch TG → driver",
+        // which silently broke when DriverDispatchNotifier started
+        // writing "TG dispatch → driver …" instead. Result: the slide-
+        // over showed "✅ Dispatched …" while the tile said "driver not
+        // dispatched" forever (incident 2026-04-27 INQ-2026-000066).
         $driverAssigned   = (bool) $inq->driver_id;
-        $driverDispatched = $driverAssigned && str_contains(
-            (string) $inq->internal_notes,
-            'Calendar dispatch TG → driver'
-        );
+        $driverDispatched = $driverAssigned && $inq->driver_dispatched_at !== null;
         $chips['driver'] = $driverDispatched
             ? 'dispatched'
             : ($driverAssigned ? 'assigned' : 'missing');
@@ -180,6 +182,18 @@ class TourCalendarBuilder
             $reasons[] = 'no driver';
         } elseif (! $driverDispatched) {
             $reasons[] = 'driver not dispatched';
+        }
+
+        // Guide — same column-read pattern as driver. Only flag when a
+        // guide is actually assigned (most tours don't have one — adding
+        // a "no guide" reason for guideless tours would be noise).
+        $guideAssigned   = (bool) $inq->guide_id;
+        $guideDispatched = $guideAssigned && $inq->guide_dispatched_at !== null;
+        if ($guideAssigned) {
+            $chips['guide'] = $guideDispatched ? 'dispatched' : 'assigned';
+            if (! $guideDispatched) {
+                $reasons[] = 'guide not dispatched';
+            }
         }
 
         // Pickup — context-aware by tour_type. The semantic of this chip
@@ -199,11 +213,16 @@ class TourCalendarBuilder
         // Accommodation — Phase 20.8. Aligns UI with Phase 19.3a backend.
         // State per stay: none | missing-accommodation | assigned | dispatched.
         // Chip reports the weakest stay: if ANY is missing, show red.
+        //
+        // Reads InquiryStay::$dispatched_at directly (set by
+        // DriverDispatchNotifier::dispatchStay). Previous version grepped
+        // internal_notes for "Calendar dispatch TG → stay <name>" — same
+        // string-format-drift bug as the driver chip; column read closes
+        // the entire class.
         $stays = $inq->stays ?? collect();
         if ($stays->isEmpty()) {
             $chips['accommodation'] = 'none'; // no stays at all → could be a day tour
         } else {
-            $notes    = (string) $inq->internal_notes;
             $allDispatched = true;
             $anyMissingAcc = false;
             foreach ($stays as $stay) {
@@ -212,8 +231,7 @@ class TourCalendarBuilder
                     $allDispatched = false;
                     continue;
                 }
-                $name = $stay->accommodation?->name;
-                if (! $name || ! str_contains($notes, "Calendar dispatch TG → stay {$name}")) {
+                if ($stay->dispatched_at === null) {
                     $allDispatched = false;
                 }
             }
