@@ -182,9 +182,15 @@ class TourCalendarBuilder
             $reasons[] = 'driver not dispatched';
         }
 
-        // Pickup
-        $hasPickup = filled($inq->pickup_point)
-            && ! in_array($inq->pickup_point, ['Samarkand', 'Gur Emir Mausoleum'], true);
+        // Pickup — context-aware by tour_type. The semantic of this chip
+        // is "does the driver know where to pick up?", not "is the column
+        // non-empty?". For GROUP tours, "Gur Emir Mausoleum" / "Samarkand"
+        // are the standard meeting point — operationally complete, chip
+        // green. For PRIVATE tours, those values are still ambiguous (the
+        // driver needs an actual hotel name), so the warning persists.
+        // Mirrors the message-builder rule in TourSendReminders that
+        // already special-cases Gur Emir for group tours.
+        $hasPickup = $this->isPickupOperationallyComplete($inq);
         $chips['pickup'] = $hasPickup;
         if (! $hasPickup) {
             $reasons[] = 'no pickup';
@@ -364,7 +370,7 @@ class TourCalendarBuilder
         if (! $inq->driver_id) {
             $warnings[] = 'no driver';
         }
-        if (blank($inq->pickup_point) || $inq->pickup_point === 'Samarkand' || $inq->pickup_point === 'Gur Emir Mausoleum') {
+        if (! $this->isPickupOperationallyComplete($inq)) {
             $warnings[] = 'no pickup';
         }
 
@@ -865,5 +871,37 @@ class TourCalendarBuilder
             default             => ['#f3f4f6', '#6b7280'],
         };
         return "font-size: 10px; background: {$bg}; color: {$fg}; padding: 2px 6px; border-radius: 3px; text-transform: uppercase; font-weight: 600;";
+    }
+
+    /**
+     * Operationally-complete pickup decision — used by both the chip
+     * (line ~186) and the warnings list (line ~367) so the two stay in
+     * sync. "Operationally complete" = the driver knows where to go:
+     *
+     *   - blank pickup_point                                → incomplete
+     *   - GROUP tour, pickup ∈ {Samarkand, Gur Emir}        → complete
+     *     (standard group-tour meeting point; matches the
+     *     TourSendReminders message builder, line ~316)
+     *   - PRIVATE tour, pickup ∈ {Samarkand, Gur Emir}      → incomplete
+     *     (private tours need a real hotel name)
+     *   - any other non-blank pickup_point                  → complete
+     */
+    private function isPickupOperationallyComplete(BookingInquiry $inq): bool
+    {
+        if (blank($inq->pickup_point)) {
+            return false;
+        }
+
+        $isGroupMeetingPoint = in_array(
+            $inq->pickup_point,
+            ['Samarkand', 'Gur Emir Mausoleum'],
+            true,
+        );
+
+        if ($isGroupMeetingPoint) {
+            return $inq->tour_type === 'group';
+        }
+
+        return true;
     }
 }
