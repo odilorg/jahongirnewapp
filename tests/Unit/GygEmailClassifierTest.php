@@ -26,6 +26,27 @@ class GygEmailClassifierTest extends TestCase
         $this->assertEquals('new_booking', $result);
     }
 
+    public function test_classifies_urgent_new_booking_received_subject(): void
+    {
+        // Regression: incident 2026-04-27 — GYG48YVRXWBH was misclassified as
+        // 'unknown' because the classifier required subject to start with
+        // "Booking -" and rejected GYG's "Urgent: New booking received - ..."
+        // last-minute-booking variant.
+        $result = $this->classifier->classify(
+            'Urgent: New booking received - S374926 - GYG48YVRXWBH',
+            'do-not-reply@notification.getyourguide.com'
+        );
+        $this->assertEquals('new_booking', $result);
+    }
+
+    public function test_extracts_reference_from_urgent_new_booking_subject(): void
+    {
+        $ref = $this->classifier->extractReferenceFromSubject(
+            'Urgent: New booking received - S374926 - GYG48YVRXWBH'
+        );
+        $this->assertEquals('GYG48YVRXWBH', $ref);
+    }
+
     public function test_classifies_cancellation(): void
     {
         $result = $this->classifier->classify(

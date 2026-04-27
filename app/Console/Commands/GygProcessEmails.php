@@ -100,6 +100,20 @@ class GygProcessEmails extends Command
                     'classified_at'     => now(),
                 ]);
             }
+
+            // Observability for 'unknown': a silent skip means GYG changed the
+            // subject format and we just dropped a real booking on the floor
+            // (incident 2026-04-27 — GYG48YVRXWBH was lost for ~5 hours
+            // because no alert fired). Log so the daily exception report and
+            // log-based alerts catch it.
+            if ($emailType === 'unknown') {
+                Log::warning('gyg:process-emails: unknown email format — possible classifier gap', [
+                    'email_id' => $email->id,
+                    'subject'  => $this->truncate($subject, 200),
+                    'from'     => $from,
+                ]);
+            }
+
             $stats['skipped']++;
             return;
         }

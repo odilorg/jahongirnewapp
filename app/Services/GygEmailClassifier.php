@@ -32,6 +32,15 @@ class GygEmailClassifier
             return 'new_booking';
         }
 
+        // "Urgent: New booking received - S374926 - GYG48YVRXWBH"
+        // GetYourGuide prefixes some last-minute bookings with "Urgent: New
+        // booking received". Same downstream payload as the "Booking - ..."
+        // template; the subject line is just decorated. (Incident 2026-04-27:
+        // GYG48YVRXWBH was misclassified as 'unknown' and silently skipped.)
+        if (preg_match('/^Urgent:\s*New booking received\s*-\s*S\d+\s*-\s*GYG/i', $subject)) {
+            return 'new_booking';
+        }
+
         // Guest replies via GYG messaging: "Re: ..." from reply.getyourguide.com
         if (
             preg_match('/^Re:/i', $subject) &&
