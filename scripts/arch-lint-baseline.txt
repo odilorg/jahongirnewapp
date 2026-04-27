@@ -1,19 +1,20 @@
-# arch-lint baseline — regenerated 2026-04-27T09:19:56+05:00
+# arch-lint baseline — regenerated 2026-04-27T20:59:36+05:00
 # Format: file:line:rule-key (rule-key stable across runs)
 app/Console/Commands/SendDailyRecap.php:52:http-outside-adapter
-app/Console/Commands/TourSendReminders.php:421:http-outside-adapter
-app/Console/Commands/TourSendReminders.php:689:http-outside-adapter
+app/Console/Commands/TourSendReminders.php:397:http-outside-adapter
+app/Console/Commands/TourSendReminders.php:665:http-outside-adapter
 app/Filament/_archived/Resources/BookingResource.php:253:long-action-closure
 app/Filament/Pages/ExpenseReports.php:147:http-outside-adapter
-app/Filament/Resources/BookingInquiryResource.php:1079:long-action-closure
-app/Filament/Resources/BookingInquiryResource.php:1228:long-action-closure
-app/Filament/Resources/BookingInquiryResource.php:1344:long-action-closure
-app/Filament/Resources/BookingInquiryResource.php:1418:long-action-closure
-app/Filament/Resources/BookingInquiryResource.php:1448:long-action-closure
-app/Filament/Resources/BookingInquiryResource.php:1540:long-action-closure
-app/Filament/Resources/BookingInquiryResource.php:1632:long-action-closure
-app/Filament/Resources/BookingInquiryResource.php:1741:long-action-closure
-app/Filament/Resources/BookingInquiryResource.php:969:long-action-closure
+app/Filament/Resources/BookingInquiryResource.php:1080:long-action-closure
+app/Filament/Resources/BookingInquiryResource.php:1182:long-action-closure
+app/Filament/Resources/BookingInquiryResource.php:1286:long-action-closure
+app/Filament/Resources/BookingInquiryResource.php:1402:long-action-closure
+app/Filament/Resources/BookingInquiryResource.php:1476:long-action-closure
+app/Filament/Resources/BookingInquiryResource.php:1506:long-action-closure
+app/Filament/Resources/BookingInquiryResource.php:1598:long-action-closure
+app/Filament/Resources/BookingInquiryResource.php:1690:long-action-closure
+app/Filament/Resources/BookingInquiryResource.php:1799:long-action-closure
+app/Filament/Resources/BookingInquiryResource.php:970:long-action-closure
 app/Filament/Resources/CashierShiftResource/Pages/CloseShift.php:82:long-action-closure
 app/Filament/Resources/CashierShiftResource/Pages/StartShift.php:121:long-action-closure
 app/Filament/Resources/ContractResource.php:122:long-action-closure
