@@ -4,13 +4,13 @@ namespace App\Jobs;
 
 use App\Enums\Beds24SyncStatus;
 use App\Models\Beds24PaymentSync;
+use App\Services\Beds24BookingService;
 use App\Services\Fx\Beds24PaymentSyncService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -34,7 +34,7 @@ class Beds24PaymentSyncJob implements ShouldQueue
         private readonly int $syncId,
     ) {}
 
-    public function handle(Beds24PaymentSyncService $syncService): void
+    public function handle(Beds24PaymentSyncService $syncService, Beds24BookingService $beds24): void
     {
         $sync = Beds24PaymentSync::find($this->syncId);
 
@@ -54,7 +54,7 @@ class Beds24PaymentSyncJob implements ShouldQueue
         }
 
         try {
-            $beds24PaymentId = $this->pushToBeds24($sync);
+            $beds24PaymentId = $this->pushToBeds24($sync, $beds24);
             $syncService->markPushed($sync->fresh(), $beds24PaymentId);
         } catch (\Throwable $e) {
             $exhausted = $this->attempts() >= $this->tries;
@@ -76,19 +76,23 @@ class Beds24PaymentSyncJob implements ShouldQueue
      * Calls the Beds24 v2 API to record a payment on the booking.
      * Returns the beds24 payment ID from the response.
      *
-     * @throws \RuntimeException  on non-2xx response or missing payment ID
+     * Uses Beds24BookingService::apiCall() so this job participates in
+     * the same access-token cache + refresh + 401-retry guardrail every
+     * other Beds24 caller already does. Previously this method read
+     * config('services.beds24.api_key') — a key that does not exist in
+     * config/services.php — and silently sent `token: ` (empty),
+     * producing 401 "Token is missing" on every attempt.
+     *
+     * @throws \RuntimeException on non-2xx response or missing payment ID
      */
-    private function pushToBeds24(Beds24PaymentSync $sync): string
+    private function pushToBeds24(Beds24PaymentSync $sync, Beds24BookingService $beds24): string
     {
-        $apiKey  = config('services.beds24.api_key');
-        $baseUrl = config('services.beds24.base_url', 'https://beds24.com/api/v2');
-
-        // Embed the local_reference in the description so the webhook can match it back
+        // Embed local_reference in description so the incoming Beds24
+        // webhook can match the payment back to this row without a
+        // time-window dedup.
         $description = "[ref:{$sync->local_reference}] Bot payment";
 
-        $response = Http::withHeaders([
-            'token' => $apiKey,
-        ])->post("{$baseUrl}/bookings/{$sync->beds24_booking_id}/payments", [
+        $response = $beds24->apiCall('POST', "/bookings/{$sync->beds24_booking_id}/payments", [
             'amount'      => (float) $sync->amount_usd,
             'currency'    => 'USD',
             'description' => $description,
