@@ -443,7 +443,7 @@ class BotPaymentService
      * @throws \App\Exceptions\Fx\InvalidFxOverrideException
      */
     public function recordPaymentSimple(
-        int     $shiftId,
+        ?int    $shiftId,            // nullable — cashier_shift_id has been nullable since 2026-03-10
         string  $beds24BookingId,
         float   $amountPaid,
         string  $currencyPaid,

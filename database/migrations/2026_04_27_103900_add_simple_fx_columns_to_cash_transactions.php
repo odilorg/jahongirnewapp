@@ -36,9 +36,11 @@ return new class extends Migration
             $table->decimal('actual_rate',    14, 4)->nullable()->after('reference_rate');
             $table->decimal('deviation_pct',   7, 4)->nullable()->after('actual_rate'); // signed
 
-            // Audit trail for the override case.
+            // Audit trail for the override case. NOTE: `override_reason`
+            // is NOT added here — it already exists in the schema as
+            // part of the legacy tier system. The new flow reuses that
+            // column rather than introducing a duplicate.
             $table->boolean('was_overridden')->default(false)->after('deviation_pct');
-            $table->string('override_reason', 500)->nullable()->after('was_overridden');
 
             // Composite index supports the admin "show overridden,
             // sorted recent-first" filter directly.
@@ -55,7 +57,9 @@ return new class extends Migration
                 'actual_rate',
                 'deviation_pct',
                 'was_overridden',
-                'override_reason',
+                // override_reason is intentionally not dropped — it
+                // belongs to the legacy schema that predates this
+                // migration.
             ]);
         });
     }
