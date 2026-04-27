@@ -12,14 +12,46 @@ use Tests\TestCase;
  */
 final class SimpleFxFieldsTest extends TestCase
 {
-    public function test_empty_returns_all_nulls_and_no_override(): void
+    public function test_empty_holds_no_partial_inconsistent_state(): void
     {
+        // Invariant: when reference_rate is NULL, deviation_pct must be 0.0
+        // and was_overridden must be false. A reader can never see "no rate
+        // but flagged as override" or "no rate but non-zero deviation".
         $fields = SimpleFxFields::empty();
         $this->assertNull($fields->referenceRate);
         $this->assertNull($fields->actualRate);
-        $this->assertNull($fields->deviationPct);
+        $this->assertSame(0.0, $fields->deviationPct);
         $this->assertFalse($fields->wasOverridden);
         $this->assertNull($fields->overrideReason);
+    }
+
+    public function test_missing_reference_rate_yields_no_partial_state(): void
+    {
+        // Regression: ExchangeRateService failure / EUR-RUB-paid path / missing
+        // usd_equivalent must NOT produce a row with NULL rate but a non-zero
+        // deviation or was_overridden=true. toArray() output is what writes
+        // to the DB row, so pin the columns directly.
+        $missingRate = SimpleFxFields::deriveForUzsPayment(
+            amountPaidUzs: 1_270_000,
+            usdEquivalentPaid: 100.0,
+            referenceRateUzsPerUsd: null,
+            overrideReason: 'manager-said-ok',
+        );
+        $missingUsd = SimpleFxFields::deriveForUzsPayment(
+            amountPaidUzs: 1_270_000,
+            usdEquivalentPaid: null,
+            referenceRateUzsPerUsd: 12700.0,
+            overrideReason: 'manager-said-ok',
+        );
+
+        foreach ([$missingRate, $missingUsd] as $f) {
+            $row = $f->toArray();
+            $this->assertNull($row['reference_rate']);
+            $this->assertNull($row['actual_rate']);
+            $this->assertSame(0.0, $row['deviation_pct']);
+            $this->assertFalse($row['was_overridden']);
+            $this->assertNull($row['override_reason']);
+        }
     }
 
     public function test_uzs_payment_at_reference_rate_has_zero_deviation(): void

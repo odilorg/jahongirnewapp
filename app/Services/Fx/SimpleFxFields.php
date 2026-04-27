@@ -29,12 +29,26 @@ final class SimpleFxFields
     ) {}
 
     /**
-     * Empty value — used when a transaction is not FX-relevant
-     * (non-payment categories, EUR/RUB-paid in Phase 1, no booking).
+     * Empty value — used when the row's FX is not evaluable in
+     * Phase 1 (EUR/RUB-paid, missing usd_equivalent, ExchangeRateService
+     * failure).
+     *
+     * Invariant ("no partial inconsistent states"): whenever
+     * reference_rate is NULL we deliberately fix:
+     *   - deviation_pct  = 0.0
+     *   - was_overridden = false
+     * so that a downstream reader CANNOT see "no rate but flagged as
+     * override" or "no rate but non-zero deviation".
      */
     public static function empty(): self
     {
-        return new self(null, null, null, false, null);
+        return new self(
+            referenceRate: null,
+            actualRate: null,
+            deviationPct: 0.0,
+            wasOverridden: false,
+            overrideReason: null,
+        );
     }
 
     /**
