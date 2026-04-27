@@ -89,6 +89,14 @@ class CashTransaction extends Model
         'is_group_payment',
         'group_size_expected',
         'group_size_local',
+
+        // FX simplification — Phase 1 dual-write columns. See
+        // docs/architecture/fx-simplification-plan.md.
+        'reference_rate',
+        'actual_rate',
+        'deviation_pct',
+        'was_overridden',
+        // 'override_reason' is already in fillable above (legacy field reused).
     ];
 
     protected $casts = [
@@ -113,6 +121,11 @@ class CashTransaction extends Model
         'presented_at'            => 'datetime',
         'recorded_at'             => 'datetime',
         'override_approved_at'    => 'datetime',
+        // Phase 1 simple-FX columns
+        'reference_rate'          => 'decimal:4',
+        'actual_rate'             => 'decimal:4',
+        'deviation_pct'           => 'decimal:4',
+        'was_overridden'          => 'boolean',
     ];
 
     // -----------------------------------------------------------------------
