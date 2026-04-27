@@ -184,6 +184,7 @@ class BookingInquiry extends Model
         'operational_notes',
         'prep_status',
         'status',
+        'confirmation_source',
         'internal_notes',
         'contacted_at',
         'confirmed_at',

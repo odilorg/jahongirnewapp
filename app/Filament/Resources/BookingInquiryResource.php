@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Filament\Resources;
 
+use App\Actions\Inquiry\ConfirmBookingAction;
 use App\Actions\Payment\GeneratePaymentLinkAction;
 use App\Filament\Resources\BookingInquiryResource\Pages;
 use App\Models\Accommodation;
@@ -1140,6 +1141,63 @@ class BookingInquiryResource extends Resource
                                 'contacted_at' => $record->contacted_at ?: now(),
                             ]);
                             Notification::make()->title('Marked as contacted')->success()->send();
+                        }),
+
+                    // Operator override: flip an inquiry to 'confirmed' without
+                    // recording payment. Use for OTA bookings (already paid
+                    // upstream), offline-paid clients, and trusted/repeat
+                    // bookings. Status semantics: 'confirmed' = operational
+                    // reality; 'paid_at' = financial reality. They are
+                    // intentionally independent — this action only touches
+                    // the first.
+                    Tables\Actions\Action::make('confirmBooking')
+                        ->label('Confirm booking')
+                        ->icon('heroicon-o-check-badge')
+                        ->color('success')
+                        ->visible(fn (BookingInquiry $record): bool => in_array($record->status, [
+                            BookingInquiry::STATUS_NEW,
+                            BookingInquiry::STATUS_CONTACTED,
+                            BookingInquiry::STATUS_AWAITING_CUSTOMER,
+                            BookingInquiry::STATUS_AWAITING_PAYMENT,
+                        ], true))
+                        ->modalHeading('Confirm booking')
+                        ->modalDescription('This adds the booking to the calendar but does not record any payment.')
+                        ->modalSubmitActionLabel('Confirm')
+                        ->form([
+                            Forms\Components\Select::make('source')
+                                ->label('Confirmation source')
+                                ->options([
+                                    'manual'  => 'Manual (operator override)',
+                                    'ota'     => 'OTA (Booking, GYG, Viator…)',
+                                    'offline' => 'Offline / cash-on-arrival',
+                                ])
+                                ->default('manual')
+                                ->required(),
+                            Forms\Components\Textarea::make('reason')
+                                ->label('Reason')
+                                ->placeholder('e.g. paid via Booking.com, VIP repeat client, paid offline')
+                                ->required()
+                                ->rows(2),
+                        ])
+                        ->action(function (BookingInquiry $record, array $data): void {
+                            try {
+                                app(ConfirmBookingAction::class)->execute(
+                                    $record,
+                                    $data['reason'] ?? null,
+                                    $data['source'] ?? 'manual',
+                                );
+                                Notification::make()
+                                    ->title('Booking confirmed')
+                                    ->body("{$record->reference} is now visible on the calendar.")
+                                    ->success()
+                                    ->send();
+                            } catch (\Illuminate\Validation\ValidationException $e) {
+                                Notification::make()
+                                    ->title('Cannot confirm')
+                                    ->body(implode(' ', array_merge(...array_values($e->errors()))))
+                                    ->danger()
+                                    ->send();
+                            }
                         }),
 
                     // ── Phase 8.3a: Calculate quote from tour catalog ──
