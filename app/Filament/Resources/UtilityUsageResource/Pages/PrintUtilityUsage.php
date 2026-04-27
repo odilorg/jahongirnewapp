@@ -15,6 +15,11 @@ class PrintUtilityUsage extends Page
 
     public function mount($recordId)
     {
-        $this->record = UtilityUsageResource::getModel()::findOrFail($recordId);
+        // The print Blade reads $record->hotel, ->meter, ->utility — eager
+        // load them in one query so the page never N+1s on the way to the
+        // printer.
+        $this->record = UtilityUsageResource::getModel()::query()
+            ->with(['hotel', 'meter', 'utility'])
+            ->findOrFail($recordId);
     }
 }

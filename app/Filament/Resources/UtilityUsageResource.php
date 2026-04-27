@@ -142,7 +142,29 @@ class UtilityUsageResource extends Resource
                         . '(например, перешёл с 99999 на 00001). Не используйте для исправления опечаток '
                         . '— для этого включите «Изменить предыдущее значение вручную» с указанием причины.'
                     )
-                    ->default(false),
+                    ->default(false)
+                    ->reactive()
+                    // A real reset always starts from zero. Auto-zero
+                    // meter_previous when the toggle flips ON so the
+                    // operator doesn't have to do it manually (the
+                    // chain guard rejects a "reset" that doesn't go
+                    // down). Toggling OFF restores the auto-fill.
+                    ->afterStateUpdated(function ($state, Set $set, Get $get) {
+                        $meterId = $get('meter_id');
+                        if (! $meterId) {
+                            return;
+                        }
+
+                        if ($state) {
+                            $set('meter_previous', 0);
+                        } elseif (! $get('meter_previous_overridden')) {
+                            $set(
+                                'meter_previous',
+                                app(MeterReadingChainService::class)->autoFillPrevious((int) $meterId),
+                            );
+                        }
+                        self::recalculateDifference($get, $set);
+                    }),
 
                 Forms\Components\TextInput::make('meter_difference')
                     ->label('Разница')
@@ -171,7 +193,28 @@ class UtilityUsageResource extends Resource
                 Tables\Columns\IconColumn::make('meter_previous_overridden')->boolean()->label('Override')->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
-                //
+                // Date range — most common operational filter when
+                // pulling readings for a billing period.
+                Tables\Filters\Filter::make('usage_date')
+                    ->form([
+                        Forms\Components\DatePicker::make('from')->label('Дата от'),
+                        Forms\Components\DatePicker::make('to')->label('Дата до'),
+                    ])
+                    ->query(function ($query, array $data) {
+                        return $query
+                            ->when($data['from'] ?? null, fn ($q, $d) => $q->whereDate('usage_date', '>=', $d))
+                            ->when($data['to']   ?? null, fn ($q, $d) => $q->whereDate('usage_date', '<=', $d));
+                    }),
+                Tables\Filters\SelectFilter::make('hotel_id')
+                    ->label('Отель')
+                    ->relationship('hotel', 'name'),
+                Tables\Filters\SelectFilter::make('utility_id')
+                    ->label('Услуга')
+                    ->relationship('utility', 'name'),
+                Tables\Filters\TernaryFilter::make('is_meter_reset')
+                    ->label('Сбросы счётчика'),
+                Tables\Filters\TernaryFilter::make('meter_previous_overridden')
+                    ->label('Ручные правки предыдущего'),
             ])
             ->actions([
                 Tables\Actions\EditAction::make(),
