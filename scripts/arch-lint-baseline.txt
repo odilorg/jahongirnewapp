@@ -1,16 +1,18 @@
-# arch-lint baseline — regenerated 2026-04-24T13:27:42+05:00
+# arch-lint baseline — regenerated 2026-04-27T09:19:56+05:00
 # Format: file:line:rule-key (rule-key stable across runs)
 app/Console/Commands/SendDailyRecap.php:52:http-outside-adapter
 app/Console/Commands/TourSendReminders.php:421:http-outside-adapter
 app/Console/Commands/TourSendReminders.php:689:http-outside-adapter
 app/Filament/_archived/Resources/BookingResource.php:253:long-action-closure
 app/Filament/Pages/ExpenseReports.php:147:http-outside-adapter
-app/Filament/Resources/BookingInquiryResource.php:1118:long-action-closure
-app/Filament/Resources/BookingInquiryResource.php:1234:long-action-closure
-app/Filament/Resources/BookingInquiryResource.php:1308:long-action-closure
-app/Filament/Resources/BookingInquiryResource.php:1338:long-action-closure
-app/Filament/Resources/BookingInquiryResource.php:1430:long-action-closure
-app/Filament/Resources/BookingInquiryResource.php:1522:long-action-closure
+app/Filament/Resources/BookingInquiryResource.php:1079:long-action-closure
+app/Filament/Resources/BookingInquiryResource.php:1228:long-action-closure
+app/Filament/Resources/BookingInquiryResource.php:1344:long-action-closure
+app/Filament/Resources/BookingInquiryResource.php:1418:long-action-closure
+app/Filament/Resources/BookingInquiryResource.php:1448:long-action-closure
+app/Filament/Resources/BookingInquiryResource.php:1540:long-action-closure
+app/Filament/Resources/BookingInquiryResource.php:1632:long-action-closure
+app/Filament/Resources/BookingInquiryResource.php:1741:long-action-closure
 app/Filament/Resources/BookingInquiryResource.php:969:long-action-closure
 app/Filament/Resources/CashierShiftResource/Pages/CloseShift.php:82:long-action-closure
 app/Filament/Resources/CashierShiftResource/Pages/StartShift.php:121:long-action-closure
@@ -21,6 +23,7 @@ app/Http/Controllers/Beds24WebhookController.php:97:fat-controller
 app/Http/Controllers/CashierBotController.php:77:fat-controller
 app/Http/Controllers/HousekeepingBotController.php:1718:http-outside-adapter
 app/Http/Controllers/HousekeepingBotController.php:1756:http-outside-adapter
+app/Http/Controllers/OctoCallbackController.php:15:fat-controller
 app/Http/Controllers/OpsBotController.php:30:fat-controller
 app/Http/Controllers/OwnerBotController.php:60:fat-controller
 app/Http/Controllers/TelegramDriverGuideSignUpController.php:56:fat-controller
