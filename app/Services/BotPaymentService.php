@@ -231,6 +231,13 @@ class BotPaymentService
                 'group_size_local'            => $p->groupSizeLocal,
             ]);
 
+            // Phase 1 FX simplification dual-write — populate the new
+            // simple-FX columns from primitives. Does NOT change cashier
+            // behavior; tier system remains the source of truth until
+            // Phase 2 flips the reader. UZS-paid only in Phase 1; other
+            // currencies leave the columns NULL.
+            $this->dualWriteSimpleFxFields($transaction, $data, $usdEquivalent);
+
             // Create Beds24PaymentSync row — queued job pushes payment to Beds24 after commit.
             $syncRow = $this->syncService->createPending($transaction, $usdEquivalent);
             $transaction->update([
@@ -377,5 +384,125 @@ class BotPaymentService
         }
 
         return $notes;
+    }
+
+    // -------------------------------------------------------------------------
+    // FX simplification — Phase 1 (dual-write helper + new entry point)
+    //
+    // See docs/architecture/fx-simplification-plan.md.
+    // - dualWriteSimpleFxFields() runs INSIDE the existing recordPayment()
+    //   transaction; populates the new 5 columns without touching tier logic.
+    // - recordPaymentSimple() is the future entry point, NOT WIRED in Phase 1.
+    //   No caller invokes it yet; Phase 2 will swap CashierBotController to
+    //   call it instead of recordPayment(). Kept here so the canonical shape
+    //   exists alongside the dual-write helper for tests.
+    // -------------------------------------------------------------------------
+
+    /**
+     * Dual-write the new simple-FX columns onto a freshly-inserted
+     * CashTransaction. Phase 1 covers UZS payments only; EUR/RUB-paid
+     * transactions leave the columns NULL.
+     *
+     * Reference rate is fetched live from ExchangeRateService —
+     * NOT pulled from PaymentPresentation, NOT pulled from the
+     * BookingFxSync row. The audit ruled both of those out as risky
+     * dependencies for a forward-write path.
+     */
+    private function dualWriteSimpleFxFields(
+        \App\Models\CashTransaction $transaction,
+        RecordPaymentData $data,
+        ?float $usdEquivalentPaid,
+    ): void {
+        if (strtoupper($data->currencyPaid) !== 'UZS') {
+            // Phase 1 scope. Phase 2 will widen.
+            return;
+        }
+
+        $referenceRate = $this->resolveReferenceRateUzsPerUsd();
+
+        $fields = \App\Services\Fx\SimpleFxFields::deriveForUzsPayment(
+            amountPaidUzs: (float) $data->amountPaid,
+            usdEquivalentPaid: $usdEquivalentPaid,
+            referenceRateUzsPerUsd: $referenceRate,
+            overrideReason: $data->overrideReason,
+        );
+
+        $transaction->update($fields->toArray());
+    }
+
+    /**
+     * Phase 2 entry point — does NOT use PaymentPresentation, does
+     * NOT use OverrideTier, does NOT throw ManagerApprovalRequired-
+     * Exception. Single source of truth: FxThresholdGuard.
+     *
+     * UNUSED IN PHASE 1. Kept here so:
+     *   1. tests can exercise it directly (regression bedding for Phase 2)
+     *   2. the canonical shape lives alongside the legacy recordPayment
+     *      so reviewers can compare side-by-side
+     *
+     * @throws \App\Exceptions\Fx\InvalidFxOverrideException
+     */
+    public function recordPaymentSimple(
+        ?int    $shiftId,            // nullable — cashier_shift_id has been nullable since 2026-03-10
+        string  $beds24BookingId,
+        float   $amountPaid,
+        string  $currencyPaid,
+        string  $paymentMethod,
+        ?int    $cashierId,
+        float   $referenceRate,
+        float   $actualRate,
+        ?string $overrideReason = null,
+        ?string $guestName = null,
+        ?string $roomNumber = null,
+    ): \App\Models\CashTransaction {
+        $guard = app(\App\Services\Fx\FxThresholdGuard::class);
+        $deviationPct = $guard->deviationPct($referenceRate, $actualRate);
+        $guard->validate($deviationPct, $overrideReason);
+
+        // No PaymentPresentation, no OverrideTier, no ManagerApproval.
+        // Just the row.
+        return \App\Models\CashTransaction::create([
+            'cashier_shift_id'   => $shiftId,
+            'type'               => \App\Enums\TransactionType::IN->value,
+            'amount'             => $amountPaid,
+            'currency'           => strtoupper($currencyPaid),
+            'category'           => \App\Enums\TransactionCategory::SALE->value,
+            'beds24_booking_id'  => $beds24BookingId,
+            'payment_method'     => $paymentMethod,
+            'guest_name'         => $guestName,
+            'room_number'        => $roomNumber,
+            'reference'          => "Beds24 #{$beds24BookingId}",
+            'created_by'         => $cashierId,
+            'occurred_at'        => now(),
+            'recorded_at'        => now(),
+            'source_trigger'     => \App\Enums\CashTransactionSource::CashierBot->value,
+
+            // The simple-FX columns are the whole point.
+            'reference_rate'  => round($referenceRate, 4),
+            'actual_rate'     => round($actualRate, 4),
+            'deviation_pct'   => round($deviationPct, 4),
+            'was_overridden'  => $guard->wasOverridden($deviationPct),
+            'override_reason' => $overrideReason !== null && trim($overrideReason) !== '' ? trim($overrideReason) : null,
+        ]);
+    }
+
+    /**
+     * Resolve UZS-per-USD reference rate for the dual-write helper.
+     * Returns null if every fallback fails — caller treats null as
+     * "leave the columns NULL for this row" rather than crashing.
+     */
+    private function resolveReferenceRateUzsPerUsd(): ?float
+    {
+        try {
+            $rates = app(\App\Services\ExchangeRateService::class)->getUsdToUzs();
+
+            return $rates && isset($rates['rate']) ? (float) $rates['rate'] : null;
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Phase1 dual-write: ExchangeRateService failed', [
+                'error' => $e->getMessage(),
+            ]);
+
+            return null;
+        }
     }
 }
