@@ -183,6 +183,25 @@ class GygProcessEmails extends Command
         if ($isValid) {
             $updateData['processing_status'] = 'parsed';
             $stats['parsed']++;
+
+            // Soft guardrail: even when validation passed, flag suspicious
+            // gaps that auto-defaults can mask (defaulted tour_type without
+            // any group/private signal in titles is the common one).
+            // Loud enough for log-based alerting, quiet enough not to block.
+            $softGaps = [];
+            if (empty($extracted['language'])) {
+                $softGaps[] = 'language';
+            }
+            if (($extracted['tour_type_source'] ?? null) === 'defaulted') {
+                $softGaps[] = 'tour_type(defaulted)';
+            }
+            if (! empty($softGaps)) {
+                Log::warning('gyg:process-emails: parsed with soft gaps', [
+                    'email_id' => $email->id,
+                    'gaps'     => $softGaps,
+                    'subject'  => $this->truncate($subject, 100),
+                ]);
+            }
         } else {
             $updateData['processing_status'] = 'needs_review';
             $updateData['parse_error'] = implode('; ', $parseErrors);

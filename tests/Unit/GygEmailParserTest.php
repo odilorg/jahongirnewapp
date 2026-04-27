@@ -62,6 +62,69 @@ BODY;
         $this->assertEquals('Danish', $result['language']);
     }
 
+    /**
+     * Regression: incident 2026-04-27 (GYG48YVRXWBH).
+     *
+     * GetYourGuide's "Urgent" / last-minute booking variant uses
+     * "received a last-minute booking:" as the trigger phrase instead of
+     * "has been booked:". The original parser regex was anchored on the
+     * latter, so tour_name + option_title silently came back null and the
+     * email landed in needs_review until manual ops backfill.
+     */
+    public function test_parses_urgent_last_minute_booking_variant(): void
+    {
+        $body = <<<'BODY'
+Hi Supply Partner, great news!
+You've received a last-minute booking:
+
+Samarkand: 2-Day Desert Yurt Camp & Camel Ride Tour
+
+Samarkand to Bukhara: 2-Day Group Yurt & Camel
+
+Reference numbergyg48yvrxwbh
+
+DateApril 28, 2026 8:30 AM
+
+Number of participants1 x Adult (Age 6 - 99)
+
+Main customerWANG TING customer-eo44ny4uby3r5nou@reply.getyourguide.com
+Phone: +886987293901
+Language: Traditional Chinese
+
+Price$ 220.00open booking
+BODY;
+
+        $result = $this->parser->parseNewBooking(
+            $body,
+            'Urgent: New booking received - S374926 - GYG48YVRXWBH'
+        );
+
+        $this->assertEquals('GYG48YVRXWBH', $result['gyg_booking_reference']);
+        $this->assertEquals('Samarkand: 2-Day Desert Yurt Camp & Camel Ride Tour', $result['tour_name']);
+        $this->assertEquals('Samarkand to Bukhara: 2-Day Group Yurt & Camel', $result['option_title']);
+        $this->assertEquals('WANG TING', $result['guest_name']);
+        $this->assertEquals('+886987293901', $result['guest_phone']);
+        $this->assertEquals('2026-04-28', $result['travel_date']);
+        $this->assertEquals('08:30:00', $result['travel_time']);
+        $this->assertEquals(1, $result['pax']);
+        $this->assertEquals(220.00, $result['price']);
+        $this->assertEquals('Traditional Chinese', $result['language']);
+        $this->assertEquals('group', $result['tour_type']);
+        $this->assertEquals('explicit', $result['tour_type_source']);
+    }
+
+    public function test_language_capture_preserves_multi_word_locales(): void
+    {
+        // Regression: previous regex Language:\s*(\w+) silently truncated
+        // multi-word locales — "Traditional Chinese" → "Traditional",
+        // "Brazilian Portuguese" → "Brazilian". Matters for guide assignment.
+        foreach (['Traditional Chinese', 'Simplified Chinese', 'Brazilian Portuguese', 'English'] as $lang) {
+            $body = str_replace('Language: Danish', "Language: {$lang}", $this->sampleBookingBody());
+            $result = $this->parser->parseNewBooking($body, 'Booking - S374926 - GYGXXX');
+            $this->assertEquals($lang, $result['language'], "Failed for: {$lang}");
+        }
+    }
+
     public function test_uses_canonical_field_names(): void
     {
         $result = $this->parser->parseNewBooking($this->sampleBookingBody(), 'Booking - S374926 - GYGXXX');

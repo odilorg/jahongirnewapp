@@ -57,8 +57,12 @@ class GygEmailParser
         }
 
         // --- Tour name + Option title ---
-        // GYG booking emails have this structure in the body:
-        //   "Your offer has been booked:" or "great news!"
+        // GYG booking emails come in (at least) two header variants:
+        //   1. Standard:   "Your offer has been booked:"
+        //   2. Last-minute: "You've received a last-minute booking:"
+        //                   (subject prefixed with "Urgent: New booking received")
+        // Both share the same downstream layout:
+        //   <header-line>
         //   <blank line>
         //   <Tour Product Title>
         //   <blank line>
@@ -66,13 +70,17 @@ class GygEmailParser
         //   <blank line>
         //   "Reference number..." or "Booking reference..."
         //
-        // We extract both lines and then validate the second line is truly
-        // an option title, not a metadata label that ran together.
-        // Use [^\r\n]+ (single-line capture) and explicit \r?\n\r?\n (blank line) to handle
-        // both CRLF (real GYG emails) and LF (test fixtures). Avoids the (.+?) + s-flag
-        // backtracking bug where "Your offer has been booked:" was swallowed as tour_name
-        // instead of the actual tour title when the email had two header lines before it.
-        if (preg_match('/has been booked[:\s]*\r?\n\r?\n([^\r\n]+)\r?\n\r?\n([^\r\n]+)\r?\n\r?\n(?:Reference|Booking reference)/i', $body, $m)) {
+        // The trigger regex captures *intent* (booked / received a booking),
+        // not exact wording — see incident 2026-04-27 (GYG48YVRXWBH) where the
+        // "received a last-minute booking:" wording was unmatched and the
+        // parser silently emitted needs_review.
+        //
+        // [^\r\n]+ keeps each line in a single capture; explicit \r?\n\r?\n
+        // (blank line) handles CRLF (real GYG emails) and LF (test fixtures).
+        // Avoids the (.+?) + s-flag backtracking bug where the header line
+        // was swallowed as tour_name when the email had two header lines.
+        $triggerRegex = '(?:has been booked|received a [^:\r\n]*?booking)[:\s]*';
+        if (preg_match('/' . $triggerRegex . '\r?\n\r?\n([^\r\n]+)\r?\n\r?\n([^\r\n]+)\r?\n\r?\n(?:Reference|Booking reference)/i', $body, $m)) {
             $line1 = $this->cleanLine($m[1]);
             $line2 = $this->cleanLine($m[2]);
 
@@ -84,7 +92,7 @@ class GygEmailParser
             } else {
                 $errors[] = "option_title candidate rejected (looks like metadata): " . mb_substr($line2, 0, 60);
             }
-        } elseif (preg_match('/has been booked[:\s]*\r?\n\r?\n([^\r\n]+)\r?\n\r?\n(?:Reference|Booking reference)/i', $body, $m)) {
+        } elseif (preg_match('/' . $triggerRegex . '\r?\n\r?\n([^\r\n]+)\r?\n\r?\n(?:Reference|Booking reference)/i', $body, $m)) {
             // Only tour_name found, no option_title line
             $result['tour_name'] = $this->cleanLine($m[1]);
             $errors[] = "option_title not found in expected position";
@@ -129,7 +137,11 @@ class GygEmailParser
         }
 
         // --- Language ---
-        if (preg_match('/Language:\s*(\w+)/i', $body, $m)) {
+        // Capture the rest of the line so multi-word languages are preserved
+        // ("Traditional Chinese", "Simplified Chinese", "Brazilian Portuguese").
+        // The previous \w+ pattern silently truncated to the first word, which
+        // matters for guide assignment (incident 2026-04-27).
+        if (preg_match('/Language:\s*([^\r\n]+)/i', $body, $m)) {
             $result['language'] = trim($m[1]);
         }
 
