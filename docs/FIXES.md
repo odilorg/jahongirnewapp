@@ -14,6 +14,92 @@ Newest entries at top.
 
 ---
 
+## 2026-04-27 — GYG `Urgent: New booking received` emails silently dropped
+
+**Symptom.** Booking `GYG48YVRXWBH` (Wang Ting, last-minute 2026-04-28
+yurt-camp tour, $220 USD) sat in `gyg_inbound_emails` for ~5 hours
+without reaching the CRM. No alert fired. Discovered only when the
+operator searched manually.
+
+**Root causes (three, stacked).**
+
+1. **Classifier gap.** `GygEmailClassifier::classify()` required subject
+   to start with `^Booking - S\d+ - GYG…`. GYG's last-minute variant
+   uses `Urgent: New booking received - S… - GYG…`. The regex didn't
+   match, classification fell through to `unknown`.
+2. **Silent skip.** `GygProcessEmails::processOne()` set
+   `processing_status='skipped'` for `unknown` emails with **no
+   `Log::warning`, no Telegram, no exception report**. A real booking
+   was lost into the void with zero observability.
+3. **Parser body trigger.** Even after the classifier was fixed, the
+   parser regex was anchored on `has been booked:`. The Urgent variant's
+   body uses `received a last-minute booking:`, so `tour_name` and
+   `option_title` came back null and the email landed in `needs_review`.
+   Operationally, the booking would still have been lost without manual
+   backfill.
+4. **Language truncation.** `Language:\s*(\w+)` captured only the first
+   word — `Traditional Chinese` → `Traditional`. Affects guide
+   assignment downstream.
+
+**Mitigation (operational, before code fix).**
+
+```sql
+-- Reset the row so the new classifier could re-process it.
+UPDATE gyg_inbound_emails
+   SET processing_status='fetched', email_type=NULL, classified_at=NULL,
+       parse_error=NULL, apply_error=NULL
+ WHERE id=164;
+
+-- Manually populated the two parser-missed fields then ran apply.
+UPDATE gyg_inbound_emails
+   SET tour_name='Samarkand: 2-Day Desert Yurt Camp & Camel Ride Tour',
+       option_title='Samarkand to Bukhara: 2-Day Group Yurt & Camel',
+       tour_type='group', tour_type_source='explicit',
+       language='Traditional Chinese',
+       processing_status='parsed', parse_error=NULL, parsed_at=NOW()
+ WHERE id=164;
+```
+
+Then `php artisan gyg:apply-bookings --limit=5` → created
+`booking_inquiries.id=70` (`INQ-2026-000065`).
+
+**Backup.** `/var/backups/databases/daily/jahongir-gyg-replay-20260427-112545.sql.gz`
+(verified before any UPDATE).
+
+**Code fixes (two commits, two tags).**
+
+`release-2026-04-27-gyg-classifier-fix` (commit `ae2b9d5`):
+- Classifier now matches `^Urgent:\s*New booking received\s*-\s*S\d+\s*-\s*GYG…`.
+- `GygProcessEmails` logs a `Log::warning` whenever classifier returns
+  `unknown` — kills the silent-skip class of bug.
+- Two regression tests added.
+
+`release-2026-04-27-gyg-parser-fix` (commit `00e960c`):
+- Parser trigger broadened from literal `has been booked:` to
+  `/(has been booked|received a [^:]*?booking)[:\s]*/i`. Captures intent
+  rather than exact wording.
+- `Language:\s*(\w+)` → `Language:\s*([^\r\n]+)` + trim. Preserves
+  multi-word locales.
+- Soft-warning `Log::warning` on the `parsed` branch when language is
+  empty or `tour_type` was defaulted. Surfaces silent degradation in
+  log alerts before ops notices.
+- Three regression tests added.
+
+**Test coverage.** 25 GYG unit tests now pass (11 classifier, 14 parser).
+
+**Architectural takeaway.** Classifier and parser drift independently —
+when the classifier is widened to accept a new email format, the parser
+is the next failure point. Long-term: a shared fixture-driven test that
+asserts classifier acceptance ⇒ parser completeness for the same
+fixture would have caught both bugs in one commit. Worth a follow-up
+ticket.
+
+**Lost time.** ~5 hours (booking arrived ~08:25 local, recovered
+~14:32). No customer impact (booking date is 2026-04-28, plenty of
+lead time), but the lack of observability is the bigger lesson.
+
+---
+
 ## 2026-04-26 — Repeated payment reminders (hourly WhatsApp spam)
 
 **Symptom.** Guest on inquiry `INQ-2026-000059` (Ruyi Ma Meiklejohn)
