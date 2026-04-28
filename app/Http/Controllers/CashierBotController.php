@@ -42,6 +42,7 @@ class CashierBotController extends Controller
     protected TelegramTransportInterface $transport;
     protected Beds24BookingService $beds24;
     protected \App\Services\Cashier\BalanceCalculator $balance;
+    protected \App\Services\CashierBot\CashierBotCallbackRouter $callbackRouter;
 
     // Property ID for Beds24 — must match HousekeepingBotController
     protected const PROPERTY_ID = 41097;
@@ -57,6 +58,7 @@ class CashierBotController extends Controller
         TelegramTransportInterface $transport,
         Beds24BookingService $beds24,
         \App\Services\Cashier\BalanceCalculator $balance,
+        \App\Services\CashierBot\CashierBotCallbackRouter $callbackRouter,
     ) {
         $this->ownerAlert = $ownerAlert;
         $this->botPaymentService = $botPaymentService;
@@ -68,6 +70,7 @@ class CashierBotController extends Controller
         $this->transport = $transport;
         $this->beds24 = $beds24;
         $this->balance = $balance;
+        $this->callbackRouter = $callbackRouter;
     }
 
     public function handleWebhook(Request $request)
@@ -195,6 +198,16 @@ class CashierBotController extends Controller
     ];
 
     protected function handleCallback(array $cb)
+    {
+        return $this->callbackRouter->dispatch($cb, $this);
+    }
+
+    /**
+     * @internal Pass-through entry called by CashierBotCallbackRouter during
+     *           the A2 incremental extraction. Body will move into the router
+     *           in commit A2/3, after which this method disappears.
+     */
+    public function handleCallbackInternal(array $cb)
     {
         $chatId = $cb['message']['chat']['id'] ?? null;
         $data = $cb['data'] ?? '';
