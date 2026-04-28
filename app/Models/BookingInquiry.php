@@ -196,6 +196,11 @@ class BookingInquiry extends Model
         'receipt_sent_at',
         'ip_address',
         'user_agent',
+        // Phase 1 — yurt camp departure linkage. See PHASE_1_DEPARTURE_CORE_SPEC.md §1.3.
+        'departure_id',
+        'seats_held',
+        'seat_hold_expires_at',
+        'payment_due_at',
     ];
 
     protected $casts = [
@@ -227,7 +232,39 @@ class BookingInquiry extends Model
         'guide_cost'                => 'decimal:2',
         'guide_cost_override'       => 'boolean',
         'other_costs'               => 'decimal:2',
+        // Phase 1 — yurt camp departure linkage.
+        'seat_hold_expires_at'      => 'datetime',
+        'payment_due_at'            => 'datetime',
     ];
+
+    /**
+     * Yurt-camp departure this inquiry is booked against. NULL for legacy
+     * date-flexible inquiries and OTA bookings without a departure_id.
+     */
+    public function departure(): BelongsTo
+    {
+        return $this->belongsTo(Departure::class);
+    }
+
+    /**
+     * True iff this inquiry is bound to a scheduled departure (yurt-camp
+     * niche site flow) vs. a date-flexible inquiry.
+     */
+    public function isDepartureBooking(): bool
+    {
+        return $this->departure_id !== null;
+    }
+
+    /**
+     * True while seat hold is still valid (per Q4 hold-cap rule, hold may be
+     * shorter than 24h when reservation arrives near cutoff_at).
+     */
+    public function hasActiveSeatHold(): bool
+    {
+        return $this->seat_hold_expires_at !== null
+            && $this->seat_hold_expires_at->isFuture()
+            && $this->status === self::STATUS_AWAITING_PAYMENT;
+    }
 
     public function driver(): BelongsTo
     {
