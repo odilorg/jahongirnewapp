@@ -154,6 +154,7 @@ public function handle(): int
 | Controller method > 25 LOC | P1 — fat controller | Delegate to Action |
 | `@php …10+ lines… @endphp` in Blade | P2 — view logic | Move to builder service |
 | Blade > 400 LOC | P2 — needs splitting | Break into partials |
+| `$model->update(['xxx_sent_at' => …])` (or `_dispatched_at`/`_paid_at`/`_applied_at`/`_notified_at`) | P1 — silent-drop risk | `$model->forceFill([...])->save()` |
 
 ---
 

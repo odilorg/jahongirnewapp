@@ -155,6 +155,32 @@ Filament Actions must call Actions (classes), never embed logic inside `->action
 
 ---
 
+## Operational timestamps — no mass-assign
+
+**Rule:** any `*_sent_at`, `*_dispatched_at`, `*_paid_at`, `*_applied_at`,
+`*_notified_at` write must use `forceFill([...])->save()` — never
+`$model->update([...])` — unless the column is explicitly in `$fillable`.
+
+**Why:** Eloquent silently drops mass-assigned attributes that aren't in
+`$fillable`. Cron jobs that filter by `whereNull('xxx_sent_at')` then write
+back via `update()` get stuck in an infinite retry loop and re-send guest
+messages on every run.
+
+**Production incidents this rule prevents:**
+- 2026-04-26 hourly WhatsApp spam (status timestamps silently dropped)
+- 2026-04-28 Alberto duplicate review WA (review_request_sent_at)
+- INQ-2026-000015 hotel-request email sent 5 times (hotel_request_sent_at)
+
+**Correct pattern:**
+```php
+$inquiry->forceFill(['review_request_sent_at' => now()])->save();
+```
+
+**Detection:** `scripts/arch-lint.sh` flags this as `P1
+operational-timestamp-update`. Pre-push warns on it.
+
+---
+
 ## Decision reference: where does this code go?
 
 | If you're writing… | It belongs in… |

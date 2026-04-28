@@ -194,6 +194,27 @@ for f in "${BLADE_FILES[@]}"; do
     fi
 done
 
+# --- P1: $model->update([...]) writing operational timestamps ----------------
+# Operational timestamps (*_sent_at / *_dispatched_at / *_paid_at /
+# *_applied_at / *_notified_at) must NEVER be written through model-instance
+# update() unless the column is in $fillable. The mass-assignment safety net
+# silently drops the write, leaving cron retries to re-fire forever.
+# See docs/architecture/PRINCIPLES.md (Operational Timestamps).
+# Real-world incidents this prevents:
+#   - 2026-04-26 hourly WhatsApp spam (status timestamps dropped)
+#   - 2026-04-28 Alberto duplicate review WA + INQ-2026-000015 5x hotel email
+for f in "${PHP_FILES[@]}"; do
+    [ -f "$f" ] || continue
+    case "$f" in
+        */Models/*) continue ;;  # model definitions are not callers
+    esac
+    while IFS=: read -r line content; do
+        report "P1" "operational-timestamp-update" \
+            "Operational timestamp via update() — use forceFill()->save() (no-mass-assign rule)" \
+            "$f" "$line" "${content#[[:space:]]*}"
+    done < <(grep -nE '\$\w+->update\(\[[^)]*(_sent_at|_dispatched_at|_paid_at|_applied_at|_notified_at)' "$f" 2>/dev/null | head -3 || true)
+done
+
 # --- summary -------------------------------------------------------------------
 if [ "$REGEN_BASELINE" -eq 1 ]; then
     # Print sorted, deduped signatures — user pipes to baseline file
