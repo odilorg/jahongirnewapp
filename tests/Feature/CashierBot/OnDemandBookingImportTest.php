@@ -419,12 +419,12 @@ class TestableImportController extends CashierBotController
     /** When true, importBookingFromLiveData() returns null to simulate failure. */
     public bool $forceImportFailure = false;
 
-    protected function send(int $chatId, string $text, mixed $kb = null, string $type = 'reply'): void
+    public function send(int $chatId, string $text, mixed $kb = null, string $type = 'reply'): void
     {
         $this->sentMessages[] = $text;
     }
 
-    protected function showMainMenu(int $chatId, $session): mixed
+    public function showMainMenu(int $chatId, $session): mixed
     {
         return null;
     }

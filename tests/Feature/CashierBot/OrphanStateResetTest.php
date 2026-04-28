@@ -86,12 +86,12 @@ class TestableOrphanResetController extends CashierBotController
 {
     public array $sentMessages = [];
 
-    protected function send(int $chatId, string $text, mixed $kb = null, string $type = 'reply'): void
+    public function send(int $chatId, string $text, mixed $kb = null, string $type = 'reply'): void
     {
         $this->sentMessages[] = $text;
     }
 
-    protected function showMainMenu(int $chatId, $session): mixed
+    public function showMainMenu(int $chatId, $session): mixed
     {
         return null;
     }
