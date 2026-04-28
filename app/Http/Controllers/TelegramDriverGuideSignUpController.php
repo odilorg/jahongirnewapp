@@ -37,18 +37,25 @@ class TelegramDriverGuideSignUpController extends Controller
     {
         // Webhook secret validation is now handled by verify.telegram.webhook middleware
 
-        $data = $request->all();
+        $data     = $request->all();
         $updateId = $data['update_id'] ?? null;
 
-        $webhook = \App\Models\IncomingWebhook::create([
-            'source'      => 'telegram:driver',
-            'event_id'    => $updateId ? "driver:{$updateId}" : null,
-            'payload'     => $data,
-            'status'      => \App\Models\IncomingWebhook::STATUS_PENDING,
-            'received_at' => now(),
-        ]);
+        // firstOrCreate makes this idempotent — Telegram retries after a prior 500
+        // would otherwise throw UniqueConstraintViolationException on event_id.
+        $webhook = \App\Models\IncomingWebhook::firstOrCreate(
+            ['event_id' => $updateId ? "driver:{$updateId}" : null],
+            [
+                'source'      => 'telegram:driver',
+                'payload'     => $data,
+                'status'      => \App\Models\IncomingWebhook::STATUS_PENDING,
+                'received_at' => now(),
+            ]
+        );
 
-        \App\Jobs\ProcessTelegramUpdateJob::dispatch('driver', $webhook->id);
+        // Only dispatch for newly created rows; duplicate retries get a 200 with no re-work.
+        if ($webhook->wasRecentlyCreated) {
+            \App\Jobs\ProcessTelegramUpdateJob::dispatch('driver', $webhook->id);
+        }
 
         return response()->json(['ok' => true]);
     }
