@@ -348,8 +348,29 @@ class CashierBotController extends Controller
             'shift_count_uzs' => $this->hCount($s, $chatId, $text, 'UZS'),
             'shift_count_usd' => $this->hCount($s, $chatId, $text, 'USD'),
             'shift_count_eur' => $this->hCount($s, $chatId, $text, 'EUR'),
-            default => $this->showMainMenu($chatId, $s),
+            default => $this->resetSessionToMainMenu($s, $chatId),
         };
+    }
+
+    /**
+     * Defensive fallback for sessions that arrive in an unrecognized state
+     * (e.g. survived a deploy that removed a state, or any future drift).
+     * Clears stale `data`, returns the user to the main menu, and logs the
+     * event so ops can spot drift if the rate becomes non-trivial.
+     */
+    protected function resetSessionToMainMenu(TelegramPosSession $s, int $chatId)
+    {
+        Log::info('CashierBot: orphan session state reset', [
+            'chat_id'   => $chatId,
+            'user_id'   => $s->user_id,
+            'old_state' => $s->state,
+            'data_keys' => array_keys($s->data ?? []),
+        ]);
+
+        $s->update(['state' => 'main_menu', 'data' => null]);
+        $this->send($chatId, 'Сессия устарела, начните заново.');
+
+        return $this->showMainMenu($chatId, $s);
     }
 
     // ── SHIFT ───────────────────────────────────────────────────
