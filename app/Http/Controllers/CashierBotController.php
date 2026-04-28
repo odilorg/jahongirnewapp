@@ -22,7 +22,6 @@ use App\Services\BotPaymentService;
 use App\Services\CashierExchangeService;
 use App\Services\CashierExpenseService;
 use App\Services\CashierShiftService;
-use App\Services\ExchangeRateService;
 use App\Services\Fx\OverridePolicyEvaluator as FxOverridePolicyEvaluator;
 use App\Services\Beds24BookingService;
 use App\Services\OwnerAlertService;
@@ -39,7 +38,6 @@ class CashierBotController extends Controller
     protected CashierShiftService $shiftService;
     protected CashierExpenseService $expenseService;
     protected CashierExchangeService $exchangeService;
-    protected ExchangeRateService $fxRateService;
     protected BotResolverInterface $botResolver;
     protected TelegramTransportInterface $transport;
     protected Beds24BookingService $beds24;
@@ -55,7 +53,6 @@ class CashierBotController extends Controller
         CashierShiftService $shiftService,
         CashierExpenseService $expenseService,
         CashierExchangeService $exchangeService,
-        ExchangeRateService $fxRateService,
         BotResolverInterface $botResolver,
         TelegramTransportInterface $transport,
         Beds24BookingService $beds24,
@@ -67,7 +64,6 @@ class CashierBotController extends Controller
         $this->shiftService = $shiftService;
         $this->expenseService = $expenseService;
         $this->exchangeService = $exchangeService;
-        $this->fxRateService = $fxRateService;
         $this->botResolver = $botResolver;
         $this->transport = $transport;
         $this->beds24 = $beds24;
@@ -244,7 +240,6 @@ class CashierBotController extends Controller
             str_starts_with($data, 'guest_') => $this->selectGuest($s, $chatId, $data),
             str_starts_with($data, 'cur_') => $this->selectCur($s, $chatId, $data),
             $data === 'fx_confirm_amount' => $this->fxConfirmAmount($s, $chatId),
-            $data === 'rate_use_reference' => $this->acceptReferenceRate($s, $chatId),
             str_starts_with($data, 'excur_') => $this->selectExCur($s, $chatId, $data),
             str_starts_with($data, 'exout_') => $this->selectExOutCur($s, $chatId, $data),
             str_starts_with($data, 'method_') => $this->selectMethod($s, $chatId, $data),
@@ -336,8 +331,6 @@ class CashierBotController extends Controller
     {
         return match($s->state) {
             'payment_room' => $this->hPayRoom($s, $chatId, $text),
-            'payment_amount' => $this->hPayAmt($s, $chatId, $text),
-            'payment_exchange_rate' => $this->hPayRate($s, $chatId, $text),
             'payment_fx_amount' => $this->hPayFxAmount($s, $chatId, $text),
             'payment_fx_override_reason' => $this->hPayFxOverrideReason($s, $chatId, $text),
             'expense_amount' => $this->hExpAmt($s, $chatId, $text),
@@ -348,8 +341,29 @@ class CashierBotController extends Controller
             'shift_count_uzs' => $this->hCount($s, $chatId, $text, 'UZS'),
             'shift_count_usd' => $this->hCount($s, $chatId, $text, 'USD'),
             'shift_count_eur' => $this->hCount($s, $chatId, $text, 'EUR'),
-            default => $this->showMainMenu($chatId, $s),
+            default => $this->resetSessionToMainMenu($s, $chatId),
         };
+    }
+
+    /**
+     * Defensive fallback for sessions that arrive in an unrecognized state
+     * (e.g. survived a deploy that removed a state, or any future drift).
+     * Clears stale `data`, returns the user to the main menu, and logs the
+     * event so ops can spot drift if the rate becomes non-trivial.
+     */
+    protected function resetSessionToMainMenu(TelegramPosSession $s, int $chatId)
+    {
+        Log::info('CashierBot: orphan session state reset', [
+            'chat_id'   => $chatId,
+            'user_id'   => $s->user_id,
+            'old_state' => $s->state,
+            'data_keys' => array_keys($s->data ?? []),
+        ]);
+
+        $s->update(['state' => 'main_menu', 'data' => null]);
+        $this->send($chatId, 'Сессия устарела, начните заново.');
+
+        return $this->showMainMenu($chatId, $s);
     }
 
     // ── SHIFT ───────────────────────────────────────────────────
@@ -565,21 +579,6 @@ class CashierBotController extends Controller
         return response('OK');
     }
 
-    protected function hPayAmt($s, int $chatId, string $text)
-    {
-        $amt = floatval(str_replace([' ', ','], ['', '.'], $text));
-        if ($amt <= 0) { $this->send($chatId, "Неверная сумма."); return response('OK'); }
-        $d = $s->data ?? [];
-        $d['amount'] = $amt;
-        $s->update(['state' => 'payment_currency', 'data' => $d]);
-        $this->send($chatId, "Сумма: " . number_format($amt, 0) . "\nВалюта:", ['inline_keyboard' => [[
-            ['text' => 'UZS', 'callback_data' => 'cur_UZS'],
-            ['text' => 'USD', 'callback_data' => 'cur_USD'],
-            ['text' => 'EUR', 'callback_data' => 'cur_EUR'],
-        ]]], 'inline');
-        return response('OK');
-    }
-
     protected function selectCur($s, int $chatId, string $data)
     {
         $d = $s->data ?? [];
@@ -617,72 +616,6 @@ class CashierBotController extends Controller
         // from real cashier traffic because selectGuest() blocks before we get here.
         $this->send($chatId, "❌ Курсы ФX недоступны. Обратитесь к менеджеру.");
         return response('OK');
-    }
-
-    /**
-     * Fetch reference rate and ask cashier to confirm or enter their applied rate.
-     */
-    protected function askExchangeRate($s, int $chatId, array $d)
-    {
-        $refData = $this->fxRateService->getUsdToUzs();
-
-        if ($refData) {
-            $d['reference_rate']   = $refData['rate'];
-            $d['reference_source'] = $refData['source'];
-            $d['reference_date']   = $refData['effective_date'];
-            $sourceLabel           = $this->fxRateService->sourceLabel($refData['source']);
-            $suggested             = number_format($refData['rate'], 2);
-            $expectedUzs           = number_format($d['booking_amount'] * $refData['rate'], 0);
-
-            $msg = "💱 Курс обмена USD→UZS\n\n"
-                 . "Брон.: {$d['booking_amount']} {$d['booking_currency']}\n"
-                 . "Курс ЦБ ({$sourceLabel}, {$refData['effective_date']}): {$suggested}\n"
-                 . "Расч. сумма: ~{$expectedUzs} UZS\n\n"
-                 . "Введите курс обмена или нажмите ✅ чтобы принять курс ЦБ:";
-
-            $s->update(['state' => 'payment_exchange_rate', 'data' => $d]);
-            $this->send($chatId, $msg, ['inline_keyboard' => [[
-                ['text' => "✅ Принять курс ЦБ ({$suggested})", 'callback_data' => 'rate_use_reference'],
-            ]]], 'inline');
-        } else {
-            // All sources failed — manual entry only
-            $d['reference_rate']   = null;
-            $d['reference_source'] = 'manual_only';
-            $d['reference_date']   = null;
-
-            $s->update(['state' => 'payment_exchange_rate', 'data' => $d]);
-            $this->send($chatId, "⚠️ Не удалось получить курс ЦБ автоматически.\n\nВведите курс обмена USD→UZS вручную:");
-        }
-        return response('OK');
-    }
-
-    /**
-     * Cashier typed a custom exchange rate.
-     */
-    protected function hPayRate($s, int $chatId, string $text)
-    {
-        $rate = (float) str_replace([' ', ','], ['', '.'], $text);
-        if ($rate <= 0) {
-            $this->send($chatId, "Неверный курс. Введите число, например: 12800");
-            return response('OK');
-        }
-        $d = $s->data ?? [];
-        $d['applied_rate'] = $rate;
-        return $this->proceedToPaymentMethod($s, $chatId, $d);
-    }
-
-    /**
-     * Cashier accepted the reference (CBU) rate as their applied rate.
-     */
-    protected function acceptReferenceRate($s, int $chatId)
-    {
-        $d = $s->data ?? [];
-        $d['applied_rate'] = $d['reference_rate'] ?? null;
-        if (!$d['applied_rate']) {
-            $this->send($chatId, "Курс недоступен. Введите вручную:");
-            return response('OK');
-        }
-        return $this->proceedToPaymentMethod($s, $chatId, $d);
     }
 
     protected function proceedToPaymentMethod($s, int $chatId, array $d)
@@ -829,21 +762,6 @@ class CashierBotController extends Controller
                 if (! empty($d['override_reason'])) {
                     $t .= "\nПричина: {$d['override_reason']}";
                 }
-            }
-
-        // Legacy path: show applied exchange rate comparison
-        } elseif (!empty($d['applied_rate']) && !empty($d['booking_amount']) && !empty($d['booking_currency'])) {
-            $expectedAtApplied  = $d['booking_amount'] * $d['applied_rate'];
-            $collectionVariance = round((float)$d['amount'] - $expectedAtApplied, 0);
-            $t .= "\n\n💱 Курс (применён): " . number_format($d['applied_rate'], 2);
-            if (!empty($d['reference_rate']) && $d['reference_source'] !== 'manual_only') {
-                $sourceLabel = $this->fxRateService->sourceLabel($d['reference_source']);
-                $fxVariance  = round((float)$d['amount'] - ($d['booking_amount'] * $d['reference_rate']), 0);
-                $t .= "\nКурс ЦБ ({$sourceLabel}): " . number_format($d['reference_rate'], 2);
-                $t .= "\nРазница vs ЦБ: " . ($fxVariance >= 0 ? '+' : '') . number_format($fxVariance, 0) . " UZS";
-            }
-            if ($collectionVariance != 0) {
-                $t .= "\nРасхождение: " . ($collectionVariance >= 0 ? '+' : '') . number_format($collectionVariance, 0) . " UZS";
             }
         }
 
