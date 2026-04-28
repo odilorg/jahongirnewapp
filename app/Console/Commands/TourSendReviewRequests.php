@@ -128,7 +128,10 @@ class TourSendReviewRequests extends Command
             }
 
             if ($sentThis && ! $dryRun) {
-                $inquiry->update(['review_request_sent_at' => now()]);
+                // forceFill+save: system-state stamp must bypass $fillable.
+                // update() silently dropped this for two weeks because the
+                // column wasn't in $fillable, causing duplicate WA sends.
+                $inquiry->forceFill(['review_request_sent_at' => now()])->save();
                 $sent++;
                 $this->info('     ✅ Sent');
             } elseif (! $sentThis && ! $dryRun) {

@@ -1,4 +1,4 @@
-# arch-lint baseline — regenerated 2026-04-27T20:59:36+05:00
+# arch-lint baseline — regenerated 2026-04-28T22:23:44+05:00
 # Format: file:line:rule-key (rule-key stable across runs)
 app/Console/Commands/SendDailyRecap.php:52:http-outside-adapter
 app/Console/Commands/TourSendReminders.php:397:http-outside-adapter
@@ -27,9 +27,9 @@ app/Http/Controllers/HousekeepingBotController.php:1756:http-outside-adapter
 app/Http/Controllers/OctoCallbackController.php:15:fat-controller
 app/Http/Controllers/OpsBotController.php:30:fat-controller
 app/Http/Controllers/OwnerBotController.php:60:fat-controller
-app/Http/Controllers/TelegramDriverGuideSignUpController.php:56:fat-controller
-app/Http/Controllers/TelegramDriverGuideSignUpController.php:603:fat-controller
-app/Http/Controllers/TelegramDriverGuideSignUpController.php:861:fat-controller
+app/Http/Controllers/TelegramDriverGuideSignUpController.php:610:fat-controller
+app/Http/Controllers/TelegramDriverGuideSignUpController.php:63:fat-controller
+app/Http/Controllers/TelegramDriverGuideSignUpController.php:868:fat-controller
 app/Http/Controllers/TelegramWebhookController.php:12:fat-controller
 app/Http/Controllers/WebhookController.php:12:fat-controller
 app/Http/Controllers/WebsiteBookingController.php:25:fat-controller

@@ -158,6 +158,8 @@ class BookingInquiry extends Model
         'payment_link',
         'payment_link_sent_at',
         'payment_reminder_sent_at',
+        'review_request_sent_at',
+        'hotel_request_sent_at',
         'paid_at',
         'octo_transaction_id',
         'booking_id',

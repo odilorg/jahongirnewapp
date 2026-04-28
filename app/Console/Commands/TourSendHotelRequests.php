@@ -76,7 +76,10 @@ class TourSendHotelRequests extends Command
                 @unlink($tmpFile);
 
                 if ($code === 0) {
-                    $inquiry->update(['hotel_request_sent_at' => now()]);
+                    // forceFill+save bypasses $fillable; same bug pattern as
+                    // TourSendReviewRequests caused INQ-2026-000015 to receive
+                    // the hotel email 5 times across Apr 22-28 (silent drop).
+                    $inquiry->forceFill(['hotel_request_sent_at' => now()])->save();
 
                     Log::info('TourSendHotelRequests: email sent', [
                         'inquiry_id' => $inquiry->id,
