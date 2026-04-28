@@ -831,6 +831,23 @@ Any feature branch that adds, alters, or queries database schema MUST validate o
 | Grant "works" but ALTER fails | Grant is global `USAGE` only, not on the test DB | Re-run GRANT with explicit `jahongirnewapp_test.*` scope |
 | `Class "Database\Factories\XYZFactory" not found` during test run | Upstream model declares `HasFactory` but factory file was never shipped (shared-domain test debt) | Create the missing factory under `database/factories/`. Treat as platform infrastructure patch (separate commit, e.g. `chore(testing): add XYZFactory`), then re-run targeted test suite from a clean state. Do NOT bypass `HasFactory` by hand-rolling fixtures in the test class — it hides the same gap for the next feature. |
 
+### 12.7.1 Proactive shared-domain factory audit
+
+This pattern recurred 3× during Phase 1 Foundation Verification (Rounds 1–3, plus Commit 2.0). It is endemic to the codebase. Before any major feature test phase begins, run:
+
+```bash
+for model in $(grep -lE "use HasFactory" app/Models/*.php); do
+  modelname=$(basename "$model" .php)
+  if [ ! -f "database/factories/${modelname}Factory.php" ]; then
+    echo "MISSING: ${modelname}Factory"
+  fi
+done
+```
+
+If your feature touches any model in the MISSING list, create that factory FIRST as a separate `chore(testing)` commit. Discovering it mid-test-run is wasted cycles.
+
+As of 2026-04-28: the audit reveals 30+ HasFactory models without factories (including BookingFactory, AccommodationFactory, CarFactory, TourPriceTierFactory, etc.). They are not blocking Phase 1 work — but the next feature touching any of them will trigger the same mid-run discovery unless audited up front.
+
 ### 12.8 Sign-off after provisioning
 
 Before marking test infrastructure operational, verify:
