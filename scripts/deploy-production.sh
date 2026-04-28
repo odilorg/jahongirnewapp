@@ -105,20 +105,24 @@ composer install --no-dev --prefer-dist --optimize-autoloader --no-interaction \
 log "    Dependencies installed (full output in $LOG_FILE)"
 
 # ── Step 5: Laravel optimize ──────────────────────────────────
-log "==> Running Laravel cache/optimize"
-php artisan optimize:clear
-php artisan config:cache
-php artisan route:cache
-php artisan view:cache
+# CLAUDE.md rule: artisan cache commands MUST run as www-data so the cache
+# files end up writable by php-fpm (which runs as www-data). Running as root
+# creates root-owned cache files → next runtime cache write fails with 500.
+# (Incident 2026-04-28: /admin/login 500 due to root-owned cache subdirs.)
+log "==> Running Laravel cache/optimize (as $APP_USER)"
+sudo -u "$APP_USER" php artisan optimize:clear
+sudo -u "$APP_USER" php artisan config:cache
+sudo -u "$APP_USER" php artisan route:cache
+sudo -u "$APP_USER" php artisan view:cache
 
 # ── Step 6: Pre-migration sanity check ────────────────────────
 log "==> Sanity check: artisan boots"
-php artisan about >/dev/null
+sudo -u "$APP_USER" php artisan about >/dev/null
 log "    Artisan OK"
 
 # ── Step 7: Migrations ────────────────────────────────────────
 log "==> Running migrations (if any)"
-php artisan migrate --force --no-interaction >> "$LOG_FILE" 2>&1
+sudo -u "$APP_USER" php artisan migrate --force --no-interaction >> "$LOG_FILE" 2>&1
 log "    Migrations done (full output in $LOG_FILE)"
 
 # ── Step 8: Restart services ─────────────────────────────────
@@ -146,7 +150,7 @@ if command -v pm2 &>/dev/null; then
 fi
 
 # Laravel queue workers
-php artisan queue:restart 2>/dev/null || true
+sudo -u "$APP_USER" php artisan queue:restart 2>/dev/null || true
 log "    Queue workers signaled to restart"
 
 # ── Step 9: Health checks ────────────────────────────────────
@@ -157,7 +161,7 @@ CHECKS_PASSED=0
 CHECKS_TOTAL=5
 
 # Check 1: DB connection
-if php artisan tinker --execute="DB::select('select 1');" >/dev/null 2>&1; then
+if sudo -u "$APP_USER" php artisan tinker --execute="DB::select('select 1');" >/dev/null 2>&1; then
     log "    ✅ DB connection OK"
     CHECKS_PASSED=$((CHECKS_PASSED + 1))
 else
