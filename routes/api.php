@@ -70,7 +70,10 @@ Route::post('/telegram/bot/set-webhook', [\App\Http\Controllers\TelegramWebhookC
 Route::get('/telegram/bot/webhook-info', [\App\Http\Controllers\TelegramWebhookController::class, 'getWebhookInfo'])->middleware('auth:sanctum');
 
 // Ops Bot — operator manual booking entry (@JahongirOpsBot)
+// Auth is at controller level (telegram_user_id allowlist, default deny).
+// Throttle added 2026-04-28 as defense-in-depth against POST flood.
 Route::post('/telegram/ops/webhook', [OpsBotController::class, 'webhook'])
+    ->middleware('throttle:30,1')
     ->name('ops_bot.webhook');
 
 // Booking Bot Webhook
@@ -96,10 +99,13 @@ Route::middleware('auth:sanctum')->prefix('voice-agent')->group(function () {
     // Route removed: VoiceAgent (unused)
 });
 
-// Beds24 Webhook — receives booking notifications from Beds24
-// No auth middleware: Beds24 calls this without credentials.
-// URL configured in Beds24: https://jahongir-app.uz/api/beds24/webhook
+// Beds24 Webhook — receives booking notifications from Beds24.
+// Beds24 does not sign callbacks. Defense relies on:
+//   1. URL secrecy (Beds24 portal-config only)
+//   2. Throttle 30/min (added 2026-04-28) — Beds24 sends ~1/booking, never bursts
+//   3. SHA256 payload-hash idempotency in controller (blocks replay)
 Route::post('/beds24/webhook', [\App\Http\Controllers\Beds24WebhookController::class, 'handle'])
+    ->middleware('throttle:30,1')
     ->name('beds24.webhook');
 
 // Phase 2: Cashier Bot (admin payment/expense logging)
