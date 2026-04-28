@@ -717,7 +717,136 @@ The following non-blocking questions remain. Decide as needs arise — these are
 
 ---
 
-## 12. Sign-off
+## 12. Test Infrastructure (permanent platform documentation)
+
+### 12.1 Purpose
+
+Tests for any DB-touching feature must run against an **isolated MySQL database** — never the production `jahongir` database, never SQLite as a parity substitute. The test database `jahongirnewapp_test` exists permanently on the Jahongir VPS so that:
+
+- `lockForUpdate()` semantics match production (SQLite is single-writer; locks are no-ops)
+- `whereRaw` subqueries (e.g. `Departure::scopeBookableWithSeats`) are validated against MySQL syntax
+- Foreign key constraints behave identically to production
+- Index-related migration rollback issues surface in test, not in deploy
+- Concurrency tests prove the platform's seat-mutation contract
+
+This is platform infrastructure, not yurt-departures-specific. Future features touching the database must use it.
+
+### 12.2 Provisioning (one-time, requires privileged DB user)
+
+Run by a privileged DB user (root via `sudo mysql`, or the credentials in `/etc/mysql/debian.cnf`):
+
+```sql
+CREATE DATABASE IF NOT EXISTS jahongirnewapp_test
+  CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+GRANT ALL PRIVILEGES ON jahongirnewapp_test.* TO 'jahongirapp'@'localhost';
+FLUSH PRIVILEGES;
+```
+
+**Charset/collation must be `utf8mb4` / `utf8mb4_unicode_ci`** to match production.
+Grant scope is **strictly `jahongirnewapp_test.*`** — never global. Principle of least privilege.
+
+### 12.3 Verification protocol (run before EVERY test session)
+
+Three independent confirmations that the test runner targets the isolated DB:
+
+```bash
+# A. Static — phpunit.xml override
+grep DB_DATABASE phpunit.xml
+# → <env name="DB_DATABASE" value="jahongirnewapp_test"/>
+
+# B. Static — .env.testing
+grep DB_DATABASE .env.testing
+# → DB_DATABASE=jahongirnewapp_test
+
+# C. Runtime — actual connection
+php artisan tinker --env=testing \
+  --execute="echo DB::connection()->getDatabaseName();"
+# → jahongirnewapp_test
+```
+
+**Plus** charset verification (existence ≠ correct charset):
+
+```sql
+SELECT DEFAULT_CHARACTER_SET_NAME, DEFAULT_COLLATION_NAME
+FROM information_schema.SCHEMATA
+WHERE SCHEMA_NAME = 'jahongirnewapp_test';
+```
+
+If any output shows `jahongir` (production) or `latin1` / non-utf8mb4 charset, **abort immediately**.
+
+Before the verification above, clear stale config caches (Laravel cache mistakes are real):
+
+```bash
+php artisan config:clear --env=testing
+php artisan cache:clear  --env=testing
+```
+
+### 12.4 Safety rules
+
+- ❌ Never run `migrate`, `migrate:fresh`, `migrate:rollback`, `db:seed`, or `db:wipe` against the `jahongir` production database
+- ❌ Never grant the test user privileges beyond `jahongirnewapp_test.*`
+- ❌ Never substitute SQLite for MySQL "to go faster" — it hides the exact bugs the test infrastructure exists to catch
+- ❌ Never reuse a tenant DB or staging DB for tests — the test DB must be wiped freely (`migrate:fresh`) without consequences
+- ❌ Never commit a real `.env.testing` to git — only `.env.testing.example` (no secrets)
+- ✅ Always use `--env=testing` explicitly on artisan commands during test sessions
+- ✅ Always verify connection target before running migrations
+- ✅ Always include rollback rehearsal (`fresh → rollback → migrate`) in foundation verification
+
+### 12.5 Artifact standard
+
+Every Phase 1+ feature that touches the database must produce a verification artifact at:
+
+```
+docs/architecture/<feature>/PHASE_<N>_FOUNDATION_VERIFICATION.md
+```
+
+Artifact sections:
+- **A. Environment** — branch, commit SHA (`git rev-parse HEAD`), DB target, clone path, MySQL version, date
+- **B. Migrations** — full `migrate` log, table list after migration
+- **C. Test results** — test command + output
+- **D. Concurrency trust test** — extracted, highlighted (when relevant)
+- **E. Rollback validation** — `migrate:fresh → migrate:rollback → migrate` cycle log
+- **F. Pass / Fail** — green-light or red-light with cause
+
+The artifact is committed to the feature branch alongside the code. It is NOT optional.
+
+### 12.6 Future branch rule
+
+Any feature branch that adds, alters, or queries database schema MUST validate on `jahongirnewapp_test` before merging. Tests passing locally on SQLite are insufficient. Tests passing in CI alone are insufficient if CI uses anything other than MySQL parity. The Jahongir VPS test infrastructure is the single source of truth for "schema is safe to deploy."
+
+### 12.7 Known failure modes (and their causes)
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| `Access denied for user 'forge'@'localhost'` | Local Laravel default user, no MySQL grants | Run on Jahongir VPS test DB instead |
+| `Connection refused` to MySQL | MySQL service not running, or wrong port | `systemctl status mysql` |
+| Migration runs against `jahongir` not `jahongirnewapp_test` | Stale config cache | `config:clear --env=testing` before running |
+| Tests fail with FK errors that don't reproduce locally | Test DB has stale rows from an aborted prior run | `migrate:fresh --env=testing` |
+| Rollback succeeds locally but fails on test DB | MySQL auto-drops FK-backed indexes; Postgres doesn't | Use `Schema::hasIndex()` guard in `down()` |
+| `lockForUpdate()` "tests pass" but production overbooks | SQLite was used; locks were no-ops | Always test on MySQL test DB |
+| `whereRaw` subquery returns wrong result | MySQL vs Postgres syntax difference | Validate on MySQL test DB |
+| `migrate:fresh` hangs | Long-running transaction holding row locks | Kill stale connections; ensure no open psql/mysql sessions |
+| Test DB has tables before tests start | Previous test run aborted mid-flight | `migrate:fresh --env=testing` |
+| Grant "works" but ALTER fails | Grant is global `USAGE` only, not on the test DB | Re-run GRANT with explicit `jahongirnewapp_test.*` scope |
+
+### 12.8 Sign-off after provisioning
+
+Before marking test infrastructure operational, verify:
+
+- [ ] `jahongirnewapp_test` database exists with `utf8mb4` / `utf8mb4_unicode_ci`
+- [ ] `jahongirapp@localhost` has `ALL PRIVILEGES` on `jahongirnewapp_test.*` only
+- [ ] `.env.testing.example` committed; `.env.testing` in `.gitignore`
+- [ ] Triple verification (§12.3 A/B/C) all return `jahongirnewapp_test`
+- [ ] Charset verification returns `utf8mb4`
+- [ ] `php artisan migrate --env=testing` succeeds
+- [ ] `php artisan migrate:rollback --env=testing` succeeds
+- [ ] `php artisan migrate:fresh --env=testing` succeeds
+- [ ] First feature branch foundation artifact published
+
+---
+
+## 13. Sign-off
 
 - [x] Architecture rules drafted
 - [x] State machine defined
