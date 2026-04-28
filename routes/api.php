@@ -5,7 +5,6 @@ use App\Filament\Pages\Availability;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\TelegramController;
 use App\Http\Controllers\TelegramDriverGuideSignUpController;
-use App\Http\Controllers\WebhookController;
 use App\Http\Controllers\OpsBotController;
 use App\Http\Controllers\WebsiteBookingController;
 use App\Http\Controllers\Api\BookingInquiryController;
@@ -45,7 +44,9 @@ Route::post('/telegram/driver_guide_signup', [TelegramDriverGuideSignUpControlle
     ->middleware('verify.telegram.webhook:driver-guide');
 
 
-Route::post('/webhook/tour-booking', [WebhookController::class, 'handleTourBooking']);
+// DISABLED 2026-04-28: legacy N8N webhook, N8N no longer in use.
+// Secret was N8N_SECRET_KEY='odil' — trivially guessable security hole.
+// Route::post('/webhook/tour-booking', [WebhookController::class, 'handleTourBooking']);
 
 // Website booking form → DB pipeline (LEGACY — kept for reference, not called)
 Route::post('/bookings/website', [WebsiteBookingController::class, 'store'])
