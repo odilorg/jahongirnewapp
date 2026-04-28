@@ -1,4 +1,4 @@
-# arch-lint baseline — regenerated 2026-04-28T23:27:05+05:00
+# arch-lint baseline — regenerated 2026-04-28T23:41:35+05:00
 # Format: file:line:rule-key (rule-key stable across runs)
 app/Console/Commands/SendDailyRecap.php:52:http-outside-adapter
 app/Console/Commands/TourSendReminders.php:397:http-outside-adapter
@@ -21,7 +21,15 @@ app/Filament/Resources/ContractResource.php:122:long-action-closure
 app/Http/Controllers/Api/BookingInquiryController.php:34:fat-controller
 app/Http/Controllers/Beds24WebhookController.php:48:fat-controller
 app/Http/Controllers/Beds24WebhookController.php:97:fat-controller
+app/Http/Controllers/CashierBotController.php:1075:fat-controller
+app/Http/Controllers/CashierBotController.php:393:fat-controller
+app/Http/Controllers/CashierBotController.php:498:fat-controller
+app/Http/Controllers/CashierBotController.php:587:fat-controller
 app/Http/Controllers/CashierBotController.php:73:fat-controller
+app/Http/Controllers/CashierBotController.php:753:fat-controller
+app/Http/Controllers/CashierBotController.php:783:fat-controller
+app/Http/Controllers/CashierBotController.php:897:fat-controller
+app/Http/Controllers/CashierBotController.php:963:fat-controller
 app/Http/Controllers/HousekeepingBotController.php:1718:http-outside-adapter
 app/Http/Controllers/HousekeepingBotController.php:1756:http-outside-adapter
 app/Http/Controllers/OctoCallbackController.php:15:fat-controller

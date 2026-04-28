@@ -171,7 +171,8 @@ class CashierBotController extends Controller
         return $this->showMainMenu($chatId, $result['session']);
     }
 
-    protected function showMainMenu(int $chatId, $session)
+    /** @internal Used only by CashierBotCallbackRouter during A2/A3 extraction. */
+    public function showMainMenu(int $chatId, $session)
     {
         // Delegates to ShowMainMenuAction which owns the status-line +
         // keyboard-building logic (including menuKb() which used to live
@@ -368,7 +369,8 @@ class CashierBotController extends Controller
 
     // ── SHIFT ───────────────────────────────────────────────────
 
-    protected function openShift($s, int $chatId)
+    /** @internal Used only by CashierBotCallbackRouter during A2/A3 extraction. */
+    public function openShift($s, int $chatId)
     {
         // The B2 drawer-singleton guard + carry-forward + balance line
         // lives in OpenShiftAction (feature-tested by OpenShiftSingletonTest).
@@ -387,7 +389,8 @@ class CashierBotController extends Controller
 
     // ── PAYMENT ─────────────────────────────────────────────────
 
-    protected function startPayment($s, int $chatId)
+    /** @internal Used only by CashierBotCallbackRouter during A2/A3 extraction. */
+    public function startPayment($s, int $chatId)
     {
         $shift = $this->getShift($s->user_id);
         if (!$shift) { $this->send($chatId, "Сначала откройте смену."); return response('OK'); }
@@ -491,7 +494,8 @@ class CashierBotController extends Controller
         return $this->selectGuest($s, $chatId, "guest_{$bid}");
     }
 
-    protected function selectGuest($s, int $chatId, string $data)
+    /** @internal Used only by CashierBotCallbackRouter during A2/A3 extraction. */
+    public function selectGuest($s, int $chatId, string $data)
     {
         $d = $s->data ?? [];
         $bid = str_replace('guest_', '', $data);
@@ -579,7 +583,8 @@ class CashierBotController extends Controller
         return response('OK');
     }
 
-    protected function selectCur($s, int $chatId, string $data)
+    /** @internal Used only by CashierBotCallbackRouter during A2/A3 extraction. */
+    public function selectCur($s, int $chatId, string $data)
     {
         $d = $s->data ?? [];
         $d['currency'] = str_replace('cur_', '', $data);
@@ -634,7 +639,8 @@ class CashierBotController extends Controller
     /**
      * Cashier clicked "✅ Принять" — accept the pre-computed presented amount as paid.
      */
-    protected function fxConfirmAmount($s, int $chatId)
+    /** @internal Used only by CashierBotCallbackRouter during A2/A3 extraction. */
+    public function fxConfirmAmount($s, int $chatId)
     {
         $d = $s->data ?? [];
         $presented = (float) ($d['fx_presented_amount'] ?? 0);
@@ -743,7 +749,8 @@ class CashierBotController extends Controller
 
     // ────────────────────────────────────────────────────────────
 
-    protected function selectMethod($s, int $chatId, string $data)
+    /** @internal Used only by CashierBotCallbackRouter during A2/A3 extraction. */
+    public function selectMethod($s, int $chatId, string $data)
     {
         $d = $s->data ?? [];
         $d['method'] = str_replace('method_', '', $data);
@@ -772,7 +779,8 @@ class CashierBotController extends Controller
         return response('OK');
     }
 
-    protected function confirmPayment($s, int $chatId, string $callbackId = '')
+    /** @internal Used only by CashierBotCallbackRouter during A2/A3 extraction. */
+    public function confirmPayment($s, int $chatId, string $callbackId = '')
     {
         $d = $s->data ?? [];
         $shift = CashierShift::find($d['shift_id'] ?? 0);
@@ -827,7 +835,8 @@ class CashierBotController extends Controller
 
     // ── EXPENSE ─────────────────────────────────────────────────
 
-    protected function startExpense($s, int $chatId)
+    /** @internal Used only by CashierBotCallbackRouter during A2/A3 extraction. */
+    public function startExpense($s, int $chatId)
     {
         $shift = $this->getShift($s->user_id);
         if (!$shift) { $this->send($chatId, "Сначала откройте смену."); return response('OK'); }
@@ -842,7 +851,8 @@ class CashierBotController extends Controller
         return response('OK');
     }
 
-    protected function selectExpCat($s, int $chatId, string $data)
+    /** @internal Used only by CashierBotCallbackRouter during A2/A3 extraction. */
+    public function selectExpCat($s, int $chatId, string $data)
     {
         $cat = ExpenseCategory::find((int) str_replace('expcat_', '', $data));
         $d = $s->data ?? [];
@@ -883,7 +893,8 @@ class CashierBotController extends Controller
         return response('OK');
     }
 
-    protected function confirmExpense($s, int $chatId, string $callbackId = '')
+    /** @internal Used only by CashierBotCallbackRouter during A2/A3 extraction. */
+    public function confirmExpense($s, int $chatId, string $callbackId = '')
     {
         $d = $s->data ?? [];
         $shift = CashierShift::find($d['shift_id'] ?? 0);
@@ -917,7 +928,8 @@ class CashierBotController extends Controller
 
     // ── CASH IN (admin only) ────────────────────────────────────
 
-    protected function startCashIn($s, int $chatId)
+    /** @internal Used only by CashierBotCallbackRouter during A2/A3 extraction. */
+    public function startCashIn($s, int $chatId)
     {
         $shift = $this->getShift($s->user_id);
         if (!$shift) { $this->send($chatId, "Сначала откройте смену."); return response('OK'); }
@@ -947,7 +959,8 @@ class CashierBotController extends Controller
         return response('OK');
     }
 
-    protected function confirmCashIn($s, int $chatId, string $callbackId = '')
+    /** @internal Used only by CashierBotCallbackRouter during A2/A3 extraction. */
+    public function confirmCashIn($s, int $chatId, string $callbackId = '')
     {
         try {
             $d = $s->data ?? [];
@@ -998,7 +1011,8 @@ class CashierBotController extends Controller
 
     // ── CLOSE SHIFT ─────────────────────────────────────────────
 
-    protected function startClose($s, int $chatId)
+    /** @internal Used only by CashierBotCallbackRouter during A2/A3 extraction. */
+    public function startClose($s, int $chatId)
     {
         $shift = $this->getShift($s->user_id);
         if (!$shift) { $this->send($chatId, "Нет открытой смены."); return response('OK'); }
@@ -1057,7 +1071,8 @@ class CashierBotController extends Controller
         return $this->showCloseConfirm($s, $chatId);
     }
 
-    protected function confirmClose($s, int $chatId, string $callbackId = '')
+    /** @internal Used only by CashierBotCallbackRouter during A2/A3 extraction. */
+    public function confirmClose($s, int $chatId, string $callbackId = '')
     {
         $d = $s->data ?? [];
         $shift = CashierShift::find($d['shift_id'] ?? 0);
@@ -1156,7 +1171,8 @@ class CashierBotController extends Controller
 
     // ── EXCHANGE ──────────────────────────────────────────────
 
-    protected function startExchange($s, int $chatId)
+    /** @internal Used only by CashierBotCallbackRouter during A2/A3 extraction. */
+    public function startExchange($s, int $chatId)
     {
         $shift = $this->getShift($s->user_id);
         if (!$shift) { $this->send($chatId, "Сначала откройте смену."); return response('OK'); }
@@ -1172,7 +1188,8 @@ class CashierBotController extends Controller
         return response('OK');
     }
 
-    protected function selectExCur($s, int $chatId, string $data)
+    /** @internal Used only by CashierBotCallbackRouter during A2/A3 extraction. */
+    public function selectExCur($s, int $chatId, string $data)
     {
         $d = $s->data ?? [];
         $d['in_currency'] = str_replace('excur_', '', $data);
@@ -1203,7 +1220,8 @@ class CashierBotController extends Controller
         return response('OK');
     }
 
-    protected function selectExOutCur($s, int $chatId, string $data)
+    /** @internal Used only by CashierBotCallbackRouter during A2/A3 extraction. */
+    public function selectExOutCur($s, int $chatId, string $data)
     {
         $d = $s->data ?? [];
         $d['out_currency'] = str_replace('exout_', '', $data);
@@ -1239,7 +1257,8 @@ class CashierBotController extends Controller
         return response('OK');
     }
 
-    protected function confirmExchange($s, int $chatId, string $callbackId = '')
+    /** @internal Used only by CashierBotCallbackRouter during A2/A3 extraction. */
+    public function confirmExchange($s, int $chatId, string $callbackId = '')
     {
         $d = $s->data ?? [];
         $shift = CashierShift::find($d['shift_id'] ?? 0);
@@ -1492,7 +1511,8 @@ class CashierBotController extends Controller
         return ['keyboard' => [[['text' => 'Отправить номер', 'request_contact' => true]]], 'resize_keyboard' => true, 'one_time_keyboard' => true];
     }
 
-    protected function send(int $chatId, string $text, ?array $kb = null, string $type = 'reply')
+    /** @internal Used only by CashierBotCallbackRouter during A2/A3 extraction. */
+    public function send(int $chatId, string $text, ?array $kb = null, string $type = 'reply')
     {
         $extra = ['parse_mode' => 'HTML'];
         if ($kb) $extra['reply_markup'] = json_encode($kb);
@@ -1507,7 +1527,8 @@ class CashierBotController extends Controller
         }
     }
 
-    protected function aCb(string $id)
+    /** @internal Used only by CashierBotCallbackRouter during A2/A3 extraction. */
+    public function aCb(string $id)
     {
         if (!$id) return;
         try {
@@ -1539,14 +1560,16 @@ class CashierBotController extends Controller
     // hands off to $this->send(). Telegram envelope I/O stays on the
     // controller per the extraction plan's Option-A seam.
 
-    protected function dispatchReply(int $chatId, array $reply)
+    /** @internal Used only by CashierBotCallbackRouter during A2/A3 extraction. */
+    public function dispatchReply(int $chatId, array $reply)
     {
         $this->send($chatId, $reply['text'], $reply['kb'] ?? null, $reply['type'] ?? 'reply');
 
         return response('OK');
     }
 
-    protected function dispatchGuide(int $chatId, ?string $topic)
+    /** @internal Used only by CashierBotCallbackRouter during A2/A3 extraction. */
+    public function dispatchGuide(int $chatId, ?string $topic)
     {
         return $this->dispatchReply($chatId, app(\App\Actions\CashierBot\Handlers\ShowGuideAction::class)->execute($topic));
     }
