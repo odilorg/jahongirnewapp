@@ -829,6 +829,7 @@ Any feature branch that adds, alters, or queries database schema MUST validate o
 | `migrate:fresh` hangs | Long-running transaction holding row locks | Kill stale connections; ensure no open psql/mysql sessions |
 | Test DB has tables before tests start | Previous test run aborted mid-flight | `migrate:fresh --env=testing` |
 | Grant "works" but ALTER fails | Grant is global `USAGE` only, not on the test DB | Re-run GRANT with explicit `jahongirnewapp_test.*` scope |
+| `Class "Database\Factories\XYZFactory" not found` during test run | Upstream model declares `HasFactory` but factory file was never shipped (shared-domain test debt) | Create the missing factory under `database/factories/`. Treat as platform infrastructure patch (separate commit, e.g. `chore(testing): add XYZFactory`), then re-run targeted test suite from a clean state. Do NOT bypass `HasFactory` by hand-rolling fixtures in the test class — it hides the same gap for the next feature. |
 
 ### 12.8 Sign-off after provisioning
 
