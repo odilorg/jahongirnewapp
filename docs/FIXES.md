@@ -14,6 +14,21 @@ Newest entries at top.
 
 ---
 
+## 2026-04-28 — Telegram bot webhook audit: 7 bots fixed
+
+**Symptom.** 6 of 8 bots had no registered webhooks; POS bot pointed at wrong endpoint; driver-guide bot had retry-loop bug; GYG fetch-emails kept crashing; housekeeping had 9 queued updates.
+
+**Root causes & fixes:**
+1. `gyg:fetch-emails` — `ProcessTimedOutException` uncaught in `fetchMessageWithId()` → entire run crashed. Wrapped in try/catch, bumped timeout 15s→45s, timed-out emails stored as `skipped`. Commit `0ded90e`.
+2. Kitchen webhook unregistered → 9 pending updates piled up. Registered webhook + secret.
+3. POS bot webhook pointed at `/api/telegram/cashier/webhook` instead of `/pos/webhook`. Corrected.
+4. Housekeeping, cashier, driver-guide, pos, ops bots had no registered webhooks. Generated secrets, added to `.env`, rebuilt config cache.
+5. `TelegramDriverGuideSignUpController::handleWebhook()` used plain `IncomingWebhook::create()` — unique constraint on `event_id` throws on Telegram retries, causing 500→retry loop. Switched to `firstOrCreate` + `wasRecentlyCreated` guard. Commit `d73d12b`.
+
+**Commits:** `0ded90e` (gyg fix), `d73d12b` (driver-guide idempotency)
+
+---
+
 ## 2026-04-27 — GYG `Urgent: New booking received` emails silently dropped
 
 **Symptom.** Booking `GYG48YVRXWBH` (Wang Ting, last-minute 2026-04-28
