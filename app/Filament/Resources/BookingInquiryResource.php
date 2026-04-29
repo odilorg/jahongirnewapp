@@ -1163,7 +1163,15 @@ class BookingInquiryResource extends Resource
                         ->modalHeading('Confirm booking')
                         ->modalDescription('This adds the booking to the calendar but does not record any payment.')
                         ->modalSubmitActionLabel('Confirm')
-                        ->form([
+                        ->fillForm(fn (BookingInquiry $record): array => [
+                            '_unpaid_record' => empty($record->paid_at),
+                        ])
+                        ->form(fn (BookingInquiry $record): array => array_filter([
+                            empty($record->paid_at)
+                                ? Forms\Components\Placeholder::make('unpaid_warning')
+                                    ->label('')
+                                    ->content('⚠️ This booking has NO recorded payment (paid_at is null). Confirming it now means the calendar will show a confirmed slot for an unpaid customer — only do this if payment was received outside the system (cash, bank transfer, OTA platform, etc.). The reason you give below will be saved to the audit log.')
+                                : null,
                             Forms\Components\Select::make('source')
                                 ->label('Confirmation source')
                                 ->options([
@@ -1178,7 +1186,16 @@ class BookingInquiryResource extends Resource
                                 ->placeholder('e.g. paid via Booking.com, VIP repeat client, paid offline')
                                 ->required()
                                 ->rows(2),
-                        ])
+                            empty($record->paid_at)
+                                ? Forms\Components\Checkbox::make('confirm_unpaid')
+                                    ->label('I confirm this booking has been paid outside the system OR I am explicitly accepting unpaid risk')
+                                    ->required()
+                                    ->accepted()
+                                    ->validationMessages([
+                                        'accepted' => 'You must acknowledge the unpaid status to proceed.',
+                                    ])
+                                : null,
+                        ]))
                         ->action(function (BookingInquiry $record, array $data): void {
                             try {
                                 app(ConfirmBookingAction::class)->execute(

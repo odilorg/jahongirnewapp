@@ -300,13 +300,35 @@ class OctoCallbackController extends Controller
                 ]);
             }
         } else {
-            // Leave status as-is (probably still awaiting_payment) so the
-            // operator can retry. Append an audit note for traceability.
+            // Append audit note for traceability.
             $stamp    = now()->format('Y-m-d H:i');
             $existing = $inquiry->internal_notes ? $inquiry->internal_notes . "\n\n" : '';
-            $inquiry->update([
+
+            // Determine whether this is a TERMINAL failure (canceled / expired /
+            // hard decline). For terminal failures we reconcile inquiry state so
+            // the operator UI offers a fresh "Generate" path again — otherwise
+            // the dead Octo URL persists on the inquiry and traps the operator.
+            $terminalFailureStatuses = ['canceled', 'cancelled', 'expired', 'failed', 'declined'];
+            $isTerminal = in_array(strtolower((string) $status), $terminalFailureStatuses, true);
+
+            $updates = [
                 'internal_notes' => $existing . "[{$stamp}] Octo payment {$status} (txn {$transactionId})",
-            ]);
+            ];
+
+            if ($isTerminal && empty($inquiry->paid_at)) {
+                // Fix A: clear the dead payment_link and revert awaiting_payment
+                // so operator gets the standard "Generate & send" action back.
+                $updates['payment_link']         = null;
+                $updates['payment_link_sent_at'] = null;
+                if ($inquiry->status === BookingInquiry::STATUS_AWAITING_PAYMENT) {
+                    $updates['status'] = BookingInquiry::STATUS_CONTACTED;
+                }
+            }
+
+            // System-state write (status, payment_link, internal_notes) — forceFill()->save()
+            // per the operational-timestamps rule. update() silently drops fields
+            // missing from $fillable, which masks bugs (incident 2026-04-26).
+            $inquiry->forceFill($updates)->save();
 
             // Stamp attempt failed.
             $this->stampAttempt($attempt, OctoPaymentAttempt::STATUS_FAILED, $transactionId);
@@ -316,6 +338,8 @@ class OctoCallbackController extends Controller
                 'transaction_id' => $transactionId,
                 'status'         => $status,
                 'via_attempt'    => $attempt?->id,
+                'terminal'       => $isTerminal,
+                'reset_link'     => $isTerminal && empty($inquiry->paid_at),
             ]);
         }
 
