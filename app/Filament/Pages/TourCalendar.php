@@ -133,6 +133,9 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
     public ?string $editPickupTime = null;
     public ?string $editPickupPoint = null;
     public ?string $editDropoffPoint = null;
+    // Operational guest context — free-text notes that drive the four
+    // derived flag booleans (dietary/accessibility/language/occasion).
+    public ?string $editOperationalNotes = null;
     public ?int $assignAccommodationId = null;
     public ?int $assignAccGuests = null;
     public int $assignAccNights = 1;
@@ -516,6 +519,58 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
     }
 
     /**
+     * Quick-save the operational guest-context notes from the slide-over.
+     * Single write path — delegates to QuickSaveOperationalNotesAction
+     * which owns length cap, no-op short-circuit, flag derivation, audit.
+     */
+    public function quickSaveOperationalNotes(): void
+    {
+        $inquiry = BookingInquiry::find($this->selectedInquiryId);
+        if (! $inquiry) {
+            return;
+        }
+
+        $this->runCalendarAction(
+            app(\App\Actions\Calendar\Save\QuickSaveOperationalNotesAction::class)->handle(
+                $inquiry,
+                [
+                    'notes'         => $this->editOperationalNotes,
+                    'operator_id'   => auth()->id(),
+                    'operator_name' => auth()->user()?->name ?? 'system',
+                ],
+            ),
+        );
+    }
+
+    /**
+     * Append a chip phrase (e.g. 'Vegetarian', 'Wheelchair') to the
+     * operational-notes draft. Pure UI helper — does NOT save; the
+     * operator still confirms via the Save button. Whitespace-aware so
+     * repeated clicks produce a clean comma-joined list.
+     */
+    public function appendOperationalNotesChip(string $phrase): void
+    {
+        $phrase = trim($phrase);
+        if ($phrase === '') {
+            return;
+        }
+
+        $current = trim((string) $this->editOperationalNotes);
+        if ($current === '') {
+            $this->editOperationalNotes = $phrase;
+            return;
+        }
+
+        // Avoid trivially duplicated chip if the operator double-clicks.
+        if (mb_stripos($current, $phrase) !== false) {
+            return;
+        }
+
+        $separator = str_ends_with($current, ',') ? ' ' : ', ';
+        $this->editOperationalNotes = $current . $separator . $phrase;
+    }
+
+    /**
      * Called from Blade when a chip is clicked. Opens the slide-over.
      */
     public function openInquiry(int $id): void
@@ -524,9 +579,10 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
 
         // Pre-fill fields from the inquiry
         $inquiry = BookingInquiry::find($id);
-        $this->editPickupTime    = $inquiry?->pickup_time;
-        $this->editPickupPoint   = $inquiry?->pickup_point;
-        $this->editDropoffPoint  = $inquiry?->dropoff_point;
+        $this->editPickupTime       = $inquiry?->pickup_time;
+        $this->editPickupPoint      = $inquiry?->pickup_point;
+        $this->editDropoffPoint     = $inquiry?->dropoff_point;
+        $this->editOperationalNotes = $inquiry?->operational_notes;
         $this->assignDriverId    = $inquiry?->driver_id;
         $this->assignDriverRateId = $inquiry?->driver_rate_id;
         $this->assignGuideId     = $inquiry?->guide_id;

@@ -184,6 +184,10 @@ class BookingInquiry extends Model
         'pickup_point',
         'dropoff_point',
         'operational_notes',
+        'has_dietary_flag',
+        'has_accessibility_flag',
+        'has_language_flag',
+        'has_occasion_flag',
         'prep_status',
         'status',
         'confirmation_source',
@@ -203,6 +207,10 @@ class BookingInquiry extends Model
     protected $casts = [
         'travel_date'          => 'date',
         'flexible_dates'       => 'boolean',
+        'has_dietary_flag'      => 'boolean',
+        'has_accessibility_flag'=> 'boolean',
+        'has_language_flag'     => 'boolean',
+        'has_occasion_flag'     => 'boolean',
         'price_quoted'         => 'decimal:2',
         'payment_link_sent_at' => 'datetime',
         'paid_at'              => 'datetime',
@@ -422,4 +430,30 @@ class BookingInquiry extends Model
 
         return sprintf('INQ-%d-%06d', $year, $next);
     }
+    /**
+     * Operational guest-context flag icon — single-character priority resolution
+     * for the calendar list view. Returns null when no flags are set.
+     *
+     * Priority (severity-led, configured by ops): accessibility > dietary > language > occasion.
+     * The full-flag list belongs in `operational_flag_tooltip` (see TourCalendarBuilder).
+     *
+     * Pure single-record helper (Principle 2) — no queries, no side effects.
+     */
+    public function getOperationalFlagIconAttribute(): ?string
+    {
+        if ($this->has_accessibility_flag) {
+            return '♿';
+        }
+        if ($this->has_dietary_flag) {
+            return '🍃';
+        }
+        if ($this->has_language_flag) {
+            return '🗣';
+        }
+        if ($this->has_occasion_flag) {
+            return '🎉';
+        }
+        return null;
+    }
+
 }

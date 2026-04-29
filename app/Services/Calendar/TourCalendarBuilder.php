@@ -454,8 +454,26 @@ class TourCalendarBuilder
             'display_state'     => $displayState,
             'readiness'         => $readiness,
             'warnings'          => $warnings,
+            'flag_icon'         => $inq->operational_flag_icon,
+            'flag_tooltip'      => $this->buildFlagTooltip($inq),
             'detail_url'        => BookingInquiryResource::getUrl('view', ['record' => $inq->id]),
         ];
+    }
+
+    /**
+     * Compose a human-readable tooltip listing every operational flag set on
+     * the inquiry. Returns null when no flags are set so Blade can omit the
+     * title attribute entirely (avoids a stray empty tooltip on hover).
+     */
+    private function buildFlagTooltip(BookingInquiry $inq): ?string
+    {
+        $labels = [];
+        if ($inq->has_accessibility_flag) { $labels[] = 'Accessibility'; }
+        if ($inq->has_dietary_flag)       { $labels[] = 'Dietary'; }
+        if ($inq->has_language_flag)      { $labels[] = 'Language'; }
+        if ($inq->has_occasion_flag)      { $labels[] = 'Occasion'; }
+
+        return $labels === [] ? null : 'Guest context: ' . implode(', ', $labels);
     }
 
     // =========================================================================

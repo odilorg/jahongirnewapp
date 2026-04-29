@@ -652,7 +652,7 @@ class DriverDispatchNotifier
         // operational_notes: entirely omit the placeholder when empty
         // so the signature doesn't float with a gap above it.
         $notes = filled($inquiry->operational_notes)
-            ? $inquiry->operational_notes
+            ? "\u{1F7E1} Guest notes: " . $inquiry->operational_notes
             : '';
 
         $replacements = [
