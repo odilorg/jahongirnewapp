@@ -73,30 +73,52 @@ class Beds24PaymentSyncJob implements ShouldQueue
     }
 
     /**
-     * Calls the Beds24 v2 API to record a payment on the booking.
-     * Returns the beds24 payment ID from the response.
+     * Records a payment on a booking via the Beds24 v2 API.
      *
-     * Uses Beds24BookingService::apiCall() so this job participates in
-     * the same access-token cache + refresh + 401-retry guardrail every
-     * other Beds24 caller already does. Previously this method read
-     * config('services.beds24.api_key') — a key that does not exist in
-     * config/services.php — and silently sent `token: ` (empty),
-     * producing 401 "Token is missing" on every attempt.
+     * Beds24 v2 has NO `/bookings/{id}/payments` endpoint. The correct path
+     * is `POST /bookings` with an `invoiceItems` array on each booking.
+     * History (2026-04-29 audit): the previous implementation hit the
+     * non-existent path and produced HTTP 500 on every attempt — three rows
+     * (#23, #54, #189) accumulated 1000+ failed retries before being
+     * manually skipped. No production payment has ever reached Beds24 via
+     * this code path before the present hotfix.
      *
-     * @throws \RuntimeException on non-2xx response or missing payment ID
+     * Request shape (v2):
+     *   POST /bookings
+     *   [
+     *     { "id": <bookingId>, "invoiceItems": [
+     *         { "type": "payment", "amount": <usd>, "description": "[ref:<UUID>] Bot payment" }
+     *     ]}
+     *   ]
+     *
+     * Response shape (v2):
+     *   [ { "success": true, "modified": true, "new": [...], "info": [...], "errors": [...] } ]
+     *
+     * v2 does NOT return a specific invoice-item ID. The eventual Beds24
+     * payment ID arrives later via the booking webhook; the embedded
+     * [ref:UUID] in `description` is what WebhookReconciliationService uses
+     * to match the webhook back to this sync row. Empty string is therefore
+     * a valid return value — markPushed just records the transition.
+     *
+     * Uses Beds24BookingService::apiCall() so this job participates in the
+     * shared token cache + 401-retry guardrail.
+     *
+     * @throws \RuntimeException on non-2xx response, success=false, or non-empty errors array
      */
     private function pushToBeds24(Beds24PaymentSync $sync, Beds24BookingService $beds24): string
     {
-        // Embed local_reference in description so the incoming Beds24
-        // webhook can match the payment back to this row without a
-        // time-window dedup.
         $description = "[ref:{$sync->local_reference}] Bot payment";
 
-        $response = $beds24->apiCall('POST', "/bookings/{$sync->beds24_booking_id}/payments", [
-            'amount'      => (float) $sync->amount_usd,
-            'currency'    => 'USD',
-            'description' => $description,
-        ]);
+        $payload = [[
+            'id'           => (int) $sync->beds24_booking_id,
+            'invoiceItems' => [[
+                'type'        => 'payment',
+                'amount'      => (float) $sync->amount_usd,
+                'description' => $description,
+            ]],
+        ]];
+
+        $response = $beds24->apiCall('POST', '/bookings', $payload);
 
         if (! $response->successful()) {
             throw new \RuntimeException(
@@ -104,14 +126,35 @@ class Beds24PaymentSyncJob implements ShouldQueue
             );
         }
 
-        $paymentId = $response->json('id') ?? $response->json('paymentId');
+        $body = $response->json();
+        $first = is_array($body) ? ($body[0] ?? null) : null;
 
-        if (! $paymentId) {
+        if (! is_array($first)) {
             throw new \RuntimeException(
-                "Beds24 API returned success but no payment ID in response: {$response->body()}"
+                "Beds24 v2 returned unexpected response shape: {$response->body()}"
             );
         }
 
-        return (string) $paymentId;
+        if (($first['success'] ?? false) !== true) {
+            $errors = $first['errors'] ?? [];
+            throw new \RuntimeException(
+                "Beds24 v2 rejected payment write: " . json_encode($errors ?: $first)
+            );
+        }
+
+        // Beds24 v2 partial-success defence: success=true with a non-empty
+        // errors array means the booking was modified but at least one item
+        // failed. writePaymentOptionsToInfoItems guards against the same
+        // shape — keep the bot push consistent.
+        if (! empty($first['errors'])) {
+            throw new \RuntimeException(
+                "Beds24 v2 partial success with errors: " . json_encode($first['errors'])
+            );
+        }
+
+        // v2 doesn't return a specific invoiceItem ID for newly-created items.
+        // The webhook will fill this in via WebhookReconciliationService when
+        // Beds24 fires the booking-modified event for this booking.
+        return '';
     }
 }
