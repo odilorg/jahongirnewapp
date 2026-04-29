@@ -215,6 +215,26 @@ for f in "${PHP_FILES[@]}"; do
     done < <(grep -nE '\$\w+->update\(\[[^)]*(_sent_at|_dispatched_at|_paid_at|_applied_at|_notified_at)' "$f" 2>/dev/null | head -3 || true)
 done
 
+# --- P2: enumerated terminal payment-status lists ----------------------------
+# Don't enumerate which provider statuses count as "terminal failure" —
+# unknown future statuses then fall through as non-terminal and trap the
+# operator in awaiting_payment with a dead UI. Whitelist the known SOFT
+# statuses instead (created / wait_user_action / process_user_login / etc.)
+# so anything outside that list — including statuses we haven't seen yet —
+# fails safe: attempt → failed, link cleared, regenerate path unlocked.
+# Real-world incident this prevents:
+#   - 2026-04-29 INQ-2026-000069 (Sable) — wait_user_action treated as
+#     non-terminal, then card-decline path stamped attempt failed without
+#     resetting inquiry → operator locked out. Fix: invert to safe-default.
+for f in "${PHP_FILES[@]}"; do
+    [ -f "$f" ] || continue
+    while IFS=: read -r line content; do
+        report "P2" "terminal-status-enum" \
+            "Avoid enumerated terminal payment status lists. Use a known-soft-status whitelist so unknown provider statuses fail safe." \
+            "$f" "$line" "${content#[[:space:]]*}"
+    done < <(grep -nE '\$\w*[Tt]erminal\w*[Ss]tatuses\s*=\s*\[|\$\w*[Ff]ailure[Ss]tatuses\s*=\s*\[' "$f" 2>/dev/null | grep -viE 'non[Tt]erminal' | head -3 || true)
+done
+
 # --- summary -------------------------------------------------------------------
 if [ "$REGEN_BASELINE" -eq 1 ]; then
     # Print sorted, deduped signatures — user pipes to baseline file
