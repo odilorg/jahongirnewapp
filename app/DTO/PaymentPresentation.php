@@ -94,9 +94,10 @@ readonly class PaymentPresentation
             'UZS'  => (float) $this->uzsPresented,
             'EUR'  => (float) $this->eurPresented,
             'RUB'  => (float) $this->rubPresented,
+            'USD'  => (float) $this->usdPresented,
             default => throw new \InvalidArgumentException(
                 "No FX snapshot amount for currency '{$currency}'. " .
-                "Only UZS, EUR, RUB are pre-computed."
+                "Only UZS, USD, EUR, RUB are pre-computed."
             ),
         };
     }
