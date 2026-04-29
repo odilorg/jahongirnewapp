@@ -58,7 +58,9 @@ final class CashInIdempotencyTest extends TestCase
 
     public function test_const_includes_every_money_writing_confirm_action(): void
     {
-        $ref = new ReflectionClass(CashierBotController::class);
+        // Phase A2: IDEMPOTENT_ACTIONS moved from CashierBotController to
+        // CashierBotCallbackRouter (where the claim now lives).
+        $ref = new ReflectionClass(\App\Services\CashierBot\CashierBotCallbackRouter::class);
         $actions = $ref->getConstant('IDEMPOTENT_ACTIONS');
 
         // If a new money-writing confirm_* is added, update this list and the
