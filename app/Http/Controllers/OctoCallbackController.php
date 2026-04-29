@@ -330,8 +330,14 @@ class OctoCallbackController extends Controller
             // missing from $fillable, which masks bugs (incident 2026-04-26).
             $inquiry->forceFill($updates)->save();
 
-            // Stamp attempt failed.
-            $this->stampAttempt($attempt, OctoPaymentAttempt::STATUS_FAILED, $transactionId);
+            // Only stamp the attempt FAILED when the callback is TERMINAL.
+            // Non-terminal statuses like 'wait_user_action' just mean the
+            // customer hasn't paid yet — the URL is still valid and the
+            // attempt must stay 'active' so the regenerate UI stays hidden
+            // (operator shouldn't disrupt an in-flight payment session).
+            if ($isTerminal) {
+                $this->stampAttempt($attempt, OctoPaymentAttempt::STATUS_FAILED, $transactionId);
+            }
 
             Log::warning('BookingInquiry payment unsuccessful', [
                 'reference'      => $inquiry->reference,
