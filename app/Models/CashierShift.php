@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\ShiftStatus;
 use App\Enums\Currency;
+use App\Enums\OverrideTier;
 use App\Enums\TransactionType;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -25,6 +26,8 @@ class CashierShift extends Model
         'counted_end_saldo',
         'discrepancy',
         'discrepancy_reason',
+        'discrepancy_tier',
+        'discrepancy_severity_uzs',
         'opened_at',
         'closed_at',
         'notes',
@@ -42,6 +45,8 @@ class CashierShift extends Model
         'expected_end_saldo' => 'decimal:2',
         'counted_end_saldo' => 'decimal:2',
         'discrepancy' => 'decimal:2',
+        'discrepancy_tier' => OverrideTier::class,
+        'discrepancy_severity_uzs' => 'decimal:2',
         'opened_at' => 'datetime',
         'closed_at' => 'datetime',
         'approved_at' => 'datetime',

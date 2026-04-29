@@ -27,4 +27,28 @@ return [
         'override_reason_required_pct' => env('CASHIER_FX_OVERRIDE_REASON_REQUIRED_PCT', 3.0),
         'hard_block_pct'               => env('CASHIER_FX_HARD_BLOCK_PCT', 15.0),
     ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Cashier — Shift-close discrepancy escalation (C1)
+    |--------------------------------------------------------------------------
+    |
+    | Severity = sum of absolute UZS-equivalent of (counted - expected) across
+    | UZS / USD / EUR. Tiered against thresholds:
+    |
+    |   severity == 0                          → None    (close proceeds)
+    |   0 < severity ≤ reason_threshold        → Cashier (reason required)
+    |   reason < severity ≤ manager_threshold  → Manager (owner approves)
+    |   severity > manager_threshold           → Blocked (Filament-only resolution)
+    |
+    | If FX rate older than fx_staleness_days, evaluator conservatively bumps
+    | the tier to at least Manager (so close can't sneak through on stale math).
+    |
+    | C1.1 only adds the evaluator + DTO + columns. C1.3 wires the bot.
+    */
+    'shift_close' => [
+        'reason_threshold_uzs'  => env('CASHIER_SHIFT_CLOSE_REASON_THRESHOLD_UZS',     100_000),
+        'manager_threshold_uzs' => env('CASHIER_SHIFT_CLOSE_MANAGER_THRESHOLD_UZS',  1_000_000),
+        'fx_staleness_days'     => env('CASHIER_SHIFT_CLOSE_FX_STALENESS_DAYS',            7),
+    ],
 ];
