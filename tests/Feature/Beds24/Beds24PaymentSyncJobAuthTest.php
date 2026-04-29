@@ -37,8 +37,11 @@ final class Beds24PaymentSyncJobAuthTest extends TestCase
 
     public function test_pending_sync_dispatches_payment_via_beds24_service_and_marks_pushed(): void
     {
+        // Updated 2026-04-29 hotfix: endpoint is now `POST /bookings` with
+        // an `invoiceItems` array, not `POST /bookings/{id}/payments`.
+        // v2 doesn't return a specific payment id — webhook fills it later.
         $sync = Beds24PaymentSync::factory()->create([
-            'beds24_booking_id' => 'B123',
+            'beds24_booking_id' => '123',
             'local_reference'   => 'ref-success',
             'amount_usd'        => 42.50,
             'status'            => Beds24SyncStatus::Pending->value,
@@ -48,13 +51,24 @@ final class Beds24PaymentSyncJobAuthTest extends TestCase
         $beds24->shouldReceive('apiCall')
             ->once()
             ->withArgs(function (string $method, string $endpoint, array $payload) {
-                return $method === 'POST'
-                    && $endpoint === '/bookings/B123/payments'
-                    && abs($payload['amount'] - 42.50) < 0.001
-                    && $payload['currency'] === 'USD'
-                    && str_contains($payload['description'], '[ref:ref-success]');
+                if ($method !== 'POST' || $endpoint !== '/bookings') {
+                    return false;
+                }
+                $first = $payload[0] ?? null;
+                if (! is_array($first) || $first['id'] !== 123) {
+                    return false;
+                }
+                $item = $first['invoiceItems'][0] ?? null;
+                return is_array($item)
+                    && $item['type'] === 'payment'
+                    && abs($item['amount'] - 42.50) < 0.001
+                    && str_contains($item['description'], '[ref:ref-success]');
             })
-            ->andReturn($this->fakeJsonResponse(200, ['id' => 'beds24-payment-9001']));
+            ->andReturn($this->fakeJsonResponse(200, [[
+                'success'  => true,
+                'modified' => true,
+                'errors'   => [],
+            ]]));
 
         $this->app->instance(Beds24BookingService::class, $beds24);
 
@@ -64,7 +78,7 @@ final class Beds24PaymentSyncJobAuthTest extends TestCase
         );
 
         $this->assertSame(Beds24SyncStatus::Pushed->value, $sync->fresh()->status->value);
-        $this->assertSame('beds24-payment-9001', $sync->fresh()->beds24_payment_id);
+        $this->assertSame('', $sync->fresh()->beds24_payment_id, 'v2 returns no payment id; webhook fills it later');
     }
 
     public function test_api_call_failure_marks_sync_failed_when_attempts_exhausted(): void
@@ -112,7 +126,9 @@ final class Beds24PaymentSyncJobAuthTest extends TestCase
         ]);
 
         $beds24 = Mockery::mock(Beds24BookingService::class);
-        $beds24->shouldReceive('apiCall')->once()->andReturn($this->fakeJsonResponse(200, ['id' => 'p1']));
+        $beds24->shouldReceive('apiCall')->once()->andReturn($this->fakeJsonResponse(200, [[
+            'success' => true, 'modified' => true, 'errors' => [],
+        ]]));
 
         $this->app->instance(Beds24BookingService::class, $beds24);
 
