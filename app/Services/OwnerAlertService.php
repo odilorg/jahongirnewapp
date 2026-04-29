@@ -459,6 +459,85 @@ class OwnerAlertService
         );
     }
 
+    /**
+     * Owner-side approval request for a shift close that hit Manager tier.
+     *
+     * Inline keyboard callbacks `approve_shift_<id>` / `reject_shift_<id>`
+     * mirror the existing expense-approval pattern. C1.3 will wire
+     * OwnerBotController to handle these callbacks.
+     */
+    public function requestShiftCloseApproval(
+        CashierShift $shift,
+        \App\DTOs\Cashier\ShiftCloseEvaluation $eval,
+    ): void {
+        if ($this->ownerChatId === 0) {
+            Log::warning('OwnerAlertService: owner chat ID not configured (shift approval)', [
+                'shift_id' => $shift->id,
+            ]);
+            return;
+        }
+
+        $text = $this->buildShiftApprovalMessage($shift, $eval);
+        $keyboard = [
+            'inline_keyboard' => [[
+                ['text' => '✅ Одобрить', 'callback_data' => "approve_shift_{$shift->id}"],
+                ['text' => '❌ Отклонить', 'callback_data' => "reject_shift_{$shift->id}"],
+            ]],
+        ];
+
+        SendTelegramNotificationJob::dispatch(
+            'owner-alert',
+            'sendMessage',
+            [
+                'chat_id'      => $this->ownerChatId,
+                'text'         => $text,
+                'parse_mode'   => 'HTML',
+                'reply_markup' => json_encode($keyboard),
+            ]
+        );
+
+        Log::info('Shift close approval requested', [
+            'shift_id'     => $shift->id,
+            'tier'         => $eval->tier->value,
+            'severity_uzs' => $eval->severityUzs,
+            'fx_stale'     => $eval->fxStale,
+        ]);
+    }
+
+    private function buildShiftApprovalMessage(
+        CashierShift $shift,
+        \App\DTOs\Cashier\ShiftCloseEvaluation $eval,
+    ): string {
+        $cashierName = optional($shift->user)->name ?? "user #{$shift->user_id}";
+        $severity    = number_format($eval->severityUzs, 0, '.', ' ');
+
+        $lines = [
+            '🔍 <b>Закрытие смены требует одобрения</b>',
+            '',
+            "Кассир: <b>{$cashierName}</b>",
+            "Смена: #{$shift->id} (открыта " . ($shift->opened_at?->format('Y-m-d H:i') ?? '—') . ')',
+            "Расхождение (UZS-эквивалент): <b>{$severity} UZS</b>",
+            '',
+            '<b>По валютам:</b>',
+        ];
+
+        foreach ($eval->perCurrencyBreakdown as $currency => $row) {
+            $delta = (float) ($row['delta'] ?? 0);
+            if ($delta == 0.0) continue;
+            $sign     = $delta > 0 ? '+' : '';
+            $deltaStr = number_format($delta, 2, '.', ' ');
+            $uzsEq    = number_format((float) ($row['uzs_equiv'] ?? 0), 0, '.', ' ');
+            $lines[]  = "  {$currency}: {$sign}{$deltaStr} (~{$uzsEq} UZS)";
+        }
+
+        if ($eval->fxStale) {
+            $lines[] = '';
+            $lines[] = '⚠️ <i>Курсы ФX устарели — тир увеличен до Manager.</i>';
+        }
+
+        return implode("\n", $lines);
+    }
+
     // -------------------------------------------------------------------------
     // Formatting helpers
     // -------------------------------------------------------------------------

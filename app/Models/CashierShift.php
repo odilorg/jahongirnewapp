@@ -296,8 +296,12 @@ class CashierShift extends Model
      */
     public static function userHasOpenShift(int $userId): bool
     {
+        // Drawer-singleton invariant: a shift sitting in UNDER_REVIEW (pending
+        // owner approval, C1.2+) still locks the drawer — the cashier must
+        // not be able to start a new shift or open new payments while the
+        // close is awaiting decision.
         return self::where('user_id', $userId)
-            ->where('status', ShiftStatus::OPEN)
+            ->whereIn('status', [ShiftStatus::OPEN, ShiftStatus::UNDER_REVIEW])
             ->exists();
     }
 
@@ -307,7 +311,7 @@ class CashierShift extends Model
     public static function getUserOpenShift(int $userId): ?self
     {
         return self::where('user_id', $userId)
-            ->where('status', ShiftStatus::OPEN)
+            ->whereIn('status', [ShiftStatus::OPEN, ShiftStatus::UNDER_REVIEW])
             ->with('cashDrawer')
             ->first();
     }
