@@ -449,15 +449,30 @@ class CashierBotController extends Controller
 
                 $arrival = \Carbon\Carbon::parse($presentation->arrivalDate)->format('d.m');
                 $s->update(['state' => 'payment_fx_currency', 'data' => $d]);
+
+                // Hide buttons whose presented amount is ≤ 0 to avoid offering
+                // a "USD: 0.00" choice that BotPaymentService would reject. UZS
+                // is the booking-equivalent and effectively always populated, so
+                // we keep its button shown even at 0 (showing 0 is rare and
+                // operationally informative).
+                $row = [
+                    ['text' => '🇺🇿 UZS: ' . number_format($presentation->uzsPresented, 0, '.', ' '), 'callback_data' => 'cur_UZS'],
+                ];
+                if ($presentation->usdPresented > 0) {
+                    $row[] = ['text' => '🇺🇸 USD: ' . number_format($presentation->usdPresented, 2, '.', ' '), 'callback_data' => 'cur_USD'];
+                }
+                if ($presentation->eurPresented > 0) {
+                    $row[] = ['text' => '🇪🇺 EUR: ' . number_format($presentation->eurPresented, 0), 'callback_data' => 'cur_EUR'];
+                }
+                if ($presentation->rubPresented > 0) {
+                    $row[] = ['text' => '🇷🇺 RUB: ' . number_format($presentation->rubPresented, 0, '.', ' '), 'callback_data' => 'cur_RUB'];
+                }
+
                 $this->send($chatId,
                     "💳 Бронь #{$bid} | {$presentation->guestName} | Заезд: {$arrival}\n"
                     . "Курс на {$presentation->fxRateDate}\n\n"
                     . "Выберите валюту оплаты:",
-                    ['inline_keyboard' => [[
-                        ['text' => '🇺🇿 UZS: ' . number_format($presentation->uzsPresented, 0, '.', ' '), 'callback_data' => 'cur_UZS'],
-                        ['text' => '🇪🇺 EUR: ' . number_format($presentation->eurPresented, 0), 'callback_data' => 'cur_EUR'],
-                        ['text' => '🇷🇺 RUB: ' . number_format($presentation->rubPresented, 0, '.', ' '), 'callback_data' => 'cur_RUB'],
-                    ]]],
+                    ['inline_keyboard' => [$row]],
                     'inline'
                 );
                 return response('OK');
