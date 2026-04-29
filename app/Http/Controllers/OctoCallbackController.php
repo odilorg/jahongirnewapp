@@ -304,12 +304,21 @@ class OctoCallbackController extends Controller
             $stamp    = now()->format('Y-m-d H:i');
             $existing = $inquiry->internal_notes ? $inquiry->internal_notes . "\n\n" : '';
 
-            // Determine whether this is a TERMINAL failure (canceled / expired /
-            // hard decline). For terminal failures we reconcile inquiry state so
-            // the operator UI offers a fresh "Generate" path again — otherwise
-            // the dead Octo URL persists on the inquiry and traps the operator.
-            $terminalFailureStatuses = ['canceled', 'cancelled', 'expired', 'failed', 'declined'];
-            $isTerminal = in_array(strtolower((string) $status), $terminalFailureStatuses, true);
+            // Inverted whitelist: only KNOWN soft states leave the attempt
+            // and inquiry alone. Anything else — known hard failures
+            // (failed/declined/canceled/expired) AND any unknown future
+            // status — is treated as TERMINAL and triggers Fix A reset.
+            // The cost of a false-terminal is one extra regenerate click;
+            // the cost of a false-non-terminal is the operator being locked
+            // out (Sable INQ-2026-000069 bug). Safe default = terminal.
+            $nonTerminalStatuses = [
+                'created',
+                'wait_user_action',
+                'process_user_login',
+                'process_action',
+                'payment_in_process',
+            ];
+            $isTerminal = ! in_array(strtolower((string) $status), $nonTerminalStatuses, true);
 
             $updates = [
                 'internal_notes' => $existing . "[{$stamp}] Octo payment {$status} (txn {$transactionId})",
