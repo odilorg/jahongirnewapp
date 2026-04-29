@@ -41,6 +41,8 @@ final class CashierBotCallbackRouterOwnerDelegationTest extends TestCase
             'data'    => 'approve_expense_42',
             'message' => ['chat' => ['id' => 11_111], 'message_id' => 222],
         ], $controller);
+
+        $this->addToAssertionCount(Mockery::getContainer()->mockery_getExpectationCount());
     }
 
     public function test_reject_expense_callback_delegates_to_owner_bot(): void
@@ -60,6 +62,8 @@ final class CashierBotCallbackRouterOwnerDelegationTest extends TestCase
             'data'    => 'reject_expense_99',
             'message' => ['chat' => ['id' => 11_222], 'message_id' => 333],
         ], $controller);
+
+        $this->addToAssertionCount(Mockery::getContainer()->mockery_getExpectationCount());
     }
 
     public function test_owner_delegation_bypasses_cashier_idempotency_claim(): void
