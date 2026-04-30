@@ -14,6 +14,39 @@ Newest entries at top.
 
 ---
 
+## 2026-04-30 — Driver/guide dispatch templates: Latin → Uzbek Cyrillic; remove `{customer_phone}`
+
+**Symptom:** Older drivers/guides were struggling to read the Uzbek Latin
+dispatch messages at a glance, and the `📱 Mehmon telefoni: …` line was
+encouraging suppliers to call the guest directly instead of routing
+through the operator.
+
+**Root cause:** Templates `driver_dispatch_uz` / `guide_dispatch_uz` /
+`supplier_cancellation_uz` were authored in Latin Uzbek, and the driver
+/guide template explicitly rendered the customer phone number.
+
+**Fix:**
+- Converted the three templates in `config/inquiry_templates.php` to
+  Uzbek Cyrillic (matches the script Jahongir Travel ops already uses
+  in person with older drivers).
+- Removed the `{customer_phone}` line from `driver_dispatch_uz` and
+  `guide_dispatch_uz`.
+- Defense-in-depth: removed `{customer_phone}` from the
+  `$replacements` map in `DriverDispatchNotifier::buildMessage()` so
+  the token can't render even if accidentally re-added to the template.
+- `accommodation_dispatch_ru` left untouched (Russian, keeps phone —
+  hosts often need to coordinate arrivals directly with the guest).
+- Inline ad-hoc Uzbek strings in `DriverDispatchNotifier.php`
+  (amendment / T-1h ping / removal messages) deliberately deferred to
+  a later pass.
+
+**DB change:** none (config-only).
+**Backup:** n/a.
+**Commit:** `c94d837`.
+**Deployed:** 2026-04-30 17:43 UTC. 5/5 health checks passed.
+
+---
+
 ## 2026-04-28 — Telegram bot webhook audit: 7 bots fixed
 
 **Symptom.** 6 of 8 bots had no registered webhooks; POS bot pointed at wrong endpoint; driver-guide bot had retry-loop bug; GYG fetch-emails kept crashing; housekeeping had 9 queued updates.
