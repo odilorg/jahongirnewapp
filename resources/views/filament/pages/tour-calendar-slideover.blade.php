@@ -268,6 +268,20 @@
                             :display="\App\Support\PhoneFormatter::format($inquiry->driver->phone01)" />
                     </div>
                 @endif
+                @if ($inquiry->driver->card_number)
+                    <div class="text-xs text-gray-800 dark:text-gray-100" style="margin-top: 3px;">
+                        <x-copyable-field
+                            :value="$inquiry->driver->card_number"
+                            :display="'💳 ' . ($inquiry->driver->card_bank ? $inquiry->driver->card_bank . ' · ' : '') . $inquiry->driver->card_number_formatted" />
+                    </div>
+                    @if ($inquiry->driver->card_holder_name)
+                        <div class="text-xs text-gray-600 dark:text-gray-300">
+                            <x-copyable-field
+                                :value="$inquiry->driver->card_holder_name"
+                                :display="'👤 ' . $inquiry->driver->card_holder_name" />
+                        </div>
+                    @endif
+                @endif
                 @if ($inquiry->driver_cost)
                     <div class="text-xs" style="margin-top: 2px; color: {{ $payments['driver']['color'] }};">
                         ${{ number_format((float) $inquiry->driver_cost, 2) }}
@@ -323,6 +337,20 @@
                             :value="\App\Support\PhoneFormatter::normalizeForCopy($inquiry->guide->phone01)"
                             :display="\App\Support\PhoneFormatter::format($inquiry->guide->phone01)" />
                     </div>
+                @endif
+                @if ($inquiry->guide->card_number)
+                    <div class="text-xs text-gray-800 dark:text-gray-100" style="margin-top: 3px;">
+                        <x-copyable-field
+                            :value="$inquiry->guide->card_number"
+                            :display="'💳 ' . ($inquiry->guide->card_bank ? $inquiry->guide->card_bank . ' · ' : '') . $inquiry->guide->card_number_formatted" />
+                    </div>
+                    @if ($inquiry->guide->card_holder_name)
+                        <div class="text-xs text-gray-600 dark:text-gray-300">
+                            <x-copyable-field
+                                :value="$inquiry->guide->card_holder_name"
+                                :display="'👤 ' . $inquiry->guide->card_holder_name" />
+                        </div>
+                    @endif
                 @endif
                 @if ($inquiry->guide_cost)
                     <div class="text-xs" style="margin-top: 2px; color: {{ $payments['guide']['color'] }};">

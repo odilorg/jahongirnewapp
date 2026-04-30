@@ -103,8 +103,36 @@ class DriverResource extends Resource
                             ->maxLength(255),
                     ])->columns(2),
 
-
-
+                Forms\Components\Section::make('💳 Платежные реквизиты (P2P)')
+                    ->description('Карта водителя для прямых переводов после тура. Хранится только номер — без срока действия и CVV.')
+                    ->collapsible()
+                    ->collapsed(fn (string $operation): bool => $operation === 'edit')
+                    ->schema([
+                        Forms\Components\TextInput::make('card_number')
+                            ->label('Номер карты')
+                            ->placeholder('8600 1234 5678 9012')
+                            ->mask('9999 9999 9999 9999')
+                            ->stripCharacters([' ', '-'])
+                            ->rule('digits:16')
+                            ->helperText('16 цифр. Пробелы убираются автоматически.')
+                            ->autocomplete('off')
+                            ->maxLength(19),
+                        Forms\Components\Select::make('card_bank')
+                            ->label('Банк / тип карты')
+                            ->options([
+                                'Humo'   => 'Humo',
+                                'Uzcard' => 'Uzcard',
+                                'Visa'   => 'Visa',
+                                'Mastercard' => 'Mastercard',
+                            ])
+                            ->native(false)
+                            ->searchable(),
+                        Forms\Components\TextInput::make('card_holder_name')
+                            ->label('Владелец карты')
+                            ->placeholder('JAMSHID KARIMOV')
+                            ->helperText('Если карта оформлена не на водителя (например, на жену) — впишите реальное имя владельца.')
+                            ->maxLength(100),
+                    ])->columns(2),
 
             ]);
     }
@@ -217,6 +245,31 @@ class DriverResource extends Resource
 
 
 
+
+                Section::make('💳 Платежные реквизиты (P2P)')
+                    ->schema([
+                        TextEntry::make('card_number_formatted')
+                            ->label('Номер карты')
+                            ->placeholder('—')
+                            ->fontFamily('mono')
+                            ->copyable()
+                            ->copyMessage('Скопировано ✓')
+                            ->copyMessageDuration(1500)
+                            ->copyableState(fn ($record) => $record?->card_number),
+                        TextEntry::make('card_bank')
+                            ->label('Банк')
+                            ->placeholder('—'),
+                        TextEntry::make('card_holder_name')
+                            ->label('Владелец')
+                            ->placeholder('—')
+                            ->copyable()
+                            ->copyMessage('Скопировано ✓')
+                            ->copyMessageDuration(1500),
+                        TextEntry::make('card_updated_at')
+                            ->label('Реквизиты обновлены')
+                            ->dateTime()
+                            ->placeholder('—'),
+                    ])->columns(2),
 
                 Section::make('Relationship Info')
                     // ->description('Prevent abuse by limiting the number of requests per period')

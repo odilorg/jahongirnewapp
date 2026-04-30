@@ -18,13 +18,58 @@ use Illuminate\Database\Eloquent\Relations\HasOneThrough;
 class Driver extends Model
 {
     use HasFactory;
-    protected $fillable = ['address_city', 'extra_details', 'car_id', 'first_name', 'last_name', 'email', 'phone01', 'phone02', 'fuel_type', 'driver_image', 'telegram_chat_id', 'is_active'];
+    protected $fillable = ['address_city', 'extra_details', 'car_id', 'first_name', 'last_name', 'email', 'phone01', 'phone02', 'fuel_type', 'driver_image', 'telegram_chat_id', 'is_active', 'card_number', 'card_bank', 'card_holder_name', 'card_updated_at'];
 
-    protected $casts = ['is_active' => 'boolean'];
+    protected $casts = [
+        'is_active'        => 'boolean',
+        'card_updated_at'  => 'datetime',
+    ];
+
+    protected static function booted(): void
+    {
+        // Stamp card_updated_at when, and ONLY when, the card number itself
+        // changes. Avoids touching the timestamp on unrelated profile edits.
+        static::saving(function (Driver $driver) {
+            if ($driver->isDirty('card_number')) {
+                $driver->card_updated_at = $driver->card_number ? now() : null;
+            }
+        });
+    }
 
     public function getFullNameAttribute(): string
     {
         return trim("{$this->first_name} {$this->last_name}");
+    }
+
+    /**
+     * Strip everything except digits before persisting. Operator may paste
+     * "8600 1234 5678 9012" or "8600-1234-5678-9012"; we always store
+     * "8600123456789012". Empty input → null (so card_updated_at stays null
+     * for suppliers without a card).
+     */
+    public function setCardNumberAttribute(?string $value): void
+    {
+        if ($value === null) {
+            $this->attributes['card_number'] = null;
+
+            return;
+        }
+
+        $digits = preg_replace('/\D+/', '', $value) ?? '';
+
+        $this->attributes['card_number'] = $digits === '' ? null : $digits;
+    }
+
+    /**
+     * "8600 1234 5678 9012" — for display only. Storage stays digits-only.
+     */
+    public function getCardNumberFormattedAttribute(): ?string
+    {
+        if (! $this->card_number) {
+            return null;
+        }
+
+        return trim(chunk_split($this->card_number, 4, ' '));
     }
 
     public function scopeActive(\Illuminate\Database\Eloquent\Builder $query): \Illuminate\Database\Eloquent\Builder

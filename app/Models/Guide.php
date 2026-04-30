@@ -12,15 +12,54 @@ class Guide extends Model
     use HasFactory;
 
     protected $casts = [
-        'lang_spoken' => 'array',
-        'is_active'   => 'boolean',
+        'lang_spoken'      => 'array',
+        'is_active'        => 'boolean',
+        'card_updated_at'  => 'datetime',
     ];
 
-    protected $fillable = ['first_name', 'last_name', 'email', 'phone01', 'phone02', 'lang_spoken', 'guide_image', 'telegram_chat_id', 'is_active'];
+    protected $fillable = ['first_name', 'last_name', 'email', 'phone01', 'phone02', 'lang_spoken', 'guide_image', 'telegram_chat_id', 'is_active', 'card_number', 'card_bank', 'card_holder_name', 'card_updated_at'];
+
+    protected static function booted(): void
+    {
+        // Stamp card_updated_at when, and ONLY when, the card number itself
+        // changes. Avoids touching the timestamp on unrelated profile edits.
+        static::saving(function (Guide $guide) {
+            if ($guide->isDirty('card_number')) {
+                $guide->card_updated_at = $guide->card_number ? now() : null;
+            }
+        });
+    }
 
     public function getFullNameAttribute(): string
     {
         return trim("{$this->first_name} {$this->last_name}");
+    }
+
+    /**
+     * Strip everything except digits before persisting. Operator may paste
+     * "8600 1234 5678 9012" or "8600-1234-5678-9012"; we always store
+     * "8600123456789012".
+     */
+    public function setCardNumberAttribute(?string $value): void
+    {
+        if ($value === null) {
+            $this->attributes['card_number'] = null;
+
+            return;
+        }
+
+        $digits = preg_replace('/\D+/', '', $value) ?? '';
+
+        $this->attributes['card_number'] = $digits === '' ? null : $digits;
+    }
+
+    public function getCardNumberFormattedAttribute(): ?string
+    {
+        if (! $this->card_number) {
+            return null;
+        }
+
+        return trim(chunk_split($this->card_number, 4, ' '));
     }
 
     public function scopeActive(\Illuminate\Database\Eloquent\Builder $query): \Illuminate\Database\Eloquent\Builder
