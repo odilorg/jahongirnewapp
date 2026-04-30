@@ -26,11 +26,16 @@ class TgDirectClient
     /**
      * Send a Telegram DM.
      *
-     * @param  string  $to       phone (+998...), @username, or chat_id
-     * @param  string  $message  plain text (tg-direct does not accept HTML)
-     * @return array{ok: bool, msg_id?: int, error?: string}
+     * @param  string  $to        phone (+998...), @username, or chat_id
+     * @param  string  $message   plain text (tg-direct does not accept HTML)
+     * @param  string|null  $contactName  full name to use IF tg-direct has to
+     *     import the phone as a new contact (drivers/guides/accommodation
+     *     name). Ignored when the recipient is already in Odil's contacts —
+     *     tg-direct will use the existing peer instead. Prevents the
+     *     "every supplier renamed to 'Contact'" regression.
+     * @return array{ok: bool, msg_id?: int, error?: string, method?: string}
      */
-    public function send(string $to, string $message): array
+    public function send(string $to, string $message, ?string $contactName = null): array
     {
         $url     = (string) config('services.tg_direct.url', 'http://127.0.0.1:8766');
         $timeout = (int) config('services.tg_direct.timeout', 5);
@@ -45,14 +50,16 @@ class TgDirectClient
             return ['ok' => false, 'error' => 'empty_destination'];
         }
 
+        $payload = ['to' => $normalised, 'message' => $message];
+        if ($contactName !== null && trim($contactName) !== '') {
+            $payload['first_name'] = trim($contactName);
+        }
+
         try {
             $response = Http::timeout($timeout)
                 ->connectTimeout(3)
                 ->asJson()
-                ->post(rtrim($url, '/') . '/send', [
-                    'to'      => $normalised,
-                    'message' => $message,
-                ]);
+                ->post(rtrim($url, '/') . '/send', $payload);
         } catch (\Throwable $e) {
             Log::warning('TgDirectClient: HTTP exception', [
                 'to'    => $normalised,

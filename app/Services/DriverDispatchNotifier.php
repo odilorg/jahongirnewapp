@@ -100,7 +100,7 @@ class DriverDispatchNotifier
         }
 
         $message = $this->buildStayMessage($inquiry, $stay);
-        $result  = $this->tgDirect->send($phone, $message);
+        $result  = $this->tgDirect->send($phone, $message, $accommodation->name);
 
         if (! ($result['ok'] ?? false)) {
             Log::warning('DriverDispatchNotifier: stay dispatch failed', [
@@ -178,7 +178,7 @@ class DriverDispatchNotifier
 
         $inquiry->loadMissing(['driver', 'guide', 'tourProductDirection']);
         $message = $this->buildMessage($inquiry, $role);
-        $result  = $this->tgDirect->send($destination, $message);
+        $result  = $this->tgDirect->send($destination, $message, $supplier->full_name ?? null);
 
         if (! ($result['ok'] ?? false)) {
             Log::warning('DriverDispatchNotifier: send failed', [
@@ -253,7 +253,7 @@ class DriverDispatchNotifier
         }
 
         $message = $this->buildStayAmendmentMessage($inquiry, $changes);
-        $result  = $this->tgDirect->send($phone, $message);
+        $result  = $this->tgDirect->send($phone, $message, $accommodation->name);
 
         Log::info('DriverDispatchNotifier: stay amendment sent', [
             'reference'        => $inquiry->reference,
@@ -293,7 +293,7 @@ class DriverDispatchNotifier
             . "👤 Mehmon: {$inquiry->customer_name}\n"
             . "📋 Ref: {$inquiry->reference}";
 
-        $result = $this->tgDirect->send($phone, $message);
+        $result = $this->tgDirect->send($phone, $message, $accommodation->name ?? null);
 
         Log::info('DriverDispatchNotifier: stay removal notice', [
             'reference'        => $inquiry->reference,
@@ -354,7 +354,7 @@ class DriverDispatchNotifier
         }
 
         $message = $this->buildAmendmentMessage($inquiry, $changes);
-        $result  = $this->tgDirect->send($destination, $message);
+        $result  = $this->tgDirect->send($destination, $message, $supplier->full_name ?? null);
 
         if (! ($result['ok'] ?? false)) {
             Log::warning('DriverDispatchNotifier: amendment send failed', [
@@ -404,7 +404,7 @@ class DriverDispatchNotifier
             . "👤 Mehmon: {$inquiry->customer_name}\n"
             . "📋 Ref: {$inquiry->reference}";
 
-        $result = $this->tgDirect->send($destination, $message);
+        $result = $this->tgDirect->send($destination, $message, $supplier->full_name ?? null);
 
         Log::info('DriverDispatchNotifier: supplier removal notice', [
             'reference' => $inquiry->reference,
@@ -476,7 +476,7 @@ class DriverDispatchNotifier
             . "📍 {$pickupPlace}\n\n"
             . "Iltimos tayyor bo'ling.";
 
-        $result = $this->tgDirect->send($destination, $message);
+        $result = $this->tgDirect->send($destination, $message, $supplier->full_name ?? null);
 
         Log::info('DriverDispatchNotifier: T-1h imminent ping', [
             'reference' => $inquiry->reference,
@@ -520,7 +520,7 @@ class DriverDispatchNotifier
             . "📅 {$stayDate}\n\n"
             . "Iltimos tayyor bo'ling.";
 
-        $result = $this->tgDirect->send($phone, $message);
+        $result = $this->tgDirect->send($phone, $message, $accommodation->name);
 
         Log::info('DriverDispatchNotifier: T-1h stay imminent ping', [
             'reference'        => $inquiry->reference,
@@ -555,7 +555,7 @@ class DriverDispatchNotifier
         }
 
         $message = $this->buildCancellationMessage($inquiry);
-        $result  = $this->tgDirect->send($destination, $message);
+        $result  = $this->tgDirect->send($destination, $message, $supplier->full_name ?? null);
 
         if (! ($result['ok'] ?? false)) {
             Log::warning('DriverDispatchNotifier: cancellation send failed', [
