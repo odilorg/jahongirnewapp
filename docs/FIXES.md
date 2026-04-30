@@ -14,6 +14,47 @@ Newest entries at top.
 
 ---
 
+## 2026-04-30 — Supplier payout cards (drivers + guides) — feature
+
+**Symptom (operator pain, not a bug):** Operator pays drivers/guides
+directly to their bank cards after a tour but had no place to keep
+the card numbers. Each payout meant searching SMS / WhatsApp threads
+for the right number, with high re-asking and typo risk.
+
+**Change:** Added per-supplier payout card storage + copy-button UX.
+
+- `drivers` and `guides` each gained `card_number` (varchar 16,
+  digits-only enforced at the model layer), `card_bank`,
+  `card_holder_name`, `card_updated_at` (auto-stamped when number
+  changes).
+- Filament: new `💳 Платежные реквизиты (P2P)` section in form
+  (collapsed on edit, masked input, `digits:16` validation) and
+  matching infolist section with copyable card+holder.
+- List tables intentionally **do not** show the card column — small-
+  office privacy.
+- Calendar slideover: after the phone row, renders
+  `💳 Humo · 8600 1234 5678 9012 [📋]` and `👤 Holder Name [📋]`,
+  reusing the existing `<x-copyable-field>` component. Clipboard
+  receives digits only (no spaces / no dashes) — works in every
+  Uzbek banking app.
+- Not PCI data (no CVV, no expiry, no PAN authorization). Treated
+  as PII: hidden from list pages, present only on detail/edit and
+  in the slideover.
+
+**DB change:** YES — single migration adding 4 nullable columns to
+each of `drivers` and `guides`. Reversible.
+
+**Backup:**
+`/var/backups/databases/daily/jahongirnewapp_pre-card-migration_20260430_200959.sql.gz`
+(2.4 MB, 148 tables, gzip integrity verified before deploy)
+
+**Commit:** `94fa60d`.
+**Deployed:** 2026-04-30 20:11 UTC. 5/5 health checks passed.
+**Migration verified:** all 4 columns present on both tables in
+production immediately after deploy.
+
+---
+
 ## 2026-04-30 — Driver/guide dispatch templates: Latin → Uzbek Cyrillic; remove `{customer_phone}`
 
 **Symptom:** Older drivers/guides were struggling to read the Uzbek Latin
