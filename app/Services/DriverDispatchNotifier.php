@@ -665,7 +665,8 @@ class DriverDispatchNotifier
             '{pax}'                        => $pax,
             '{customer_name}'              => (string) $inquiry->customer_name,
             '{customer_name_with_country}' => $customerWithCountry,
-            '{customer_phone}'             => (string) $inquiry->customer_phone,
+            // Deliberately NOT exposing {customer_phone} here — drivers
+            // /guides should contact the operator, not the guest.
             '{direction}'                  => $inquiry->tourProductDirection?->name ?? '—',
             '{tour_type}'                  => $inquiry->tour_type ? ucfirst($inquiry->tour_type) : '—',
             '{driver_name}'                => $inquiry->driver?->full_name ?? '—',

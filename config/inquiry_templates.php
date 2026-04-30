@@ -148,16 +148,15 @@ TXT,
 TXT,
 
     'driver_dispatch_uz' => <<<TXT
-🏕 Sayohat turi: {tour}
-🗺 Yo'nalish: {direction} ({tour_type})
-👤 Mehmon: {customer_name_with_country}
-🕐 Vaqti: {pickup_time}
-📅 Sana: {travel_date}
-👥 Odam soni: {pax}
-📱 Mehmon telefoni: {customer_phone}
-🏨 Mehmonxona / olib ketish: {pickup_point}
-🏁 Tushirish joyi: {dropoff_point}
-🧭 Gid: {guide_name} · {guide_phone}
+🏕 Саёҳат тури: {tour}
+🗺 Йўналиш: {direction} ({tour_type})
+👤 Меҳмон: {customer_name_with_country}
+🕐 Вақти: {pickup_time}
+📅 Сана: {travel_date}
+👥 Одам сони: {pax}
+🏨 Меҳмонхона / олиб кетиш: {pickup_point}
+🏁 Тушириш жойи: {dropoff_point}
+🧭 Гид: {guide_name} · {guide_phone}
 
 {notes}
 
@@ -165,16 +164,15 @@ TXT,
 TXT,
 
     'guide_dispatch_uz' => <<<TXT
-🏕 Sayohat turi: {tour}
-🗺 Yo'nalish: {direction} ({tour_type})
-👤 Mehmon: {customer_name_with_country}
-🕐 Vaqti: {pickup_time}
-📅 Sana: {travel_date}
-👥 Odam soni: {pax}
-📱 Mehmon telefoni: {customer_phone}
-🏨 Mehmonxona / olib ketish: {pickup_point}
-🏁 Tushirish joyi: {dropoff_point}
-🚗 Haydovchi: {driver_name} · {driver_phone}
+🏕 Саёҳат тури: {tour}
+🗺 Йўналиш: {direction} ({tour_type})
+👤 Меҳмон: {customer_name_with_country}
+🕐 Вақти: {pickup_time}
+📅 Сана: {travel_date}
+👥 Одам сони: {pax}
+🏨 Меҳмонхона / олиб кетиш: {pickup_point}
+🏁 Тушириш жойи: {dropoff_point}
+🚗 Ҳайдовчи: {driver_name} · {driver_phone}
 
 {notes}
 
@@ -184,12 +182,12 @@ TXT,
     // Supplier (driver/guide) cancellation notice. Short + unmistakable.
     // Phase 17: sent when a GYG cancellation email cancels the inquiry.
     'supplier_cancellation_uz' => <<<TXT
-❌ Tur bekor qilindi
+❌ Тур бекор қилинди
 
-📅 Sana: {travel_date}
-👤 Mehmon: {customer_name}
-🏕 Tur: {tour}
-🕐 Vaqti: {pickup_time}
+📅 Сана: {travel_date}
+👤 Меҳмон: {customer_name}
+🏕 Тур: {tour}
+🕐 Вақти: {pickup_time}
 📋 Ref: {reference}
 TXT,
 
