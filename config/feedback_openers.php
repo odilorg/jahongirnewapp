@@ -35,6 +35,13 @@ declare(strict_types=1);
  *
  * Active pool: 37 phrases.
  * Reserved (commented out): 3 playful for future seasonal / niche use.
+ *
+ * Editing discipline:
+ *   If in doubt, remove rather than add. Tone consistency beats
+ *   variety. Every new phrase risks drift; cuts strengthen the pool.
+ *   v2 will introduce performance-weighted selection once we have
+ *   real submission-rate data per opener_index — until then, do not
+ *   second-guess from internal taste.
  */
 return [
     // ── Caring (9) ───────────────────────────────────────────────────
