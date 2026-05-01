@@ -55,6 +55,23 @@ class CarResource extends Resource
                             ->required()
                             ->numeric(),
                     ]),
+                    Forms\Components\TextInput::make('model')
+                        ->label('Model')
+                        ->placeholder('Cobalt, Captiva, Damas, etc.')
+                        ->required()
+                        ->maxLength(255),
+                    Forms\Components\TextInput::make('number_seats')
+                        ->label('Seats')
+                        ->required()
+                        ->numeric()
+                        ->minValue(1)
+                        ->maxValue(60),
+                    Forms\Components\TextInput::make('number_luggage')
+                        ->label('Luggage capacity')
+                        ->required()
+                        ->numeric()
+                        ->minValue(0)
+                        ->maxValue(20),
                     Forms\Components\TextInput::make('color')
                     ->required(),
                 Forms\Components\Select::make('driver_id')

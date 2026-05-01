@@ -11,13 +11,16 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 class Car extends Model
 {
     use HasFactory;
-    protected $fillable = [ 
+    protected $fillable = [
         'plate_number',
-         'brand_name',
-          'image',
-           'car_brand_id',
-           'driver_id',
-           'color'
+        'brand_name',
+        'image',
+        'car_brand_id',
+        'driver_id',
+        'color',
+        'model',
+        'number_seats',
+        'number_luggage',
     ];
 
     // public function drivers(): BelongsToMany
