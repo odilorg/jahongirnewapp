@@ -3,13 +3,13 @@
 @endphp
 
 <x-feedback.layout title="How was your trip?">
-    <div class="text-center mb-5">
-        <div class="text-3xl mb-2">⭐</div>
+    <div class="text-center mb-7">
+        <div class="text-3xl mb-3">⭐</div>
         <h2 class="text-xl font-semibold text-gray-900">How was your trip{{ $presenter->firstName ? ", {$presenter->firstName}" : '' }}?</h2>
         @if ($presenter->tourTitle)
-            <p class="text-sm text-gray-500 mt-1">{{ $presenter->tourTitle }}</p>
+            <p class="text-sm text-gray-500 mt-2">{{ $presenter->tourTitle }}</p>
         @endif
-        <p class="text-xs text-gray-400 mt-1">Takes 30 seconds · Your honest feedback helps us improve.</p>
+        <p class="text-xs text-gray-400 mt-3">Takes 30 seconds — your honest feedback helps us improve.</p>
     </div>
 
     <form method="POST" action="{{ route('feedback.store', $feedback->token) }}"

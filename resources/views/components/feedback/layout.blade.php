@@ -23,7 +23,7 @@
             {{ $slot }}
         </div>
 
-        <div class="text-center text-xs text-gray-400 mt-6">
+        <div class="text-center text-xs text-gray-500 mt-6">
             Thank you for traveling with Jahongir Travel
         </div>
     </div>

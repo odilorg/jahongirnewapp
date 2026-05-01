@@ -16,13 +16,14 @@
 
     <div class="flex items-center justify-center gap-3 sm:gap-4" x-data>
         @for ($i = 1; $i <= 5; $i++)
-            {{-- Stars are the core interaction — generous size, clear inactive state,
-                 satisfying tap feedback. text-5xl + p-0.5 keeps tap targets large
-                 without overflowing the mobile container. --}}
+            {{-- Stars are the core interaction. Inactive bumped from gray-300
+                 to gray-400 for stronger contrast outdoors / on bright screens.
+                 Selected stars get a subtle "pop" via scale-125 — feels more
+                 satisfying without being childish. --}}
             <button type="button"
                     @click="setRating('{{ $role }}', {{ $i }})"
-                    class="star-btn text-5xl leading-none p-0.5 transition-all duration-150 active:scale-90"
-                    :class="ratings.{{ $role }} >= {{ $i }} ? 'text-amber-400 drop-shadow-sm scale-110' : 'text-gray-300 hover:text-amber-200'"
+                    class="star-btn text-[2.6rem] sm:text-5xl leading-none p-0.5 transition-all duration-200 ease-out active:scale-90"
+                    :class="ratings.{{ $role }} >= {{ $i }} ? 'text-amber-400 drop-shadow scale-125' : 'text-gray-400 hover:text-amber-200'"
                     aria-label="{{ $i }} stars">★</button>
         @endfor
     </div>
