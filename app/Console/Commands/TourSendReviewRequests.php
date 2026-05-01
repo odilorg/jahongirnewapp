@@ -65,7 +65,7 @@ class TourSendReviewRequests extends Command
             ->whereNull('cancelled_at')
             ->whereNull('feedback_request_sent_at')
             ->where('travel_date', $yesterday)
-            ->with(['stays:id,inquiry_id,accommodation_id,sort_order'])
+            ->with(['stays:id,booking_inquiry_id,accommodation_id,sort_order'])
             ->get();
 
         if ($inquiries->isEmpty()) {
