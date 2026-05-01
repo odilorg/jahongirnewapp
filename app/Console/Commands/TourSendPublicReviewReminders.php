@@ -34,6 +34,16 @@ use Illuminate\Support\Facades\Log;
  *
  * Single send only. No Day-12 reminder. Over-messaging is the failure
  * mode this guard rail exists to prevent.
+ *
+ * GOVERNANCE — re-evaluate after 50+ real submissions:
+ *   The "silent = neutral" assumption above is a deliberate operational
+ *   bet (in travel, satisfied guests often just move on). Validate it
+ *   once we have data. If silent guests turn out to produce low public
+ *   ratings on Google/TripAdvisor that we DIDN'T see internally, this
+ *   filter needs to tighten — e.g. only auto-nudge silent guests after
+ *   manual operator review, OR drop silent guests from Day-6 entirely.
+ *   Until that signal arrives, do not loosen the ≤3 permanent exclusion
+ *   rule and do not add a Day-12 reminder.
  */
 class TourSendPublicReviewReminders extends Command
 {
