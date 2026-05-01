@@ -138,6 +138,15 @@ class Kernel extends ConsoleKernel
             ->timezone('Asia/Tashkent')
             ->withoutOverlapping();
 
+        // Day-6 public-review nudge (Google + TripAdvisor) at 11:00 Tashkent — only
+        // for happy + silent guests; bad-rating guests are filtered out at command
+        // level. Pairs with the Day-1 internal feedback request to recover the
+        // public-review volume the gating costs us.
+        $schedule->command('tour:send-public-review-reminders')
+            ->dailyAt('11:00')
+            ->timezone('Asia/Tashkent')
+            ->withoutOverlapping();
+
         // Hotel pickup requests at 09:00 Tashkent — email guests with bookings 3-30 days out, no hotel set
         $schedule->command('tour:send-hotel-requests')
             ->dailyAt('09:00')
