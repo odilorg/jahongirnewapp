@@ -18,14 +18,14 @@
               setRating(role, n) { this.ratings[role] = n; },
               showChips(role) { return this.ratings[role] > 0 && this.ratings[role] <= 3; }
           }"
-          class="space-y-5">
+          class="space-y-7">
         @csrf
 
         {{-- Driver --}}
         @if ($feedback->driver_id)
             <x-feedback.rating-row
                 :role="'driver'"
-                :label="'Driver'"
+                :label="'How was your driver?'"
                 :emoji="'🚗'"
                 :supplier-name="$presenter->driverName"
                 :issue-tags="$issueTags['driver']"
@@ -36,7 +36,7 @@
         @if ($feedback->guide_id)
             <x-feedback.rating-row
                 :role="'guide'"
-                :label="'Guide'"
+                :label="'How was your guide?'"
                 :emoji="'🧭'"
                 :supplier-name="$presenter->guideName"
                 :issue-tags="$issueTags['guide']"
@@ -47,7 +47,7 @@
         @if ($feedback->accommodation_id)
             <x-feedback.rating-row
                 :role="'accommodation'"
-                :label="'Accommodation'"
+                :label="'How was your stay?'"
                 :emoji="'🏕'"
                 :supplier-name="$presenter->accommodationName"
                 :issue-tags="$issueTags['accommodation']"
@@ -57,19 +57,20 @@
         {{-- Overall — always shown --}}
         <x-feedback.rating-row
             :role="'overall'"
-            :label="'Overall trip'"
+            :label="'How was the overall experience?'"
             :emoji="'⭐'"
             :supplier-name="null"
             :issue-tags="null"
         />
 
-        <div>
-            <label for="comments" class="block text-sm font-medium text-gray-700 mb-1.5">
-                Anything we should know? <span class="text-gray-400 font-normal">(optional)</span>
+        <div class="border-t border-gray-100 pt-5">
+            <label for="comments" class="block text-sm font-medium text-gray-700 mb-2">
+                What went well, or what could we improve?
+                <span class="text-gray-400 font-normal block text-xs mt-0.5">Optional — your words help us most.</span>
             </label>
             <textarea name="comments" id="comments" rows="3" maxlength="2000"
-                      class="w-full rounded-lg border-gray-200 focus:border-amber-400 focus:ring-amber-400 text-sm"
-                      placeholder="What went well, what could be better…"></textarea>
+                      class="w-full rounded-lg border-gray-200 focus:border-amber-400 focus:ring-amber-400 text-sm py-2.5"
+                      placeholder="Anything that stood out, good or bad…"></textarea>
         </div>
 
         <button type="submit"
