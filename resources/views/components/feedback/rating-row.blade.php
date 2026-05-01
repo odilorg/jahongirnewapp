@@ -14,12 +14,14 @@
         @endif
     </div>
 
-    <div class="flex items-center justify-center gap-2 sm:gap-3" x-data>
+    <div class="flex items-center justify-center gap-3 sm:gap-4" x-data>
         @for ($i = 1; $i <= 5; $i++)
-            {{-- Larger stars + bigger tap area, bolder selected state --}}
+            {{-- Stars are the core interaction — generous size, clear inactive state,
+                 satisfying tap feedback. text-5xl + p-0.5 keeps tap targets large
+                 without overflowing the mobile container. --}}
             <button type="button"
                     @click="setRating('{{ $role }}', {{ $i }})"
-                    class="star-btn text-4xl leading-none p-1 transition-all duration-150 active:scale-90"
+                    class="star-btn text-5xl leading-none p-0.5 transition-all duration-150 active:scale-90"
                     :class="ratings.{{ $role }} >= {{ $i }} ? 'text-amber-400 drop-shadow-sm scale-110' : 'text-gray-300 hover:text-amber-200'"
                     aria-label="{{ $i }} stars">★</button>
         @endfor

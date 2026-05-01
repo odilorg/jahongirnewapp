@@ -24,7 +24,7 @@
         </div>
 
         <div class="text-center text-xs text-gray-400 mt-6">
-            Thank you for choosing Jahongir Travel
+            Thank you for traveling with Jahongir Travel
         </div>
     </div>
 </body>

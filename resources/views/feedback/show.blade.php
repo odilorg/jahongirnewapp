@@ -63,23 +63,25 @@
             :issue-tags="null"
         />
 
-        <div class="border-t border-gray-100 pt-5">
+        <div class="border-t border-gray-100 pt-6">
             <label for="comments" class="block text-sm font-medium text-gray-700 mb-2">
-                What went well, or what could we improve?
+                What stood out, or what could we improve?
                 <span class="text-gray-400 font-normal block text-xs mt-0.5">Optional — your words help us most.</span>
             </label>
-            <textarea name="comments" id="comments" rows="3" maxlength="2000"
-                      class="w-full rounded-lg border-gray-200 focus:border-amber-400 focus:ring-amber-400 text-sm py-2.5"
-                      placeholder="Anything that stood out, good or bad…"></textarea>
+            {{-- Card-style textarea: clear affordance, soft tinted background,
+                 amber focus ring + border so guests know exactly where to tap. --}}
+            <textarea name="comments" id="comments" rows="5" maxlength="2000"
+                      class="w-full rounded-xl border border-gray-200 bg-gray-50/70 px-3.5 py-3 text-sm text-gray-800 placeholder-gray-400 focus:border-amber-400 focus:ring-2 focus:ring-amber-200 focus:bg-white focus:outline-none transition-colors resize-none"
+                      placeholder="Share anything that stood out — great or not-so-great."></textarea>
         </div>
 
         <button type="submit"
-                class="w-full bg-amber-500 hover:bg-amber-600 text-white font-medium py-3 rounded-xl transition-colors">
+                class="w-full bg-amber-500 hover:bg-amber-600 active:bg-amber-700 text-white font-medium py-3.5 rounded-2xl shadow-sm hover:shadow transition-all">
             Submit feedback
         </button>
 
         <p class="text-center text-[11px] text-gray-400">
-            Your feedback is private and only used to improve our service.
+            Your feedback is private and helps us improve.
         </p>
     </form>
 </x-feedback.layout>
