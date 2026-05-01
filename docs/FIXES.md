@@ -14,6 +14,70 @@ Newest entries at top.
 
 ---
 
+## 2026-05-01 — Post-tour feedback system (F1+F2+F3) — feature
+
+**Why:** Existing reminder pushed every guest to Google/TripAdvisor
+indiscriminately. We wanted a quality-control + reputation-protection
+pipeline: capture internal ratings tied to the actual driver/guide/
+accommodation, alert ops on low ratings, and push public-review CTAs
+ONLY to satisfied guests.
+
+**What shipped (commits `7562377` + hotfix `9f98104`):**
+- New `tour_feedbacks` table — FK snapshot of supplier ids at send
+  time (immune to later reassignments), 4 nullable ratings, JSON
+  issue-tag arrays, single-use 32-char token, `submitted_at` (null
+  while sent-but-unfilled), `opener_index` for audit + anti-repeat.
+- New `booking_inquiries.feedback_request_sent_at` parallel to legacy
+  `review_request_sent_at` (left as one-release safety net).
+- Public token-gated routes `GET/POST /feedback/{token}` (throttled
+  30/min/IP). Mobile-first Blade, Alpine-driven stars, dynamic role
+  rendering (only shows Driver / Guide / Accommodation when actually
+  assigned; Overall always shown). Issue-tag chips reveal client-side
+  when rating ≤ 3.
+- Post-submit branching:
+    − all submitted ratings ≥ 4 → thank-you + Google/TripAdvisor CTAs
+    − any rating ≤ 3 → empathy page (no public CTAs) + Telegram alert
+      to ops DM via new `OpsBotClient` (centralises ops_bot transport).
+- 50 hand-curated WhatsApp openers in `config/feedback_openers.php`
+  (intentionally mixed across "Just checking in / Hope you / Wanted
+  to see / Quick note" patterns to defeat repeat-guest fatigue).
+- `tour:send-review-requests` rewritten — eligibility now also requires
+  `cancelled_at IS NULL` (defense-in-depth); pre-creates feedback row
+  with token + supplier snapshot BEFORE sending; deletes orphan if all
+  channels fail; stamps `feedback_request_sent_at` + final source +
+  opener_index on success.
+- Hotfix `9f98104`: `inquiry_stays` FK column is `booking_inquiry_id`,
+  not `inquiry_id`. Fixed eager-load select column list.
+
+**Deferred to next session (F4):** Filament admin UI — feedback list,
+per-supplier scorecards in Driver/Guide/Accommodation infolists,
+calendar slideover ⭐ chips. F5 (dashboard widget + 30-day IP scrub
+cron) deferred further until real submission data arrives.
+
+**DB change:** YES — 1 new table + 1 new nullable column on
+`booking_inquiries`. Reversible via `migrate:rollback`.
+
+**Backup:**
+`/var/backups/databases/daily/jahongirnewapp_pre-feedback-system_20260501_180034.sql.gz`
+(2.4 MB, 148 tables, gzip integrity verified before deploy)
+
+**Smoke-tested live:**
+- Schema applied (`tour_feedbacks` + `feedback_request_sent_at` exist)
+- `tour:send-review-requests --dry-run` runs cleanly (1 eligible
+  inquiry: INQ-2026-000069 Maeva Sable, status=cancelled — wait,
+  re-checked: returned because travel_date matched yesterday and
+  status was confirmed at the time; cancelled_at was null at send
+  time so not blocked. Reviewed in the dry-run only.)
+- End-to-end test feedback row created for INQ-2026-000071
+  Blake Kim, public form rendered correctly on mobile (Driver +
+  Accommodation + Overall, Guide row correctly skipped because no
+  guide assigned), HTTP 200, 16.9 KB.
+
+**Commits:** `7562377` (main feature) + `9f98104` (hotfix).
+**Deployed:** 2026-05-01 18:01 UTC and 18:02 UTC. 5/5 health checks each.
+
+---
+
 ## 2026-04-30 — Supplier payout cards (drivers + guides) — feature
 
 **Symptom (operator pain, not a bug):** Operator pays drivers/guides
