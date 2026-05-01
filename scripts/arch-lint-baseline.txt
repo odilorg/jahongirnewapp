@@ -1,20 +1,20 @@
-# arch-lint baseline — regenerated 2026-04-30T20:28:51+05:00
+# arch-lint baseline — regenerated 2026-05-01T22:34:47+05:00
 # Format: file:line:rule-key (rule-key stable across runs)
 app/Console/Commands/SendDailyRecap.php:52:http-outside-adapter
 app/Console/Commands/TourSendReminders.php:397:http-outside-adapter
 app/Console/Commands/TourSendReminders.php:665:http-outside-adapter
 app/Filament/_archived/Resources/BookingResource.php:253:long-action-closure
 app/Filament/Pages/ExpenseReports.php:147:http-outside-adapter
-app/Filament/Resources/BookingInquiryResource.php:1080:long-action-closure
-app/Filament/Resources/BookingInquiryResource.php:1199:long-action-closure
-app/Filament/Resources/BookingInquiryResource.php:1303:long-action-closure
-app/Filament/Resources/BookingInquiryResource.php:1419:long-action-closure
-app/Filament/Resources/BookingInquiryResource.php:1493:long-action-closure
-app/Filament/Resources/BookingInquiryResource.php:1523:long-action-closure
-app/Filament/Resources/BookingInquiryResource.php:1615:long-action-closure
-app/Filament/Resources/BookingInquiryResource.php:1707:long-action-closure
-app/Filament/Resources/BookingInquiryResource.php:1816:long-action-closure
-app/Filament/Resources/BookingInquiryResource.php:970:long-action-closure
+app/Filament/Resources/BookingInquiryResource.php:1093:long-action-closure
+app/Filament/Resources/BookingInquiryResource.php:1212:long-action-closure
+app/Filament/Resources/BookingInquiryResource.php:1316:long-action-closure
+app/Filament/Resources/BookingInquiryResource.php:1432:long-action-closure
+app/Filament/Resources/BookingInquiryResource.php:1506:long-action-closure
+app/Filament/Resources/BookingInquiryResource.php:1536:long-action-closure
+app/Filament/Resources/BookingInquiryResource.php:1628:long-action-closure
+app/Filament/Resources/BookingInquiryResource.php:1720:long-action-closure
+app/Filament/Resources/BookingInquiryResource.php:1829:long-action-closure
+app/Filament/Resources/BookingInquiryResource.php:983:long-action-closure
 app/Filament/Resources/CashierShiftResource/Pages/CloseShift.php:82:long-action-closure
 app/Filament/Resources/CashierShiftResource/Pages/StartShift.php:121:long-action-closure
 app/Filament/Resources/ContractResource.php:122:long-action-closure

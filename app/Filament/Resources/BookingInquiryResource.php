@@ -860,15 +860,28 @@ class BookingInquiryResource extends Resource
                         ->label('WA: Generate & send payment')
                         ->icon('heroicon-o-credit-card')
                         ->color('success')
-                        // Only visible when there is NO existing payment_link.
-                        // Once a link exists, operators must use "Resend
-                        // existing link" — regenerating a new one would
-                        // orphan the old Octo transaction and break webhook
-                        // lookup if the customer pays the first link.
-                        ->visible(fn (BookingInquiry $record): bool => $record->status !== BookingInquiry::STATUS_CONFIRMED
-                            && $record->status !== BookingInquiry::STATUS_SPAM
-                            && $record->status !== BookingInquiry::STATUS_CANCELLED
-                            && blank($record->payment_link))
+                        // Visibility gated by PAYMENT REALITY, not status shorthand.
+                        //
+                        // Old rule (pre-2026-05-01) hid the action whenever
+                        // status=confirmed, on the assumption "confirmed = paid".
+                        // That fails operationally:
+                        //   - GYG bookings arrive confirmed-and-paid
+                        //     (correctly hidden — paid_at blocks)
+                        //   - Manual trust-confirmations land confirmed-but-unpaid
+                        //     (must remain eligible — operator still owes the guest a link)
+                        //
+                        // Truth is: separate operational state (status) from
+                        // payment state (paid_at). This action is for "generate
+                        // a fresh Octo link" — it should appear iff the inquiry
+                        // is alive (not spam/cancelled), no link exists yet,
+                        // and no payment has actually landed.
+                        ->visible(fn (BookingInquiry $record): bool =>
+                            ! in_array($record->status, [
+                                BookingInquiry::STATUS_SPAM,
+                                BookingInquiry::STATUS_CANCELLED,
+                            ], true)
+                            && blank($record->payment_link)
+                            && $record->paid_at === null)
                         // Prefill from price_quoted (Phase 8.3a) so a catalog-calculated
                         // quote flows straight through to Octo without retyping.
                         // Split-payment defaults to full_online (checkbox on) —
