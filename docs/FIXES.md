@@ -14,6 +14,80 @@ Newest entries at top.
 
 ---
 
+## 2026-05-01 — Scheduler runtime-user regressions (cache + himalaya) — incident
+
+**Class:** infrastructure, not feature. Both bugs caused by the same
+upstream change earlier today, surfaced as two completely different
+symptoms.
+
+**Upstream change:** when fixing the Filament FileUpload 500 (image
+upload progress couldn't be persisted because cache shards were owned
+by `root`), I patched the root crontab so `php artisan schedule:run`
+runs as `www-data` instead of `root`. This was correct — but
+it silently changed the runtime user for every scheduled artisan
+command, exposing path-dependent things `root` used to satisfy.
+
+### Symptom A — Filament image upload fails (caught by user)
+
+`storage/framework/cache/data/<shard>/` shards owned by `root` 0755 →
+PHP-FPM (running as `www-data`) couldn't create child cache files,
+Filament's FileUpload progress-state writes failed, UI rendered
+"Error during upload — tap to retry."
+
+**Fix:** `chown -R www-data:www-data storage/framework/cache` +
+patched root crontab to run scheduler as www-data so future cache
+writes are owned correctly from the start.
+
+### Symptom B — `gyg:fetch-emails` silently dead for ~12 hours
+
+After the crontab change, every 15-min run of `gyg:fetch-emails` failed
+with `cannot prompt boolean / The input device is not a TTY`.
+Cause: `himalaya` config lives at `~/.config/himalaya/config.toml` —
+under root's home, readable only by root. www-data's HOME is
+`/var/www`, no himalaya config there → himalaya prompts for setup →
+fails because cron isn't a TTY.
+
+**Real-world impact:** Tom Armond's GYG booking
+(`GYGLMR2MMVGW`, $98, 13 Oct 2026, 2 pax) sat unfetched in Gmail for
+~6 hours. User noticed via the GYG email notification and asked
+"did we fetch this?" — that's how we caught it.
+
+**Fix:** `cp -r /root/.config/himalaya /var/www/.config/ &&
+chown -R www-data:www-data /var/www/.config/himalaya`. Then manually
+replayed the GYG pipeline:
+`gyg:fetch-emails` (1 new) → `gyg:process-emails` (parsed) →
+`gyg:apply-bookings` (created INQ-2026-000073). Tom's booking is now
+in the system end-to-end.
+
+### Other commands at risk
+
+`tour:send-review-requests` and `tour:send-public-review-reminders`
+both use himalaya for email fallback when WhatsApp fails. They would
+have hit the same regression — fixed by the same config copy.
+
+### DB change: none. Config change: none in repo.
+
+### Governance note (commit to memory for future infrastructure changes):
+
+**Any scheduler runtime-user change requires a full dependency-path
+audit BEFORE merging:**
+  - `storage/*` — ownership of every subdirectory
+  - `bootstrap/cache/*` — same
+  - `~/.config/*` — every CLI tool the scheduler invokes
+  - mail/IMAP tools (himalaya, msmtp, mutt) — config paths + secrets
+  - `~/.ssh/` if any artisan command shells out over SSH
+  - cron env vars (PATH, HOME, XDG_*)
+  - temp dirs (`/tmp/<tool>-*`) — ownership of cached state
+  - log files the scheduler writes — write permission for new user
+
+The pattern is: every scheduled command relies on resources scoped to
+the user's home directory. Switching the user without copying those
+resources is a stealth failure mode that doesn't show up in
+`schedule:run` exit codes — only in the logs of individual commands,
+which nobody reads until something downstream breaks.
+
+---
+
 ## 2026-05-01 — Post-tour feedback system (F1+F2+F3) — feature
 
 **Why:** Existing reminder pushed every guest to Google/TripAdvisor
