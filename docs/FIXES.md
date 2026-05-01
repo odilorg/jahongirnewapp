@@ -14,6 +14,75 @@ Newest entries at top.
 
 ---
 
+## 2026-05-01 — "Generate & send payment" visibility now gated by unpaid state, not status
+
+**Symptom (operator pain):** Operator confirms an inquiry on trust
+without payment (the manual trust-confirmation flow), guest later
+asks for an online link — but the "WA: Generate & send payment"
+action no longer appears in the WhatsApp dropdown. No path to give
+the guest a link without re-opening the booking.
+
+**Real-world incident this prevents:** today on
+`INQ-2026-000071` (Blake Kim) — confirmed at 11:54 without payment,
+operator wanted to send an Octo link later in the day, action was
+gone from the menu. Caught when the user asked "today I could not
+generate octo bank link cause there was not one."
+
+**Root cause:** the visibility closure conflated operational state
+with payment state:
+
+```php
+// OLD — pre-2026-05-01
+$record->status !== STATUS_CONFIRMED
+    && $record->status !== STATUS_SPAM
+    && $record->status !== STATUS_CANCELLED
+    && blank($record->payment_link)
+```
+
+The `status !== CONFIRMED` clause assumed "confirmed = paid." That
+holds for the Octobank webhook flow but breaks the manual trust path
+(Blake) and accidentally did the right thing for the wrong reason on
+GYG ingestion (where status=confirmed AND paid_at is set
+simultaneously).
+
+**Fix:** drop the status shorthand, gate on payment reality.
+
+```php
+// NEW
+! in_array($record->status, [STATUS_SPAM, STATUS_CANCELLED], true)
+    && blank($record->payment_link)
+    && $record->paid_at === null
+```
+
+Behaviour delta:
+  - confirmed-unpaid (Blake)        → action now appears  ✅
+  - confirmed-and-paid (Tom / GYG)  → still hidden via paid_at  ✅
+  - cancelled / spam                → still hidden  ✅
+  - awaiting_payment unpaid         → unchanged (still visible)  ✅
+  - existing payment_link           → still hidden (Resend instead)  ✅
+
+**Regression test:**
+`tests/Unit/Filament/WaGenerateAndSendVisibilityTest.php` — 9 cases
+covering every visible/hidden combination. Mirrors the closure
+expression verbatim so the test fails if the resource diverges.
+
+**Smoke verified on prod:**
+  - Blake state momentarily reset to (confirmed, paid_at=null) →
+    visibility expression returned TRUE  ✅
+  - Tom Armond (confirmed, paid via GYG) → visibility expression
+    returned FALSE  ✅
+  - Blake immediately restored to original paid state.
+
+**DB change:** none. **Commit:** `e96d276`.
+**Deployed:** 2026-05-01 19:35 UTC. 5/5 health checks passed.
+
+**Strategic lesson (committed inline as code comment):** "Separate
+operational state (status) from payment state (paid_at). Action
+visibility should reflect the latter when payment is the question."
+This is a state-model correction, not a UI tweak.
+
+---
+
 ## 2026-05-01 — Scheduler runtime-user regressions (cache + himalaya) — incident
 
 **Class:** infrastructure, not feature. Both bugs caused by the same
