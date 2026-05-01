@@ -159,6 +159,7 @@ class BookingInquiry extends Model
         'payment_link_sent_at',
         'payment_reminder_sent_at',
         'review_request_sent_at',
+        'feedback_request_sent_at',
         'hotel_request_sent_at',
         'paid_at',
         'octo_transaction_id',
@@ -218,6 +219,7 @@ class BookingInquiry extends Model
         'confirmed_at'              => 'datetime',
         'cancelled_at'              => 'datetime',
         'review_request_sent_at'    => 'datetime',
+        'feedback_request_sent_at'  => 'datetime',
         'hotel_request_sent_at'     => 'datetime',
         'payment_reminder_sent_at'  => 'datetime',
         'guest_reminder_sent_at'    => 'datetime',
@@ -404,6 +406,17 @@ class BookingInquiry extends Model
     public function stays(): HasMany
     {
         return $this->hasMany(InquiryStay::class)->orderBy('sort_order');
+    }
+
+    public function feedbacks(): HasMany
+    {
+        return $this->hasMany(TourFeedback::class, 'inquiry_id');
+    }
+
+    /** Most recent feedback row (sent or submitted). One inquiry usually has one. */
+    public function feedback(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(TourFeedback::class, 'inquiry_id')->latestOfMany();
     }
 
     /**

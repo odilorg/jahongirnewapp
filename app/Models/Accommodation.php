@@ -93,6 +93,41 @@ class Accommodation extends Model
             : (string) $this->name;
     }
 
+    public function feedbacks(): HasMany
+    {
+        return $this->hasMany(TourFeedback::class);
+    }
+
+    public function averageRating(int $days = 90): ?float
+    {
+        $avg = $this->feedbacks()
+            ->submitted()
+            ->whereNotNull('accommodation_rating')
+            ->where('submitted_at', '>=', now()->subDays($days))
+            ->avg('accommodation_rating');
+
+        return $avg !== null ? round((float) $avg, 1) : null;
+    }
+
+    public function issueTagSummary(int $days = 90): array
+    {
+        $rows = $this->feedbacks()
+            ->submitted()
+            ->whereNotNull('accommodation_issue_tags')
+            ->where('submitted_at', '>=', now()->subDays($days))
+            ->pluck('accommodation_issue_tags');
+
+        $tally = [];
+        foreach ($rows as $tags) {
+            foreach ((array) $tags as $tag) {
+                $tally[$tag] = ($tally[$tag] ?? 0) + 1;
+            }
+        }
+        arsort($tally);
+
+        return $tally;
+    }
+
     public function supplierPayments(): HasMany
     {
         return $this->hasMany(SupplierPayment::class, 'supplier_id')

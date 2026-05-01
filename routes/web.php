@@ -119,6 +119,18 @@ Route::post('/language/switch', [App\Http\Controllers\LanguageController::class,
 Route::post('/octo/callback', [OctoCallbackController::class, 'handle'])
     ->name('octo.callback');
 
+// Public post-tour feedback flow (token-gated, single-use).
+Route::middleware('throttle:30,1')
+    ->prefix('feedback')
+    ->group(function () {
+        Route::get('/{token}', [\App\Http\Controllers\FeedbackController::class, 'show'])
+            ->name('feedback.show')
+            ->where('token', '[A-Za-z0-9]{20,40}');
+        Route::post('/{token}', [\App\Http\Controllers\FeedbackController::class, 'store'])
+            ->name('feedback.store')
+            ->where('token', '[A-Za-z0-9]{20,40}');
+    });
+
 Route::get('/payment/success', [OctoCallbackController::class, 'success'])->name('payment.success');
 
 

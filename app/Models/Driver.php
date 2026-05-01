@@ -112,6 +112,49 @@ public function totalRatings(): int
         return $this->morphMany(TourExpense::class, 'supplier');
     }
 
+    public function feedbacks(): HasMany
+    {
+        return $this->hasMany(TourFeedback::class);
+    }
+
+    /**
+     * Rolling avg driver_rating over the trailing $days, only across
+     * submitted feedbacks. Null if no submissions in window.
+     */
+    public function averageRating(int $days = 90): ?float
+    {
+        $avg = $this->feedbacks()
+            ->submitted()
+            ->whereNotNull('driver_rating')
+            ->where('submitted_at', '>=', now()->subDays($days))
+            ->avg('driver_rating');
+
+        return $avg !== null ? round((float) $avg, 1) : null;
+    }
+
+    /**
+     * Tally of issue tags from submitted feedbacks in the trailing window.
+     * Returns ['punctuality' => 4, 'communication' => 2, …] sorted desc.
+     */
+    public function issueTagSummary(int $days = 90): array
+    {
+        $rows = $this->feedbacks()
+            ->submitted()
+            ->whereNotNull('driver_issue_tags')
+            ->where('submitted_at', '>=', now()->subDays($days))
+            ->pluck('driver_issue_tags');
+
+        $tally = [];
+        foreach ($rows as $tags) {
+            foreach ((array) $tags as $tag) {
+                $tally[$tag] = ($tally[$tag] ?? 0) + 1;
+            }
+        }
+        arsort($tally);
+
+        return $tally;
+    }
+
     public function rates(): HasMany
     {
         return $this->hasMany(DriverRate::class)->orderBy('sort_order')->orderBy('label');

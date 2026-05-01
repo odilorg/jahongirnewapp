@@ -82,6 +82,41 @@ class Guide extends Model
         return $this->morphMany(TourExpense::class, 'supplier');
     }
 
+    public function feedbacks(): HasMany
+    {
+        return $this->hasMany(TourFeedback::class);
+    }
+
+    public function averageRating(int $days = 90): ?float
+    {
+        $avg = $this->feedbacks()
+            ->submitted()
+            ->whereNotNull('guide_rating')
+            ->where('submitted_at', '>=', now()->subDays($days))
+            ->avg('guide_rating');
+
+        return $avg !== null ? round((float) $avg, 1) : null;
+    }
+
+    public function issueTagSummary(int $days = 90): array
+    {
+        $rows = $this->feedbacks()
+            ->submitted()
+            ->whereNotNull('guide_issue_tags')
+            ->where('submitted_at', '>=', now()->subDays($days))
+            ->pluck('guide_issue_tags');
+
+        $tally = [];
+        foreach ($rows as $tags) {
+            foreach ((array) $tags as $tag) {
+                $tally[$tag] = ($tally[$tag] ?? 0) + 1;
+            }
+        }
+        arsort($tally);
+
+        return $tally;
+    }
+
     public function rates(): HasMany
     {
         return $this->hasMany(GuideRate::class)->orderBy('sort_order')->orderBy('label');
