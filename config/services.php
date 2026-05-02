@@ -111,7 +111,17 @@ return [
     'cashier_bot' => [
         'token' => env('CASHIER_BOT_TOKEN', ''),
         'webhook_secret' => env('CASHIER_BOT_WEBHOOK_SECRET', ''),
+        // Master switch — when false (default), cashier bot expenses go
+        // "straight through" with no owner approval ping regardless of
+        // amount. The approval flow stamps approved_at/rejected_at on
+        // CashExpense for audit but does NOT block, reverse, or modify
+        // the amount. Set CASHIER_EXPENSE_APPROVAL=true to re-enable
+        // owner pings above the per-currency thresholds below.
+        'expense_approval_enabled' => filter_var(env('CASHIER_EXPENSE_APPROVAL', false), FILTER_VALIDATE_BOOLEAN),
         'expense_approval_threshold_uzs' => env('EXPENSE_APPROVAL_THRESHOLD', 500000),
+        'expense_approval_threshold_usd' => env('EXPENSE_APPROVAL_THRESHOLD_USD', 40),
+        'expense_approval_threshold_eur' => env('EXPENSE_APPROVAL_THRESHOLD_EUR', 35),
+        'expense_approval_threshold_rub' => env('EXPENSE_APPROVAL_THRESHOLD_RUB', 4000),
     ],
 
     'housekeeping_bot' => [

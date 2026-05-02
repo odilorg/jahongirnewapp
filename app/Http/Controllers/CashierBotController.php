@@ -807,10 +807,26 @@ class CashierBotController extends Controller
     {
         $d = $s->data ?? [];
         $d['desc'] = $text;
-        // Approval thresholds per currency (UZS equivalent ~$40)
-        $thresholds = ['UZS' => config('services.cashier_bot.expense_approval_threshold_uzs', 500000), 'USD' => 40, 'EUR' => 35];
-        $thr = $thresholds[$d['currency']] ?? $thresholds['UZS'];
-        $d['needs_approval'] = ($d['amount'] > $thr);
+
+        // Approval gate is opt-in. Default OFF — expenses go "straight thru"
+        // (already recorded against the shift; the gate is a sign-off ping
+        // only, not a hold-until-approved). Set CASHIER_EXPENSE_APPROVAL=true
+        // in env to re-enable owner approval pings above the per-currency
+        // thresholds.
+        $approvalEnabled = (bool) config('services.cashier_bot.expense_approval_enabled', false);
+        if ($approvalEnabled) {
+            $thresholds = [
+                'UZS' => config('services.cashier_bot.expense_approval_threshold_uzs', 500000),
+                'USD' => config('services.cashier_bot.expense_approval_threshold_usd', 40),
+                'EUR' => config('services.cashier_bot.expense_approval_threshold_eur', 35),
+                'RUB' => config('services.cashier_bot.expense_approval_threshold_rub', 4000),
+            ];
+            $thr = $thresholds[$d['currency']] ?? $thresholds['UZS'];
+            $d['needs_approval'] = ($d['amount'] > $thr);
+        } else {
+            $d['needs_approval'] = false;
+        }
+
         $s->update(['state' => 'expense_confirm', 'data' => $d]);
         $t = "Подтвердите расход:\n\nКатегория: {$d['cat_name']}\nСумма: " . number_format($d['amount'], 0) . " {$d['currency']}\nОписание: {$d['desc']}";
         if ($d['needs_approval']) $t .= "\n\nТребуется одобрение владельца.";
