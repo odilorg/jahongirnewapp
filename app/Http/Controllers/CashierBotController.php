@@ -8,6 +8,7 @@ use App\Models\CashTransaction;
 use App\Models\CashExpense;
 use App\Models\ShiftHandover;
 use App\Models\EndSaldo;
+use App\Enums\CashTransactionSource;
 use App\Enums\Currency;
 use App\Models\BeginningSaldo;
 use App\Models\Beds24Booking;
@@ -729,6 +730,14 @@ class CashierBotController extends Controller
         } catch (\App\Exceptions\BookingNotPayableException $e) {
             if ($callbackId) $this->failCallback($callbackId, $e->getMessage());
             $this->send($chatId, "⚠️ Бронирование недоступно для оплаты (отменено?). Начните заново.");
+        } catch (\App\Exceptions\DuplicatePaymentException $e) {
+            // Operator already recorded this booking once. Show the existing tx
+            // details so they can confirm / hand off without retrying blindly.
+            if ($callbackId) $this->failCallback($callbackId, $e->getMessage());
+            $this->send($chatId, $this->formatDuplicatePaymentMessage((int) ($d['booking_id'] ?? 0)));
+        } catch (\App\Exceptions\DuplicateGroupPaymentException $e) {
+            if ($callbackId) $this->failCallback($callbackId, $e->getMessage());
+            $this->send($chatId, $this->formatDuplicateGroupPaymentMessage((int) ($d['booking_id'] ?? 0)));
         } catch (\App\Exceptions\PaymentBlockedException $e) {
             if ($callbackId) $this->failCallback($callbackId, $e->getMessage());
             $this->send($chatId, "🚫 Оплата заблокирована. Эскалируйте вопрос руководству.");
@@ -1352,6 +1361,87 @@ class CashierBotController extends Controller
     protected function fmtBal(array $b): string
     {
         return $this->balance->fmtBal($b);
+    }
+
+    /**
+     * Format the operator-facing message shown when a booking already
+     * has a cashier_bot payment row. Goal: tell operator exactly what
+     * is in the system so they don't blindly retry. Falls back to a
+     * generic message when the existing tx can't be looked up.
+     */
+    protected function formatDuplicatePaymentMessage(int $bookingId): string
+    {
+        if ($bookingId <= 0) {
+            return "⚠️ По этому бронированию оплата уже зарегистрирована. Повторное внесение невозможно.";
+        }
+
+        $tx = CashTransaction::where('beds24_booking_id', $bookingId)
+            ->where('source_trigger', CashTransactionSource::CashierBot->value)
+            ->orderBy('id', 'desc')
+            ->first();
+
+        if (!$tx) {
+            return "⚠️ По этому бронированию оплата уже зарегистрирована. Повторное внесение невозможно.";
+        }
+
+        $methodLabel = match ($tx->payment_method) {
+            'cash'     => 'наличные',
+            'card'     => 'карта',
+            'transfer' => 'перевод',
+            null, ''   => 'не указан',
+            default    => $tx->payment_method,
+        };
+
+        $amount   = number_format((float) $tx->amount, 0, '.', ' ');
+        $currency = is_object($tx->currency) ? $tx->currency->value : (string) $tx->currency;
+        $when     = optional($tx->occurred_at)->format('d.m.Y H:i') ?? '—';
+
+        return "⚠️ По бронированию #{$bookingId} оплата уже зарегистрирована.\n\n"
+             . "• Способ: {$methodLabel}\n"
+             . "• Сумма: {$amount} {$currency}\n"
+             . "• Дата: {$when}\n\n"
+             . "Повторное внесение невозможно. Если запись ошибочна — обратитесь к менеджеру.";
+    }
+
+    /**
+     * Group-payment variant: any sibling of the same group_master_booking_id
+     * was already paid via the bot. Operator entered a different sibling.
+     */
+    protected function formatDuplicateGroupPaymentMessage(int $attemptedBookingId): string
+    {
+        $existing = $attemptedBookingId > 0
+            ? CashTransaction::where('beds24_booking_id', $attemptedBookingId)
+                ->orWhere(function ($q) use ($attemptedBookingId) {
+                    $q->whereNotNull('group_master_booking_id')
+                      ->where(function ($qq) use ($attemptedBookingId) {
+                          $qq->where('group_master_booking_id', $attemptedBookingId)
+                             ->orWhere('beds24_booking_id', $attemptedBookingId);
+                      });
+                })
+                ->where('source_trigger', CashTransactionSource::CashierBot->value)
+                ->where('is_group_payment', true)
+                ->orderBy('id', 'desc')
+                ->first()
+            : null;
+
+        if (!$existing) {
+            return "⚠️ По этой групповой брони оплата уже зарегистрирована (другой сегмент группы). Проверьте историю и обратитесь к менеджеру.";
+        }
+
+        $methodLabel = match ($existing->payment_method) {
+            'cash' => 'наличные', 'card' => 'карта', 'transfer' => 'перевод',
+            null, '' => 'не указан', default => $existing->payment_method,
+        };
+        $amount   = number_format((float) $existing->amount, 0, '.', ' ');
+        $currency = is_object($existing->currency) ? $existing->currency->value : (string) $existing->currency;
+        $when     = optional($existing->occurred_at)->format('d.m.Y H:i') ?? '—';
+
+        return "⚠️ Это бронирование — часть группы, по которой оплата уже зарегистрирована.\n\n"
+             . "• Сегмент с оплатой: #{$existing->beds24_booking_id}\n"
+             . "• Способ: {$methodLabel}\n"
+             . "• Сумма: {$amount} {$currency}\n"
+             . "• Дата: {$when}\n\n"
+             . "Повторное внесение невозможно. Проверьте историю или обратитесь к менеджеру.";
     }
 
     // menuKb was moved into ShowMainMenuAction::buildKeyboard. It was
