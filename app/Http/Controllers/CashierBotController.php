@@ -227,6 +227,7 @@ class CashierBotController extends Controller
     {
         return match($s->state) {
             'payment_room' => $this->hPayRoom($s, $chatId, $text),
+            'payment_arrival_date' => $this->hPaymentArrivalDate($s, $chatId, $text),
             'payment_fx_amount' => $this->hPayFxAmount($s, $chatId, $text),
             'payment_fx_override_reason' => $this->hPayFxOverrideReason($s, $chatId, $text),
             'expense_amount' => $this->hExpAmt($s, $chatId, $text),
@@ -290,59 +291,222 @@ class CashierBotController extends Controller
         $shift = $this->getShift($s->user_id);
         if (!$shift) { $this->send($chatId, "Сначала откройте смену."); return response('OK'); }
 
-        $d = ['shift_id' => $shift->id];
+        // Default scope: -3d back / +14d forward (covers late payers, today,
+        // advance bookings within 2 weeks). Overridable via env.
+        $back    = (int) config('services.cashier_bot.payment_arrival_days_back', 3);
+        $forward = (int) config('services.cashier_bot.payment_arrival_days_forward', 14);
+        $from    = Carbon::today()->subDays($back)->format('Y-m-d');
+        $to      = Carbon::today()->addDays($forward)->format('Y-m-d');
 
-        // Pull in-house guests live from Beds24 API (arrivals today + stayovers).
-        // Falls back to manual entry if API call fails.
-        $guests = $this->fetchInHouseGuests();
+        return $this->renderGuestList($s, $chatId, $from, $to, $shift->id);
+    }
 
-        if (!empty($guests)) {
-            // Index by booking ID so selectGuest can read live fields without re-fetching
-            $d['_live_guests'] = collect($guests)->keyBy('id')->toArray();
-            $s->update(['state' => 'payment_guest_select', 'data' => $d]);
-            $btns = array_map(fn($g) => [[
-                'text'          => "#{$g['id']} {$g['firstName']} {$g['lastName']}",
-                'callback_data' => "guest_{$g['id']}",
-            ]], $guests);
-            $btns[] = [['text' => '✏️ Ручной ввод', 'callback_data' => 'guest_manual']];
-            $this->send($chatId, "Сегодняшние заезды:", ['inline_keyboard' => $btns], 'inline');
+    /**
+     * Build + send the guest-selection list for an arrival-date range.
+     * Used by both startPayment (default range) and pick_arrival_date
+     * callbacks (single-date or relative-day jumps).
+     */
+    protected function renderGuestList($s, int $chatId, string $arrivalFrom, string $arrivalTo, int $shiftId): \Illuminate\Http\Response
+    {
+        $guests = $this->fetchInHouseGuests($arrivalFrom, $arrivalTo);
+        $d = ['shift_id' => $shiftId];
+
+        if (empty($guests)) {
+            $s->update(['state' => 'payment_room', 'data' => $d]);
+            $rangeLabel = $arrivalFrom === $arrivalTo ? $arrivalFrom : "{$arrivalFrom} → {$arrivalTo}";
+            $this->send($chatId, "Гостей не найдено ({$rangeLabel}).\nВведите номер брони Beds24:");
             return response('OK');
         }
 
-        // No in-house guests — ask for booking ID manually
-        $s->update(['state' => 'payment_room', 'data' => $d]);
-        $this->send($chatId, "Гостей на сегодня не найдено.\nВведите номер брони Beds24:");
+        $d['_live_guests'] = collect($guests)->keyBy('id')->toArray();
+        $s->update(['state' => 'payment_guest_select', 'data' => $d]);
+
+        // Annotate each row with paid-status. Already-paid bookings are
+        // surfaced visibly so operators don't accidentally try a duplicate.
+        $bookingIds = collect($guests)->pluck('id')->all();
+        $paidIds = CashTransaction::whereIn('beds24_booking_id', $bookingIds)
+            ->where('source_trigger', CashTransactionSource::CashierBot->value)
+            ->whereNull('deleted_at')
+            ->pluck('beds24_booking_id')
+            ->map(fn ($x) => (int) $x)
+            ->all();
+        $paidSet = array_flip($paidIds);
+
+        $btns = [];
+        foreach ($guests as $g) {
+            $bid    = (int) $g['id'];
+            $name   = trim(($g['firstName'] ?? '') . ' ' . ($g['lastName'] ?? '')) ?: '—';
+            $arr    = isset($g['arrival']) ? Carbon::parse($g['arrival'])->format('d.m') : '?';
+            $paid   = isset($paidSet[$bid]) ? ' ✅' : '';
+            $btns[] = [[
+                'text'          => "#{$bid} | {$name} | {$arr}{$paid}",
+                'callback_data' => "guest_{$bid}",
+            ]];
+        }
+
+        // Date-jump shortcuts at the bottom of the list.
+        $btns[] = [
+            ['text' => '⬅️ Вчера',    'callback_data' => 'pick_date_yesterday'],
+            ['text' => '📅 Сегодня', 'callback_data' => 'pick_date_today'],
+            ['text' => 'Завтра ➡️',   'callback_data' => 'pick_date_tomorrow'],
+        ];
+        $btns[] = [['text' => '📅 Другая дата', 'callback_data' => 'pick_date_other']];
+        $btns[] = [['text' => '✏️ Ручной ввод ID', 'callback_data' => 'guest_manual']];
+
+        $rangeLabel = $arrivalFrom === $arrivalTo
+            ? "за {$arrivalFrom}"
+            : "{$arrivalFrom} → {$arrivalTo}";
+        $this->send($chatId, "Заезды {$rangeLabel}:", ['inline_keyboard' => $btns], 'inline');
         return response('OK');
     }
 
     /**
-     * Fetch today's in-house guests from Beds24 API live.
-     * Returns arrivals today + stayovers (arrived before today, departing today or later).
+     * Fetch in-house guests from Beds24 API for an arrival-date range.
+     * Sort: today first → upcoming ascending → recent past descending.
+     * Excludes cancelled/declined.
      * Returns empty array on API failure so caller falls back to manual entry.
      */
-    protected function fetchInHouseGuests(): array
+    protected function fetchInHouseGuests(?string $arrivalFrom = null, ?string $arrivalTo = null): array
     {
         try {
-            $today = Carbon::today()->format('Y-m-d');
-            $propertyId = [(string) self::PROPERTY_ID];
+            $arrivalFrom = $arrivalFrom ?? Carbon::today()->format('Y-m-d');
+            $arrivalTo   = $arrivalTo ?? $arrivalFrom;
+            $propertyId  = [(string) self::PROPERTY_ID];
 
-            // Arrivals today only — cashier needs to collect payment at check-in
-            $arrivalsResp = $this->beds24->getBookings([
-                'arrival'    => $today,
-                'propertyId' => $propertyId,
+            $resp = $this->beds24->getBookings([
+                'arrivalFrom' => $arrivalFrom,
+                'arrivalTo'   => $arrivalTo,
+                'propertyId'  => $propertyId,
             ]);
 
-            $all = collect($arrivalsResp['data'] ?? [])
-                ->filter(fn($b) => !in_array($b['status'] ?? '', ['cancelled', 'declined']))
+            $today = Carbon::today();
+            $all = collect($resp['data'] ?? [])
+                ->filter(fn ($b) => !in_array($b['status'] ?? '', ['cancelled', 'declined']))
                 ->unique('id')
-                ->sortBy(fn($b) => ($b['firstName'] ?? '') . ' ' . ($b['lastName'] ?? ''))
+                ->sortBy(function ($b) use ($today) {
+                    // Sort key: today=0, future=days_ahead, past=1000+days_back
+                    // → today first, then upcoming asc, then recent past desc.
+                    if (empty($b['arrival'])) return 99999;
+                    $diff = Carbon::parse($b['arrival'])->diffInDays($today, false);
+                    if ($diff === 0)  return 0;          // today
+                    if ($diff < 0)    return abs($diff); // future: 1, 2, 3...
+                    return 1000 + $diff;                 // past: 1001, 1002... (after future)
+                })
                 ->values()
                 ->all();
 
             return $all;
         } catch (\Throwable $e) {
-            Log::warning('CashierBot: Beds24 guest fetch failed', ['error' => $e->getMessage()]);
+            Log::warning('CashierBot: Beds24 guest fetch failed', [
+                'arrivalFrom' => $arrivalFrom,
+                'arrivalTo'   => $arrivalTo,
+                'error'       => $e->getMessage(),
+            ]);
             return [];
+        }
+    }
+
+    /**
+     * Date-jump callback handler: pick_date_yesterday / today / tomorrow / other.
+     * "other" enters a state where the operator types a date in flexible format.
+     */
+    public function pickArrivalDate($s, int $chatId, string $callback): \Illuminate\Http\Response
+    {
+        $shift = $this->getShift($s->user_id);
+        if (!$shift) { $this->send($chatId, "Сначала откройте смену."); return response('OK'); }
+
+        if ($callback === 'pick_date_yesterday') {
+            $date = Carbon::yesterday()->format('Y-m-d');
+            return $this->renderGuestList($s, $chatId, $date, $date, $shift->id);
+        }
+        if ($callback === 'pick_date_today') {
+            $date = Carbon::today()->format('Y-m-d');
+            return $this->renderGuestList($s, $chatId, $date, $date, $shift->id);
+        }
+        if ($callback === 'pick_date_tomorrow') {
+            $date = Carbon::tomorrow()->format('Y-m-d');
+            return $this->renderGuestList($s, $chatId, $date, $date, $shift->id);
+        }
+        // pick_date_other → ask operator for date input
+        $s->update(['state' => 'payment_arrival_date', 'data' => ['shift_id' => $shift->id]]);
+        $this->send($chatId, "Введите дату заезда:\n• 2026-04-28\n• 28.04\n• 28/04\n• вчера / сегодня / завтра");
+        return response('OK');
+    }
+
+    /**
+     * Text-state handler for `payment_arrival_date`. Parses flexible
+     * date input and renders the single-day list.
+     */
+    protected function hPaymentArrivalDate($s, int $chatId, string $text)
+    {
+        $d = $s->data ?? [];
+        $shiftId = (int) ($d['shift_id'] ?? 0);
+        if ($shiftId <= 0) {
+            $this->send($chatId, "Смена не найдена. Начните заново.");
+            return $this->showMainMenu($chatId, $s);
+        }
+
+        $date = $this->parseFlexibleDate($text);
+        if ($date === null) {
+            $this->send($chatId, "Не понял дату. Попробуйте: 2026-04-28, 28.04, 28/04, вчера, сегодня или завтра.");
+            return response('OK');
+        }
+
+        return $this->renderGuestList($s, $chatId, $date, $date, $shiftId);
+    }
+
+    /**
+     * Parse a date in any of: YYYY-MM-DD, DD.MM[.YYYY], DD/MM[/YYYY],
+     * вчера / сегодня / завтра / yesterday / today / tomorrow.
+     * Year defaults to current year for DD.MM forms.
+     * Returns null when the input cannot be confidently parsed.
+     */
+    private function parseFlexibleDate(string $input): ?string
+    {
+        $t = mb_strtolower(trim($input));
+        $today = Carbon::today();
+
+        $relative = [
+            'вчера'     => -1, 'сегодня' => 0, 'завтра' => 1,
+            'yesterday' => -1, 'today'   => 0, 'tomorrow' => 1,
+        ];
+        if (isset($relative[$t])) {
+            return $today->copy()->addDays($relative[$t])->format('Y-m-d');
+        }
+
+        // ISO: 2026-04-28
+        if (preg_match('/^(\d{4})-(\d{1,2})-(\d{1,2})$/', $t, $m)) {
+            return $this->buildDateStrict((int) $m[1], (int) $m[2], (int) $m[3]);
+        }
+        // DD.MM[.YYYY] or DD/MM[/YYYY]
+        if (preg_match('#^(\d{1,2})[./](\d{1,2})(?:[./](\d{2,4}))?$#', $t, $m)) {
+            $year = isset($m[3]) ? (int) $m[3] : $today->year;
+            if ($year < 100) { $year += 2000; }
+            return $this->buildDateStrict($year, (int) $m[2], (int) $m[1]);
+        }
+
+        return null;
+    }
+
+    /**
+     * Strict date construction: rejects out-of-range month/day instead
+     * of silently rolling over (Carbon::create lets month=13 → year+1
+     * which would silently mis-parse "32.13" as 1 February next year).
+     */
+    private function buildDateStrict(int $year, int $month, int $day): ?string
+    {
+        if ($month < 1 || $month > 12) { return null; }
+        if ($day < 1 || $day > 31)     { return null; }
+        if ($year < 1900 || $year > 2100) { return null; }
+        try {
+            $d = Carbon::create($year, $month, $day);
+            // Verify Carbon didn't silently overflow (e.g. Feb 30 → Mar 2).
+            if ($d->year !== $year || $d->month !== $month || $d->day !== $day) {
+                return null;
+            }
+            return $d->format('Y-m-d');
+        } catch (\Throwable) {
+            return null;
         }
     }
 

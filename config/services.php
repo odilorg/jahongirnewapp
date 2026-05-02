@@ -122,6 +122,10 @@ return [
         'expense_approval_threshold_usd' => env('EXPENSE_APPROVAL_THRESHOLD_USD', 40),
         'expense_approval_threshold_eur' => env('EXPENSE_APPROVAL_THRESHOLD_EUR', 35),
         'expense_approval_threshold_rub' => env('EXPENSE_APPROVAL_THRESHOLD_RUB', 4000),
+        // Default arrival-date range for the payment quick-pick list.
+        // Manual booking-ID entry remains available for any date regardless.
+        'payment_arrival_days_back'      => (int) env('CASHIER_PAYMENT_ARRIVAL_DAYS_BACK', 3),
+        'payment_arrival_days_forward'   => (int) env('CASHIER_PAYMENT_ARRIVAL_DAYS_FORWARD', 14),
     ],
 
     'housekeeping_bot' => [
