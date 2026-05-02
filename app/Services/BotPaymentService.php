@@ -47,6 +47,7 @@ class BotPaymentService
         private readonly FxManagerApprovalService       $approvalService,
         private readonly Beds24PaymentSyncService       $syncService,
         private readonly GroupAwareCashierAmountResolver $groupResolver,
+        private readonly \App\Services\OwnerAlertService $ownerAlert,
     ) {}
 
     // -------------------------------------------------------------------------
@@ -256,6 +257,21 @@ class BotPaymentService
                     Beds24PaymentSyncJob::dispatch($syncRow->id);
                 });
             }
+
+            // Owner direct-payment alert: fires AFTER commit so the alert is
+            // never sent for a payment that ultimately rolled back. Wrapped
+            // in try/catch — a notification failure must NEVER cause the
+            // payment record to be lost.
+            DB::afterCommit(function () use ($transaction) {
+                try {
+                    $this->ownerAlert->alertCashierBotPayment($transaction);
+                } catch (\Throwable $e) {
+                    Log::warning('Owner alert dispatch failed for cashier bot payment', [
+                        'tx_id' => $transaction->id,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
+            });
 
             return $transaction;
         });

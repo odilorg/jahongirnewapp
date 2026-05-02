@@ -437,6 +437,66 @@ class OwnerAlertService
         $this->send($text);
     }
 
+    /**
+     * "Cashier acts → System records → Owner knows" — direct alert when
+     * a cashier records a Beds24 booking payment via the Telegram bot.
+     *
+     * MUST be dispatched AFTER the recordPayment DB transaction commits.
+     * Implementation is fail-soft: a notification failure must NEVER roll
+     * back the payment record. Caller wraps in try/catch.
+     */
+    public function alertCashierBotPayment(\App\Models\CashTransaction $tx): void
+    {
+        if ($this->ownerChatId === 0) {
+            Log::warning('OwnerAlertService: owner chat ID not configured (cashier bot payment)', [
+                'tx_id' => $tx->id,
+            ]);
+            return;
+        }
+
+        $cashierName = optional(\App\Models\User::find($tx->created_by))->name ?? 'Кассир #' . (int) $tx->created_by;
+        $drawerName  = optional(\App\Models\CashierShift::find($tx->cashier_shift_id))?->cashDrawer?->name
+                      ?? 'неизвестно';
+
+        $methodLabel = match ($tx->payment_method) {
+            'cash'     => '💵 Наличные',
+            'card'     => '💳 Карта',
+            'transfer' => '🔄 Перевод',
+            null, ''   => 'не указан',
+            default    => $tx->payment_method,
+        };
+
+        $currency = is_object($tx->currency) ? $tx->currency->value : (string) $tx->currency;
+        $amount   = number_format((float) $tx->amount, 0, '.', ' ');
+        $when     = optional($tx->occurred_at)->format('d.m.Y H:i') ?? '—';
+        $bookingId = (int) $tx->beds24_booking_id;
+        $guest    = trim((string) $tx->guest_name) ?: '—';
+        $room     = trim((string) $tx->room_number);
+
+        $lines = [
+            '💰 <b>Касса: новая оплата</b>',
+            '',
+            "👤 Кассир: {$cashierName}",
+            "🏪 Касса: {$drawerName}",
+            "🛏 Гость: {$guest}" . ($room !== '' ? "  (комн. {$room})" : ''),
+            "🔖 Бронь: #{$bookingId}",
+            "💱 Метод: {$methodLabel}",
+            "💵 Сумма: {$amount} {$currency}",
+            "⏰ Время: {$when}",
+        ];
+
+        if ($tx->is_override) {
+            $tier = is_object($tx->override_tier) ? $tx->override_tier->value : (string) $tx->override_tier;
+            $lines[] = "⚠️ Override: tier={$tier}" . ($tx->override_reason ? " — {$tx->override_reason}" : '');
+        }
+
+        if ($tx->is_group_payment) {
+            $lines[] = "👥 Групповая бронь (master #{$tx->group_master_booking_id})";
+        }
+
+        $this->send(implode("\n", $lines));
+    }
+
     // -------------------------------------------------------------------------
     // Telegram HTTP helper
     // -------------------------------------------------------------------------
