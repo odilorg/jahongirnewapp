@@ -80,6 +80,15 @@ class Kernel extends ConsoleKernel
             ->timezone('Asia/Tashkent')
             ->withoutOverlapping();
 
+        // Cashier-domain anomaly audit at 07:00 Tashkent.
+        // Audits the previous day (which closed at 23:00) and sends a
+        // PASS/WARN/ALERT summary to the owner Telegram. Replayable for
+        // any past date via `php artisan cash:audit-daily --date=Y-m-d`.
+        $schedule->command('cash:audit-daily')
+            ->dailyAt('07:00')
+            ->timezone('Asia/Tashkent')
+            ->withoutOverlapping();
+
         // Daily reconciliation at 21:00 Tashkent - check today's departures
         $schedule->command('cash:reconcile')
             ->dailyAt('21:00')
