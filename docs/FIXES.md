@@ -14,6 +14,88 @@ Newest entries at top.
 
 ---
 
+## 2026-05-02 — Cashier bot amount/currency parser hardened; never silently defaults to UZS
+
+**Symptom (operator pain):** "Admin can record an expense in UZS or
+USD, not in EUR." Aziz / cashiers tried EUR expenses, the bot
+"accepted" the input but the row was saved as UZS. Operators
+concluded EUR was unsupported and stopped trying. Production data
+confirms it: 0 EUR expenses ever recorded across `cash_expenses` and
+`cash_transactions`, while UZS and USD work fine.
+
+**Root cause:** `CashierBotController::parseAmountCurrency` silently
+defaulted to UZS whenever the second token wasn't recognised. Several
+common forms hit this path:
+
+| Input | Old result | Real intent |
+|---|---|---|
+| `20EUR` (no space) | 20 UZS | 20 EUR |
+| `20евро` (no space) | 20 UZS | 20 EUR |
+| `EUR 20` (prefix) | 0 UZS | 20 EUR |
+| `1,000,000` | 1 UZS (!) | 1,000,000 UZS |
+
+The last one is a separate but same-class bug: the parser did
+`str_replace(',', '.')`, turning `1,000,000` into `1.000.000` whose
+`floatval` is 1. Comma-as-thousand-separator silently destroyed
+amounts (one historical row id=3 has amount=1 with description
+"1,000,000 UZS" — that's how it slipped through).
+
+The bot's prompt also only mentioned UZS/USD ("напр: 50000 или
+20 USD"), so operators never saw EUR/RUB as valid.
+
+**Damage check:** ran a read-only query against `cash_expenses`
+filtering UZS-currency rows whose description contains EUR/USD/RUB
+keywords. Result: 0 suspicious rows. No historical mis-records found.
+Operators tried the right forms and gave up rather than enter
+foreign-currency amounts blindly.
+
+**Fix applied:**
+
+1. Parser now handles ALL of these forms correctly:
+   - `20 EUR`, `20EUR`, `EUR 20`, `€20`, `20€`, `20 €`, `20 евро`,
+     `20евро` — all → 20 EUR.
+   - Same matrix for USD / RUB / UZS.
+   - Number formats: `1,000,000` → 1,000,000 (thousand separator),
+     `1 000 000` → 1,000,000, `20.5` and `20,5` both → 20.5.
+2. **Financial-integrity rule:** when input contains an unrecognised
+   currency token (e.g. `20EU`, `20XYZ`), parser returns
+   `currency=null` instead of silently defaulting to UZS. Callers
+   (`hExpAmt`, `hCashInAmt`) re-prompt the operator with a labelled
+   list. Bare numeric input (`50000`) still defaults to UZS as before.
+3. Expense and cash-in prompts updated to list all four currencies
+   (UZS / USD / EUR / RUB) so operators see them upfront.
+
+**Tests:** 20 parser tests in
+`tests/Unit/CashierBot/AmountCurrencyParserTest.php` — all valid form
+variants, the comma-thousand-separator regression, the comma-as-decimal
+case, and the unrecognised-token-returns-null path. All green on
+isolated VPS test DB before deploy.
+
+**Verification post-deploy (production smoke test):**
+
+```
+20 EUR    → 20 EUR     ✓
+20EUR     → 20 EUR     ✓
+EUR 20    → 20 EUR     ✓
+1,000,000 → 1000000 UZS ✓ (was 1 UZS)
+1,500 EUR → 1500 EUR   ✓
+20,5 EUR  → 20.5 EUR   ✓
+50000     → 50000 UZS  ✓
+20EU      → null cur   ✓ (re-prompt instead of UZS fallback)
+20XYZ     → null cur   ✓
+```
+
+**Backup:** `/var/backups/databases/daily/jahongirnewapp_pre-currency-parser-fix_20260502_134008.sql.gz`
+**Commit:** `bd0bafd` (squash of `fix/expense-currency-parsing`).
+**Scope note:** Free-text parser hardening. No DB schema, no service
+layer change. Affects expense entry and cash-deposit entry on the
+cashier bot — the same parser is shared.
+**Follow-up:** consider button-based currency selection long-term to
+remove free-text ambiguity entirely; deferred to broader Cashier
+Shift Integrity work.
+
+---
+
 ## 2026-05-02 — Clear operator message when booking is already paid (no more "try again")
 
 **Symptom (operator pain):** Operator records a payment via the bot,
