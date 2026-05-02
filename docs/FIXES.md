@@ -14,6 +14,42 @@ Newest entries at top.
 
 ---
 
+## 2026-05-02 — Expense approval gate is opt-in; default OFF (straight thru)
+
+**Operator confusion:** Aziz recorded a 210 EUR expense (id=25) on
+shift #385 today (the first working EUR expense after the parser
+fix landed). Owner received "💸 Расход на одобрение" approval-request
+ping. The expense was already recorded against the shift and already
+deducting from the EUR drawer balance — the "approval" only stamps
+`approved_at`/`rejected_at` on `cash_expenses`, it does NOT block,
+reverse, or modify the amount. So the ping was a sign-off prompt,
+not a real hold-until-approved gate. Operator-facing semantics were
+"already happened, just acknowledge" — confusing.
+
+**Fix:** new master switch `CASHIER_EXPENSE_APPROVAL` (default false).
+Disabled by default — expenses go straight through with no owner
+ping regardless of amount. To re-enable owner pings above per-
+currency thresholds, set `CASHIER_EXPENSE_APPROVAL=true` in env.
+USD/EUR/RUB thresholds also made env-configurable
+(`EXPENSE_APPROVAL_THRESHOLD_USD/EUR/RUB`); UZS already was via
+`EXPENSE_APPROVAL_THRESHOLD`.
+
+Existing `approve_expense_<id>` / `reject_expense_<id>` callbacks
+remain wired so any already-sent pings can be resolved.
+
+**Tests:** 2 unit tests in `tests/Unit/CashierBot/ExpenseApprovalGateTest.php`
+covering gate-disabled (no approval for any currency/amount) and
+gate-enabled (per-currency threshold respect). Green on isolated
+VPS test DB.
+
+**Cleanup:** dangling expense #25 auto-stamped approved post-deploy
+since the new policy is "no approval gate". No re-record needed.
+
+**Backup:** `/var/backups/databases/daily/jahongirnewapp_pre-expense-gate_20260502_143256.sql.gz`
+**Commit:** `83a0163` (squash of `fix/disable-expense-approval-gate`).
+
+---
+
 ## 2026-05-02 — cash:audit-daily anomaly audit + 07:00 schedule
 
 **Why:** today's four cashier-domain fixes (drawer truth, duplicate
