@@ -14,6 +14,69 @@ Newest entries at top.
 
 ---
 
+## 2026-05-02 — Cashier bot payment quick-pick: any arrival date
+
+**Operator pain:** the payment list only showed Beds24 arrivals on
+today. Late payments (guest paid day after check-in) and advance
+bookings (deposit before arrival) required typing the booking ID
+manually. Operators couldn't see who they were paying for, no quick
+visual scan.
+
+**Note:** the manual booking-ID fallback already works for any date
+(line 353, `hPayRoom`). The fix is UX-only — surfaces what was already
+possible.
+
+**Fix applied:**
+
+1. `fetchInHouseGuests($from, $to)` accepts an arrival-date range and
+   passes `arrivalFrom` / `arrivalTo` to Beds24 instead of the single
+   `arrival` parameter.
+2. New `renderGuestList()` helper builds the inline keyboard with
+   per-row paid-status badge: `#84213317 | KEISUKE NOZAKI | 02.05 ✅`
+   when a `cashier_bot` payment already exists for the booking.
+   Operators see duplicates before tapping.
+3. Sort order: today first → upcoming ascending → recent past
+   descending (matches operator mental model: "today first, then
+   upcoming, then recent missed").
+4. Default range: `-3 days back / +14 days forward` (env-configurable
+   via `CASHIER_PAYMENT_ARRIVAL_DAYS_BACK` / `_FORWARD`).
+5. Date-jump shortcut row at bottom of every list:
+   `⬅️ Вчера   📅 Сегодня   Завтра ➡️`
+   Plus `📅 Другая дата` → enters new `payment_arrival_date` state.
+6. Free-text date parser (`parseFlexibleDate`) accepts:
+   - ISO `2026-04-28`
+   - `28.04`, `28/04`, `28.04.26`, `28/04/2026`
+   - Russian: `вчера` / `сегодня` / `завтра`
+   - English: `yesterday` / `today` / `tomorrow`
+   - Strict validation rejects month=13, day=32, Feb 30 etc — Carbon's
+     silent overflow ("32.13" → Feb 1 next year) is blocked. Same
+     financial-integrity rule that drives the currency parser.
+7. Cancelled / declined bookings remain excluded (status quo).
+
+**Files changed:**
+- `app/Http/Controllers/CashierBotController.php` — refactored
+  `startPayment`, new `renderGuestList`, expanded `fetchInHouseGuests`,
+  new `pickArrivalDate` callback handler, new `hPaymentArrivalDate`
+  state handler, new `parseFlexibleDate` + `buildDateStrict` helpers.
+- `app/Services/CashierBot/CashierBotCallbackRouter.php` —
+  registered `pick_date_*` callback prefix.
+- `config/services.php` — two new env keys for range defaults.
+
+**Tests:** 8 unit tests in
+`tests/Unit/CashierBot/PaymentDateRangeTest.php` covering ISO, DD.MM,
+DD/MM, short-year, Russian and English relative terms, garbage
+rejection, and Carbon-overflow rejection. Green on isolated VPS test
+DB. Beds24 API integration not unit-tested — covered by live-system
+verification on the next paid booking.
+
+**Backup:** `/var/backups/databases/daily/jahongirnewapp_pre-payment-date-range_20260502_144326.sql.gz`
+**Commit:** `b13a921` (squash of `feature/payment-list-any-date`).
+**Risk:** low — no DB schema, no service-layer change, no payment
+logic change. Only the quick-pick list rendering. Manual booking-ID
+fallback unchanged.
+
+---
+
 ## 2026-05-02 — Expense approval gate is opt-in; default OFF (straight thru)
 
 **Operator confusion:** Aziz recorded a 210 EUR expense (id=25) on
