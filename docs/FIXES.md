@@ -14,6 +14,60 @@ Newest entries at top.
 
 ---
 
+## 2026-05-02 — cash:audit-daily anomaly audit + 07:00 schedule
+
+**Why:** today's four cashier-domain fixes (drawer truth, duplicate
+message, currency parser, owner alerts) restored correctness. The
+audit is the durable surface that surfaces regressions of those
+fixes, plus operational drift, going forward.
+
+**What:** new artisan command `cash:audit-daily {--date=}` runs every
+morning at 07:00 Tashkent (after the 23:00 daily cash report has
+fired). It audits the day that just closed and dispatches a single
+PASS/WARN/ALERT Telegram summary to the owner channel via
+OwnerAlertService. Replayable for any past date.
+
+Anomaly checks (v1):
+
+| # | Check | Severity |
+|---|---|---|
+| 1 | Drawer-truth leak (card/transfer rows in drawer scope) — regression of `4ae201d` | ALERT |
+| 2 | Exchange rows mixed into income (daily-report Gap from earlier audit) | WARN |
+| 3 | Open shifts at end of yesterday — forgotten close | WARN |
+| 4 | FX rates older than 7 days | WARN |
+| 5 | FX rates older than 14 days — manager-tier escalation will misfire | ALERT |
+| 6 | Beds24 push failures (`booking_fx_syncs.push_status != pushed`) | ALERT |
+| 7 | UZS expenses with foreign-currency keywords — possible silent mis-record (parser hardened in `bd0bafd`) | WARN |
+| 8 | Unexpected categories on cashier_bot rows | WARN |
+
+Exit codes: 0 PASS, 1 WARN, 2 ALERT — meaningful for cron-driven
+escalation.
+
+**Schedule wiring:** `app/Console/Kernel.php` — uses Laravel's
+existing `schedule:run` system-cron tick (already running every
+minute). No new cron entries needed. `withoutOverlapping()` set.
+
+**Tests:** 5 unit tests in
+`tests/Unit/CashierBot/CashierDailyAuditCommandTest.php` covering
+PASS, WARN-on-exchange, WARN-on-open-shift, ALERT-on-FX-stale, and
+no-leak-on-card paths. All green on isolated VPS test DB.
+
+**Live smoke test (post-deploy, against today's data):**
+`php artisan cash:audit-daily --date=2026-05-02` →
+"Severity: WARN (exit 1)" → summary delivered to owner Telegram.
+WARN expected because today included exchange transactions that
+the daily report mixes into income (Gap pending Phase 2 cleanup).
+
+**Backup:** `/var/backups/databases/daily/jahongirnewapp_pre-cashier-daily-audit_20260502_141613.sql.gz`
+**Commit:** `ff1fbf5` (squash of `feature/cashier-daily-audit`).
+
+**Phase 2 follow-up:** anomaly thresholds and check list will likely
+expand based on what tomorrow's first scheduled run surfaces. Each
+new check is one method on the command — easy to extend without
+schema or service changes.
+
+---
+
 ## 2026-05-02 — Cashier bot direct owner alert + OWNER_TELEGRAM_ID wired
 
 **Operational gap:** owner had no real-time visibility into cashier
