@@ -195,14 +195,27 @@ class CashTransaction extends Model
 
     /**
      * Only rows that count toward the physical drawer balance.
-     * Excludes beds24_external rows, which are Beds24-originated duplicates.
+     *
+     * Excludes:
+     *  - beds24_external rows (Beds24-originated duplicates).
+     *  - non-cash payment methods (card, transfer): money was collected but
+     *    never entered the physical drawer, so it must not inflate the
+     *    cashier's expected cash. NULL is treated as cash for backward
+     *    compatibility with legacy rows + expenses written before the
+     *    payment_method column existed on the bot path.
      */
     public function scopeDrawerTruth($query)
     {
-        return $query->whereIn('source_trigger', [
-            CashTransactionSource::CashierBot->value,
-            CashTransactionSource::ManualAdmin->value,
-        ]);
+        return $query
+            ->whereIn('source_trigger', [
+                CashTransactionSource::CashierBot->value,
+                CashTransactionSource::ManualAdmin->value,
+            ])
+            ->where(function ($q) {
+                $q->whereNull('payment_method')
+                  ->orWhere('payment_method', '')
+                  ->orWhere('payment_method', 'cash');
+            });
     }
 
     // -----------------------------------------------------------------------
