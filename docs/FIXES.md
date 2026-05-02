@@ -14,6 +14,84 @@ Newest entries at top.
 
 ---
 
+## 2026-05-02 — Card/transfer payments no longer inflate cashier drawer balance
+
+**Symptom (operator pain):** Cashier (Aziz) on open shift #385 records a
+card payment via the Telegram bot — bot's "balance" line increases as
+if the card payment had entered the physical drawer. At shift close, the
+expected drawer cash would over-count by the card amount, producing a
+false shortage of exactly that amount.
+
+**Production damage at time of fix:** 1 row, 630,000 UZS (booking
+#84213317, guest KEISUKE NOZAKI), shift #385, drawer Jahongir. No
+other polluted rows: enum audit confirmed only `NULL` and `"card"` exist
+on cashier_bot rows; `"karta"`/`"naqd"` exist only on `beds24_external`
+rows which are already excluded by source_trigger. No `transfer` rows yet.
+
+**Root cause:** `CashTransaction::scopeDrawerTruth()` filtered only by
+`source_trigger`. Every payment recorded via the bot — cash, card,
+transfer — was treated as drawer truth.
+
+```php
+// OLD
+return $query->whereIn('source_trigger', [
+    CashTransactionSource::CashierBot->value,
+    CashTransactionSource::ManualAdmin->value,
+]);
+```
+
+`BotPaymentService::recordPayment()` does write `payment_method` from the
+bot's `match($d['method']) { 'cash', 'card', 'transfer' }` choice
+(`CashierBotController.php:667/711`), but the drawer scope ignored it.
+
+**Fix applied:** scope-level exclusion of non-cash methods. NULL and `''`
+treated as cash for backward compatibility with legacy rows + expense
+rows written before `payment_method` was set on the bot path. Unknown
+methods (e.g. future `'crypto'`, `'terminal'`) default-excluded as
+defense in depth.
+
+```php
+// NEW
+return $query
+    ->whereIn('source_trigger', [
+        CashTransactionSource::CashierBot->value,
+        CashTransactionSource::ManualAdmin->value,
+    ])
+    ->where(function ($q) {
+        $q->whereNull('payment_method')
+          ->orWhere('payment_method', '')
+          ->orWhere('payment_method', 'cash');
+    });
+```
+
+Card and transfer rows remain in DB with full audit (revenue, FX,
+override traceability, group metadata). Only `BalanceCalculator` /
+drawer-balance computations skip them. No data backfill — all balances
+recompute live.
+
+**Tests:** 7 new regression tests in
+`tests/Unit/CashierShiftDrawerTruthTest.php` (card excluded, transfer
+excluded, explicit cash counted, NULL counted, '' counted, net balance,
+unknown method default-excluded). All 16 tests in the file passed on
+isolated VPS test DB before deploy.
+
+**Verification post-deploy:**
+- Card tx id=455 preserved (full audit).
+- Shift #385 `drawerTruth` UZS-IN sum: was ~3,558,000 (polluted),
+  now 2,928,000 (correct). Δ = 630,000 ✓.
+- Aziz notified via Telegram DM before deploy (msg_id 378914) — his
+  balance drop is a calculation correction, not a shortage.
+
+**Backup:** `/var/backups/databases/daily/jahongirnewapp_pre-drawer-truth-fix_20260502_122541.sql.gz`
+**Commit:** `4ae201d` (squash of `fix/drawer-truth-exclude-non-cash`).
+**Phase 2 follow-up (separate ticket):** introduce explicit
+`affects_drawer` boolean column on `cash_transactions` (additive,
+nullable; backfill from `payment_method` rules) so drawer impact is a
+first-class field rather than scope-derived. Fold into the planned
+"Cashier Shift Integrity + Handover Close" work.
+
+---
+
 ## 2026-05-01 — "Generate & send payment" visibility now gated by unpaid state, not status
 
 **Symptom (operator pain):** Operator confirms an inquiry on trust
