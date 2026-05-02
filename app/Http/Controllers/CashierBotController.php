@@ -777,7 +777,7 @@ class CashierBotController extends Controller
         $d['cat_id'] = $cat->id ?? 0;
         $d['cat_name'] = $cat->name ?? '?';
         $s->update(['state' => 'expense_amount', 'data' => $d]);
-        $this->send($chatId, "Категория: {$d['cat_name']}\nВведите сумму (напр: 50000 или 20 USD):");
+        $this->send($chatId, "Категория: {$d['cat_name']}\nВведите сумму:\n• 50000 (UZS по умолчанию)\n• 20 USD\n• 15 EUR\n• 1500 RUB");
         return response('OK');
     }
 
@@ -785,7 +785,17 @@ class CashierBotController extends Controller
     {
         $d = $s->data ?? [];
         [$amt, $cur] = $this->parseAmountCurrency($text);
-        if ($amt <= 0) { $this->send($chatId, "Неверная сумма."); return response('OK'); }
+        if ($amt <= 0) {
+            $this->send($chatId, "Неверная сумма. Введите так:\n• 50000 (UZS)\n• 20 USD\n• 15 EUR\n• 1500 RUB");
+            return response('OK');
+        }
+        if ($cur === null) {
+            // Currency token present but unrecognised. DO NOT silently
+            // default to UZS — that silently mis-records foreign-currency
+            // expenses (financial-integrity rule).
+            $this->send($chatId, "Не понял валюту. Введите ещё раз:\n• 50000 (UZS)\n• 20 USD\n• 15 EUR\n• 1500 RUB");
+            return response('OK');
+        }
         $d['amount'] = $amt;
         $d['currency'] = $cur;
         $s->update(['state' => 'expense_desc', 'data' => $d]);
@@ -862,7 +872,14 @@ class CashierBotController extends Controller
     protected function hCashInAmt($s, int $chatId, string $text)
     {
         [$amt, $cur] = $this->parseAmountCurrency($text);
-        if ($amt <= 0) { $this->send($chatId, "Неверная сумма. Попробуйте ещё раз:"); return response('OK'); }
+        if ($amt <= 0) {
+            $this->send($chatId, "Неверная сумма. Введите так:\n• 500 USD\n• 200 EUR\n• 2000000 UZS\n• 1500 RUB");
+            return response('OK');
+        }
+        if ($cur === null) {
+            $this->send($chatId, "Не понял валюту. Введите ещё раз:\n• 500 USD\n• 200 EUR\n• 2000000 UZS\n• 1500 RUB");
+            return response('OK');
+        }
         $d = $s->data ?? [];
         $d['amount'] = $amt;
         $d['currency'] = $cur;
@@ -1449,60 +1466,151 @@ class CashierBotController extends Controller
 
     /**
      * Parse amount and currency from flexible user input.
-     * Supports: "50000", "20 USD", "20 usd", "$20", "20$", "€15", "15€", "20 $", "20 долларов"
+     *
+     * Returns [amount, currency|null]. Currency is null when the input
+     * contains a non-numeric token that the parser cannot confidently
+     * resolve to UZS/USD/EUR/RUB — callers MUST re-prompt instead of
+     * silently defaulting to UZS, otherwise foreign-currency amounts
+     * get misrecorded as UZS (financial-integrity rule).
+     *
+     * UZS is returned ONLY for bare numeric input ("50000") with no
+     * currency token at all.
+     *
+     * Accepted forms:
+     *   bare:    50000                       → UZS
+     *   suffix:  20 USD / 20USD / 20 usd
+     *            45 EUR / 45EUR / 45 евро / 45евро
+     *            1500 RUB / 1500 руб
+     *            20$ / 20 $ / 15€ / 1500₽
+     *   prefix:  $20 / €15 / ₽1500 / USD 20 / EUR 45
+     *
+     * Numbers may use spaces or commas as thousand separators
+     * ("1,000,000" → 1000000, "1 000 000" → 1000000) and a dot as
+     * decimal point. Comma-as-decimal is also accepted ("20,5" → 20.5)
+     * but only when there is a single comma and no dot.
      */
     protected function parseAmountCurrency(string $text): array
     {
         $text = trim($text);
+        if ($text === '') {
+            return [0.0, null];
+        }
+
         $symbolMap = ['$' => 'USD', '€' => 'EUR', '₽' => 'RUB'];
         $wordMap = [
-            'доллар' => 'USD', 'долларов' => 'USD', 'баксов' => 'USD', 'бакс' => 'USD',
-            'евро' => 'EUR', 'сум' => 'UZS', 'сумов' => 'UZS',
+            'доллар' => 'USD', 'долларов' => 'USD', 'долларa' => 'USD',
+            'баксов'  => 'USD', 'бакс'    => 'USD', 'usd'     => 'USD',
+            'евро'    => 'EUR', 'eur'     => 'EUR',
+            'сум'     => 'UZS', 'сумов'   => 'UZS', 'uzs'     => 'UZS',
+            'руб'     => 'RUB', 'рублей'  => 'RUB', 'рубль'   => 'RUB', 'rub' => 'RUB',
         ];
+        $codes = ['UZS', 'USD', 'EUR', 'RUB'];
 
-        // Check for symbol prefix: $20, €15
+        // 1) Symbol prefix: $20, €15, ₽1500
         foreach ($symbolMap as $sym => $cur) {
             if (str_starts_with($text, $sym)) {
-                $amt = floatval(str_replace([' ', ','], ['', '.'], substr($text, strlen($sym))));
-                return [$amt, $cur];
+                return [$this->parseAmountToken(substr($text, strlen($sym))), $cur];
             }
         }
 
-        // Check for symbol suffix: 20$, 15€, "20 $"
+        // 2) Symbol suffix: 20$, 15€, 1500₽, "20 $"
         foreach ($symbolMap as $sym => $cur) {
             if (str_ends_with(rtrim($text), $sym)) {
-                $amt = floatval(str_replace([' ', ',', $sym], ['', '.', ''], $text));
-                return [$amt, $cur];
+                $stripped = rtrim(rtrim($text), $sym);
+                return [$this->parseAmountToken($stripped), $cur];
             }
         }
 
-        // Split by spaces: "20 USD", "20 usd", "50000 сум"
+        // 3) Currency-code prefix: "USD 20", "EUR 45"
+        foreach ($codes as $code) {
+            if (preg_match('/^' . $code . '\s+(.+)$/i', $text, $m)) {
+                return [$this->parseAmountToken($m[1]), $code];
+            }
+        }
+
+        // 4) Currency-code suffix WITHOUT space: "20EUR", "45USD"
+        if (preg_match('/^(.+?)(UZS|USD|EUR|RUB)$/i', $text, $m)) {
+            return [$this->parseAmountToken($m[1]), strtoupper($m[2])];
+        }
+
+        // 5) Russian-word suffix WITHOUT space: "45евро", "1500руб"
+        foreach ($wordMap as $word => $cur) {
+            if (preg_match('/^(.+?)' . preg_quote($word, '/') . '\b/iu', $text, $m)) {
+                $token = trim($m[1]);
+                if ($token !== '' && preg_match('/[0-9]/', $token)) {
+                    return [$this->parseAmountToken($token), $cur];
+                }
+            }
+        }
+
+        // 6) Space-separated: "20 USD", "45 евро", "1500 руб", "50000 сум"
         $parts = preg_split('/\s+/', $text);
-        $amt = floatval(str_replace(',', '.', $parts[0] ?? '0'));
+        $first = $parts[0] ?? '';
+        $amt = $this->parseAmountToken($first);
         $curText = strtolower(trim($parts[1] ?? ''));
 
-        if (!$curText) {
+        if (count($parts) === 1 && $curText === '') {
+            // Bare numeric input: default to UZS only when there is no
+            // currency token at all (financial-integrity rule). If the
+            // single token contains trailing non-numeric junk that none
+            // of the recognised forms above resolved (e.g. "20EU",
+            // "20XYZ"), return null currency to force a re-prompt.
+            $cleanNumeric = preg_replace('/[\s,.]/', '', $first);
+            if (preg_match('/[^0-9]/', (string) $cleanNumeric)) {
+                return [$amt, null];
+            }
             return [$amt, 'UZS'];
         }
 
         $curUpper = strtoupper($curText);
-        if (in_array($curUpper, ['UZS', 'USD', 'EUR', 'RUB'])) {
+        if (in_array($curUpper, $codes, true)) {
             return [$amt, $curUpper];
         }
-
-        // Check symbol as second part: "20 $"
         if (isset($symbolMap[$curText])) {
             return [$amt, $symbolMap[$curText]];
         }
-
-        // Check Russian words
         foreach ($wordMap as $word => $cur) {
             if (str_starts_with($curText, $word)) {
                 return [$amt, $cur];
             }
         }
 
-        return [$amt, 'UZS'];
+        // Token present but unrecognised → null currency forces re-prompt.
+        // DO NOT silently fall back to UZS.
+        return [$amt, null];
+    }
+
+    /**
+     * Parse a numeric token tolerating thousand separators (space or
+     * comma) and decimal point. "1,000,000" → 1000000.0, "20,5" → 20.5,
+     * "20.5" → 20.5, "20" → 20.0.
+     */
+    private function parseAmountToken(string $token): float
+    {
+        $token = trim($token);
+        if ($token === '') {
+            return 0.0;
+        }
+
+        // Strip thousand-separator spaces.
+        $token = str_replace(' ', '', $token);
+
+        $hasDot   = str_contains($token, '.');
+        $hasComma = str_contains($token, ',');
+
+        if ($hasDot && $hasComma) {
+            // Mixed → assume comma is thousand separator, dot is decimal.
+            $token = str_replace(',', '', $token);
+        } elseif ($hasComma && substr_count($token, ',') === 1
+                  && preg_match('/^\d+,\d{1,2}$/', $token)) {
+            // Single comma with 1-2 digits after → comma-as-decimal ("20,5").
+            $token = str_replace(',', '.', $token);
+        } else {
+            // Comma is thousand separator: "1,000,000" → "1000000".
+            $token = str_replace(',', '', $token);
+        }
+
+        return floatval($token);
     }
 
     protected function phoneKb(): array
