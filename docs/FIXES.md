@@ -14,6 +14,62 @@ Newest entries at top.
 
 ---
 
+## 2026-05-02 — Clear operator message when booking is already paid (no more "try again")
+
+**Symptom (operator pain):** Operator records a payment via the bot,
+then later (or on a duplicate tap) tries to record the same booking
+again. Bot replies "❌ Ошибка при записи оплаты. Попробуйте снова." —
+which incorrectly suggests retrying. Operator retries → fails again →
+thinks the bot is broken, opens a support ticket. Owner-error alert
+also fires for every attempt, polluting the alert channel.
+
+**Root cause:** `CashierBotController::confirmPayment` had catch blocks
+for `StalePaymentSessionException`, `BookingNotPayableException`, and
+`PaymentBlockedException`, but NOT for `DuplicatePaymentException` /
+`DuplicateGroupPaymentException`. Those fell into the generic
+`\Exception` branch — wrong message, false retry instruction, false
+owner alert. The exceptions were thrown correctly by
+`BotPaymentService::guardAgainstDuplicatePayment()`; only the
+controller's catch chain was missing the dedicated handlers.
+
+**Fix applied:** added two catch blocks in the controller. Each invokes
+a new protected formatter (`formatDuplicatePaymentMessage`,
+`formatDuplicateGroupPaymentMessage`) that looks up the existing
+`CashTransaction` and renders a clear Russian message with method,
+amount, currency, and date. Falls back to a generic "уже
+зарегистрирована" message when the booking_id or row is missing.
+
+**Operator-facing change (live example, booking #84213317):**
+
+```
+⚠️ По бронированию #84213317 оплата уже зарегистрирована.
+
+• Способ: карта
+• Сумма: 630 000 UZS
+• Дата: 02.05.2026 14:50
+
+Повторное внесение невозможно. Если запись ошибочна — обратитесь к менеджеру.
+```
+
+No more "Попробуйте снова". No more spurious owner alerts.
+
+**Tests:** 7 unit tests in
+`tests/Unit/CashierBot/DuplicatePaymentMessageTest.php` cover
+standalone duplicate (card / cash / transfer / legacy NULL), missing
+booking_id fallback, no-row fallback, and the group fallback path.
+All green on isolated VPS test DB before deploy.
+
+**Verification post-deploy:** smoke test on production booking
+#84213317 rendered the expected message exactly. Pure read — no DB
+write performed.
+
+**Backup:** `/var/backups/databases/daily/jahongirnewapp_pre-duplicate-ux-fix_20260502_123501.sql.gz`
+**Commit:** `6b16da2` (squash of `fix/duplicate-payment-clear-ux`).
+**Scope note:** UX-only correction. No DB schema, no service layer, no
+exception shape, no financial logic changed. Low-risk.
+
+---
+
 ## 2026-05-02 — Card/transfer payments no longer inflate cashier drawer balance
 
 **Symptom (operator pain):** Cashier (Aziz) on open shift #385 records a
