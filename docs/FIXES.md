@@ -14,6 +14,69 @@ Newest entries at top.
 
 ---
 
+## 2026-05-02 — Cashier bot direct owner alert + OWNER_TELEGRAM_ID wired
+
+**Operational gap:** owner had no real-time visibility into cashier
+actions. When Aziz recorded a 630,000 UZS card payment on shift #385
+today, no Telegram notification reached leadership. Two compounding
+issues:
+
+1. `OWNER_TELEGRAM_ID` env was unset in production. Every existing
+   notification path (shift close, daily/monthly reports, Beds24
+   webhook payment alerts, manager-tier approval requests, error
+   alerts) was silently being dropped at `OwnerAlertService::send()`
+   line 447 with a log warning.
+2. `OWNER_ALERT_BOT_TOKEN` was also unset. Even with chat ID set, the
+   bot resolver threw `BotNotFoundException`.
+3. `BotPaymentService::recordPayment()` had no notification call at
+   all. Cashier-bot payments were silent by design — only the
+   Beds24-webhook indirect path could fire alerts, and Beds24 does
+   NOT webhook back for self-pushed payments. So cash/card collected
+   at reception was invisible to leadership regardless.
+
+**Fix applied (in order):**
+
+1. Added `OWNER_TELEGRAM_ID=38738713` to production `.env` (Odil).
+2. Added `OWNER_ALERT_BOT_TOKEN=8649504892:...` reusing the existing
+   `@JahongirOpsBot` token. Same bot, two roles (ops + owner alerts).
+3. Re-cached config via `sudo -u www-data php artisan config:cache`,
+   reloaded php-fpm. All existing notification channels now deliver:
+   shift close, daily report (23:00 Tashkent), monthly report (1st
+   @ 09:00), Beds24 webhook payment alerts, manager-tier shift-close
+   approval requests, error alerts.
+4. New code: `OwnerAlertService::alertCashierBotPayment(CashTransaction)`
+   formats a Russian message (cashier name, drawer, guest, room,
+   booking, method label, amount, currency, time). Override-tier and
+   group-payment metadata appended when present.
+5. `BotPaymentService::recordPayment` now dispatches the alert via
+   `DB::afterCommit` so the message only fires after a successful
+   commit. Wrapped in try/catch — a notification failure must NEVER
+   roll back the payment record (financial-integrity rule).
+
+**Verification:**
+
+- Direct test ping to chat 38738713 (msg 378966).
+- Direct curl to bot 8649504892 → user 38738713 (msg 346 delivered).
+- Real `OwnerAlertService::sendOpsAlert()` dispatch through queue
+  → @JahongirOpsBot → log shows `BotResolver: [owner-alert] resolved
+  via legacy config fallback` with no error.
+- Live smoke test dispatched `alertCashierBotPayment(tx 455)` against
+  the existing 630,000 UZS card payment row — message delivered.
+- 5 unit tests in `tests/Unit/CashierBot/CashierBotPaymentAlertTest.php`
+  green on isolated VPS test DB.
+
+**Backups:**
+- `.env`: `/var/www/jahongirnewapp/.env.bak.20260502_134508`
+- DB: `/var/backups/databases/daily/jahongirnewapp_pre-cashier-payment-alert_20260502_135703.sql.gz`
+
+**Commit:** `4ea9d66` (squash of `fix/cashier-bot-payment-owner-alert`).
+**Scope note:** completes the "Cashier acts → System records → Owner
+knows" loop. Combined with today's drawer-truth + duplicate-message +
+parser-hardening fixes, every recordable cashier action now produces
+correct, attributable, observable output.
+
+---
+
 ## 2026-05-02 — Cashier bot amount/currency parser hardened; never silently defaults to UZS
 
 **Symptom (operator pain):** "Admin can record an expense in UZS or
