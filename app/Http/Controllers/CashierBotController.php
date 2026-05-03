@@ -305,8 +305,14 @@ class CashierBotController extends Controller
      * Build + send the guest-selection list for an arrival-date range.
      * Used by both startPayment (default range) and pick_arrival_date
      * callbacks (single-date or relative-day jumps).
+     *
+     * @param bool $includePaid  When false (default), bookings with an
+     *   existing cashier_bot payment are hidden from the list to keep
+     *   the keyboard short and actionable. The header reports how many
+     *   were hidden, and a "show paid" toggle button is appended so
+     *   operators can verify or correct duplicates when needed.
      */
-    protected function renderGuestList($s, int $chatId, string $arrivalFrom, string $arrivalTo, int $shiftId): \Illuminate\Http\Response
+    protected function renderGuestList($s, int $chatId, string $arrivalFrom, string $arrivalTo, int $shiftId, bool $includePaid = false): \Illuminate\Http\Response
     {
         $guests = $this->fetchInHouseGuests($arrivalFrom, $arrivalTo);
         $d = ['shift_id' => $shiftId];
@@ -318,11 +324,7 @@ class CashierBotController extends Controller
             return response('OK');
         }
 
-        $d['_live_guests'] = collect($guests)->keyBy('id')->toArray();
-        $s->update(['state' => 'payment_guest_select', 'data' => $d]);
-
-        // Annotate each row with paid-status. Already-paid bookings are
-        // surfaced visibly so operators don't accidentally try a duplicate.
+        // Build paid-set up-front; both the filter and the per-row badge use it.
         $bookingIds = collect($guests)->pluck('id')->all();
         $paidIds = CashTransaction::whereIn('beds24_booking_id', $bookingIds)
             ->where('source_trigger', CashTransactionSource::CashierBot->value)
@@ -332,15 +334,64 @@ class CashierBotController extends Controller
             ->all();
         $paidSet = array_flip($paidIds);
 
+        $hiddenPaid = 0;
+        if (! $includePaid) {
+            $beforeCount = count($guests);
+            $guests = array_values(array_filter(
+                $guests,
+                fn ($g) => ! isset($paidSet[(int) ($g['id'] ?? 0)]),
+            ));
+            $hiddenPaid = $beforeCount - count($guests);
+        }
+
+        // After filtering everything paid, fall back to "no work to do" message
+        // — but offer the show-paid escape hatch so operators can double-check.
+        if (empty($guests)) {
+            $rangeLabel = $arrivalFrom === $arrivalTo ? $arrivalFrom : "{$arrivalFrom} → {$arrivalTo}";
+            $btns = [];
+            if ($hiddenPaid > 0) {
+                $btns[] = [[
+                    'text'          => "🔍 Показать оплаченные ({$hiddenPaid})",
+                    'callback_data' => "pick_show_all_{$arrivalFrom}_{$arrivalTo}",
+                ]];
+            }
+            $btns[] = [
+                ['text' => '⬅️ Вчера',    'callback_data' => 'pick_date_yesterday'],
+                ['text' => '📅 Сегодня',   'callback_data' => 'pick_date_today'],
+                ['text' => 'Завтра ➡️',    'callback_data' => 'pick_date_tomorrow'],
+            ];
+            $btns[] = [['text' => '📅 Другая дата',     'callback_data' => 'pick_date_other']];
+            $btns[] = [['text' => '✏️ Ручной ввод ID',  'callback_data' => 'guest_manual']];
+
+            $msg = $hiddenPaid > 0
+                ? "Все {$hiddenPaid} брони за {$rangeLabel} уже оплачены.\nВыберите другую дату или покажите оплаченные."
+                : "Гостей не найдено ({$rangeLabel}).";
+            $this->send($chatId, $msg, ['inline_keyboard' => $btns], 'inline');
+            return response('OK');
+        }
+
+        $d['_live_guests'] = collect($guests)->keyBy('id')->toArray();
+        $s->update(['state' => 'payment_guest_select', 'data' => $d]);
+
         $btns = [];
         foreach ($guests as $g) {
             $bid    = (int) $g['id'];
             $name   = trim(($g['firstName'] ?? '') . ' ' . ($g['lastName'] ?? '')) ?: '—';
             $arr    = isset($g['arrival']) ? Carbon::parse($g['arrival'])->format('d.m') : '?';
+            // ✅ only renders when includePaid=true (paid rows are filtered
+            // out otherwise); kept so the verify-mode list still shows status.
             $paid   = isset($paidSet[$bid]) ? ' ✅' : '';
             $btns[] = [[
                 'text'          => "#{$bid} | {$name} | {$arr}{$paid}",
                 'callback_data' => "guest_{$bid}",
+            ]];
+        }
+
+        // Toggle row — only shown when there are paid rows we hid.
+        if ($hiddenPaid > 0 && ! $includePaid) {
+            $btns[] = [[
+                'text'          => "🔍 Показать оплаченные ({$hiddenPaid})",
+                'callback_data' => "pick_show_all_{$arrivalFrom}_{$arrivalTo}",
             ]];
         }
 
@@ -356,7 +407,13 @@ class CashierBotController extends Controller
         $rangeLabel = $arrivalFrom === $arrivalTo
             ? "за {$arrivalFrom}"
             : "{$arrivalFrom} → {$arrivalTo}";
-        $this->send($chatId, "Заезды {$rangeLabel}:", ['inline_keyboard' => $btns], 'inline');
+        $header = "Заезды {$rangeLabel}";
+        if ($hiddenPaid > 0 && ! $includePaid) {
+            $header .= " ({$hiddenPaid} оплачены — скрыты)";
+        } elseif ($includePaid) {
+            $header .= ' (вкл. оплаченные)';
+        }
+        $this->send($chatId, $header . ':', ['inline_keyboard' => $btns], 'inline');
         return response('OK');
     }
 
@@ -431,6 +488,28 @@ class CashierBotController extends Controller
         $s->update(['state' => 'payment_arrival_date', 'data' => ['shift_id' => $shift->id]]);
         $this->send($chatId, "Введите дату заезда:\n• 2026-04-28\n• 28.04\n• 28/04\n• вчера / сегодня / завтра");
         return response('OK');
+    }
+
+    /**
+     * Toggle the guest list to include already-paid bookings.
+     * Callback format: pick_show_all_<arrivalFrom>_<arrivalTo>
+     * Range is encoded in the callback rather than session state so a stale
+     * tap on yesterday's keyboard re-renders cleanly without coupling.
+     */
+    public function pickShowAll($s, int $chatId, string $callback): \Illuminate\Http\Response
+    {
+        $shift = $this->getShift($s->user_id);
+        if (! $shift) { $this->send($chatId, "Сначала откройте смену."); return response('OK'); }
+
+        // pick_show_all_2026-05-02_2026-05-16 → ['2026-05-02', '2026-05-16']
+        $rest  = substr($callback, strlen('pick_show_all_'));
+        $parts = explode('_', $rest);
+        if (count($parts) !== 2 || ! preg_match('/^\d{4}-\d{2}-\d{2}$/', $parts[0]) || ! preg_match('/^\d{4}-\d{2}-\d{2}$/', $parts[1])) {
+            $this->send($chatId, "Неверный диапазон. Попробуйте заново.");
+            return response('OK');
+        }
+
+        return $this->renderGuestList($s, $chatId, $parts[0], $parts[1], $shift->id, includePaid: true);
     }
 
     /**

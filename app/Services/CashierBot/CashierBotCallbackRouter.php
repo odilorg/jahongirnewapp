@@ -102,7 +102,12 @@ final class CashierBotCallbackRouter
             $data === 'close_shift'        => $controller->startClose($s, $chatId),
             $data === 'menu'               => $controller->showMainMenu($chatId, $s),
             str_starts_with($data, 'guest_')   => $controller->selectGuest($s, $chatId, $data),
-            str_starts_with($data, 'pick_date_') => $controller->pickArrivalDate($s, $chatId, $data),
+            // Order matters: pick_show_all_ MUST be matched before pick_date_
+            // (or rather pick_show_all_ doesn't start with pick_date_, but
+            // listing both explicitly so future maintainers don't add an
+            // accidental wildcard that swallows show-all into pickArrivalDate).
+            str_starts_with($data, 'pick_show_all_') => $controller->pickShowAll($s, $chatId, $data),
+            str_starts_with($data, 'pick_date_')     => $controller->pickArrivalDate($s, $chatId, $data),
             str_starts_with($data, 'cur_')     => $controller->selectCur($s, $chatId, $data),
             $data === 'fx_confirm_amount'  => $controller->fxConfirmAmount($s, $chatId),
             str_starts_with($data, 'excur_')   => $controller->selectExCur($s, $chatId, $data),
