@@ -842,6 +842,26 @@ class Beds24WebhookController extends Controller
     }
 
     /**
+     * Resolve the management Telegram group chat_id for a checkout
+     * notification, given the booking's Beds24 property_id.
+     *
+     * Public + static so the test suite can exercise it without
+     * instantiating the controller and its heavy dependencies.
+     *
+     * Returns 0 when the configured group is missing/empty — caller
+     * MUST log a warning rather than silently skipping (real incident
+     * 2026-05-03: empty HOUSEKEEPING_PREMIUM_MGMT_GROUP_ID dropped
+     * weeks of Premium checkouts from the management group).
+     */
+    public static function resolveCheckoutMgmtGroupId(string $propertyId): int
+    {
+        return match ($propertyId) {
+            '172793' => (int) config('services.housekeeping_bot.premium_mgmt_group_id', 0),
+            default  => (int) config('services.housekeeping_bot.mgmt_group_id', 0),
+        };
+    }
+
+    /**
      * Send TG notification to all authenticated housekeeping bot users about checkout.
      */
     private function notifyCleanersCheckout(Beds24Booking $booking): void
@@ -895,15 +915,27 @@ class Beds24WebhookController extends Controller
         }
 
         // Route to correct management group based on property
-        $mgmtGroupId = match ((string) $booking->property_id) {
-            '172793' => (int) config('services.housekeeping_bot.premium_mgmt_group_id', 0),
-            default  => (int) config('services.housekeeping_bot.mgmt_group_id', 0),
-        };
+        $mgmtGroupId = self::resolveCheckoutMgmtGroupId((string) $booking->property_id);
         if ($mgmtGroupId) {
             SendTelegramNotificationJob::dispatch('housekeeping', 'sendMessage', [
                 'chat_id'    => $mgmtGroupId,
                 'text'       => $text,
                 'parse_mode' => 'HTML',
+            ]);
+        } else {
+            // Hardening: never silently skip the management-group ping again.
+            // Real incident 2026-05-03: HOUSEKEEPING_PREMIUM_MGMT_GROUP_ID was
+            // empty for property 172793, so every Premium checkout for weeks
+            // queued only the personal HK sessions and silently dropped the
+            // group. Logged at WARNING so the daily cash:audit-daily anomaly
+            // surface (or any log scrape) catches a re-occurrence.
+            Log::warning('Beds24 Checkout: management group missing — group notification skipped', [
+                'booking_id'    => $booking->beds24_booking_id,
+                'property_id'   => $booking->property_id,
+                'env_key'       => $booking->property_id == '172793'
+                    ? 'HOUSEKEEPING_PREMIUM_MGMT_GROUP_ID'
+                    : 'HOUSEKEEPING_MGMT_GROUP_ID',
+                'resolved_value' => $mgmtGroupId,
             ]);
         }
 
