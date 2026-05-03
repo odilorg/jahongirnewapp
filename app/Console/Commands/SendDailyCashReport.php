@@ -58,16 +58,25 @@ class SendDailyCashReport extends Command
         }
 
         // Income by currency and payment method
+        // by_source breakdown shown when both cashier_bot and beds24_external
+        // contributed in the same currency — gives ops the reconciliation view.
         $income = [];
         $transactions->where('type', TransactionType::IN)->each(function ($tx) use (&$income) {
             $currency = $this->getCurrency($tx);
             if (!isset($income[$currency])) {
-                $income[$currency] = ['total' => 0, 'by_method' => []];
+                $income[$currency] = ['total' => 0, 'by_method' => [], 'by_source' => []];
             }
             $income[$currency]['total'] += $tx->amount;
 
             $method = $tx->payment_method ?: 'unknown';
             $income[$currency]['by_method'][$method] = ($income[$currency]['by_method'][$method] ?? 0) + $tx->amount;
+
+            $source = (string) ($tx->source_trigger?->value ?? $tx->source_trigger ?? 'unknown');
+            if (! isset($income[$currency]['by_source'][$source])) {
+                $income[$currency]['by_source'][$source] = ['count' => 0, 'total' => 0.0];
+            }
+            $income[$currency]['by_source'][$source]['count']++;
+            $income[$currency]['by_source'][$source]['total'] += $tx->amount;
         });
 
         // Expenses by currency with item details

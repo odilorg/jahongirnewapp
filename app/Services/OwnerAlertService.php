@@ -690,8 +690,34 @@ class OwnerAlertService
                     $lines[] = "    • {$methodLabel}: " . number_format($amount, 2);
                 }
             }
+            // Source split — shown only when ≥2 sources contributed for this
+            // currency (otherwise it's just noise for single-channel days).
+            // Surfaces the OTA-vs-till split for reconciliation without
+            // adding a separate report.
+            if (! empty($details['by_source']) && count($details['by_source']) >= 2) {
+                $lines[] = "    📊 По источнику:";
+                foreach ($details['by_source'] as $source => $stats) {
+                    $label = $this->translateSourceTrigger((string) $source);
+                    $lines[] = "      {$label}: " . number_format($stats['total'], 2)
+                        . " ({$stats['count']})";
+                }
+            }
         }
         return $lines ? implode("\n", $lines) : "  — нет";
+    }
+
+    /**
+     * Russian-friendly labels for cash_transactions.source_trigger values
+     * — used by the daily/monthly report's source split.
+     */
+    private function translateSourceTrigger(string $source): string
+    {
+        return match ($source) {
+            'cashier_bot'     => '📱 Cashier Bot',
+            'beds24_external' => '🏨 Beds24',
+            'manual_admin'    => '🛠 Ручной (admin)',
+            default           => $source,
+        };
     }
 
     private function formatExpenseSection(array $expenses): string

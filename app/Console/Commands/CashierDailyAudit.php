@@ -191,6 +191,61 @@ class CashierDailyAudit extends Command
                 'msg' => "{$suspect} UZS expense(s) with foreign-currency keyword in description — possible silent mis-record (parser hardened today)."];
         }
 
+        // ── Section 7: dual-source booking payments (reconciliation) ──
+        // Detect bookings paid via BOTH cashier_bot AND beds24_external on
+        // the audit date. Severity is amount-driven:
+        //   🔴 amounts match within tolerance → likely DUPLICATE (high risk)
+        //   🟡 amounts differ                → likely SPLIT/TOP-UP (review)
+        // Real-world incident 2026-05-03: source-mismatch blind spot let an
+        // operator double-record a Beds24-already-paid booking via the bot.
+        $dualBookings = DB::table('cash_transactions as t1')
+            ->join('cash_transactions as t2', function ($j) {
+                $j->on('t1.beds24_booking_id', '=', 't2.beds24_booking_id')
+                  ->whereRaw('t1.id < t2.id');
+            })
+            ->whereBetween('t1.occurred_at', [$start, $end])
+            ->whereBetween('t2.occurred_at', [$start, $end])
+            ->whereNull('t1.deleted_at')->whereNull('t2.deleted_at')
+            ->where('t1.category', 'sale')->where('t2.category', 'sale')
+            ->whereNotNull('t1.beds24_booking_id')
+            ->where(function ($q) {
+                $q->where(function ($qq) {
+                    $qq->where('t1.source_trigger', 'cashier_bot')
+                       ->where('t2.source_trigger', 'beds24_external');
+                })->orWhere(function ($qq) {
+                    $qq->where('t1.source_trigger', 'beds24_external')
+                       ->where('t2.source_trigger', 'cashier_bot');
+                });
+            })
+            ->select(
+                't1.beds24_booking_id',
+                't1.amount as a1', 't1.currency as c1', 't1.source_trigger as s1',
+                't2.amount as a2', 't2.currency as c2', 't2.source_trigger as s2',
+            )->get();
+
+        $duplicates = [];
+        $splits     = [];
+        foreach ($dualBookings as $row) {
+            $sameCurrency = strcasecmp((string) $row->c1, (string) $row->c2) === 0;
+            $sameAmount   = $sameCurrency && abs((float) $row->a1 - (float) $row->a2) <= 1.0;
+            if ($sameAmount) {
+                $duplicates[] = $row;
+            } else {
+                $splits[] = $row;
+            }
+        }
+
+        if (! empty($duplicates)) {
+            $ids = collect($duplicates)->pluck('beds24_booking_id')->unique()->take(5)->implode(', ');
+            $findings[] = ['severity' => 'ALERT',
+                'msg' => '🚨 ' . count($duplicates) . ' booking(s) paid via BOTH cashier_bot AND beds24_external with matching amount — likely duplicate(s). Beds24 #' . $ids . '.'];
+        }
+        if (! empty($splits)) {
+            $ids = collect($splits)->pluck('beds24_booking_id')->unique()->take(5)->implode(', ');
+            $findings[] = ['severity' => 'WARN',
+                'msg' => count($splits) . ' booking(s) with dual-source payments at different amounts — likely split/top-up, review. Beds24 #' . $ids . '.'];
+        }
+
         // ── Determine overall severity ─────────────────────────────────
         $severity = 'PASS';
         $sevLabel = '✅ PASS';

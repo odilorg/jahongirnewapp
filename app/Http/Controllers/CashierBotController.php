@@ -334,9 +334,16 @@ class CashierBotController extends Controller
         }
 
         // Build paid-set up-front; both the filter and the per-row badge use it.
+        // Includes BOTH cashier_bot AND beds24_external rows so admins see
+        // "already paid" even when the recorded payment came in via Beds24
+        // webhook rather than this bot. Prevents the source-mismatch blind spot
+        // where a Beds24-mirrored payment was invisible to the bot's UI.
         $bookingIds = collect($guests)->pluck('id')->all();
         $paidIds = CashTransaction::whereIn('beds24_booking_id', $bookingIds)
-            ->where('source_trigger', CashTransactionSource::CashierBot->value)
+            ->whereIn('source_trigger', [
+                CashTransactionSource::CashierBot->value,
+                CashTransactionSource::Beds24External->value,
+            ])
             ->whereNull('deleted_at')
             ->pluck('beds24_booking_id')
             ->map(fn ($x) => (int) $x)
@@ -932,6 +939,17 @@ class CashierBotController extends Controller
                     $t .= "\nПричина: {$d['override_reason']}";
                 }
             }
+        }
+
+        // Prior-payment warning — surfaces dual-source duplicates / split payments
+        // before the operator commits. Severity tier (duplicate vs split) drives
+        // emoji + copy. Never blocks the flow; just surfaces the prior row's
+        // source / amount / date / method so the operator decides.
+        $bookingId = (int) ($d['booking_id'] ?? 0);
+        if ($bookingId > 0) {
+            $detector  = app(\App\Services\CashierBot\PriorPaymentDetector::class);
+            $detection = $detector->detect($bookingId, (float) $d['amount'], (string) $d['currency']);
+            $t .= $detector->formatWarning($detection, $bookingId);
         }
 
         $this->send($chatId, $t, ['inline_keyboard' => [[

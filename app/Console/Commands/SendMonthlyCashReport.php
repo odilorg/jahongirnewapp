@@ -63,14 +63,23 @@ class SendMonthlyCashReport extends Command
             return self::SUCCESS;
         }
 
-        // Income by currency and method
+        // Income by currency, payment method, and source.
+        // by_source breakdown shown when both cashier_bot and beds24_external
+        // contributed — gives ops the OTA-vs-till reconciliation view.
         $income = [];
         $transactions->where('type', TransactionType::IN)->each(function ($tx) use (&$income) {
             $c = $this->getCurrency($tx);
-            if (!isset($income[$c])) $income[$c] = ['total' => 0, 'by_method' => []];
+            if (!isset($income[$c])) $income[$c] = ['total' => 0, 'by_method' => [], 'by_source' => []];
             $income[$c]['total'] += $tx->amount;
             $m = $tx->payment_method ?: 'unknown';
             $income[$c]['by_method'][$m] = ($income[$c]['by_method'][$m] ?? 0) + $tx->amount;
+
+            $s = (string) ($tx->source_trigger?->value ?? $tx->source_trigger ?? 'unknown');
+            if (! isset($income[$c]['by_source'][$s])) {
+                $income[$c]['by_source'][$s] = ['count' => 0, 'total' => 0.0];
+            }
+            $income[$c]['by_source'][$s]['count']++;
+            $income[$c]['by_source'][$s]['total'] += $tx->amount;
         });
 
         // Expenses grouped by notes (category)
