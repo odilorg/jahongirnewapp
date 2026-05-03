@@ -291,14 +291,23 @@ class CashierBotController extends Controller
         $shift = $this->getShift($s->user_id);
         if (!$shift) { $this->send($chatId, "Сначала откройте смену."); return response('OK'); }
 
-        // Default scope: -3d back / +14d forward (covers late payers, today,
-        // advance bookings within 2 weeks). Overridable via env.
-        $back    = (int) config('services.cashier_bot.payment_arrival_days_back', 3);
-        $forward = (int) config('services.cashier_bot.payment_arrival_days_forward', 14);
-        $from    = Carbon::today()->subDays($back)->format('Y-m-d');
-        $to      = Carbon::today()->addDays($forward)->format('Y-m-d');
-
-        return $this->renderGuestList($s, $chatId, $from, $to, $shift->id);
+        // Minimal date picker: today vs other date. The previous default
+        // (-3/+14 day window from b13a921) produced lists that felt long;
+        // operators wanted to choose the day explicitly. The picker hands
+        // off to the existing pick_date_today / pick_date_other callbacks
+        // — both already render the single-day list with the same
+        // hide-paid + manual-ID + bottom-nav affordances.
+        //
+        // The CASHIER_PAYMENT_ARRIVAL_DAYS_BACK/FORWARD env keys remain
+        // wired to renderGuestList() but are no longer reached from this
+        // entry point. Left in place so a one-line revert restores the
+        // wide-range default if the new flow doesn't land well.
+        $btns = [
+            [['text' => '📅 Сегодня',      'callback_data' => 'pick_date_today']],
+            [['text' => '📅 Другая дата',  'callback_data' => 'pick_date_other']],
+        ];
+        $this->send($chatId, 'Выберите дату заездов:', ['inline_keyboard' => $btns], 'inline');
+        return response('OK');
     }
 
     /**
