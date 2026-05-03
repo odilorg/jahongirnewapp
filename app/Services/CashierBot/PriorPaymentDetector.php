@@ -53,7 +53,10 @@ class PriorPaymentDetector
         }
 
         $duplicate = $priors->first(function (CashTransaction $tx) use ($newAmount, $newCurrency) {
-            if (strcasecmp($tx->currency, $newCurrency) !== 0) {
+            // currency is cast to App\Enums\Currency on this model — coerce
+            // both sides to plain strings before comparing.
+            $rowCurrency = $tx->currency instanceof \BackedEnum ? $tx->currency->value : (string) $tx->currency;
+            if (strcasecmp($rowCurrency, $newCurrency) !== 0) {
                 return false;
             }
             return abs((float) $tx->amount - $newAmount) <= self::AMOUNT_TOLERANCE;
@@ -79,7 +82,10 @@ class PriorPaymentDetector
         $priors = $detection['priors'];
         $first  = $priors->first();
 
-        $sourceLabel = match ((string) $first->source_trigger?->value ?: (string) $first->source_trigger) {
+        $sourceValue  = $first->source_trigger instanceof \BackedEnum
+            ? $first->source_trigger->value
+            : (string) $first->source_trigger;
+        $sourceLabel = match ($sourceValue) {
             CashTransactionSource::CashierBot->value     => 'Cashier Bot',
             CashTransactionSource::Beds24External->value => 'Beds24',
             default                                      => 'другая система',
@@ -97,7 +103,8 @@ class PriorPaymentDetector
             default => (string) $first->payment_method,
         };
 
-        $amountLabel = number_format((float) $first->amount, 0, '.', ' ') . ' ' . $first->currency;
+        $rowCurrency = $first->currency instanceof \BackedEnum ? $first->currency->value : (string) $first->currency;
+        $amountLabel = number_format((float) $first->amount, 0, '.', ' ') . ' ' . $rowCurrency;
 
         if ($detection['tier'] === 'duplicate') {
             return "\n\n🚨 <b>ВНИМАНИЕ:</b> Похожий платеж уже существует.\n"
