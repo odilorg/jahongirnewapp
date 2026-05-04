@@ -35,6 +35,13 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
 
     protected static string $view = 'filament.pages.tour-calendar';
 
+    // Default Filament page width caps content at ~7xl (1280px) and
+    // centres it, leaving a wide empty rail on monitors larger than
+    // that. The calendar is a horizontal-density surface — every pixel
+    // counts. Override to fill the available width so the 7-day grid
+    // breathes properly on large screens.
+    protected ?string $maxContentWidth = 'full';
+
     public ?string $week = null;
     public bool $showLeads = false;
     public ?int $selectedInquiryId = null;
