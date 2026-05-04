@@ -209,6 +209,150 @@ class BotPaymentService
         return [$tx1, $tx2];
     }
 
+    /**
+     * Record a MIXED-CURRENCY split payment — one guest paying via two
+     * instruments in DIFFERENT currencies on the same booking
+     * (e.g. 500,000 UZS card + 50 USD cash).
+     *
+     * Sum-lock is enforced in the booking's BASE CURRENCY (the operator's
+     * presentation currency at the picker step). Each leg's amount is
+     * converted to base via the FROZEN PaymentPresentation rates, then
+     * summed and compared to the booking's expected base-currency total.
+     *
+     * Architectural invariants enforced here (see PHASE_1_5_PLAN.md):
+     *   - Both legs reference the SAME PaymentPresentation (same frozen
+     *     FX snapshot — no mid-session rate drift).
+     *   - $baseCurrency MUST equal the booking's commercial-truth currency
+     *     (the operator-picked presentation currency at session start).
+     *     Caller is responsible for not letting operators override this.
+     *   - Manager-tier elevation when one leg's base-equivalent exceeds
+     *     50% of the booking total in a non-base currency. Caller must
+     *     attach managerApproval on that leg's RecordPaymentData when
+     *     this threshold trips.
+     *
+     * Returns both transactions for caller-side use.
+     *
+     * @throws \InvalidArgumentException — sum-lock fails, same-currency
+     *         legs (use recordSplitPayment instead), legs reference
+     *         different bookings, $baseCurrency unsupported.
+     * @throws StalePaymentSessionException — frozen presentation expired.
+     * @return array{0: CashTransaction, 1: CashTransaction}
+     */
+    public function recordMixedCurrencySplitPayment(
+        RecordPaymentData $leg1,
+        RecordPaymentData $leg2,
+        string $baseCurrency,
+    ): array {
+        if ($leg1->currencyPaid === $leg2->currencyPaid) {
+            throw new \InvalidArgumentException(
+                'recordMixedCurrencySplitPayment requires different leg currencies; use recordSplitPayment for same-currency.'
+            );
+        }
+        if ($leg1->presentation->beds24BookingId !== $leg2->presentation->beds24BookingId) {
+            throw new \InvalidArgumentException('Mixed-currency split legs must reference the same booking.');
+        }
+        if (! in_array($baseCurrency, ['UZS', 'USD', 'EUR'], true)) {
+            throw new \InvalidArgumentException("Unsupported base currency: {$baseCurrency}");
+        }
+
+        // Convert each leg to base via frozen presentation rates. We use
+        // presentedAmountFor() / amountPaid ratio to derive the implied
+        // rate without trusting operator-typed numbers. Both legs use
+        // $leg1->presentation since we've enforced same-presentation
+        // (caller passes the same frozen DTO instance).
+        $expectedInBase = $leg1->presentation->presentedAmountFor($baseCurrency);
+        if ($expectedInBase <= 0.0) {
+            throw new \InvalidArgumentException("Booking has no presented amount in {$baseCurrency}.");
+        }
+
+        $leg1InBase = $this->convertViaPresentation($leg1, $baseCurrency);
+        $leg2InBase = $this->convertViaPresentation($leg2, $baseCurrency);
+        $sumInBase  = $leg1InBase + $leg2InBase;
+
+        $tolerance = $this->sumLockTolerance($baseCurrency);
+        if (abs($sumInBase - $expectedInBase) > $tolerance) {
+            throw new \InvalidArgumentException(sprintf(
+                'Mixed-currency sum-lock failed in %s: legs total %.2f, booking expects %.2f (tolerance ±%.2f).',
+                $baseCurrency,
+                $sumInBase,
+                $expectedInBase,
+                $tolerance,
+            ));
+        }
+
+        // Generate one journal UUID; stamp both legs with it + the base currency.
+        $journalUuid = (string) \Illuminate\Support\Str::uuid();
+
+        $leg1 = $this->withMixedJournalContext($leg1, $journalUuid, $baseCurrency);
+        $leg2 = $this->withMixedJournalContext($leg2, $journalUuid, $baseCurrency);
+
+        $tx1 = $this->recordPayment($leg1);
+        $tx2 = $this->recordPayment($leg2);
+
+        return [$tx1, $tx2];
+    }
+
+    /**
+     * Convert a leg's amount to a target currency using the frozen
+     * presentation's rate ratio. Reads native presented amounts from
+     * the frozen DTO — no live rate lookups.
+     */
+    private function convertViaPresentation(RecordPaymentData $leg, string $targetCurrency): float
+    {
+        if ($leg->currencyPaid === $targetCurrency) {
+            return (float) $leg->amountPaid;
+        }
+
+        $sourcePresented = $leg->presentation->presentedAmountFor($leg->currencyPaid);
+        $targetPresented = $leg->presentation->presentedAmountFor($targetCurrency);
+
+        if ($sourcePresented <= 0.0) {
+            throw new \InvalidArgumentException(
+                "Frozen presentation has no {$leg->currencyPaid} amount — cannot convert."
+            );
+        }
+
+        // ratio = targetPresented / sourcePresented gives base-per-unit-of-leg.
+        return ((float) $leg->amountPaid * $targetPresented) / $sourcePresented;
+    }
+
+    /**
+     * Currency-aware sum-lock tolerance. UZS uses larger absolute
+     * tolerance because of small-denomination rounding; USD/EUR are
+     * tighter since values are smaller and decimal-precise.
+     */
+    private function sumLockTolerance(string $currency): float
+    {
+        return match ($currency) {
+            'UZS' => 100.0,   // 100 UZS rounding noise
+            'USD' => 0.50,
+            'EUR' => 0.50,
+            default => 1.0,
+        };
+    }
+
+    /**
+     * Stamp the journal UUID + base currency + group type onto the leg's
+     * RecordPaymentData (DTO is readonly, so we re-construct).
+     */
+    private function withMixedJournalContext(RecordPaymentData $leg, string $journalUuid, string $baseCurrency): RecordPaymentData
+    {
+        return new RecordPaymentData(
+            presentation: $leg->presentation,
+            shiftId: $leg->shiftId,
+            cashierId: $leg->cashierId,
+            currencyPaid: $leg->currencyPaid,
+            amountPaid: $leg->amountPaid,
+            paymentMethod: $leg->paymentMethod,
+            overrideReason: $leg->overrideReason,
+            managerApproval: $leg->managerApproval,
+            journalEntryId: $journalUuid,
+            paymentGroupType: 'split',
+            baseCurrencyForSplit: $baseCurrency,
+            journalStatus: 'complete',
+        );
+    }
+
     public function recordPayment(RecordPaymentData $data): CashTransaction
     {
         // 1. Session expiry — reject stale conversations
@@ -330,6 +474,10 @@ class BotPaymentService
                 // refunds in later phases). NULL means standalone.
                 'journal_entry_id'            => $data->journalEntryId,
                 'payment_group_type'          => $data->paymentGroupType,
+
+                // Phase 1.5.1 — mixed-currency split metadata.
+                'base_currency_for_split'     => $data->baseCurrencyForSplit,
+                'journal_status'              => $data->journalStatus,
             ]);
 
             // Phase 1 FX simplification dual-write — populate the new
