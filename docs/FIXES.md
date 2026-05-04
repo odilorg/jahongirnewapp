@@ -14,6 +14,39 @@ Newest entries at top.
 
 ---
 
+## 2026-05-04 — Feedback submit 500: TypeError on rating cast
+
+**Symptom:** Guest Ruyi (and 1+ earlier) hit HTTP 500 when submitting the
+post-tour feedback form with stars selected. 11 errors logged across two
+days (9 of them in a 10-minute Ruyi retry burst). Comments-only
+submissions silently succeeded; star ratings were lost.
+
+**Root cause:** `StoreFeedbackRequest::keepTagsIfLow(?int $rating)` is
+strict-typed. Laravel's `integer` validation rule validates but does
+not cast, so `validated()` returned ratings as strings (`"5"`), tripping
+a `TypeError` in `toFeedbackData()` before the controller ran.
+
+**Fix applied:** Added `prepareForValidation()` to
+`app/Http/Requests/StoreFeedbackRequest.php` which coerces the four
+rating fields (`driver_rating`, `guide_rating`, `accommodation_rating`,
+`overall_rating`) to int (or null for empty) before rules execute.
+Strict-types contract preserved end-to-end.
+
+**Tests:** 5-case feature spec at
+`tests/Feature/StoreFeedbackRequestTest.php` pinning string→int
+coercion, low-rating tag retention, high-rating tag drop, comments-only
+path, and empty-string→null behaviour.
+
+**Verified:** End-to-end POST against live URL with stars now returns
+HTTP 200 and renders the thank-you page; row persists with
+`gettype() === 'integer'` for all four rating columns.
+
+**DB touched?** No. Code-only fix. No backup needed.
+
+**Commit:** `8e2b60b` (deploy `5/5` health checks).
+
+---
+
 ## 2026-05-02 — Cashier bot payment quick-pick: any arrival date
 
 **Operator pain:** the payment list only showed Beds24 arrivals on
