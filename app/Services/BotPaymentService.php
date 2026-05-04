@@ -117,6 +117,85 @@ class BotPaymentService
      * @throws DuplicatePaymentException
      * @throws DuplicateGroupPaymentException
      */
+    /**
+     * Record a SPLIT payment — one guest paying via two instruments
+     * (e.g. 300k UZS cash + 500k UZS card on the same booking).
+     *
+     * Both legs are written under one shared journal_entry_id with
+     * payment_group_type='split'. The duplicate guard's journal-id
+     * exemption lets the second leg co-exist with the first.
+     *
+     * Sum-lock invariant: $cashLeg->amountPaid + $cardLeg->amountPaid
+     * MUST equal the booking's presented amount in the same currency,
+     * within a 1-unit tolerance for rounding. Caller is responsible
+     * for setting both legs' currencyPaid identically.
+     *
+     * Returns both transactions for caller-side use.
+     *
+     * @throws \InvalidArgumentException when sum-lock fails or
+     *         currencies differ between legs.
+     * @return array{0: CashTransaction, 1: CashTransaction}
+     */
+    public function recordSplitPayment(RecordPaymentData $cashLeg, RecordPaymentData $cardLeg): array
+    {
+        if ($cashLeg->currencyPaid !== $cardLeg->currencyPaid) {
+            throw new \InvalidArgumentException(
+                "Split-payment legs must share the same currency (got {$cashLeg->currencyPaid} + {$cardLeg->currencyPaid})."
+            );
+        }
+
+        if ($cashLeg->presentation->beds24BookingId !== $cardLeg->presentation->beds24BookingId) {
+            throw new \InvalidArgumentException(
+                'Split-payment legs must reference the same booking.'
+            );
+        }
+
+        $expected = $cashLeg->presentation->presentedAmountFor($cashLeg->currencyPaid);
+        $sum      = (float) $cashLeg->amountPaid + (float) $cardLeg->amountPaid;
+        if (abs($sum - $expected) > 1.0) {
+            throw new \InvalidArgumentException(
+                "Split-payment sum-lock failed: legs total {$sum} but booking expects {$expected} {$cashLeg->currencyPaid}."
+            );
+        }
+
+        // One UUID for both legs. Stamped on both DTOs before recording.
+        $journalUuid = (string) \Illuminate\Support\Str::uuid();
+
+        $cashLeg = new RecordPaymentData(
+            presentation: $cashLeg->presentation,
+            shiftId: $cashLeg->shiftId,
+            cashierId: $cashLeg->cashierId,
+            currencyPaid: $cashLeg->currencyPaid,
+            amountPaid: $cashLeg->amountPaid,
+            paymentMethod: $cashLeg->paymentMethod,
+            overrideReason: $cashLeg->overrideReason,
+            managerApproval: $cashLeg->managerApproval,
+            journalEntryId: $journalUuid,
+            paymentGroupType: 'split',
+        );
+        $cardLeg = new RecordPaymentData(
+            presentation: $cardLeg->presentation,
+            shiftId: $cardLeg->shiftId,
+            cashierId: $cardLeg->cashierId,
+            currencyPaid: $cardLeg->currencyPaid,
+            amountPaid: $cardLeg->amountPaid,
+            paymentMethod: $cardLeg->paymentMethod,
+            overrideReason: $cardLeg->overrideReason,
+            managerApproval: $cardLeg->managerApproval,
+            journalEntryId: $journalUuid,
+            paymentGroupType: 'split',
+        );
+
+        // Both writes go through the same recordPayment path so they
+        // pick up FX dual-write, Beds24 sync row creation, owner alert,
+        // override evaluation, etc. The duplicate guard's journal-id
+        // exemption lets the second insert see the first as "ours".
+        $tx1 = $this->recordPayment($cashLeg);
+        $tx2 = $this->recordPayment($cardLeg);
+
+        return [$tx1, $tx2];
+    }
+
     public function recordPayment(RecordPaymentData $data): CashTransaction
     {
         // 1. Session expiry — reject stale conversations
@@ -167,8 +246,10 @@ class BotPaymentService
             }
 
             // Duplicate payment guard — runs under the booking row lock so it is
-            // race-safe for both standalone and group payments.
-            $this->guardAgainstDuplicatePayment($p);
+            // race-safe for both standalone and group payments. The journal-id
+            // exemption lets split-payment siblings co-exist; they share one
+            // journal_entry_id and represent one logical transaction.
+            $this->guardAgainstDuplicatePayment($p, $data->journalEntryId);
 
             // 5. Consume manager approval atomically (lockForUpdate inside consume())
             if ($data->managerApproval) {
@@ -230,6 +311,12 @@ class BotPaymentService
                 'is_group_payment'            => $p->isGroupPayment,
                 'group_size_expected'         => $p->groupSizeExpected,
                 'group_size_local'            => $p->groupSizeLocal,
+
+                // Journal Entry Foundation v1 — links sibling rows of one
+                // logical transaction (split payments now; reversals /
+                // refunds in later phases). NULL means standalone.
+                'journal_entry_id'            => $data->journalEntryId,
+                'payment_group_type'          => $data->paymentGroupType,
             ]);
 
             // Phase 1 FX simplification dual-write — populate the new
@@ -296,12 +383,24 @@ class BotPaymentService
      *     (catches sibling attempts even when a different booking ID was entered)
      *     → DuplicateGroupPaymentException
      */
-    private function guardAgainstDuplicatePayment(PaymentPresentation $p): void
+    private function guardAgainstDuplicatePayment(PaymentPresentation $p, ?string $allowedJournalEntryId = null): void
     {
         // Tier 1: standalone guard (applies to all bookings, grouped or not)
-        $standaloneDuplicate = CashTransaction::where('beds24_booking_id', $p->beds24BookingId)
-            ->where('source_trigger', CashTransactionSource::CashierBot->value)
-            ->exists();
+        // Allowed-journal-id exemption: when this insert is part of a SPLIT
+        // payment, the second-leg insert sees the first leg as a "prior row"
+        // — but they are LEGITIMATE siblings under the same journal_entry_id,
+        // not a duplicate. Skip the guard for rows sharing the same journal.
+        $query = CashTransaction::where('beds24_booking_id', $p->beds24BookingId)
+            ->where('source_trigger', CashTransactionSource::CashierBot->value);
+
+        if ($allowedJournalEntryId !== null) {
+            $query->where(function ($q) use ($allowedJournalEntryId) {
+                $q->whereNull('journal_entry_id')
+                  ->orWhere('journal_entry_id', '!=', $allowedJournalEntryId);
+            });
+        }
+
+        $standaloneDuplicate = $query->exists();
 
         if ($standaloneDuplicate) {
             throw new DuplicatePaymentException(

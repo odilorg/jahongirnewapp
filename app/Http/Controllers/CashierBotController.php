@@ -239,6 +239,7 @@ class CashierBotController extends Controller
             'shift_count_usd' => $this->hCount($s, $chatId, $text, 'USD'),
             'shift_count_eur' => $this->hCount($s, $chatId, $text, 'EUR'),
             'shift_close_reason' => $this->hShiftCloseReason($s, $chatId, $text),
+            'payment_split_cash' => $this->hPaymentSplitCash($s, $chatId, $text),
             default => $this->resetSessionToMainMenu($s, $chatId),
         };
     }
@@ -796,11 +797,16 @@ class CashierBotController extends Controller
     protected function proceedToPaymentMethod($s, int $chatId, array $d)
     {
         $s->update(['state' => 'payment_method', 'data' => $d]);
-        $this->send($chatId, "Способ оплаты:", ['inline_keyboard' => [[
-            ['text' => 'Наличные', 'callback_data' => 'method_cash'],
-            ['text' => 'Карта', 'callback_data' => 'method_card'],
-            ['text' => 'Перевод', 'callback_data' => 'method_transfer'],
-        ]]], 'inline');
+        $this->send($chatId, "Способ оплаты:", ['inline_keyboard' => [
+            [
+                ['text' => 'Наличные', 'callback_data' => 'method_cash'],
+                ['text' => 'Карта',    'callback_data' => 'method_card'],
+                ['text' => 'Перевод',  'callback_data' => 'method_transfer'],
+            ],
+            [
+                ['text' => '➗ Разбить (наличные + карта)', 'callback_data' => 'method_split'],
+            ],
+        ]], 'inline');
         return response('OK');
     }
 
@@ -923,6 +929,22 @@ class CashierBotController extends Controller
     public function selectMethod($s, int $chatId, string $data)
     {
         $d = $s->data ?? [];
+
+        // Split-payment fork — fan out to the cash-portion entry state.
+        // The remaining amount is auto-computed as the card portion at confirm
+        // time, so the operator only enters one number.
+        if ($data === 'method_split') {
+            $totalLabel = number_format((float) ($d['amount'] ?? 0), 0, '.', ' ');
+            $cur        = (string) ($d['currency'] ?? 'UZS');
+            $s->update(['state' => 'payment_split_cash', 'data' => $d]);
+            $this->send($chatId,
+                "➗ Сплит-платеж\n\n"
+                . "Всего к оплате: {$totalLabel} {$cur}\n\n"
+                . "Введите сумму НАЛИЧНЫМИ (остаток будет картой):"
+            );
+            return response('OK');
+        }
+
         $d['method'] = str_replace('method_', '', $data);
         $s->update(['state' => 'payment_confirm', 'data' => $d]);
         $ml = match($d['method']) { 'cash' => 'Наличные', 'card' => 'Карта', 'transfer' => 'Перевод', default => $d['method'] };
@@ -974,17 +996,46 @@ class CashierBotController extends Controller
         try {
             // FX presentation path: use BotPaymentService which validates the frozen DTO
             if (! empty($d['fx_presentation'])) {
-                $recordData = new RecordPaymentData(
-                    presentation:    PaymentPresentation::fromArray($d['fx_presentation']),
-                    shiftId:         $shift->id,
-                    cashierId:       $s->user_id,
-                    currencyPaid:    $d['currency'],
-                    amountPaid:      (float) $d['amount'],
-                    paymentMethod:   $d['method'],
-                    overrideReason:  $d['override_reason'] ?? null,
-                    managerApproval: null,
-                );
-                $this->botPaymentService->recordPayment($recordData);
+                $presentation = PaymentPresentation::fromArray($d['fx_presentation']);
+
+                if (($d['method'] ?? '') === 'split') {
+                    // Split payment — cash + card under one journal_entry_id.
+                    // Each leg is its own RecordPaymentData; recordSplitPayment
+                    // enforces sum-lock + writes both rows under one UUID.
+                    $cashLeg = new RecordPaymentData(
+                        presentation: $presentation,
+                        shiftId:      $shift->id,
+                        cashierId:    $s->user_id,
+                        currencyPaid: $d['currency'],
+                        amountPaid:   (float) $d['split_cash'],
+                        paymentMethod:'cash',
+                        overrideReason: $d['override_reason'] ?? null,
+                        managerApproval: null,
+                    );
+                    $cardLeg = new RecordPaymentData(
+                        presentation: $presentation,
+                        shiftId:      $shift->id,
+                        cashierId:    $s->user_id,
+                        currencyPaid: $d['currency'],
+                        amountPaid:   (float) $d['split_card'],
+                        paymentMethod:'card',
+                        overrideReason: $d['override_reason'] ?? null,
+                        managerApproval: null,
+                    );
+                    $this->botPaymentService->recordSplitPayment($cashLeg, $cardLeg);
+                } else {
+                    $recordData = new RecordPaymentData(
+                        presentation:    $presentation,
+                        shiftId:         $shift->id,
+                        cashierId:       $s->user_id,
+                        currencyPaid:    $d['currency'],
+                        amountPaid:      (float) $d['amount'],
+                        paymentMethod:   $d['method'],
+                        overrideReason:  $d['override_reason'] ?? null,
+                        managerApproval: null,
+                    );
+                    $this->botPaymentService->recordPayment($recordData);
+                }
             } else {
                 // Microphases 7 & 8: FX presentation absent — hard block.
                 // CashierPaymentService has been deleted; only the FX path above is reachable.
@@ -994,7 +1045,10 @@ class CashierBotController extends Controller
             }
 
             if ($callbackId) $this->succeedCallback($callbackId);
-            $this->send($chatId, "✅ Оплата записана!\nБаланс: " . $this->fmtBal($this->getBal($shift->fresh())));
+            $confirmMsg = ($d['method'] ?? '') === 'split'
+                ? "✅ Сплит-платеж записан!\nБаланс: " . $this->fmtBal($this->getBal($shift->fresh()))
+                : "✅ Оплата записана!\nБаланс: " . $this->fmtBal($this->getBal($shift->fresh()));
+            $this->send($chatId, $confirmMsg);
         } catch (\App\Exceptions\StalePaymentSessionException $e) {
             if ($callbackId) $this->failCallback($callbackId, $e->getMessage());
             $this->send($chatId, "⏱ Сессия устарела (прошло > 20 мин). Начните заново.");
@@ -1327,6 +1381,57 @@ class CashierBotController extends Controller
             return $this->showCloseConfirm($s, $chatId);
         }
         $this->send($chatId, $next[1]);
+        return response('OK');
+    }
+
+    /**
+     * Text-state handler for `payment_split_cash`. Operator types the
+     * cash portion of a split payment; bot computes the card portion as
+     * (total − cash) and presents the confirm screen with both legs.
+     *
+     * Sum-lock at the input layer: cash portion must be > 0 AND < total
+     * (a 0-cash or full-cash split is just a single-method payment, no
+     * need for the split flow).
+     */
+    protected function hPaymentSplitCash($s, int $chatId, string $text)
+    {
+        $cash  = floatval(str_replace([' ', ','], ['', '.'], $text));
+        $d     = $s->data ?? [];
+        $total = (float) ($d['amount'] ?? 0);
+        $cur   = (string) ($d['currency'] ?? 'UZS');
+
+        if ($cash <= 0) {
+            $this->send($chatId, "Сумма должна быть больше нуля. Введите наличную часть ещё раз:");
+            return response('OK');
+        }
+        if ($cash >= $total) {
+            $this->send($chatId,
+                "Наличная часть ({$cash}) ≥ общей суммы ({$total}). Если оплата только наличными — нажмите Отмена и выберите «Наличные» в способе оплаты."
+            );
+            return response('OK');
+        }
+
+        $card = round($total - $cash, 2);
+        $d['split_cash'] = $cash;
+        $d['split_card'] = $card;
+        $d['method']     = 'split';
+        $s->update(['state' => 'payment_confirm', 'data' => $d]);
+
+        $room = $d['room'] ?? ($d['booking_id'] ? "Beds24 #{$d['booking_id']}" : '—');
+        $totalLabel = number_format($total, 0, '.', ' ');
+        $cashLabel  = number_format($cash,  0, '.', ' ');
+        $cardLabel  = number_format($card,  0, '.', ' ');
+
+        $t = "Подтвердите сплит-платеж:\n\n"
+            . "Бронь: {$room}\nГость: {$d['guest_name']}\n\n"
+            . "Всего: {$totalLabel} {$cur}\n"
+            . "💵 Наличными: {$cashLabel} {$cur}\n"
+            . "💳 Картой:    {$cardLabel} {$cur}";
+
+        $this->send($chatId, $t, ['inline_keyboard' => [[
+            ['text' => 'Подтвердить', 'callback_data' => 'confirm_payment'],
+            ['text' => 'Отмена',      'callback_data' => 'cancel'],
+        ]]], 'inline');
         return response('OK');
     }
 
