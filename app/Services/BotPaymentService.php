@@ -130,6 +130,19 @@ class BotPaymentService
      * within a 1-unit tolerance for rounding. Caller is responsible
      * for setting both legs' currencyPaid identically.
      *
+     * SAME-CURRENCY ONLY (deliberate, NOT a limitation):
+     *   v1 hard-rejects mixed-currency splits (e.g. cash UZS + card USD).
+     *   Mixed-currency split requires full FX governance — per-leg rate
+     *   snapshot, locked conversion timestamp, base reconciliation
+     *   currency on the booking — and that's a Phase 1.5 build, not a
+     *   bot-method tweak. Until that lands, an operator wanting to mix
+     *   currencies must convert manually first and record in one
+     *   selected presentation currency, OR record as two separate
+     *   single-currency bookings if the OTA permits.
+     *
+     *   See docs/architecture/PRINCIPLES.md (when added) for the
+     *   "settlement truth vs commercial truth" rule that drives this.
+     *
      * Returns both transactions for caller-side use.
      *
      * @throws \InvalidArgumentException when sum-lock fails or

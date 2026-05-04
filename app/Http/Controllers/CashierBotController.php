@@ -933,14 +933,24 @@ class CashierBotController extends Controller
         // Split-payment fork — fan out to the cash-portion entry state.
         // The remaining amount is auto-computed as the card portion at confirm
         // time, so the operator only enters one number.
+        //
+        // SAME-CURRENCY ONLY by design. Both legs inherit $d['currency']
+        // from the upstream picker. Mixed-currency split (cash UZS + card
+        // USD etc.) is intentionally NOT exposed in v1 — it requires real
+        // FX governance (per-leg rate snapshot, base reconciliation
+        // currency on the booking) which is a Phase 1.5 build. Premature
+        // mixed-currency support is the textbook way to ship invisible
+        // accounting bugs. If a guest needs mixed currencies, the
+        // operator converts manually first, then records in one
+        // selected presentation currency.
         if ($data === 'method_split') {
             $totalLabel = number_format((float) ($d['amount'] ?? 0), 0, '.', ' ');
             $cur        = (string) ($d['currency'] ?? 'UZS');
             $s->update(['state' => 'payment_split_cash', 'data' => $d]);
             $this->send($chatId,
-                "➗ Сплит-платеж\n\n"
+                "➗ Сплит-платеж ({$cur})\n\n"
                 . "Всего к оплате: {$totalLabel} {$cur}\n\n"
-                . "Введите сумму НАЛИЧНЫМИ (остаток будет картой):"
+                . "Введите сумму НАЛИЧНЫМИ (остаток будет картой, та же валюта):"
             );
             return response('OK');
         }
