@@ -21,6 +21,27 @@ class StoreFeedbackRequest extends FormRequest
         return true;
     }
 
+    /**
+     * Coerce numeric-string ratings to int before validation. The form posts
+     * `driver_rating=5` as a string, and Laravel's `integer` rule validates
+     * but does not cast — so `validated()` would otherwise hand a string to
+     * `keepTagsIfLow(?int $rating)` and trip a strict-types TypeError (500).
+     */
+    protected function prepareForValidation(): void
+    {
+        $coerced = [];
+        foreach (['driver_rating', 'guide_rating', 'accommodation_rating', 'overall_rating'] as $key) {
+            $val = $this->input($key);
+            if ($val === null || $val === '') {
+                $coerced[$key] = null;
+            } elseif (is_numeric($val)) {
+                $coerced[$key] = (int) $val;
+            }
+            // Non-numeric junk falls through unchanged → validator rejects with 422.
+        }
+        $this->merge($coerced);
+    }
+
     public function rules(): array
     {
         $driverTagKeys        = array_keys((array) config('feedback_issue_tags.driver', []));
