@@ -90,7 +90,7 @@ class TourFeedbackResource extends Resource
         return $table
             // Eager-load relations actually rendered in columns to keep the
             // list query under control as feedback grows.
-            ->modifyQueryUsing(fn (Builder $q) => $q->with([
+            ->modifyQueryUsing(fn (Builder $query): Builder => $query->with([
                 'inquiry:id,reference,customer_name,tour_name_snapshot,travel_date',
                 'driver:id,first_name,last_name',
                 'guide:id,first_name,last_name',
@@ -155,19 +155,19 @@ class TourFeedbackResource extends Resource
                 Filter::make('submitted_only')
                     ->label('Submitted only')
                     ->default()
-                    ->query(fn (Builder $q): Builder => $q->submitted()),
+                    ->query(fn (Builder $query): Builder => $query->submitted()),
 
                 Filter::make('low_rated_only')
                     ->label('Low-rated only (≤3★)')
-                    ->query(fn (Builder $q): Builder => $q->lowRated()),
+                    ->query(fn (Builder $query): Builder => $query->lowRated()),
 
                 Filter::make('submitted_at')
                     ->form([
                         \Filament\Forms\Components\DatePicker::make('from')->label('From'),
                         \Filament\Forms\Components\DatePicker::make('to')->label('To'),
                     ])
-                    ->query(function (Builder $q, array $data): Builder {
-                        return $q
+                    ->query(function (Builder $query, array $data): Builder {
+                        return $query
                             ->when($data['from'] ?? null, fn (Builder $q, $d) => $q->whereDate('submitted_at', '>=', $d))
                             ->when($data['to'] ?? null, fn (Builder $q, $d) => $q->whereDate('submitted_at', '<=', $d));
                     })
@@ -187,9 +187,9 @@ class TourFeedbackResource extends Resource
                         ->filter()
                         ->unique()
                         ->all())
-                    ->query(fn (Builder $q, $data): Builder => $data['value']
-                        ? $q->whereHas('inquiry', fn (Builder $i) => $i->where('tour_product_id', $data['value']))
-                        : $q),
+                    ->query(fn (Builder $query, $data): Builder => $data['value']
+                        ? $query->whereHas('inquiry', fn (Builder $i) => $i->where('tour_product_id', $data['value']))
+                        : $query),
 
                 SelectFilter::make('driver_id')
                     ->label('Driver')
@@ -258,16 +258,16 @@ class TourFeedbackResource extends Resource
                         Grid::make(4)->schema([
                             TextEntry::make('overall_rating')
                                 ->label('Overall')
-                                ->formatStateUsing(fn (?int $s): string => $s ? str_repeat('⭐', $s) : '—'),
+                                ->formatStateUsing(fn (?int $state): string => $state ? str_repeat('⭐', $state) : '—'),
                             TextEntry::make('driver_rating')
                                 ->label('Driver')
-                                ->formatStateUsing(fn (?int $s): string => $s ? str_repeat('⭐', $s) : '—'),
+                                ->formatStateUsing(fn (?int $state): string => $state ? str_repeat('⭐', $state) : '—'),
                             TextEntry::make('guide_rating')
                                 ->label('Guide')
-                                ->formatStateUsing(fn (?int $s): string => $s ? str_repeat('⭐', $s) : '—'),
+                                ->formatStateUsing(fn (?int $state): string => $state ? str_repeat('⭐', $state) : '—'),
                             TextEntry::make('accommodation_rating')
                                 ->label('Stay')
-                                ->formatStateUsing(fn (?int $s): string => $s ? str_repeat('⭐', $s) : '—'),
+                                ->formatStateUsing(fn (?int $state): string => $state ? str_repeat('⭐', $state) : '—'),
                         ]),
                     ]),
 
