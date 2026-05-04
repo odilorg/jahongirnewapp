@@ -162,6 +162,23 @@ class Kernel extends ConsoleKernel
             ->timezone('Asia/Tashkent')
             ->withoutOverlapping();
 
+        // Viator inbound-email pipeline (V1):
+        //   - fetch every 10 min  (booking@t1.viator.com via himalaya)
+        //   - apply 2 min later   (auto-applies new bookings; amendments
+        //                          + cancellations stay needs_review for
+        //                          operator-driven reconciliation)
+        // Stagger ensures fetch's output is visible to apply on the
+        // same window. withoutOverlapping() prevents concurrent runs.
+        $schedule->command('viator:fetch-emails')
+            ->cron('*/10 * * * *')
+            ->timezone('Asia/Tashkent')
+            ->withoutOverlapping();
+
+        $schedule->command('viator:apply-new-bookings')
+            ->cron('2-59/10 * * * *')
+            ->timezone('Asia/Tashkent')
+            ->withoutOverlapping();
+
         // GYG email pipeline — 3 independent stages, each processes only its
         // own state slice (fetch→fetched, process→parsed, apply→applied).
         // withoutOverlapping() prevents concurrent runs of the same stage.
