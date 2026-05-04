@@ -238,6 +238,7 @@ class CashierBotController extends Controller
             'shift_count_uzs' => $this->hCount($s, $chatId, $text, 'UZS'),
             'shift_count_usd' => $this->hCount($s, $chatId, $text, 'USD'),
             'shift_count_eur' => $this->hCount($s, $chatId, $text, 'EUR'),
+            'shift_close_reason' => $this->hShiftCloseReason($s, $chatId, $text),
             default => $this->resetSessionToMainMenu($s, $chatId),
         };
     }
@@ -1248,6 +1249,42 @@ class CashierBotController extends Controller
         $amt = floatval(str_replace([' ', ','], ['', '.'], $text));
         if ($amt < 0) { $this->send($chatId, "Сумма не может быть отрицательной. Введите ещё раз:"); return response('OK'); }
         $d = $s->data ?? [];
+
+        // Missing-zeros check — catches 608 vs 608,000 typos before they
+        // poison the close. Real incident 2026-05-04: Aziz dropped 3
+        // zeros, the bot accepted silently, next shift inherited a 608
+        // UZS opening saldo. CashCountSanityChecker proposes the
+        // corrected value; operator confirms.
+        $expected = (float) ($d['expected'][$cur] ?? 0);
+        if ($expected > 0) {
+            $suggested = app(\App\Services\CashierBot\CashCountSanityChecker::class)
+                ->detectMissingZeros($amt, $expected);
+            if ($suggested !== null && abs($suggested - $amt) > 0.01) {
+                $d['counted_' . strtolower($cur)]   = $amt;        // tentative
+                $d['typo_check_cur']                = $cur;
+                $d['typo_check_suggested']          = $suggested;
+                $d['typo_check_entered']            = $amt;
+                $s->update(['state' => 'shift_count_typo_check', 'data' => $d]);
+
+                $entered   = number_format($amt, 0, '.', ' ');
+                $suggLabel = number_format($suggested, 0, '.', ' ');
+                $expLabel  = number_format($expected, 0, '.', ' ');
+
+                $this->send($chatId,
+                    "⚠ Похоже на опечатку.\n\n"
+                    . "Ожидалось: {$expLabel} {$cur}\n"
+                    . "Вы ввели: {$entered} {$cur}\n\n"
+                    . "Возможно, вы имели в виду {$suggLabel} {$cur}?",
+                    ['inline_keyboard' => [
+                        [['text' => "✅ Да, {$suggLabel}",   'callback_data' => 'typo_yes']],
+                        [['text' => "❌ Нет, {$entered}",    'callback_data' => 'typo_no']],
+                    ]],
+                    'inline'
+                );
+                return response('OK');
+            }
+        }
+
         $d['counted_' . strtolower($cur)] = $amt;
         $next = match($cur) {
             'UZS' => ['shift_count_usd', 'Посчитайте USD (0 если нет):'],
@@ -1262,24 +1299,130 @@ class CashierBotController extends Controller
         return response('OK');
     }
 
+    /**
+     * Resolve the typo prompt — operator picks suggested value or sticks
+     * with original. Either way, advance to the next currency / confirm.
+     */
+    public function resolveCountTypo($s, int $chatId, string $callback): \Illuminate\Http\Response
+    {
+        $d   = $s->data ?? [];
+        $cur = (string) ($d['typo_check_cur'] ?? 'UZS');
+
+        if ($callback === 'typo_yes') {
+            $final = (float) ($d['typo_check_suggested'] ?? 0);
+        } else {
+            $final = (float) ($d['typo_check_entered'] ?? 0);
+        }
+        $d['counted_' . strtolower($cur)] = $final;
+
+        unset($d['typo_check_cur'], $d['typo_check_suggested'], $d['typo_check_entered']);
+
+        $next = match($cur) {
+            'UZS' => ['shift_count_usd', 'Посчитайте USD (0 если нет):'],
+            'USD' => ['shift_count_eur', 'Посчитайте EUR (0 если нет):'],
+            'EUR' => ['shift_close_confirm', null],
+        };
+        $s->update(['state' => $next[0], 'data' => $d]);
+        if ($next[0] === 'shift_close_confirm') {
+            return $this->showCloseConfirm($s, $chatId);
+        }
+        $this->send($chatId, $next[1]);
+        return response('OK');
+    }
+
     protected function showCloseConfirm($s, int $chatId)
     {
         $d = $s->data ?? [];
         $exp = $d['expected'] ?? [];
-        $lines = [];
+
+        $checker  = app(\App\Services\CashierBot\CashCountSanityChecker::class);
+        $rows     = [];
+        $lines    = [];
         foreach (['uzs', 'usd', 'eur'] as $c) {
-            $e = $exp[strtoupper($c)] ?? 0;
-            $cnt = $d['counted_' . $c] ?? 0;
+            $e   = (float) ($exp[strtoupper($c)] ?? 0);
+            $cnt = (float) ($d['counted_' . $c] ?? 0);
             if ($e != 0 || $cnt != 0) {
-                $diff = round($cnt - $e, 2);
-                $ds = abs($diff) < 0.01 ? '' : ($diff > 0 ? " (+" . number_format($diff, 0) . ")" : " (" . number_format($diff, 0) . ")");
-                $lines[] = strtoupper($c) . ": ожид. " . number_format($e, 0) . " / факт " . number_format($cnt, 0) . $ds;
+                $diff   = round($cnt - $e, 2);
+                $ds     = abs($diff) < 0.01 ? '' : ($diff > 0 ? " (+" . number_format($diff, 0) . ")" : " (" . number_format($diff, 0) . ")");
+                $sev    = $checker->classifySeverity($cnt, $e);
+                $emoji  = match ($sev) { 'red' => '🚨 ', 'yellow' => '⚠ ', default => '' };
+                $lines[] = $emoji . strtoupper($c) . ": ожид. " . number_format($e, 0) . " / факт " . number_format($cnt, 0) . $ds;
+                $rows[strtoupper($c)] = ['counted' => $cnt, 'expected' => $e];
             }
         }
-        $this->send($chatId, "Итог:\n\n" . implode("\n", $lines), ['inline_keyboard' => [[
+
+        $worstSev = $checker->worstSeverityAcross($rows);
+        $d['close_severity'] = $worstSev;
+        $s->update(['data' => $d]);
+
+        // RED severity: hard-stop. Operator MUST type a reason ≥10 chars
+        // before the shift will close. The shift will land in
+        // status='under_review' until manually approved by an admin.
+        if ($worstSev === 'red') {
+            $s->update(['state' => 'shift_close_reason', 'data' => $d]);
+            $this->send($chatId,
+                "🚨 КРУПНОЕ РАСХОЖДЕНИЕ\n\n" . implode("\n", $lines)
+                . "\n\nЭто расхождение требует объяснения.\nВведите причину (минимум 10 символов):"
+            );
+            return response('OK');
+        }
+
+        // YELLOW: show but allow close. Operator gets the warning, no extra step.
+        $header = $worstSev === 'yellow'
+            ? "⚠ Расхождение зафиксировано — проверьте сумму ещё раз\n\nИтог:"
+            : "Итог:";
+
+        $this->send($chatId, $header . "\n\n" . implode("\n", $lines), ['inline_keyboard' => [[
             ['text' => 'Закрыть смену', 'callback_data' => 'confirm_close'],
             ['text' => 'Отмена', 'callback_data' => 'cancel'],
         ]]], 'inline');
+        return response('OK');
+    }
+
+    /**
+     * Text-state handler for `shift_close_reason`. Operator types a
+     * mandatory explanation when the close has RED-severity discrepancy.
+     * Reason is persisted via end_saldos.discrepancy_reason; shift
+     * status is set to 'under_review' so finance can review without
+     * blocking the next shift from opening.
+     */
+    protected function hShiftCloseReason($s, int $chatId, string $text)
+    {
+        $reason = trim($text);
+        if (mb_strlen($reason) < 10) {
+            $this->send($chatId, "Причина слишком короткая (минимум 10 символов). Введите подробнее:");
+            return response('OK');
+        }
+
+        $d = $s->data ?? [];
+        $d['close_reason'] = $reason;
+        $s->update(['state' => 'shift_close_confirm', 'data' => $d]);
+
+        // Re-render the confirm view with the reason captured and offer
+        // the close button. Discrepancy is still visible on screen so
+        // the operator commits with eyes open.
+        $exp   = $d['expected'] ?? [];
+        $lines = [];
+        foreach (['uzs', 'usd', 'eur'] as $c) {
+            $e   = (float) ($exp[strtoupper($c)] ?? 0);
+            $cnt = (float) ($d['counted_' . $c] ?? 0);
+            if ($e != 0 || $cnt != 0) {
+                $diff   = round($cnt - $e, 2);
+                $ds     = abs($diff) < 0.01 ? '' : ($diff > 0 ? " (+" . number_format($diff, 0) . ")" : " (" . number_format($diff, 0) . ")");
+                $lines[] = strtoupper($c) . ": ожид. " . number_format($e, 0) . " / факт " . number_format($cnt, 0) . $ds;
+            }
+        }
+
+        $this->send($chatId,
+            "🚨 КРУПНОЕ РАСХОЖДЕНИЕ\n\n" . implode("\n", $lines)
+            . "\n\nПричина: {$reason}\n\nСмена будет закрыта со статусом «На проверке»."
+            ,
+            ['inline_keyboard' => [[
+                ['text' => '✅ Подтвердить закрытие', 'callback_data' => 'confirm_close'],
+                ['text' => 'Отмена',                 'callback_data' => 'cancel'],
+            ]]],
+            'inline'
+        );
         return response('OK');
     }
 
@@ -1304,12 +1447,30 @@ class CashierBotController extends Controller
         }
 
         try {
-            $ho = $this->shiftService->closeShift($shift->id, $d, $callbackId);
+            // RED-severity closes go through with a manager-tier marker so
+            // the shift lands in 'under_review' and the discrepancy reason
+            // is preserved in end_saldos. Operations don't block — next
+            // shift can still open — but finance has the audit trail.
+            $tier   = ((string) ($d['close_severity'] ?? 'green') === 'red')
+                ? \App\Enums\OverrideTier::Manager
+                : \App\Enums\OverrideTier::None;
+            $reason = (string) ($d['close_reason'] ?? '') ?: null;
+
+            $ho = $this->shiftService->closeShift($shift->id, $d, $callbackId, $tier, $reason);
+
+            // RED → flip to under_review post-close so the daily audit catches it.
+            // closeShift() already wrote status='closed' inside its own transaction;
+            // we re-elevate here so the dashboard surfaces it without blocking ops.
+            if ($tier === \App\Enums\OverrideTier::Manager) {
+                $shift->fresh()->forceFill(['status' => 'under_review'])->save();
+            }
 
             // === Outside transaction: non-critical notifications ===
             $this->sendShiftCloseNotifications($shift->fresh(), $s, $d, $ho);
 
-            $this->send($chatId, "Смена закрыта!");
+            $this->send($chatId, $tier === \App\Enums\OverrideTier::Manager
+                ? "Смена закрыта (статус: на проверке)."
+                : "Смена закрыта!");
         } catch (\Exception $e) {
             if ($callbackId) $this->failCallback($callbackId, $e->getMessage());
             Log::error('Close shift failed', ['e' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);

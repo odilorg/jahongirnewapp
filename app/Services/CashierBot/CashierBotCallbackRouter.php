@@ -118,6 +118,9 @@ final class CashierBotCallbackRouter
             $data === 'confirm_expense'    => $controller->confirmExpense($s, $chatId, $callbackId),
             $data === 'confirm_exchange'   => $controller->confirmExchange($s, $chatId, $callbackId),
             $data === 'confirm_close'      => $controller->confirmClose($s, $chatId, $callbackId),
+            // Close-shift typo-check resolution (Tier-A safety guard)
+            $data === 'typo_yes'           => $controller->resolveCountTypo($s, $chatId, $data),
+            $data === 'typo_no'            => $controller->resolveCountTypo($s, $chatId, $data),
             $data === 'cancel'             => $controller->showMainMenu($chatId, $s),
             $data === 'my_txns'            => $controller->dispatchReply($chatId, app(\App\Actions\CashierBot\Handlers\ShowMyTransactionsAction::class)->execute($s->user_id)),
             $data === 'guide'              => $controller->dispatchGuide($chatId, null),
