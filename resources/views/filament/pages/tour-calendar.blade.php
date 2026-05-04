@@ -180,9 +180,9 @@
                                       title="Source: {{ $chip['view']['source_label'] }}"
                                       style="width:8px; height:8px; border-radius:50%; background:{{ $chip['view']['source_color'] }}; box-shadow: 0 0 0 1px rgba(0,0,0,0.08); margin-right:8px;"></span>
                                 @if ($chip['view']['tour_type_icon'])
-                                    <span class="shrink-0 mr-1"
+                                    <span class="shrink-0"
                                           title="{{ $chip['tour_type'] === 'private' ? 'Private tour' : 'Group tour' }}"
-                                          style="font-size:11px; line-height:1;">
+                                          style="font-size:11px; line-height:1; margin-right:8px;">
                                         {{ $chip['view']['tour_type_icon'] }}
                                     </span>
                                 @endif
