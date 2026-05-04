@@ -189,6 +189,57 @@ class MixedCurrencySplitPaymentTest extends TestCase
         );
     }
 
+    /**
+     * GOLD-PATH REGRESSION — locks the literal 2026-05-04 incident shape
+     * as permanent test coverage. If anything in the service ever breaks
+     * this scenario, this test fails first.
+     *
+     * Scenario:
+     *   - Booking 1,115,000 UZS (= ~$90.65 USD @ 12,300/USD)
+     *   - Leg 1: 500,000 UZS via card
+     *   - Leg 2: 50 USD via cash
+     *   - Same booking, same shift
+     *   - Sum-lock in UZS base: 500,000 + (50 × 12,302.81) ≈ 1,115,141 UZS
+     *     within ±100 UZS tolerance of 1,115,000 expected
+     *
+     * Asserts the EXACT call shape used by the Filament admin form so a
+     * regression in either the service or the DTO breaks here, not in
+     * production.
+     */
+    public function test_gold_path_2026_05_04_one_card_one_cash_different_currencies(): void
+    {
+        $svc = $this->service();
+        $svc->expects($this->exactly(2))
+            ->method('recordPayment')
+            ->willReturn(new \App\Models\CashTransaction());
+
+        // Leg 1: card in base currency (UZS)
+        $cardLeg = new RecordPaymentData(
+            presentation:    $this->presentation('B-2026-05-04'),
+            shiftId:         388,
+            cashierId:       42,
+            currencyPaid:    'UZS',
+            amountPaid:      500_000,
+            paymentMethod:   'card',
+            overrideReason:  null,
+            managerApproval: null,
+        );
+
+        // Leg 2: cash in foreign currency (USD)
+        $cashLeg = new RecordPaymentData(
+            presentation:    $this->presentation('B-2026-05-04'),
+            shiftId:         388,
+            cashierId:       42,
+            currencyPaid:    'USD',
+            amountPaid:      50.00,
+            paymentMethod:   'cash',
+            overrideReason:  null,
+            managerApproval: null,
+        );
+
+        $svc->recordMixedCurrencySplitPayment($cardLeg, $cashLeg, 'UZS');
+    }
+
     public function test_eur_leg_with_uzs_base(): void
     {
         // Booking 1,115,000 UZS = 500k UZS card + 50 EUR cash

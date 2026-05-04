@@ -246,6 +246,29 @@ class CashierDailyAudit extends Command
                 'msg' => count($splits) . ' booking(s) with dual-source payments at different amounts — likely split/top-up, review. Beds24 #' . $ids . '.'];
         }
 
+        // ── Section 8: mixed-currency journals (Phase 1.5.1 frequency tracker) ──
+        // Lists how many mixed-currency journals were created on the audit
+        // day, by operator. Drives the demand-trigger threshold that decides
+        // when Phase 1.5.2 (bot UX) should be built. Per PHASE_1_5_PLAN.md:
+        // ≥3 in any 2-week window → request bot-UX build.
+        $mixedJournalLegs = DB::table('cash_transactions')
+            ->whereBetween('occurred_at', [$start, $end])
+            ->whereNotNull('base_currency_for_split')
+            ->whereNull('deleted_at')
+            ->select('journal_entry_id', 'created_by', 'base_currency_for_split')
+            ->get();
+        $mixedJournalCount = $mixedJournalLegs->pluck('journal_entry_id')->unique()->count();
+        if ($mixedJournalCount > 0) {
+            $byCreator = $mixedJournalLegs
+                ->groupBy('journal_entry_id')
+                ->map(fn ($legs) => $legs->first()->created_by)
+                ->countBy();
+            $byCreatorLabel = $byCreator
+                ->map(fn ($n, $userId) => "user#{$userId}: {$n}")
+                ->implode(', ');
+            $sections[] = "💱 Mixed-currency journals: {$mixedJournalCount} ({$byCreatorLabel})";
+        }
+
         // ── Determine overall severity ─────────────────────────────────
         $severity = 'PASS';
         $sevLabel = '✅ PASS';

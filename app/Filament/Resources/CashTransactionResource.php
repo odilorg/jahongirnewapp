@@ -145,6 +145,17 @@ class CashTransactionResource extends Resource
     {
         return $table
             ->columns([
+                // 💱 Mixed-currency badge — shows on rows that are part of
+                // a mixed-currency journal (Phase 1.5.1). Helps finance
+                // review at-a-glance without joining tables. Only renders
+                // when the column is actually populated, so non-split rows
+                // stay clean.
+                Tables\Columns\TextColumn::make('mixed_currency_badge')
+                    ->label('')
+                    ->state(fn ($record): string => $record->base_currency_for_split ? '💱' : '')
+                    ->tooltip(fn ($record): ?string => $record->base_currency_for_split
+                        ? "Mixed-currency journal · base: {$record->base_currency_for_split} · journal: " . substr((string) $record->journal_entry_id, 0, 8) . '…'
+                        : null),
                 Tables\Columns\TextColumn::make('shift.id')
                     ->label(__c('shift_id'))
                     ->sortable(),
@@ -236,6 +247,11 @@ class CashTransactionResource extends Resource
                     ->relationship('creator', 'name')
                     ->searchable()
                     ->preload(),
+                // 💱 Mixed-currency journals filter — finance review surface
+                Tables\Filters\Filter::make('mixed_currency_only')
+                    ->label('💱 Mixed-currency only')
+                    ->query(fn ($query) => $query->whereNotNull('base_currency_for_split'))
+                    ->toggle(),
                 Tables\Filters\Filter::make('occurred_at')
                     ->form([
                         Forms\Components\DatePicker::make('occurred_from'),
