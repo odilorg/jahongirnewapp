@@ -179,7 +179,21 @@
                                 <span class="shrink-0 inline-block"
                                       title="Source: {{ $chip['view']['source_label'] }}"
                                       style="width:8px; height:8px; border-radius:50%; background:{{ $chip['view']['source_color'] }}; box-shadow: 0 0 0 1px rgba(0,0,0,0.08); margin-right:8px;"></span>
+                                @if ($chip['view']['tour_type_icon'])
+                                    <span class="shrink-0 mr-1"
+                                          title="{{ $chip['tour_type'] === 'private' ? 'Private tour' : 'Group tour' }}"
+                                          style="font-size:11px; line-height:1;">
+                                        {{ $chip['view']['tour_type_icon'] }}
+                                    </span>
+                                @endif
                                 <span class="truncate flex-1">{{ $chip['customer_name'] }}</span>
+                                @if (! empty($chip['flag_icon']))
+                                    <span class="shrink-0 ml-1"
+                                          title="{{ $chip['flag_tooltip'] ?? 'Guest context flag' }}"
+                                          style="font-size:11px; line-height:1;">
+                                        {{ $chip['flag_icon'] }}
+                                    </span>
+                                @endif
                                 @if ($chip['view']['payment_icon'])
                                     <span class="shrink-0 ml-1" style="font-size:11px;">{{ $chip['view']['payment_icon'] }}</span>
                                 @endif
