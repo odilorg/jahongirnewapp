@@ -174,7 +174,10 @@ class Kernel extends ConsoleKernel
             ->timezone('Asia/Tashkent')
             ->withoutOverlapping();
 
-        $schedule->command('viator:apply-new-bookings')
+        // --only-future: scheduled runs never backfill historical bookings.
+        // Manual `php artisan viator:apply-new-bookings` (no flag) remains
+        // the operator-driven escape hatch for backfilling old rows.
+        $schedule->command('viator:apply-new-bookings --only-future')
             ->cron('2-59/10 * * * *')
             ->timezone('Asia/Tashkent')
             ->withoutOverlapping();

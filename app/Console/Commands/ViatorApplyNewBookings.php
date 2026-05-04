@@ -39,12 +39,16 @@ use Illuminate\Support\Facades\Log;
  */
 class ViatorApplyNewBookings extends Command
 {
-    protected $signature   = 'viator:apply-new-bookings {--dry-run : Print what would be applied}';
+    protected $signature   = 'viator:apply-new-bookings
+        {--dry-run : Print what would be applied}
+        {--only-future : Skip rows whose travel_date is before today (governance for first live run)}';
     protected $description = 'Auto-apply parsed new-booking Viator emails to BookingInquiry';
 
     public function handle(): int
     {
-        $dryRun = (bool) $this->option('dry-run');
+        $dryRun      = (bool) $this->option('dry-run');
+        $onlyFuture  = (bool) $this->option('only-future');
+        $today       = now('Asia/Tashkent')->toDateString();
 
         $rows = ViatorInboundEmail::query()
             ->where('email_type', ViatorInboundEmail::TYPE_NEW)
@@ -58,21 +62,43 @@ class ViatorApplyNewBookings extends Command
             return self::SUCCESS;
         }
 
-        $this->info(($dryRun ? '[DRY-RUN] ' : '') . 'Will apply ' . $rows->count() . ' booking(s).');
+        $this->info(($dryRun ? '[DRY-RUN] ' : '')
+            . ($onlyFuture ? '[ONLY-FUTURE] ' : '')
+            . 'Inspecting ' . $rows->count() . ' candidate(s).');
 
         $created = 0;
         $linked  = 0;
         $review  = 0;
         $failed  = 0;
+        $skippedHistorical = 0;
 
         foreach ($rows as $email) {
+            $travelDate = $email->parsed_payload['travel_date'] ?? null;
+
+            // Governance gate: --only-future skips already-completed
+            // tours so a first live run doesn't backfill historical
+            // ops state. Email row stays as 'parsed' (no status change)
+            // so a later run with --all can pick it up cleanly.
+            if ($onlyFuture && $travelDate && $travelDate < $today) {
+                $skippedHistorical++;
+                if ($dryRun) {
+                    $this->line(sprintf(
+                        '  ⊘ skip historical: %s · %s · %s',
+                        $email->external_reference,
+                        $email->parsed_payload['lead_traveler_name'] ?? '?',
+                        $travelDate,
+                    ));
+                }
+                continue;
+            }
+
             try {
                 if ($dryRun) {
                     $this->line(sprintf(
                         '  → %s · %s · %s',
                         $email->external_reference,
                         $email->parsed_payload['lead_traveler_name'] ?? '?',
-                        $email->parsed_payload['travel_date']        ?? '?',
+                        $travelDate ?? '?',
                     ));
                     continue;
                 }
@@ -99,7 +125,7 @@ class ViatorApplyNewBookings extends Command
             }
         }
 
-        $this->info("Done. Created: {$created}, Linked-to-existing: {$linked}, Sent to review: {$review}, Failed: {$failed}");
+        $this->info("Done. Created: {$created}, Linked-to-existing: {$linked}, Sent to review: {$review}, Failed: {$failed}, Skipped (historical): {$skippedHistorical}");
         return self::SUCCESS;
     }
 
