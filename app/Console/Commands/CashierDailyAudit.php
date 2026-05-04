@@ -269,6 +269,41 @@ class CashierDailyAudit extends Command
             $sections[] = "💱 Mixed-currency journals: {$mixedJournalCount} ({$byCreatorLabel})";
         }
 
+        // ── Section 9: FX variance digest (Phase 1.5.5) ──
+        // Per-day aggregation of mixed-currency variance absorbed by the
+        // hotel. Splits gain (overage) vs loss (shortage) so owner sees
+        // net economic impact of negotiated FX. Per PHASE_1_5_PLAN.md
+        // doctrine: variance is recorded explicitly, never hidden in
+        // fudged amounts; this digest is the visibility surface.
+        $varianceRows = DB::table('cash_transactions')
+            ->whereBetween('occurred_at', [$start, $end])
+            ->whereNotNull('fx_variance_amount')
+            ->whereNull('deleted_at')
+            ->select('fx_variance_amount', 'fx_variance_currency', 'fx_variance_reason')
+            ->get();
+
+        if ($varianceRows->isNotEmpty()) {
+            $byCurrency = $varianceRows->groupBy('fx_variance_currency');
+            $varianceLines = [];
+            foreach ($byCurrency as $currency => $rows) {
+                $gain = $rows->where('fx_variance_amount', '>', 0)->sum('fx_variance_amount');
+                $loss = abs($rows->where('fx_variance_amount', '<', 0)->sum('fx_variance_amount'));
+                $net  = $gain - $loss;
+                $varianceLines[] = sprintf(
+                    '   %s: gain +%s, loss -%s, net %s%s (%d journals)',
+                    $currency,
+                    number_format($gain, 0),
+                    number_format($loss, 0),
+                    $net >= 0 ? '+' : '',
+                    number_format($net, 0),
+                    $rows->count(),
+                );
+            }
+            $byReason = $varianceRows->groupBy('fx_variance_reason')->map(fn ($r) => $r->count());
+            $reasonLine = $byReason->map(fn ($n, $r) => "{$r}={$n}")->implode(', ');
+            $sections[] = "💱 FX variance today:\n" . implode("\n", $varianceLines) . "\n   Reasons: " . $reasonLine;
+        }
+
         // ── Determine overall severity ─────────────────────────────────
         $severity = 'PASS';
         $sevLabel = '✅ PASS';

@@ -111,6 +111,38 @@ class ListCashTransactions extends ListRecords
                                 ->required(),
                         ])
                         ->columns(3),
+
+                    // Phase 1.5.5 — FX variance fields. Hidden by default;
+                    // operator only fills them on the SECOND submit when the
+                    // first submit returned RequiresVarianceReasonException.
+                    // The variance section's helper text shows the system's
+                    // detected variance + implied vs frozen rate so the
+                    // operator picks a reason with full context, not blind.
+                    Forms\Components\Section::make('💱 FX variance')
+                        ->description('Fill ONLY if first submit returned a variance prompt. Leave blank otherwise.')
+                        ->collapsed()
+                        ->schema([
+                            Forms\Components\Select::make('fx_variance_reason')
+                                ->label('Reason for variance')
+                                ->options([
+                                    'agreed_shop_rate'   => 'Agreed shop rate (operator ↔ guest)',
+                                    'bill_denomination'  => 'Bill denomination rounding',
+                                    'guest_overpay'      => 'Guest overpaid',
+                                    'guest_underpay'     => 'Guest short — hotel absorbed',
+                                    'rate_drift'         => 'Rate drift since presentation',
+                                    'other'              => 'Other (specify in note)',
+                                ])
+                                ->helperText('First submit detects variance and surfaces the rate gap; pick a reason here on the second attempt.')
+                                ->native(false),
+                            Forms\Components\Textarea::make('fx_variance_note')
+                                ->label('Variance note')
+                                ->rows(2)
+                                ->helperText('Required when reason = "Other". Optional otherwise — helps audit context.'),
+                            Forms\Components\TextInput::make('fx_variance_manager_approval_id')
+                                ->label('Manager approval ID')
+                                ->numeric()
+                                ->helperText('Required only when variance > 3% of booking total. Use FxManagerApproval row id.'),
+                        ]),
                 ])
                 ->action(function (array $data): void {
                     try {
@@ -120,6 +152,47 @@ class ListCashTransactions extends ListRecords
                             ->title('Mixed-currency journal recorded')
                             ->body("Journal {$result['journal_uuid']} — leg 1 #{$result['tx1_id']}, leg 2 #{$result['tx2_id']}")
                             ->success()
+                            ->send();
+                    } catch (\App\Exceptions\RequiresVarianceReasonException $e) {
+                        // Phase 1.5.5 — variance detected, operator must
+                        // re-submit with a reason. Show a persistent
+                        // notification with the full math so they pick
+                        // the right reason without guesswork.
+                        $p = $e->payload();
+                        $variancePctLabel = number_format($p['variance_pct'], 2);
+                        $varianceDir      = $p['variance_in_base'] > 0 ? 'overage (hotel gain)' : 'shortage (hotel absorbed)';
+                        $impliedRate      = $p['implied_rate'] > 0 ? number_format($p['implied_rate'], 2) : '—';
+                        $frozenRate       = $p['frozen_rate']  > 0 ? number_format($p['frozen_rate'],  2) : '—';
+
+                        $msg = sprintf(
+                            "📊 Variance detected\n\n"
+                            . "Booking expects:    %s %s\n"
+                            . "Legs total in base: %s %s\n"
+                            . "Variance:           %s %s (%s%% — %s)\n\n"
+                            . "Implied rate:       %s %s/foreign\n"
+                            . "System frozen rate: %s %s/foreign\n\n"
+                            . "%s\n\n"
+                            . "Action: scroll down to '💱 FX variance' section, pick a reason, resubmit.",
+                            number_format($p['expected_in_base'], 0, '.', ' '),
+                            $p['base_currency'],
+                            number_format($p['actual_in_base'],   0, '.', ' '),
+                            $p['base_currency'],
+                            ($p['variance_in_base'] > 0 ? '+' : '') . number_format($p['variance_in_base'], 0, '.', ' '),
+                            $p['base_currency'],
+                            $variancePctLabel,
+                            $varianceDir,
+                            $impliedRate, $p['base_currency'],
+                            $frozenRate,  $p['base_currency'],
+                            $p['requires_manager_approval']
+                                ? '⚠ This variance band requires manager approval — fill the "Manager approval ID" field too.'
+                                : 'ℹ Reason alone is sufficient (variance ≤ 3%).',
+                        );
+
+                        Notification::make()
+                            ->title('FX variance — reason required')
+                            ->body($msg)
+                            ->warning()
+                            ->persistent()
                             ->send();
                     } catch (\InvalidArgumentException $e) {
                         Notification::make()

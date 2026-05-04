@@ -40,9 +40,13 @@ class RecordMixedCurrencySplitFromAdminAction
      *   base_currency: string,
      *   leg1_currency: string, leg1_amount: float, leg1_method: string,
      *   leg2_currency: string, leg2_amount: float, leg2_method: string,
+     *   fx_variance_reason?: string,           // Phase 1.5.5 — populated on second submit attempt
+     *   fx_variance_note?: string,             // free-text, mandatory when reason='other'
+     *   fx_variance_manager_approval_id?: int, // FxManagerApproval row id when variance > 3%
      * } $data
      *
      * @return array{journal_uuid: string, tx1_id: int, tx2_id: int}
+     * @throws \App\Exceptions\RequiresVarianceReasonException when variance > tolerance and no reason given
      */
     public function execute(array $data): array
     {
@@ -84,10 +88,30 @@ class RecordMixedCurrencySplitFromAdminAction
             managerApproval: null,
         );
 
+        // Phase 1.5.5 — pass through variance context if operator already
+        // confirmed a reason on the variance prompt step. NULL on first
+        // attempt; service throws RequiresVarianceReasonException which
+        // the Filament form catches to re-render with the reason picker.
+        $varianceContext = null;
+        if (! empty($data['fx_variance_reason'])) {
+            $managerApproval = null;
+            if (! empty($data['fx_variance_manager_approval_id'])) {
+                $managerApproval = \App\Models\FxManagerApproval::find(
+                    (int) $data['fx_variance_manager_approval_id']
+                );
+            }
+            $varianceContext = new \App\DTO\MixedCurrencyVarianceContext(
+                reason:          (string) $data['fx_variance_reason'],
+                freeTextNote:    $data['fx_variance_note'] ?? null,
+                managerApproval: $managerApproval,
+            );
+        }
+
         [$tx1, $tx2] = $this->botPaymentService->recordMixedCurrencySplitPayment(
             $leg1,
             $leg2,
             (string) $data['base_currency'],
+            $varianceContext,
         );
 
         return [

@@ -240,6 +240,95 @@ class MixedCurrencySplitPaymentTest extends TestCase
         $svc->recordMixedCurrencySplitPayment($cardLeg, $cashLeg, 'UZS');
     }
 
+    /**
+     * Phase 1.5.5 — variance gating contract.
+     *
+     * Without context AND variance > 1%, throws RequiresVarianceReasonException
+     * carrying the math payload (expected, actual, variance pct, implied rate,
+     * frozen rate, manager-required flag).
+     *
+     * Real scenario: 970,000 UZS booking, legs = 50 USD + 370,000 UZS.
+     * Frozen rate 12,300 → 50 USD = 615,000 UZS → total 985,000 → variance
+     * +15,000 UZS = 1.55% (band: 1-3% requires reason, no manager).
+     */
+    public function test_variance_in_reason_band_throws_requires_reason_exception_without_context(): void
+    {
+        $svc = $this->service();
+        $thrown = null;
+        try {
+            $svc->recordMixedCurrencySplitPayment(
+                $this->leg('UZS', 370_000, 'card'),
+                $this->leg('USD', 50, 'cash'),
+                'UZS',
+            );
+        } catch (\App\Exceptions\RequiresVarianceReasonException $e) {
+            $thrown = $e;
+        }
+
+        $this->assertNotNull($thrown, 'Expected RequiresVarianceReasonException');
+        $p = $thrown->payload();
+        $this->assertSame('UZS', $p['base_currency']);
+        $this->assertGreaterThan(0, $p['variance_in_base'], 'Variance should be positive (legs > booking)');
+        $this->assertGreaterThanOrEqual(1.0, $p['variance_pct']);
+        $this->assertLessThan(3.0, $p['variance_pct']);
+        $this->assertFalse($p['requires_manager_approval'], 'Variance < 3% should not require manager');
+        $this->assertGreaterThan(0, $p['implied_rate']);
+        $this->assertGreaterThan(0, $p['frozen_rate']);
+    }
+
+    public function test_variance_in_reason_band_passes_with_context(): void
+    {
+        $svc = $this->service();
+        $svc->expects($this->exactly(2))
+            ->method('recordPayment')
+            ->willReturn(new \App\Models\CashTransaction());
+
+        $svc->recordMixedCurrencySplitPayment(
+            $this->leg('UZS', 370_000, 'card'),
+            $this->leg('USD', 50, 'cash'),
+            'UZS',
+            new \App\DTO\MixedCurrencyVarianceContext(
+                reason: \App\DTO\MixedCurrencyVarianceContext::REASON_AGREED_SHOP_RATE,
+            ),
+        );
+    }
+
+    public function test_variance_above_5pct_hard_rejects_even_with_context(): void
+    {
+        // Way underpaid — variance > 5%
+        $svc = $this->service();
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('hard ceiling');
+
+        $svc->recordMixedCurrencySplitPayment(
+            $this->leg('UZS', 100_000, 'card'),
+            $this->leg('USD', 30, 'cash'),
+            'UZS',
+            new \App\DTO\MixedCurrencyVarianceContext(
+                reason: \App\DTO\MixedCurrencyVarianceContext::REASON_AGREED_SHOP_RATE,
+            ),
+        );
+    }
+
+    public function test_variance_3_to_5pct_requires_manager_approval(): void
+    {
+        // Legs that produce ~4% variance and DON'T have manager approval.
+        // ($55 instead of $50 → adds ~$5 × 12,300 ≈ 61,500 UZS overshoot.
+        //  61,500 / 970,000 ≈ 6.3% — too high. Use $52.5 → 30,750 → ~3.2%)
+        $svc = $this->service();
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('manager approval');
+
+        $svc->recordMixedCurrencySplitPayment(
+            $this->leg('UZS', 370_000, 'card'),
+            $this->leg('USD', 52.5, 'cash'),
+            'UZS',
+            new \App\DTO\MixedCurrencyVarianceContext(
+                reason: \App\DTO\MixedCurrencyVarianceContext::REASON_AGREED_SHOP_RATE,
+            ),
+        );
+    }
+
     public function test_eur_leg_with_uzs_base(): void
     {
         // Booking 1,115,000 UZS = 500k UZS card + 50 EUR cash

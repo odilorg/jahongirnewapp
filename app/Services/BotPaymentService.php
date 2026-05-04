@@ -238,10 +238,21 @@ class BotPaymentService
      * @throws StalePaymentSessionException — frozen presentation expired.
      * @return array{0: CashTransaction, 1: CashTransaction}
      */
+    /**
+     * Variance band configuration for mixed-currency sum-lock (Phase 1.5.5).
+     * Percentages of the booking total in base currency. See
+     * PHASE_1_5_PLAN.md for the doctrine driving these thresholds.
+     */
+    public const VARIANCE_SILENT_PCT  = 1.0;  // 0-1% absorbed silently
+    public const VARIANCE_REASON_PCT  = 3.0;  // 1-3% structured reason required
+    public const VARIANCE_MANAGER_PCT = 5.0;  // 3-5% manager approval + reason
+    // > 5% → hard reject
+
     public function recordMixedCurrencySplitPayment(
         RecordPaymentData $leg1,
         RecordPaymentData $leg2,
         string $baseCurrency,
+        ?\App\DTO\MixedCurrencyVarianceContext $varianceContext = null,
     ): array {
         if ($leg1->currencyPaid === $leg2->currencyPaid) {
             throw new \InvalidArgumentException(
@@ -269,15 +280,57 @@ class BotPaymentService
         $leg2InBase = $this->convertViaPresentation($leg2, $baseCurrency);
         $sumInBase  = $leg1InBase + $leg2InBase;
 
-        $tolerance = $this->sumLockTolerance($baseCurrency);
-        if (abs($sumInBase - $expectedInBase) > $tolerance) {
-            throw new \InvalidArgumentException(sprintf(
-                'Mixed-currency sum-lock failed in %s: legs total %.2f, booking expects %.2f (tolerance ±%.2f).',
-                $baseCurrency,
-                $sumInBase,
-                $expectedInBase,
-                $tolerance,
-            ));
+        $variance    = $sumInBase - $expectedInBase;
+        $variancePct = $expectedInBase > 0.0 ? (abs($variance) / $expectedInBase) * 100.0 : 0.0;
+        $tolerance   = $this->sumLockTolerance($baseCurrency);
+
+        // Three-tier variance gating (Phase 1.5.5):
+        //   < tolerance OR < 1% of booking → silent pass, no variance recorded
+        //   1-3% → structured reason required; throws if context not supplied
+        //   3-5% → reason + manager approval required
+        //   > 5% → hard reject regardless of context
+        if (abs($variance) > $tolerance && $variancePct >= self::VARIANCE_SILENT_PCT) {
+            if ($variancePct > self::VARIANCE_MANAGER_PCT) {
+                throw new \InvalidArgumentException(sprintf(
+                    'Mixed-currency variance %.2f%% exceeds %.0f%% hard ceiling. Legs total %.2f, booking expects %.2f %s. Reconsider amounts.',
+                    $variancePct,
+                    self::VARIANCE_MANAGER_PCT,
+                    $sumInBase,
+                    $expectedInBase,
+                    $baseCurrency,
+                ));
+            }
+
+            $requiresManager = $variancePct > self::VARIANCE_REASON_PCT;
+
+            if ($varianceContext === null) {
+                throw new \App\Exceptions\RequiresVarianceReasonException(
+                    expectedInBase:           $expectedInBase,
+                    actualInBase:             $sumInBase,
+                    varianceInBase:           $variance,
+                    variancePct:              $variancePct,
+                    baseCurrency:             $baseCurrency,
+                    requiresManagerApproval:  $requiresManager,
+                    impliedRate:              $this->computeImpliedRate($leg1, $leg2, $expectedInBase, $baseCurrency),
+                    frozenRate:               $this->computeFrozenRate($leg1->presentation, $baseCurrency),
+                );
+            }
+
+            if ($requiresManager && $varianceContext->managerApproval === null) {
+                throw new \InvalidArgumentException(sprintf(
+                    'Mixed-currency variance %.2f%% (band %.0f-%.0f%%) requires manager approval.',
+                    $variancePct,
+                    self::VARIANCE_REASON_PCT,
+                    self::VARIANCE_MANAGER_PCT,
+                ));
+            }
+        } elseif (abs($variance) > $tolerance && $variancePct < self::VARIANCE_SILENT_PCT) {
+            // Variance is in absolute terms above tolerance but in percentage
+            // terms below 1% (e.g. tolerance=100 UZS, booking=12,000,000 UZS,
+            // variance=200 UZS = 0.0017%). Treat as silent pass — accept
+            // without recording variance.
+            $variance    = 0.0;
+            $varianceContext = null;
         }
 
         // Generate one journal UUID; stamp both legs with it + the base currency.
@@ -289,7 +342,69 @@ class BotPaymentService
         $tx1 = $this->recordPayment($leg1);
         $tx2 = $this->recordPayment($leg2);
 
+        // Stamp variance on leg1 if applicable. Leg2 stays untouched —
+        // variance is a journal-level fact, denormalised onto first leg
+        // for cheap "show me variance journals" queries without joins.
+        if ($variance != 0.0 && $varianceContext !== null) {
+            $tx1->forceFill([
+                'fx_variance_amount'   => round($variance, 2),
+                'fx_variance_currency' => $baseCurrency,
+                'fx_variance_reason'   => $varianceContext->reason,
+                // Append the free-text note + reason to the existing notes column.
+                'notes' => trim((string) $tx1->notes) . sprintf(
+                    "\n[FX-variance %s %.2f %s reason=%s%s]",
+                    $variance > 0 ? '+' : '',
+                    $variance,
+                    $baseCurrency,
+                    $varianceContext->reason,
+                    $varianceContext->freeTextNote ? ' note="' . $varianceContext->freeTextNote . '"' : '',
+                ),
+            ])->save();
+        }
+
         return [$tx1, $tx2];
+    }
+
+    /**
+     * Compute the operator-implied FX rate (foreign currency leg's
+     * implied rate to base, given the booking total in base and the
+     * other leg's contribution). Used for the variance reason picker
+     * UX so operators see "system rate vs implied rate" at a glance.
+     */
+    private function computeImpliedRate(
+        RecordPaymentData $leg1,
+        RecordPaymentData $leg2,
+        float $expectedInBase,
+        string $baseCurrency,
+    ): float {
+        // Identify the foreign-currency leg + base-currency leg
+        $foreignLeg = $leg1->currencyPaid !== $baseCurrency ? $leg1 : $leg2;
+        $baseLeg    = $leg1->currencyPaid === $baseCurrency ? $leg1 : $leg2;
+
+        if ($foreignLeg->currencyPaid === $baseCurrency || $foreignLeg->amountPaid <= 0.0) {
+            return 0.0; // both legs in base — implied rate undefined
+        }
+
+        $remainingInBase = $expectedInBase - (float) $baseLeg->amountPaid;
+        return $remainingInBase / (float) $foreignLeg->amountPaid;
+    }
+
+    /**
+     * Pull the booking's frozen FX rate (base per unit of foreign currency)
+     * from the presentation. Used alongside computeImpliedRate to surface
+     * the rate gap to operators.
+     */
+    private function computeFrozenRate(\App\DTO\PaymentPresentation $p, string $baseCurrency): float
+    {
+        $foreignCurrency = match ($baseCurrency) {
+            'UZS' => 'USD',
+            'USD' => 'UZS',
+            'EUR' => 'UZS',
+            default => 'USD',
+        };
+        $foreignAmount = $p->presentedAmountFor($foreignCurrency);
+        $baseAmount    = $p->presentedAmountFor($baseCurrency);
+        return $foreignAmount > 0.0 ? $baseAmount / $foreignAmount : 0.0;
     }
 
     /**
@@ -478,6 +593,9 @@ class BotPaymentService
                 // Phase 1.5.1 — mixed-currency split metadata.
                 'base_currency_for_split'     => $data->baseCurrencyForSplit,
                 'journal_status'              => $data->journalStatus,
+                // Phase 1.5.5 — fx variance fields. Initially NULL on both
+                // legs at recordPayment time; recordMixedCurrencySplitPayment
+                // stamps them on leg1 post-insert when applicable.
             ]);
 
             // Phase 1 FX simplification dual-write — populate the new
