@@ -143,4 +143,81 @@ class MultiDayChipPlacementTest extends TestCase
         $this->assertSame(1, $chip['duration']);
         $this->assertSame(0, $chip['total_nights']);
     }
+
+    /** @test */
+    public function chip_carries_clipped_visible_window_when_truncated_left(): void
+    {
+        // Tour starts before window (Sat) and runs into window (Mon-Wed).
+        $product = $this->makeProduct(days: 5, nights: 4);
+        $window  = Carbon::parse('2026-06-08')->startOfDay();
+        $this->makeInquiry('2026-06-06', $product->id);
+
+        $week = app(TourCalendarBuilder::class)
+            ->buildWeek($window, [BookingInquiry::STATUS_CONFIRMED], startFromAnchor: true);
+
+        $chip = $week['rows'][0]['chips'][0];
+        $this->assertTrue($chip['clip_left']);
+        $this->assertFalse($chip['clip_right']);
+        $this->assertSame(0, $chip['visible_start_col'], 'visible start clamps to window left');
+        $this->assertSame(2, $chip['visible_end_col'],   'tour ends Wed = col 2');
+        $this->assertSame(3, $chip['visible_span']);
+    }
+
+    /** @test */
+    public function chip_carries_clipped_visible_window_when_truncated_right(): void
+    {
+        // Tour starts Friday in-window and runs into next week.
+        $product = $this->makeProduct(days: 4, nights: 3);
+        $window  = Carbon::parse('2026-06-01')->startOfDay();   // Mon
+        $this->makeInquiry('2026-06-05', $product->id);          // Fri
+
+        $week = app(TourCalendarBuilder::class)
+            ->buildWeek($window, [BookingInquiry::STATUS_CONFIRMED], startFromAnchor: true);
+
+        $chip = $week['rows'][0]['chips'][0];
+        $this->assertFalse($chip['clip_left']);
+        $this->assertTrue($chip['clip_right']);
+        $this->assertSame(4, $chip['visible_start_col'], 'Fri = col 4 from anchor');
+        $this->assertSame(6, $chip['visible_end_col'],   'right clamps to window right');
+        $this->assertSame(3, $chip['visible_span']);
+    }
+
+    /** @test */
+    public function overlapping_bookings_get_distinct_lanes(): void
+    {
+        // Two 3-day bookings of the same tour, overlapping by 1 day.
+        $product = $this->makeProduct(days: 3, nights: 2);
+        $monday  = Carbon::parse('2026-06-01')->startOfDay();
+        $this->makeInquiry($monday->toDateString(), $product->id);             // Mon-Wed
+        $this->makeInquiry($monday->copy()->addDays(2)->toDateString(), $product->id); // Wed-Fri
+
+        $week = app(TourCalendarBuilder::class)
+            ->buildWeek($monday, [BookingInquiry::STATUS_CONFIRMED], startFromAnchor: true);
+
+        $chips = $week['rows'][0]['chips'];
+        $this->assertCount(2, $chips);
+        $lanes = array_column($chips, 'lane_index');
+        sort($lanes);
+        $this->assertSame([0, 1], $lanes, 'overlapping bookings must NOT share a lane');
+        $this->assertSame(2, $week['rows'][0]['lane_count']);
+    }
+
+    /** @test */
+    public function non_overlapping_bookings_reuse_the_same_lane(): void
+    {
+        // Two day-tour bookings on different days — no collision.
+        $product = $this->makeProduct(days: 1, nights: 0);
+        $monday  = Carbon::parse('2026-06-01')->startOfDay();
+        $this->makeInquiry($monday->toDateString(), $product->id);
+        $this->makeInquiry($monday->copy()->addDays(3)->toDateString(), $product->id);
+
+        $week = app(TourCalendarBuilder::class)
+            ->buildWeek($monday, [BookingInquiry::STATUS_CONFIRMED], startFromAnchor: true);
+
+        $row = $week['rows'][0];
+        $this->assertCount(2, $row['chips']);
+        $this->assertSame(0, $row['chips'][0]['lane_index']);
+        $this->assertSame(0, $row['chips'][1]['lane_index']);
+        $this->assertSame(1, $row['lane_count'], 'only one lane is needed when chips do not overlap');
+    }
 }

@@ -336,6 +336,19 @@ class TourCalendarBuilder
                 if ($endCol < 0 || $startCol > 6) {
                     continue;
                 }
+
+                // Beds24-style spanning chip: persist the visible window
+                // (clipped to [0, 6]) plus clip flags so the Blade can
+                // render one elongated bar with ◂/▸ chevrons when the
+                // tour extends outside the week.
+                $visibleStart = max(0, $startCol);
+                $visibleEnd   = min(6, $endCol);
+                $chip['visible_start_col'] = $visibleStart;
+                $chip['visible_end_col']   = $visibleEnd;
+                $chip['visible_span']      = $visibleEnd - $visibleStart + 1;
+                $chip['clip_left']         = $startCol < 0;
+                $chip['clip_right']        = $endCol > 6;
+
                 $chips[] = $chip;
             }
 
@@ -346,11 +359,17 @@ class TourCalendarBuilder
                 continue;
             }
 
+            // Greedy lane assignment so two bookings of the same tour on
+            // overlapping dates stack vertically rather than colliding on
+            // a single bar. Lane 0 = top; row height grows with lanes.
+            [$chips, $laneCount] = $this->assignChipLanes($chips);
+
             $rows[] = [
-                'slug'     => $group->first()->tour_slug,
-                'name'     => $this->cleanTourName($rowName),
-                'earliest' => $group->min('travel_date')->toDateString(),
-                'chips'    => $chips,
+                'slug'       => $group->first()->tour_slug,
+                'name'       => $this->cleanTourName($rowName),
+                'earliest'   => $group->min('travel_date')->toDateString(),
+                'chips'      => $chips,
+                'lane_count' => $laneCount,
             ];
         }
 
@@ -511,6 +530,52 @@ class TourCalendarBuilder
             'flag_tooltip'      => $this->buildFlagTooltip($inq),
             'detail_url'        => BookingInquiryResource::getUrl('view', ['record' => $inq->id]),
         ];
+    }
+
+    /**
+     * Greedy lane allocator for spanning chips.
+     *
+     * Sort chips by visible_start_col (then booking id for stability).
+     * For each chip, walk the existing lanes and place it on the first
+     * lane whose last chip ends before this one starts; if none qualify,
+     * open a new lane.
+     *
+     * Why greedy: chips per row are bounded (in practice <10), so the
+     * O(n × lanes) cost is trivial. Optimal interval-graph colouring
+     * would buy us nothing visually.
+     *
+     * @param  array<int, array<string, mixed>>  $chips
+     * @return array{0: array<int, array<string, mixed>>, 1: int}
+     */
+    private function assignChipLanes(array $chips): array
+    {
+        usort($chips, function (array $a, array $b): int {
+            return ($a['visible_start_col'] <=> $b['visible_start_col'])
+                ?: ($a['id'] <=> $b['id']);
+        });
+
+        // lanes[i] = visible_end_col of the last chip placed on lane i
+        $laneLastEnd = [];
+
+        foreach ($chips as &$chip) {
+            $assigned = null;
+            foreach ($laneLastEnd as $laneIdx => $lastEnd) {
+                if ($lastEnd < $chip['visible_start_col']) {
+                    $assigned = $laneIdx;
+                    break;
+                }
+            }
+            if ($assigned === null) {
+                $assigned = count($laneLastEnd);
+                $laneLastEnd[] = $chip['visible_end_col'];
+            } else {
+                $laneLastEnd[$assigned] = $chip['visible_end_col'];
+            }
+            $chip['lane_index'] = $assigned;
+        }
+        unset($chip);
+
+        return [$chips, max(1, count($laneLastEnd))];
     }
 
     /**

@@ -115,95 +115,76 @@
 
             {{-- Tour rows --}}
             @forelse ($data['rows'] as $row)
-                <div class="px-3 py-2 text-sm font-medium text-gray-900 dark:text-gray-100 border-b border-gray-200 dark:border-gray-700 flex items-center">
+                @php
+                    // Lane height = chip body (26px) + gap (6px). Row min
+                    // height absorbs all lanes plus a small bottom buffer
+                    // so chips never abut the next row's border.
+                    $laneCount = max(1, (int) ($row['lane_count'] ?? 1));
+                    $rowMinH   = $laneCount * 32 + 14;
+                @endphp
+
+                <div class="px-3 py-2 text-sm font-medium text-gray-900 dark:text-gray-100 border-b border-gray-200 dark:border-gray-700 flex items-center"
+                     style="min-height: {{ $rowMinH }}px;">
                     {{ $row['name'] }}
                 </div>
-                @for ($i = 0; $i < 7; $i++)
-                    <div class="border-b border-gray-200 dark:border-gray-700 p-1.5 min-h-[88px] space-y-1.5"
-                         style="border-left: 3px solid rgba(156, 163, 175, 0.5); {{ $data['days'][$i]['is_today'] ? 'background: rgba(249, 115, 22, 0.06);' : '' }}">
-                        @foreach ($row['chips'] as $chip)
-                            @php
-                                // Multi-day chip placement: render once per day the
-                                // tour is running on. day_index is the offset of the
-                                // start day from the visible window (can be negative
-                                // when the tour started before this week).
-                                $startCol  = (int) $chip['day_index'];
-                                $endCol    = $startCol + (int) $chip['duration'] - 1;
-                                $dayInTour = $i - $startCol + 1;
-                                $totalDays = (int) $chip['duration'];
-                                $isStart   = $dayInTour === 1;
-                                $isEnd     = $dayInTour === $totalDays;
-                                $isMulti   = $totalDays > 1;
-                            @endphp
-                            @if ($startCol <= $i && $i <= $endCol)
-                                <div @if ($isStart) wire:click="openInquiry({{ $chip['id'] }})" @endif
-                                    style="{{ $chip['view']['style'] }} {{ $isMulti && ! $isStart ? 'opacity: 0.78;' : '' }} {{ $isMulti && $isStart ? 'border-left:4px solid #16a34a;' : '' }} {{ $isMulti && $isEnd ? 'border-right:4px solid #7c3aed;' : '' }}"
-                                    title="{{ $chip['view']['tooltip'] }}"
-                                    class="block rounded-md border px-2 py-1.5 text-xs {{ $isStart ? 'cursor-pointer' : 'cursor-default' }} relative {{ $chip['view']['bg_class'] }}">
-                                    {{-- Operator badge — corner overlay, no layout impact --}}
-                                    @if ($chip['assigned_initials'])
-                                        <span title="Assigned: {{ $chip['assigned_to'] }}"
-                                            style="position: absolute; top: 2px; right: 2px; font-size: 8px; font-weight: 700; background: #e0e7ff; color: #3730a3; padding: 1px 4px; border-radius: 3px; line-height: 1; z-index: 1;">
-                                            {{ $chip['assigned_initials'] }}
-                                        </span>
-                                    @endif
 
-                                    {{-- Row 1: Name + type/source icons --}}
-                                    <div class="flex items-center justify-between gap-1" style="padding-right: {{ $chip['assigned_initials'] ? '24px' : '0' }};">
-                                        <span class="font-semibold text-gray-900 dark:text-gray-100 truncate">
-                                            {{ $chip['customer_name'] }}
-                                        </span>
-                                        <span class="shrink-0" style="display: flex; align-items: center; gap: 3px; font-size: 11px; line-height: 1;">
-                                            @if ($chip['view']['tour_type_icon'])
-                                                <span title="{{ $chip['tour_type'] === 'private' ? 'Private tour' : 'Group tour' }}">{{ $chip['view']['tour_type_icon'] }}</span>
-                                            @endif
-                                            <span title="Source: {{ $chip['source_badge'] }}" style="font-size: 8px;">{{ $chip['view']['source_icon'] }}</span>
-                                        </span>
-                                    </div>
+                {{-- Spanning-chip lane container: replaces the old
+                     7-individual-cell layout. Day cell backgrounds (border
+                     + today tint) render as a 7-col sub-grid; chips
+                     overlay as absolute-positioned bars whose left/width
+                     are computed in % of the 7-col strip. --}}
+                <div class="relative border-b border-gray-200 dark:border-gray-700"
+                     style="grid-column: 2 / span 7; min-height: {{ $rowMinH }}px;">
 
-                                    @if ($isMulti)
-                                        {{-- Day-of-tour label: "Day 2/3 · 3D/2N" --}}
-                                        <div class="text-[10px] text-gray-700 dark:text-gray-300 mt-0.5 font-medium">
-                                            <span style="background:#e5e7eb; color:#374151; padding:1px 4px; border-radius:3px;">
-                                                Day {{ $dayInTour }}/{{ $totalDays }}
-                                            </span>
-                                            <span class="ml-1">{{ $totalDays }}D/{{ $chip['total_nights'] ?? max(0, $totalDays - 1) }}N</span>
-                                        </div>
-                                    @endif
-
-                                    @if ($isStart || ! $isMulti)
-                                        {{-- Row 2: Time + pax + payment (start day only on multi-day) --}}
-                                        <div class="flex items-center gap-1.5 text-[11px] text-gray-800 dark:text-gray-100 mt-0.5">
-                                            <span>⏰ {{ $chip['pickup_time'] ?? '—' }}</span>
-                                            <span>·</span>
-                                            <span>{{ $chip['pax_label'] }} pax</span>
-                                            <span>{{ $chip['view']['payment_icon'] }}</span>
-                                        </div>
-
-                                        {{-- Row 3: Driver + guide --}}
-                                        <div class="text-[11px] text-gray-800 dark:text-gray-200 mt-0.5 truncate">
-                                            @if ($chip['driver_name'])
-                                                🚗 {{ $chip['driver_name'] }}
-                                            @else
-                                                <span class="text-danger-500">🚗 —</span>
-                                            @endif
-                                            @if ($chip['guide_name'])
-                                                · 🧭 {{ $chip['guide_name'] }}
-                                            @endif
-                                        </div>
-
-                                        {{-- Warning dot --}}
-                                        @if (! empty($chip['warnings']))
-                                            <div class="text-[10px] mt-0.5" style="color: #dc2626;">
-                                                ⚠ {{ implode(' · ', $chip['warnings']) }}
-                                            </div>
-                                        @endif
-                                    @endif
-                                </div>
-                            @endif
+                    {{-- Day backgrounds (no chips here — purely visual) --}}
+                    <div class="absolute inset-0 grid pointer-events-none" style="grid-template-columns: repeat(7, 1fr);">
+                        @foreach ($data['days'] as $day)
+                            <div style="border-left: 3px solid rgba(156, 163, 175, 0.5); {{ $day['is_today'] ? 'background: rgba(249, 115, 22, 0.06);' : '' }}"></div>
                         @endforeach
                     </div>
-                @endfor
+
+                    {{-- Spanning chip bars --}}
+                    @foreach ($row['chips'] as $chip)
+                        @php
+                            $vStart = (int) $chip['visible_start_col'];
+                            $vSpan  = (int) $chip['visible_span'];
+                            $lane   = (int) ($chip['lane_index'] ?? 0);
+                            $left   = ($vStart / 7) * 100;
+                            $width  = ($vSpan  / 7) * 100;
+                            $top    = $lane * 32 + 6;
+                            $clipL  = ! empty($chip['clip_left']);
+                            $clipR  = ! empty($chip['clip_right']);
+                        @endphp
+                        <div wire:click="openInquiry({{ $chip['id'] }})"
+                             title="{{ $chip['view']['tooltip'] }}"
+                             style="position: absolute;
+                                    left: calc({{ $left }}% + 4px);
+                                    width: calc({{ $width }}% - 8px);
+                                    top: {{ $top }}px;
+                                    height: 26px;
+                                    {{ $chip['view']['style'] }}
+                                    {{ $clipL ? 'border-top-left-radius:0; border-bottom-left-radius:0; border-left: 3px dashed #f97316;' : 'border-left: 4px solid #16a34a;' }}
+                                    {{ $clipR ? 'border-top-right-radius:0; border-bottom-right-radius:0; border-right: 3px dashed #f97316;' : 'border-right: 4px solid #7c3aed;' }}"
+                             class="rounded border cursor-pointer overflow-hidden flex items-center px-2 text-xs font-semibold {{ $chip['view']['bg_class'] }}">
+                            @if ($clipL)
+                                <span class="shrink-0 mr-1 text-orange-600">◂</span>
+                            @endif
+                            <span class="truncate flex-1">{{ $chip['customer_name'] }}</span>
+                            @if (! empty($chip['warnings']))
+                                <span class="shrink-0 ml-1" title="{{ implode(' · ', $chip['warnings']) }}" style="color:#dc2626;">⚠</span>
+                            @endif
+                            @if ($chip['assigned_initials'])
+                                <span class="shrink-0 ml-1" title="Assigned: {{ $chip['assigned_to'] }}"
+                                      style="font-size:9px; font-weight:700; background:#e0e7ff; color:#3730a3; padding:1px 4px; border-radius:3px;">
+                                    {{ $chip['assigned_initials'] }}
+                                </span>
+                            @endif
+                            @if ($clipR)
+                                <span class="shrink-0 ml-1 text-orange-600">▸</span>
+                            @endif
+                        </div>
+                    @endforeach
+                </div>
             @empty
                 <div class="col-span-8 py-16 text-center text-sm text-gray-500 dark:text-gray-400">
                     <p>No bookings in this week.</p>
