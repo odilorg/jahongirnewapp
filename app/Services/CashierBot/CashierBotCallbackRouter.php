@@ -128,6 +128,11 @@ final class CashierBotCallbackRouter
             str_starts_with($data, 'mc2m_')   => $controller->pickMcLeg2Method($s, $chatId, $data),
             str_starts_with($data, 'mcvr_')   => $controller->pickMcVarianceReason($s, $chatId, $data),
             $data === 'mc_confirm'         => $controller->confirmMcPayment($s, $chatId, $callbackId),
+            // Bulk group payment (Phase 1.7.2)
+            $data === 'group_bulk'         => $controller->pickGroupFork($s, $chatId, $data),
+            $data === 'group_single'       => $controller->pickGroupFork($s, $chatId, $data),
+            str_starts_with($data, 'gbm_') => $controller->pickGroupBulkMethod($s, $chatId, $data),
+            $data === 'group_confirm'      => $controller->confirmGroupBulk($s, $chatId, $callbackId),
             $data === 'cancel'             => $controller->showMainMenu($chatId, $s),
             $data === 'my_txns'            => $controller->dispatchReply($chatId, app(\App\Actions\CashierBot\Handlers\ShowMyTransactionsAction::class)->execute($s->user_id)),
             $data === 'guide'              => $controller->dispatchGuide($chatId, null),

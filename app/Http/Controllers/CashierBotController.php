@@ -678,6 +678,20 @@ class CashierBotController extends Controller
             $b = $this->importBookingFromLiveData($bid, $liveGuest);
         }
 
+        // Phase 1.7.2 — Group detection. If this booking has a master_booking_id
+        // (or is itself a master with siblings), present the bulk-vs-single fork
+        // BEFORE the FX presentation step. Lets operator settle the whole group
+        // in one journal of N legs instead of recording each room separately.
+        if ($b && $this->isGroupBooking($b)) {
+            $masterId = (string) ($b->master_booking_id ?? $b->beds24_booking_id);
+            $siblings = \App\Models\Beds24Booking::where('master_booking_id', $masterId)
+                ->orderBy('beds24_booking_id')
+                ->get(['beds24_booking_id', 'guest_name', 'total_amount', 'currency']);
+            if ($siblings->count() >= 2) {
+                return $this->showGroupForkChoice($s, $chatId, $bid, $masterId, $siblings, $b);
+            }
+        }
+
         // Merge: live snapshot wins, local DB fills gaps, hard defaults last
         $d['guest_name']       = $snap['guest_name']       ?? ($b?->guest_name ?? '?');
         $d['booking_id']       = $bid;
@@ -813,6 +827,195 @@ class CashierBotController extends Controller
             ],
         ]], 'inline');
         return response('OK');
+    }
+
+    // ── BULK GROUP PAYMENT (Phase 1.7.2) ────────────────────────────
+
+    private function isGroupBooking(\App\Models\Beds24Booking $b): bool
+    {
+        $masterId = $b->master_booking_id ?? $b->beds24_booking_id;
+        // Has siblings if there's >= 2 rows sharing this master
+        return \App\Models\Beds24Booking::where('master_booking_id', $masterId)->count() >= 2;
+    }
+
+    /**
+     * Group fork — operator picked a sibling. Show "whole group / only this
+     * room" choice with full preview (siblings, totals, paid state).
+     */
+    private function showGroupForkChoice($s, int $chatId, string $pickedBid, string $masterId, $siblings, \App\Models\Beds24Booking $picked): \Illuminate\Http\Response
+    {
+        // Already-paid state per sibling (across both source_triggers)
+        $bookingIds = $siblings->pluck('beds24_booking_id')->all();
+        $paidIds = CashTransaction::whereIn('beds24_booking_id', $bookingIds)
+            ->whereIn('source_trigger', [
+                CashTransactionSource::CashierBot->value,
+                CashTransactionSource::Beds24External->value,
+            ])
+            ->whereNull('deleted_at')
+            ->pluck('beds24_booking_id')
+            ->map(fn ($x) => (string) $x)
+            ->unique()
+            ->all();
+
+        $unpaidCount = $siblings->count() - count(array_intersect($paidIds, $bookingIds));
+        $totalSum = (float) $siblings->sum('total_amount');
+        $currency = strtoupper((string) ($siblings->first()->currency ?? 'USD'));
+
+        $lines = [
+            "🏨 Это часть группы из {$siblings->count()} броней",
+            '',
+        ];
+        foreach ($siblings as $sib) {
+            $bidStr = (string) $sib->beds24_booking_id;
+            $paid   = in_array($bidStr, $paidIds, true) ? ' ✅' : '';
+            $lines[] = sprintf(
+                '#%s · %s · %.2f %s%s',
+                $bidStr,
+                $sib->guest_name ?? '?',
+                (float) $sib->total_amount,
+                strtoupper((string) ($sib->currency ?? 'USD')),
+                $paid,
+            );
+        }
+        $lines[] = '';
+        $lines[] = "Всего по группе: " . number_format($totalSum, 2, '.', ' ') . " {$currency}";
+        $lines[] = "Не оплачено: {$unpaidCount} из {$siblings->count()}";
+
+        // Snapshot for composition guard at submit time
+        $snapshot = $siblings->map(fn ($s) => [
+            'booking_id'    => (string) $s->beds24_booking_id,
+            'invoice_total' => (float)  $s->total_amount,
+        ])->all();
+
+        $d = $s->data ?? [];
+        $d['group_master_id']        = $masterId;
+        $d['group_picked_bid']       = $pickedBid;
+        $d['group_snapshot']         = $snapshot;
+        $d['group_total']            = $totalSum;
+        $d['group_currency']         = $currency;
+        $d['group_already_paid_ids'] = $paidIds;
+        $s->update(['state' => 'payment_group_fork', 'data' => $d]);
+
+        // Buttons: bulk only if NO sibling is already paid (per v1 doctrine)
+        $kb = [];
+        if (empty($paidIds)) {
+            $kb[] = [['text' => '💳 Оплата за всю группу', 'callback_data' => 'group_bulk']];
+        } else {
+            $lines[] = '';
+            $lines[] = '⚠ Часть броней уже оплачена — массовая оплата недоступна.';
+        }
+        $kb[] = [['text' => "💳 Только эту бронь (#{$pickedBid})", 'callback_data' => 'group_single']];
+        $kb[] = [['text' => 'Отмена', 'callback_data' => 'cancel']];
+
+        $this->send($chatId, implode("\n", $lines), ['inline_keyboard' => $kb], 'inline');
+        return response('OK');
+    }
+
+    public function pickGroupFork($s, int $chatId, string $callback): \Illuminate\Http\Response
+    {
+        $d = $s->data ?? [];
+
+        if ($callback === 'group_single') {
+            // Continue to single-booking flow with the originally picked sibling
+            $bid = (string) ($d['group_picked_bid'] ?? '');
+            unset($d['group_master_id'], $d['group_snapshot'], $d['group_total'], $d['group_currency'], $d['group_already_paid_ids'], $d['group_picked_bid']);
+            $s->update(['data' => $d]);
+            return $this->selectGuest($s, $chatId, "guest_{$bid}");
+        }
+
+        // group_bulk → ask currency, amount, method
+        $totalLabel = number_format((float) ($d['group_total'] ?? 0), 2, '.', ' ');
+        $cur = (string) ($d['group_currency'] ?? 'USD');
+        $s->update(['state' => 'payment_group_method', 'data' => $d]);
+        $this->send($chatId,
+            "🏨 Оплата за группу\n\n"
+            . "Сумма: {$totalLabel} {$cur}\n\n"
+            . "Способ оплаты:",
+            ['inline_keyboard' => [[
+                ['text' => 'Наличные', 'callback_data' => 'gbm_cash'],
+                ['text' => 'Карта',    'callback_data' => 'gbm_card'],
+                ['text' => 'Перевод',  'callback_data' => 'gbm_transfer'],
+            ]]],
+            'inline'
+        );
+        return response('OK');
+    }
+
+    public function pickGroupBulkMethod($s, int $chatId, string $callback): \Illuminate\Http\Response
+    {
+        $d = $s->data ?? [];
+        $d['group_method'] = str_replace('gbm_', '', $callback);
+        $s->update(['state' => 'payment_group_confirm', 'data' => $d]);
+
+        $totalLabel = number_format((float) $d['group_total'], 2, '.', ' ');
+        $methodLabel = match ($d['group_method']) { 'cash' => 'Наличные', 'card' => 'Карта', 'transfer' => 'Перевод', default => $d['group_method'] };
+        $siblingCount = count($d['group_snapshot'] ?? []);
+
+        $this->send($chatId,
+            "Подтвердите оплату за группу:\n\n"
+            . "Мастер: #{$d['group_master_id']}\n"
+            . "Броней: {$siblingCount}\n"
+            . "Всего: {$totalLabel} {$d['group_currency']}\n"
+            . "Способ: {$methodLabel}\n\n"
+            . "Распределение по комнатам пропорциональное (largest-remainder rounding).",
+            ['inline_keyboard' => [[
+                ['text' => '✅ Подтвердить', 'callback_data' => 'group_confirm'],
+                ['text' => 'Отмена',         'callback_data' => 'cancel'],
+            ]]],
+            'inline'
+        );
+        return response('OK');
+    }
+
+    public function confirmGroupBulk($s, int $chatId, string $callbackId = ''): \Illuminate\Http\Response
+    {
+        $d = $s->data ?? [];
+        $shift = CashierShift::find($d['shift_id'] ?? 0);
+        if (! $shift || ! $shift->isOpen()) {
+            $this->send($chatId, "Смена не найдена или закрыта.");
+            if ($callbackId) $this->failCallback($callbackId, 'Shift not found');
+            return $this->showMainMenu($chatId, $s);
+        }
+
+        try {
+            $result = $this->botPaymentService->recordBulkGroupPayment(
+                masterBookingId:  (string) $d['group_master_id'],
+                totalCurrency:    (string) $d['group_currency'],
+                totalAmount:      (float)  $d['group_total'],
+                paymentMethod:    (string) $d['group_method'],
+                shiftId:          (int) $shift->id,
+                cashierId:        (int) $s->user_id,
+                expectedSnapshot: $d['group_snapshot'] ?? [],
+            );
+            if ($callbackId) $this->succeedCallback($callbackId);
+            $count = count($result['transactions']);
+            $this->send($chatId,
+                "✅ Оплата за группу записана!\n\n"
+                . "Создано записей: {$count}\n"
+                . "Журнал: " . substr((string) $result['journal_uuid'], 0, 8) . "…\n"
+                . "Баланс: " . $this->fmtBal($this->getBal($shift->fresh()))
+            );
+        } catch (\App\Exceptions\GroupAlreadyPartiallyPaidException $e) {
+            if ($callbackId) $this->failCallback($callbackId, $e->getMessage());
+            $p = $e->payload();
+            $this->send($chatId,
+                "⚠ Часть группы уже оплачена.\n\n"
+                . "Оплачены: " . implode(', ', $p['already_paid_booking_ids']) . "\n"
+                . "Не оплачены: " . implode(', ', $p['unpaid_booking_ids']) . "\n\n"
+                . "Запишите оставшиеся комнаты по одной."
+            );
+        } catch (\App\Exceptions\GroupCompositionChangedException $e) {
+            if ($callbackId) $this->failCallback($callbackId, $e->getMessage());
+            $this->send($chatId, "⚠ Состав группы изменился. Откройте оплату заново.");
+        } catch (\Throwable $e) {
+            if ($callbackId) $this->failCallback($callbackId, $e->getMessage());
+            \Illuminate\Support\Facades\Log::error('Group bulk payment failed', [
+                'data'  => $d,
+                'error' => $e->getMessage(),
+            ]);
+            $this->send($chatId, "❌ Ошибка: " . $e->getMessage());
+        }
+        return $this->showMainMenu($chatId, $s);
     }
 
     // ── MIXED-CURRENCY SPLIT (Phase 1.5.2) ──────────────────────────
