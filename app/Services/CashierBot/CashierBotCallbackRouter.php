@@ -121,6 +121,13 @@ final class CashierBotCallbackRouter
             // Close-shift typo-check resolution (Tier-A safety guard)
             $data === 'typo_yes'           => $controller->resolveCountTypo($s, $chatId, $data),
             $data === 'typo_no'            => $controller->resolveCountTypo($s, $chatId, $data),
+            // Mixed-currency split (Phase 1.5.2)
+            str_starts_with($data, 'mc1cur_') => $controller->pickMcLeg1Currency($s, $chatId, $data),
+            str_starts_with($data, 'mc1m_')   => $controller->pickMcLeg1Method($s, $chatId, $data),
+            str_starts_with($data, 'mc2cur_') => $controller->pickMcLeg2Currency($s, $chatId, $data),
+            str_starts_with($data, 'mc2m_')   => $controller->pickMcLeg2Method($s, $chatId, $data),
+            str_starts_with($data, 'mcvr_')   => $controller->pickMcVarianceReason($s, $chatId, $data),
+            $data === 'mc_confirm'         => $controller->confirmMcPayment($s, $chatId, $callbackId),
             $data === 'cancel'             => $controller->showMainMenu($chatId, $s),
             $data === 'my_txns'            => $controller->dispatchReply($chatId, app(\App\Actions\CashierBot\Handlers\ShowMyTransactionsAction::class)->execute($s->user_id)),
             $data === 'guide'              => $controller->dispatchGuide($chatId, null),

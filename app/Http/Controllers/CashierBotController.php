@@ -240,6 +240,8 @@ class CashierBotController extends Controller
             'shift_count_eur' => $this->hCount($s, $chatId, $text, 'EUR'),
             'shift_close_reason' => $this->hShiftCloseReason($s, $chatId, $text),
             'payment_split_cash' => $this->hPaymentSplitCash($s, $chatId, $text),
+            'payment_mc_leg1_amount' => $this->hMcLeg1Amount($s, $chatId, $text),
+            'payment_mc_leg2_amount' => $this->hMcLeg2Amount($s, $chatId, $text),
             default => $this->resetSessionToMainMenu($s, $chatId),
         };
     }
@@ -804,10 +806,400 @@ class CashierBotController extends Controller
                 ['text' => 'Перевод',  'callback_data' => 'method_transfer'],
             ],
             [
-                ['text' => '➗ Разбить (наличные + карта)', 'callback_data' => 'method_split'],
+                ['text' => '➗ Разбить (одна валюта)', 'callback_data' => 'method_split'],
+            ],
+            [
+                ['text' => '💱 Разбить (разные валюты)', 'callback_data' => 'method_mc_split'],
             ],
         ]], 'inline');
         return response('OK');
+    }
+
+    // ── MIXED-CURRENCY SPLIT (Phase 1.5.2) ──────────────────────────
+    //
+    // Multi-state flow: leg1 currency → amount → method → leg2 currency
+    // → amount → method → variance reason (conditional) → confirm.
+    //
+    // Always goes through BotPaymentService::recordMixedCurrencySplitPayment
+    // so the same FX governance + sum-lock + variance gating that the
+    // admin path uses applies here. RequiresVarianceReasonException is
+    // caught and surfaced as a Telegram reason picker.
+
+    /** Operator tapped "💱 Разбить (разные валюты)" at the method picker. */
+    public function startMixedCurrencySplit($s, int $chatId): \Illuminate\Http\Response
+    {
+        $d = $s->data ?? [];
+        // Snapshot booking-level info into mc_* keys so the regular
+        // single-method state machine can co-exist with this flow.
+        $d['mc_base_currency'] = (string) ($d['currency'] ?? 'UZS');
+        $d['mc_total_in_base'] = (float)  ($d['amount']   ?? 0);
+        $s->update(['state' => 'payment_mc_leg1_currency', 'data' => $d]);
+
+        $this->send($chatId,
+            "💱 Сплит в разных валютах\n\n"
+            . "Бронь: #{$d['booking_id']} — {$d['guest_name']}\n"
+            . "Всего: " . number_format($d['mc_total_in_base'], 0, '.', ' ') . " {$d['mc_base_currency']}\n\n"
+            . "Валюта ПЕРВОЙ части:",
+            ['inline_keyboard' => [[
+                ['text' => '🇺🇿 UZS', 'callback_data' => 'mc1cur_UZS'],
+                ['text' => '🇺🇸 USD', 'callback_data' => 'mc1cur_USD'],
+                ['text' => '🇪🇺 EUR', 'callback_data' => 'mc1cur_EUR'],
+            ]]],
+            'inline'
+        );
+        return response('OK');
+    }
+
+    public function pickMcLeg1Currency($s, int $chatId, string $callback): \Illuminate\Http\Response
+    {
+        $d = $s->data ?? [];
+        $d['mc_leg1_currency'] = str_replace('mc1cur_', '', $callback);
+        $s->update(['state' => 'payment_mc_leg1_amount', 'data' => $d]);
+        $this->send($chatId, "Сумма ПЕРВОЙ части в {$d['mc_leg1_currency']}:");
+        return response('OK');
+    }
+
+    protected function hMcLeg1Amount($s, int $chatId, string $text)
+    {
+        $amt = floatval(str_replace([' ', ','], ['', '.'], $text));
+        if ($amt <= 0) { $this->send($chatId, "Сумма должна быть больше нуля. Введите ещё раз:"); return response('OK'); }
+        $d = $s->data ?? [];
+        $d['mc_leg1_amount'] = $amt;
+        $s->update(['state' => 'payment_mc_leg1_method', 'data' => $d]);
+        $this->send($chatId, "Способ оплаты ПЕРВОЙ части ({$d['mc_leg1_currency']}):", ['inline_keyboard' => [[
+            ['text' => 'Наличные', 'callback_data' => 'mc1m_cash'],
+            ['text' => 'Карта',    'callback_data' => 'mc1m_card'],
+            ['text' => 'Перевод',  'callback_data' => 'mc1m_transfer'],
+        ]]], 'inline');
+        return response('OK');
+    }
+
+    public function pickMcLeg1Method($s, int $chatId, string $callback): \Illuminate\Http\Response
+    {
+        $d = $s->data ?? [];
+        $d['mc_leg1_method'] = str_replace('mc1m_', '', $callback);
+        // Leg2 currency picker — exclude leg1's currency so legs always differ.
+        $remaining = array_values(array_diff(['UZS', 'USD', 'EUR'], [(string) $d['mc_leg1_currency']]));
+        $row = array_map(fn ($c) => ['text' => $c, 'callback_data' => "mc2cur_{$c}"], $remaining);
+        $s->update(['state' => 'payment_mc_leg2_currency', 'data' => $d]);
+        $this->send($chatId,
+            "Первая часть зафиксирована: " . number_format($d['mc_leg1_amount'], 2, '.', ' ') . " {$d['mc_leg1_currency']}\n\n"
+            . "Валюта ВТОРОЙ части:",
+            ['inline_keyboard' => [$row]],
+            'inline'
+        );
+        return response('OK');
+    }
+
+    public function pickMcLeg2Currency($s, int $chatId, string $callback): \Illuminate\Http\Response
+    {
+        $d = $s->data ?? [];
+        $d['mc_leg2_currency'] = str_replace('mc2cur_', '', $callback);
+
+        // Suggest leg2 amount via frozen presentation rates so operator
+        // doesn't do FX math by hand. If guest gave 50 USD and base is
+        // UZS at 970k total, suggest leg2 = 970k − (50 USD in UZS via
+        // frozen rate) = remaining in base, then convert if leg2 isn't base.
+        $suggestion = $this->computeMcLeg2Suggestion($d);
+        $d['mc_leg2_suggested'] = $suggestion;
+        $s->update(['state' => 'payment_mc_leg2_amount', 'data' => $d]);
+
+        $line = $suggestion > 0
+            ? "Сумма ВТОРОЙ части в {$d['mc_leg2_currency']} (предлагаю: " . number_format($suggestion, 2, '.', ' ') . "):"
+            : "Сумма ВТОРОЙ части в {$d['mc_leg2_currency']}:";
+
+        $this->send($chatId, $line);
+        return response('OK');
+    }
+
+    protected function hMcLeg2Amount($s, int $chatId, string $text)
+    {
+        $amt = floatval(str_replace([' ', ','], ['', '.'], $text));
+        if ($amt <= 0) { $this->send($chatId, "Сумма должна быть больше нуля. Введите ещё раз:"); return response('OK'); }
+        $d = $s->data ?? [];
+        $d['mc_leg2_amount'] = $amt;
+        $s->update(['state' => 'payment_mc_leg2_method', 'data' => $d]);
+        $this->send($chatId, "Способ оплаты ВТОРОЙ части ({$d['mc_leg2_currency']}):", ['inline_keyboard' => [[
+            ['text' => 'Наличные', 'callback_data' => 'mc2m_cash'],
+            ['text' => 'Карта',    'callback_data' => 'mc2m_card'],
+            ['text' => 'Перевод',  'callback_data' => 'mc2m_transfer'],
+        ]]], 'inline');
+        return response('OK');
+    }
+
+    public function pickMcLeg2Method($s, int $chatId, string $callback): \Illuminate\Http\Response
+    {
+        $d = $s->data ?? [];
+        $d['mc_leg2_method'] = str_replace('mc2m_', '', $callback);
+        $s->update(['data' => $d]);
+        return $this->showMcConfirm($s, $chatId);
+    }
+
+    /**
+     * Show the confirm screen. Computes variance via service-level dry
+     * run. If variance triggers reason requirement → reason picker; if
+     * it triggers manager → escalation message; if hard reject → adjust prompt.
+     */
+    protected function showMcConfirm($s, int $chatId): \Illuminate\Http\Response
+    {
+        $d = $s->data ?? [];
+
+        // Build trial DTOs and call service — catch RequiresVarianceReasonException
+        // to drive UX, InvalidArgumentException for hard rejects.
+        try {
+            $this->attemptMcRecord($s, $d, dryRun: true);
+        } catch (\App\Exceptions\RequiresVarianceReasonException $e) {
+            return $this->showMcVarianceReasonPicker($s, $chatId, $d, $e);
+        } catch (\InvalidArgumentException $e) {
+            $msg = preg_match('/hard ceiling/', $e->getMessage())
+                ? "🚨 Расхождение превышает 5% — слишком большое для записи. Скорректируйте суммы и начните заново."
+                : "❌ " . $e->getMessage();
+            $this->send($chatId, $msg);
+            return $this->showMainMenu($chatId, $s);
+        }
+
+        // No variance → straight to confirm
+        $s->update(['state' => 'payment_mc_confirm', 'data' => $d]);
+        $this->send($chatId, $this->buildMcConfirmText($d), ['inline_keyboard' => [[
+            ['text' => '✅ Подтвердить', 'callback_data' => 'mc_confirm'],
+            ['text' => 'Отмена',         'callback_data' => 'cancel'],
+        ]]], 'inline');
+        return response('OK');
+    }
+
+    protected function showMcVarianceReasonPicker($s, int $chatId, array $d, \App\Exceptions\RequiresVarianceReasonException $e): \Illuminate\Http\Response
+    {
+        $d['mc_variance_payload'] = $e->payload();
+        $s->update(['state' => 'payment_mc_variance_reason', 'data' => $d]);
+
+        $p = $e->payload();
+        $direction = $p['variance_in_base'] > 0 ? 'излишек (плюс)' : 'недостача (минус)';
+
+        $msg = "⚠ Расхождение сумм\n\n"
+            . "Ожидалось:  " . number_format($p['expected_in_base'], 0, '.', ' ') . " {$p['base_currency']}\n"
+            . "По частям:  " . number_format($p['actual_in_base'],   0, '.', ' ') . " {$p['base_currency']}\n"
+            . "Расхождение: " . ($p['variance_in_base'] > 0 ? '+' : '') . number_format($p['variance_in_base'], 0, '.', ' ') . " {$p['base_currency']} (" . number_format($p['variance_pct'], 2) . "% — {$direction})\n\n"
+            . "Курс по факту: " . number_format($p['implied_rate'], 2) . "\n"
+            . "Курс системы:  " . number_format($p['frozen_rate'],  2) . "\n\n"
+            . ($p['requires_manager_approval']
+                ? "⚠ Требуется одобрение менеджера. Свяжитесь с менеджером, затем выберите причину."
+                : "Выберите причину расхождения:");
+
+        $this->send($chatId, $msg, ['inline_keyboard' => [
+            [['text' => 'Договорной курс', 'callback_data' => 'mcvr_agreed_shop_rate']],
+            [['text' => 'Округление купюр', 'callback_data' => 'mcvr_bill_denomination']],
+            [['text' => 'Гость переплатил', 'callback_data' => 'mcvr_guest_overpay']],
+            [['text' => 'Гость недоплатил', 'callback_data' => 'mcvr_guest_underpay']],
+            [['text' => 'Дрейф курса',      'callback_data' => 'mcvr_rate_drift']],
+            [['text' => 'Отмена',           'callback_data' => 'cancel']],
+        ]], 'inline');
+        return response('OK');
+    }
+
+    public function pickMcVarianceReason($s, int $chatId, string $callback): \Illuminate\Http\Response
+    {
+        $d = $s->data ?? [];
+        $d['mc_variance_reason'] = str_replace('mcvr_', '', $callback);
+        $s->update(['state' => 'payment_mc_confirm', 'data' => $d]);
+
+        $p = $d['mc_variance_payload'] ?? [];
+        $needsManager = ! empty($p['requires_manager_approval']);
+
+        if ($needsManager) {
+            $this->send($chatId,
+                "⚠ Эта величина расхождения требует одобрения менеджера.\n"
+                . "Запись через бот недоступна — попросите менеджера записать через админ-панель."
+            );
+            return $this->showMainMenu($chatId, $s);
+        }
+
+        $this->send($chatId, $this->buildMcConfirmText($d), ['inline_keyboard' => [[
+            ['text' => '✅ Подтвердить', 'callback_data' => 'mc_confirm'],
+            ['text' => 'Отмена',         'callback_data' => 'cancel'],
+        ]]], 'inline');
+        return response('OK');
+    }
+
+    public function confirmMcPayment($s, int $chatId, string $callbackId = ''): \Illuminate\Http\Response
+    {
+        $d = $s->data ?? [];
+        $shift = CashierShift::find($d['shift_id'] ?? 0);
+        if (!$shift || !$shift->isOpen()) {
+            $this->send($chatId, "Смена не найдена или закрыта.");
+            if ($callbackId) $this->failCallback($callbackId, 'Shift not found');
+            return $this->showMainMenu($chatId, $s);
+        }
+
+        try {
+            $result = $this->attemptMcRecord($s, $d, dryRun: false);
+            if ($callbackId) $this->succeedCallback($callbackId);
+            $this->send($chatId,
+                "✅ Сплит-платеж в разных валютах записан!\n\n"
+                . "Журнал: " . substr((string) $result['journal_uuid'], 0, 8) . "…\n"
+                . "Баланс: " . $this->fmtBal($this->getBal($shift->fresh()))
+            );
+        } catch (\Throwable $e) {
+            if ($callbackId) $this->failCallback($callbackId, $e->getMessage());
+            \Illuminate\Support\Facades\Log::error('MC split confirm failed', [
+                'data'  => $d,
+                'error' => $e->getMessage(),
+            ]);
+            $this->send($chatId, "❌ Ошибка при записи. " . $e->getMessage());
+        }
+        return $this->showMainMenu($chatId, $s);
+    }
+
+    /**
+     * Build legs + call service. Returns ['journal_uuid'=>..., 'tx1_id'=>..., 'tx2_id'=>...].
+     * Throws RequiresVarianceReasonException, InvalidArgumentException as appropriate.
+     */
+    private function attemptMcRecord($s, array $d, bool $dryRun): array
+    {
+        $presentation = \App\DTO\PaymentPresentation::fromArray($d['fx_presentation']);
+
+        $leg1 = new \App\DTO\RecordPaymentData(
+            presentation:    $presentation,
+            shiftId:         (int) $d['shift_id'],
+            cashierId:       (int) $s->user_id,
+            currencyPaid:    (string) $d['mc_leg1_currency'],
+            amountPaid:      (float)  $d['mc_leg1_amount'],
+            paymentMethod:   (string) $d['mc_leg1_method'],
+            overrideReason:  null,
+            managerApproval: null,
+        );
+        $leg2 = new \App\DTO\RecordPaymentData(
+            presentation:    $presentation,
+            shiftId:         (int) $d['shift_id'],
+            cashierId:       (int) $s->user_id,
+            currencyPaid:    (string) $d['mc_leg2_currency'],
+            amountPaid:      (float)  $d['mc_leg2_amount'],
+            paymentMethod:   (string) $d['mc_leg2_method'],
+            overrideReason:  null,
+            managerApproval: null,
+        );
+
+        $varianceContext = null;
+        if (! empty($d['mc_variance_reason'])) {
+            $varianceContext = new \App\DTO\MixedCurrencyVarianceContext(
+                reason: (string) $d['mc_variance_reason'],
+            );
+        }
+
+        if ($dryRun) {
+            // Dry run: re-throw whatever the service throws so showMcConfirm
+            // can decide UX. We DO call recordPayment (which writes!) so
+            // dry run can't actually be a write. Use a different path:
+            // call only the validate-variance helpers via a temp method.
+            // For now, simplest correct dry-run = run a service-shaped
+            // pre-check that mirrors recordMixedCurrencySplitPayment's
+            // sum-lock + variance gating WITHOUT inserting rows.
+            $this->dryRunMcVariance($leg1, $leg2, (string) $d['mc_base_currency'], $varianceContext);
+            return ['journal_uuid' => 'dry', 'tx1_id' => 0, 'tx2_id' => 0];
+        }
+
+        [$tx1, $tx2] = $this->botPaymentService->recordMixedCurrencySplitPayment(
+            $leg1, $leg2, (string) $d['mc_base_currency'], $varianceContext,
+        );
+        return ['journal_uuid' => (string) $tx1->journal_entry_id, 'tx1_id' => (int) $tx1->id, 'tx2_id' => (int) $tx2->id];
+    }
+
+    /**
+     * Pre-check wrapper that mirrors the service's variance gating to
+     * surface variance UX before a write happens.
+     */
+    private function dryRunMcVariance(
+        \App\DTO\RecordPaymentData $leg1,
+        \App\DTO\RecordPaymentData $leg2,
+        string $baseCurrency,
+        ?\App\DTO\MixedCurrencyVarianceContext $varianceContext,
+    ): void {
+        // Run conversions (same logic as service) to compute variance
+        $expected = $leg1->presentation->presentedAmountFor($baseCurrency);
+        $leg1Base = $leg1->currencyPaid === $baseCurrency
+            ? $leg1->amountPaid
+            : ($leg1->amountPaid * $leg1->presentation->presentedAmountFor($baseCurrency))
+                / max(0.0001, $leg1->presentation->presentedAmountFor($leg1->currencyPaid));
+        $leg2Base = $leg2->currencyPaid === $baseCurrency
+            ? $leg2->amountPaid
+            : ($leg2->amountPaid * $leg2->presentation->presentedAmountFor($baseCurrency))
+                / max(0.0001, $leg2->presentation->presentedAmountFor($leg2->currencyPaid));
+        $sum = $leg1Base + $leg2Base;
+        $variance = $sum - $expected;
+        $variancePct = $expected > 0 ? (abs($variance) / $expected) * 100.0 : 0.0;
+        $tolerance = match ($baseCurrency) { 'UZS' => 100.0, 'USD' => 0.50, 'EUR' => 0.50, default => 1.0 };
+
+        if (abs($variance) <= $tolerance || $variancePct < \App\Services\BotPaymentService::VARIANCE_SILENT_PCT) {
+            return; // silent pass
+        }
+        if ($variancePct > \App\Services\BotPaymentService::VARIANCE_MANAGER_PCT) {
+            throw new \InvalidArgumentException("hard ceiling exceeded: {$variancePct}%");
+        }
+        $requiresManager = $variancePct > \App\Services\BotPaymentService::VARIANCE_REASON_PCT;
+        if ($varianceContext === null) {
+            $foreignCurrency = $leg1->currencyPaid !== $baseCurrency ? $leg1->currencyPaid : $leg2->currencyPaid;
+            $foreignPresent  = $leg1->presentation->presentedAmountFor($foreignCurrency);
+            $impliedRate = ($expected - ($leg1->currencyPaid === $baseCurrency ? $leg1->amountPaid : $leg2->amountPaid))
+                / max(0.0001, $leg1->currencyPaid === $baseCurrency ? $leg2->amountPaid : $leg1->amountPaid);
+            $frozenRate  = $foreignPresent > 0 ? $expected / $foreignPresent : 0.0;
+            throw new \App\Exceptions\RequiresVarianceReasonException(
+                expectedInBase: $expected,
+                actualInBase: $sum,
+                varianceInBase: $variance,
+                variancePct: $variancePct,
+                baseCurrency: $baseCurrency,
+                requiresManagerApproval: $requiresManager,
+                impliedRate: $impliedRate,
+                frozenRate: $frozenRate,
+            );
+        }
+    }
+
+    private function buildMcConfirmText(array $d): string
+    {
+        $reasonLabel = match ($d['mc_variance_reason'] ?? '') {
+            'agreed_shop_rate'  => 'Договорной курс',
+            'bill_denomination' => 'Округление купюр',
+            'guest_overpay'     => 'Гость переплатил',
+            'guest_underpay'    => 'Гость недоплатил',
+            'rate_drift'        => 'Дрейф курса',
+            'other'             => 'Другое',
+            default             => null,
+        };
+        $varianceLine = $reasonLabel ? "\n💱 Расхождение принято — причина: {$reasonLabel}" : '';
+
+        return "Подтвердите сплит в разных валютах:\n\n"
+            . "Бронь: #{$d['booking_id']}\n"
+            . "Гость: {$d['guest_name']}\n"
+            . "Всего: " . number_format($d['mc_total_in_base'], 0, '.', ' ') . " {$d['mc_base_currency']}\n\n"
+            . "1️⃣ " . number_format($d['mc_leg1_amount'], 2, '.', ' ') . " {$d['mc_leg1_currency']} ({$d['mc_leg1_method']})\n"
+            . "2️⃣ " . number_format($d['mc_leg2_amount'], 2, '.', ' ') . " {$d['mc_leg2_currency']} ({$d['mc_leg2_method']})"
+            . $varianceLine;
+    }
+
+    private function computeMcLeg2Suggestion(array $d): float
+    {
+        if (empty($d['fx_presentation'])) return 0.0;
+        $presentation = \App\DTO\PaymentPresentation::fromArray($d['fx_presentation']);
+        $base = (string) $d['mc_base_currency'];
+        $totalBase = (float) $d['mc_total_in_base'];
+
+        // Convert leg1 to base
+        $leg1Cur = (string) $d['mc_leg1_currency'];
+        $leg1Amt = (float)  $d['mc_leg1_amount'];
+        $leg1Base = $leg1Cur === $base
+            ? $leg1Amt
+            : ($leg1Amt * $presentation->presentedAmountFor($base))
+                / max(0.0001, $presentation->presentedAmountFor($leg1Cur));
+
+        $remainingBase = max(0.0, $totalBase - $leg1Base);
+
+        $leg2Cur = (string) $d['mc_leg2_currency'];
+        if ($leg2Cur === $base) return round($remainingBase, 2);
+
+        $leg2Present = $presentation->presentedAmountFor($leg2Cur);
+        $basePresent = $presentation->presentedAmountFor($base);
+        if ($basePresent <= 0) return 0.0;
+        return round(($remainingBase * $leg2Present) / $basePresent, 2);
     }
 
     // ── FX PRESENTATION PAYMENT PATH ────────────────────────────
@@ -929,6 +1321,11 @@ class CashierBotController extends Controller
     public function selectMethod($s, int $chatId, string $data)
     {
         $d = $s->data ?? [];
+
+        // Mixed-currency split fork — Phase 1.5.2.
+        if ($data === 'method_mc_split') {
+            return $this->startMixedCurrencySplit($s, $chatId);
+        }
 
         // Split-payment fork — fan out to the cash-portion entry state.
         // The remaining amount is auto-computed as the card portion at confirm
