@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\CashTransactionResource\Pages;
 
+use App\Actions\Cashier\RecordBulkGroupPaymentFromAdminAction;
 use App\Actions\Cashier\RecordMixedCurrencySplitFromAdminAction;
 use App\Filament\Resources\CashTransactionResource;
 use App\Models\Beds24Booking;
@@ -203,6 +204,141 @@ class ListCashTransactions extends ListRecords
                             ->send();
                     } catch (\Throwable $e) {
                         \Illuminate\Support\Facades\Log::error('Mixed-currency journal action failed', [
+                            'data'  => $data,
+                            'error' => $e->getMessage(),
+                        ]);
+                        Notification::make()
+                            ->title('Recording failed')
+                            ->body('See laravel.log for details. Error class: ' . class_basename($e))
+                            ->danger()
+                            ->persistent()
+                            ->send();
+                    }
+                }),
+
+            // Phase 1.7.3 — Admin Bulk Group Payment.
+            // Visible to super_admin / admin / manager (matches mixed-currency
+            // journal action). Cashiers go through the bot for groups.
+            Actions\Action::make('recordBulkGroupPayment')
+                ->label('🏨 Bulk group payment')
+                ->color('info')
+                ->icon('heroicon-o-users')
+                ->visible(fn (): bool => auth()->user()?->hasAnyRole(['super_admin', 'admin', 'manager']) ?? false)
+                ->modalHeading('Record bulk payment for an entire group of bookings')
+                ->modalDescription('All siblings settle at once with a single method. Same currency. Distributes proportionally via largest-remainder rounding.')
+                ->form([
+                    Forms\Components\Select::make('cashier_shift_id')
+                        ->label('Open shift')
+                        ->options(fn () => CashierShift::query()
+                            ->where('status', 'open')
+                            ->with('user:id,name')
+                            ->get()
+                            ->mapWithKeys(fn ($s) => [$s->id => "#{$s->id} — {$s->user?->name} (opened {$s->opened_at?->format('d.m H:i')})"])
+                            ->all())
+                        ->required(),
+                    Forms\Components\TextInput::make('master_booking_id')
+                        ->label('Any sibling booking ID (will resolve to group master)')
+                        ->required()
+                        ->numeric()
+                        ->live(onBlur: true)
+                        ->rule(function () {
+                            return function (string $attribute, $value, \Closure $fail) {
+                                $b = Beds24Booking::where('beds24_booking_id', $value)->first();
+                                if (! $b) {
+                                    $fail("Booking #{$value} not found.");
+                                    return;
+                                }
+                                $master = $b->master_booking_id ?? $b->beds24_booking_id;
+                                if (! Beds24Booking::where('master_booking_id', $master)->exists()) {
+                                    $fail("Booking #{$value} has no group siblings.");
+                                }
+                            };
+                        }),
+                    Forms\Components\Placeholder::make('group_preview')
+                        ->label('Group preview')
+                        ->content(function (Forms\Get $get): string {
+                            $bookingId = $get('master_booking_id');
+                            if (! $bookingId) return 'Enter a booking ID to preview the group.';
+                            $b = Beds24Booking::where('beds24_booking_id', $bookingId)->first();
+                            if (! $b) return 'Booking not found.';
+                            $master = $b->master_booking_id ?? $b->beds24_booking_id;
+                            $siblings = Beds24Booking::where('master_booking_id', $master)->orderBy('beds24_booking_id')->get();
+                            if ($siblings->isEmpty()) return 'No siblings for this booking.';
+
+                            $lines = ["Master: #{$master}", "Siblings ({$siblings->count()}):"];
+                            $total = 0.0;
+                            $currency = (string) ($siblings->first()->currency ?? 'USD');
+                            foreach ($siblings as $s) {
+                                $lines[] = sprintf(
+                                    '  • #%s — %s — %.2f %s',
+                                    $s->beds24_booking_id,
+                                    $s->guest_name ?? '(no name)',
+                                    (float) $s->total_amount,
+                                    strtoupper((string) $s->currency),
+                                );
+                                $total += (float) $s->total_amount;
+                            }
+                            $lines[] = "Group total (sum of invoices): " . number_format($total, 2, '.', ' ') . " {$currency}";
+                            return implode("\n", $lines);
+                        }),
+                    Forms\Components\TextInput::make('total_amount')
+                        ->label('Group total')
+                        ->numeric()
+                        ->required()
+                        ->minValue(0.01)
+                        ->helperText('Sum-locked: must match group sum of invoices ±1 unit (UZS) or ±0.50 (USD/EUR).'),
+                    Forms\Components\Select::make('total_currency')
+                        ->label('Currency')
+                        ->options(['UZS' => 'UZS', 'USD' => 'USD', 'EUR' => 'EUR'])
+                        ->required()
+                        ->default('USD'),
+                    Forms\Components\Select::make('payment_method')
+                        ->label('Method')
+                        ->options(['cash' => 'Наличные', 'card' => 'Карта', 'transfer' => 'Перевод'])
+                        ->required(),
+                ])
+                ->action(function (array $data): void {
+                    try {
+                        $result = app(RecordBulkGroupPaymentFromAdminAction::class)->execute($data);
+
+                        Notification::make()
+                            ->title('Bulk group payment recorded')
+                            ->body(sprintf(
+                                'Journal %s — %d legs created, master #%s.',
+                                substr($result['journal_uuid'], 0, 8) . '…',
+                                count($result['transactions']),
+                                $result['master_booking_id'] ?? '?',
+                            ))
+                            ->success()
+                            ->send();
+                    } catch (\App\Exceptions\GroupAlreadyPartiallyPaidException $e) {
+                        $p = $e->payload();
+                        Notification::make()
+                            ->title('Group already partially paid')
+                            ->body(
+                                "Already paid: " . implode(', ', $p['already_paid_booking_ids']) . "\n"
+                                . "Unpaid: " . implode(', ', $p['unpaid_booking_ids']) . "\n\n"
+                                . "Bulk requires ALL siblings unpaid. Settle individual rooms via the cashier bot."
+                            )
+                            ->warning()
+                            ->persistent()
+                            ->send();
+                    } catch (\App\Exceptions\GroupCompositionChangedException $e) {
+                        Notification::make()
+                            ->title('Group changed since preview')
+                            ->body('Reload the page and try again — Beds24 group composition has changed.')
+                            ->warning()
+                            ->persistent()
+                            ->send();
+                    } catch (\InvalidArgumentException $e) {
+                        Notification::make()
+                            ->title('Sum-lock or validation failure')
+                            ->body($e->getMessage())
+                            ->danger()
+                            ->persistent()
+                            ->send();
+                    } catch (\Throwable $e) {
+                        \Illuminate\Support\Facades\Log::error('Bulk group payment action failed', [
                             'data'  => $data,
                             'error' => $e->getMessage(),
                         ]);

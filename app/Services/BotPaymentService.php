@@ -468,6 +468,282 @@ class BotPaymentService
         );
     }
 
+    /**
+     * Phase 1.7.1 — Bulk group payment.
+     *
+     * Records ONE journal of N legs (one cash_transactions row per
+     * sibling in the group), proportionally distributing $totalAmount
+     * across siblings using largest-remainder rounding.
+     *
+     * Doctrine (locked in PHASE_1_5_PLAN.md):
+     *   - Group convenience never reduces per-booking truth.
+     *     Each sibling gets its own row, its own beds24_payment_sync,
+     *     its own audit trail.
+     *   - Bulk = ALL siblings, never a subset. Partial settlement is
+     *     Phase 2.x territory.
+     *   - Same-currency only in v1. Mixed currencies in groups is v2.
+     *   - Single method for whole group in v1 (cash OR card OR transfer).
+     *   - Sum-lock: sum of distributed shares = totalAmount ±tolerance.
+     *   - Strict unpaid-state validation: any sibling already paid
+     *     (cashier_bot OR beds24_external) → reject with
+     *     GroupAlreadyPartiallyPaidException.
+     *   - Group composition freeze: $expectedSnapshot is revalidated
+     *     against current Beds24Booking state at submit; mismatch →
+     *     GroupCompositionChangedException.
+     *   - One journal_entry_id UUID for the whole group; first leg
+     *     also gets group_distribution_snapshot (JSON audit trail).
+     *
+     * @param string $masterBookingId   any sibling's booking ID; resolves to the master
+     * @param string $totalCurrency     UZS / USD / EUR
+     * @param float  $totalAmount       operator-typed group total
+     * @param string $paymentMethod     cash / card / transfer
+     * @param int    $shiftId           open shift id
+     * @param int    $cashierId         operator user id
+     * @param array  $expectedSnapshot  previously-shown sibling list — composition guard
+     *
+     * @return array{journal_uuid: string, transactions: array<CashTransaction>}
+     *
+     * @throws GroupAlreadyPartiallyPaidException
+     * @throws GroupCompositionChangedException
+     * @throws \InvalidArgumentException — sum-lock fail, no siblings, etc.
+     */
+    public function recordBulkGroupPayment(
+        string $masterBookingId,
+        string $totalCurrency,
+        float  $totalAmount,
+        string $paymentMethod,
+        int    $shiftId,
+        int    $cashierId,
+        array  $expectedSnapshot,
+    ): array {
+        if (! in_array($totalCurrency, ['UZS', 'USD', 'EUR'], true)) {
+            throw new \InvalidArgumentException("Unsupported currency: {$totalCurrency}");
+        }
+        if (! in_array($paymentMethod, ['cash', 'card', 'transfer'], true)) {
+            throw new \InvalidArgumentException("Unsupported method: {$paymentMethod}");
+        }
+
+        return DB::transaction(function () use (
+            $masterBookingId, $totalCurrency, $totalAmount, $paymentMethod,
+            $shiftId, $cashierId, $expectedSnapshot,
+        ) {
+            // 1. Resolve master + lock all siblings (race-safe)
+            $resolvedMaster = $this->resolveMasterBookingId($masterBookingId);
+            $siblings = \App\Models\Beds24Booking::where('master_booking_id', $resolvedMaster)
+                ->lockForUpdate()
+                ->orderBy('beds24_booking_id')
+                ->get();
+
+            if ($siblings->isEmpty()) {
+                throw new \InvalidArgumentException("Booking #{$masterBookingId} is not part of a group.");
+            }
+
+            // 2. Composition guard — diff against expected snapshot
+            $actualSnapshot = $siblings->map(fn ($s) => [
+                'booking_id'    => (string) $s->beds24_booking_id,
+                'invoice_total' => (float)  $s->total_amount,
+            ])->all();
+            if ($this->groupCompositionDiffers($expectedSnapshot, $actualSnapshot)) {
+                throw new \App\Exceptions\GroupCompositionChangedException(
+                    masterBookingId: $resolvedMaster,
+                    expectedSnapshot: $expectedSnapshot,
+                    actualSnapshot: $actualSnapshot,
+                );
+            }
+
+            // 3. Strict unpaid-state validation across BOTH sources
+            $alreadyPaid = CashTransaction::query()
+                ->whereIn('beds24_booking_id', $siblings->pluck('beds24_booking_id')->all())
+                ->whereIn('source_trigger', [
+                    CashTransactionSource::CashierBot->value,
+                    CashTransactionSource::Beds24External->value,
+                ])
+                ->whereNull('deleted_at')
+                ->pluck('beds24_booking_id')
+                ->map(fn ($x) => (string) $x)
+                ->unique()
+                ->all();
+
+            if (! empty($alreadyPaid)) {
+                $unpaid = $siblings->pluck('beds24_booking_id')
+                    ->map(fn ($x) => (string) $x)
+                    ->reject(fn ($id) => in_array($id, $alreadyPaid, true))
+                    ->values()
+                    ->all();
+                throw new \App\Exceptions\GroupAlreadyPartiallyPaidException(
+                    masterBookingId: $resolvedMaster,
+                    alreadyPaidBookingIds: $alreadyPaid,
+                    unpaidBookingIds: $unpaid,
+                );
+            }
+
+            // 4. Largest-remainder distribution (rounding-safe; cents balance)
+            $shares = $this->distributeProportional(
+                $siblings->pluck('total_amount', 'beds24_booking_id')->map(fn ($v) => (float) $v)->all(),
+                $totalAmount,
+                $totalCurrency,
+            );
+
+            $sumOfShares = array_sum($shares);
+            $tolerance   = $this->sumLockTolerance($totalCurrency);
+            if (abs($sumOfShares - $totalAmount) > $tolerance) {
+                throw new \InvalidArgumentException(sprintf(
+                    'Group bulk sum-lock failed: shares total %.2f, operator entered %.2f %s (tolerance ±%.2f).',
+                    $sumOfShares,
+                    $totalAmount,
+                    $totalCurrency,
+                    $tolerance,
+                ));
+            }
+
+            // 5. Generate journal UUID + record N legs
+            $journalUuid = (string) \Illuminate\Support\Str::uuid();
+            $transactions = [];
+
+            // Build distribution snapshot as we record legs; populated onto leg1 post-insert.
+            $distributionSiblings = [];
+
+            foreach ($siblings as $sibling) {
+                $bid   = (string) $sibling->beds24_booking_id;
+                $share = (float)  $shares[$bid];
+                $botSessionId = sprintf('bulk-group:%s:%s', $journalUuid, $bid);
+
+                // Each leg gets its own frozen presentation (one prepare per sibling
+                // since each booking has its own FX presentation).
+                $presentation = $this->preparePayment($bid, $botSessionId);
+
+                $legData = new \App\DTO\RecordPaymentData(
+                    presentation:    $presentation,
+                    shiftId:         $shiftId,
+                    cashierId:       $cashierId,
+                    currencyPaid:    $totalCurrency,
+                    amountPaid:      $share,
+                    paymentMethod:   $paymentMethod,
+                    overrideReason:  null,
+                    managerApproval: null,
+                    journalEntryId:  $journalUuid,
+                    paymentGroupType: 'group_bulk',
+                );
+
+                $transactions[] = $this->recordPayment($legData);
+
+                $distributionSiblings[] = [
+                    'booking_id'    => $bid,
+                    'invoice_total' => (float) $sibling->total_amount,
+                    'share'         => $share,
+                    'leg_tx_id'     => (int) end($transactions)->id,
+                ];
+            }
+
+            // 6. Stamp distribution snapshot onto leg1 for audit explainability
+            $firstTx = $transactions[0];
+            $firstTx->forceFill([
+                'group_distribution_snapshot' => json_encode([
+                    'master_booking_id'          => $resolvedMaster,
+                    'group_total_currency'       => $totalCurrency,
+                    'group_total_amount'         => $totalAmount,
+                    'group_total_at_payment_time'=> $sumOfShares,
+                    'siblings'                   => $distributionSiblings,
+                    'rounding_method'            => 'largest_remainder',
+                    'recorded_at'                => now()->toIso8601String(),
+                ]),
+                'is_group_payment'              => true,
+                'group_master_booking_id'       => $resolvedMaster,
+                'group_size_expected'           => $siblings->count(),
+                'group_size_local'              => $siblings->count(),
+            ])->save();
+
+            // Mark all OTHER legs with group flags too (denormalised for filtering)
+            foreach (array_slice($transactions, 1) as $tx) {
+                $tx->forceFill([
+                    'is_group_payment'        => true,
+                    'group_master_booking_id' => $resolvedMaster,
+                    'group_size_expected'     => $siblings->count(),
+                    'group_size_local'        => $siblings->count(),
+                ])->save();
+            }
+
+            return [
+                'journal_uuid'  => $journalUuid,
+                'transactions'  => $transactions,
+            ];
+        });
+    }
+
+    /**
+     * Resolve any sibling booking ID to its master. If the input IS the
+     * master, return it. Otherwise lookup the master via beds24_bookings.
+     */
+    private function resolveMasterBookingId(string $bookingId): string
+    {
+        $row = \App\Models\Beds24Booking::where('beds24_booking_id', $bookingId)->first();
+        if (! $row) {
+            throw new \InvalidArgumentException("Booking #{$bookingId} not found.");
+        }
+        return (string) ($row->master_booking_id ?? $row->beds24_booking_id);
+    }
+
+    /**
+     * Largest-remainder rounding allocation. Cents balance to the
+     * cent — sum_of_shares == $totalAmount exactly within float
+     * precision. Used for proportional bulk-group distribution.
+     */
+    private function distributeProportional(array $weights, float $totalAmount, string $currency): array
+    {
+        $sumWeights = array_sum($weights);
+        if ($sumWeights <= 0.0) {
+            throw new \InvalidArgumentException('Cannot distribute: sum of weights is zero.');
+        }
+
+        // Decimals: UZS=0 (whole units), USD/EUR=2 (cents)
+        $decimals = $currency === 'UZS' ? 0 : 2;
+        $multiplier = 10 ** $decimals;
+
+        // Convert to integer cents for exact arithmetic
+        $totalCents = (int) round($totalAmount * $multiplier);
+
+        $rawShares = [];
+        $intShares = [];
+        foreach ($weights as $key => $weight) {
+            $raw = ($weight / $sumWeights) * $totalCents;
+            $rawShares[$key] = $raw;
+            $intShares[$key] = (int) floor($raw);
+        }
+
+        // Distribute leftover cents to keys with the largest fractional remainder
+        $allocated = array_sum($intShares);
+        $remaining = $totalCents - $allocated;
+
+        $remainders = [];
+        foreach ($rawShares as $key => $raw) {
+            $remainders[$key] = $raw - floor($raw);
+        }
+        arsort($remainders);
+
+        foreach (array_keys($remainders) as $key) {
+            if ($remaining <= 0) break;
+            $intShares[$key]++;
+            $remaining--;
+        }
+
+        // Convert back to decimals
+        $result = [];
+        foreach ($intShares as $key => $cents) {
+            $result[(string) $key] = $cents / $multiplier;
+        }
+        return $result;
+    }
+
+    private function groupCompositionDiffers(array $expected, array $actual): bool
+    {
+        if (count($expected) !== count($actual)) return true;
+
+        $normalize = fn (array $rows) => collect($rows)->keyBy('booking_id')
+            ->map(fn ($r) => round((float) $r['invoice_total'], 2))
+            ->all();
+        return $normalize($expected) !== $normalize($actual);
+    }
+
     public function recordPayment(RecordPaymentData $data): CashTransaction
     {
         // 1. Session expiry — reject stale conversations
@@ -688,12 +964,22 @@ class BotPaymentService
         }
 
         // Tier 2: group sibling guard — catches the case where a different sibling
-        // of the same group was already paid (different beds24_booking_id, same master)
+        // of the same group was already paid (different beds24_booking_id, same master).
+        // Same journal-id exemption as Tier 1: bulk-group siblings under one
+        // journal_entry_id are LEGITIMATE siblings, not duplicates.
         if ($p->isGroupPayment && $p->groupMasterBookingId !== null) {
-            $groupDuplicate = CashTransaction::where('group_master_booking_id', $p->groupMasterBookingId)
+            $groupQuery = CashTransaction::where('group_master_booking_id', $p->groupMasterBookingId)
                 ->where('is_group_payment', true)
-                ->where('source_trigger', CashTransactionSource::CashierBot->value)
-                ->exists();
+                ->where('source_trigger', CashTransactionSource::CashierBot->value);
+
+            if ($allowedJournalEntryId !== null) {
+                $groupQuery->where(function ($q) use ($allowedJournalEntryId) {
+                    $q->whereNull('journal_entry_id')
+                      ->orWhere('journal_entry_id', '!=', $allowedJournalEntryId);
+                });
+            }
+
+            $groupDuplicate = $groupQuery->exists();
 
             if ($groupDuplicate) {
                 throw new DuplicateGroupPaymentException(
