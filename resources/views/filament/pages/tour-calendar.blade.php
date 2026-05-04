@@ -122,11 +122,24 @@
                     <div class="border-b border-gray-200 dark:border-gray-700 p-1.5 min-h-[88px] space-y-1.5"
                          style="border-left: 3px solid rgba(156, 163, 175, 0.5); {{ $data['days'][$i]['is_today'] ? 'background: rgba(249, 115, 22, 0.06);' : '' }}">
                         @foreach ($row['chips'] as $chip)
-                            @if ($chip['day_index'] === $i)
-                                <div wire:click="openInquiry({{ $chip['id'] }})"
-                                    style="{{ $chip['view']['style'] }}"
+                            @php
+                                // Multi-day chip placement: render once per day the
+                                // tour is running on. day_index is the offset of the
+                                // start day from the visible window (can be negative
+                                // when the tour started before this week).
+                                $startCol  = (int) $chip['day_index'];
+                                $endCol    = $startCol + (int) $chip['duration'] - 1;
+                                $dayInTour = $i - $startCol + 1;
+                                $totalDays = (int) $chip['duration'];
+                                $isStart   = $dayInTour === 1;
+                                $isEnd     = $dayInTour === $totalDays;
+                                $isMulti   = $totalDays > 1;
+                            @endphp
+                            @if ($startCol <= $i && $i <= $endCol)
+                                <div @if ($isStart) wire:click="openInquiry({{ $chip['id'] }})" @endif
+                                    style="{{ $chip['view']['style'] }} {{ $isMulti && ! $isStart ? 'opacity: 0.78;' : '' }} {{ $isMulti && $isStart ? 'border-left:4px solid #16a34a;' : '' }} {{ $isMulti && $isEnd ? 'border-right:4px solid #7c3aed;' : '' }}"
                                     title="{{ $chip['view']['tooltip'] }}"
-                                    class="block rounded-md border px-2 py-1.5 text-xs cursor-pointer relative {{ $chip['view']['bg_class'] }}">
+                                    class="block rounded-md border px-2 py-1.5 text-xs {{ $isStart ? 'cursor-pointer' : 'cursor-default' }} relative {{ $chip['view']['bg_class'] }}">
                                     {{-- Operator badge — corner overlay, no layout impact --}}
                                     @if ($chip['assigned_initials'])
                                         <span title="Assigned: {{ $chip['assigned_to'] }}"
@@ -148,31 +161,43 @@
                                         </span>
                                     </div>
 
-                                    {{-- Row 2: Time + pax + payment --}}
-                                    <div class="flex items-center gap-1.5 text-[11px] text-gray-800 dark:text-gray-100 mt-0.5">
-                                        <span>⏰ {{ $chip['pickup_time'] ?? '—' }}</span>
-                                        <span>·</span>
-                                        <span>{{ $chip['pax_label'] }} pax</span>
-                                        <span>{{ $chip['view']['payment_icon'] }}</span>
-                                    </div>
-
-                                    {{-- Row 3: Driver + guide --}}
-                                    <div class="text-[11px] text-gray-800 dark:text-gray-200 mt-0.5 truncate">
-                                        @if ($chip['driver_name'])
-                                            🚗 {{ $chip['driver_name'] }}
-                                        @else
-                                            <span class="text-danger-500">🚗 —</span>
-                                        @endif
-                                        @if ($chip['guide_name'])
-                                            · 🧭 {{ $chip['guide_name'] }}
-                                        @endif
-                                    </div>
-
-                                    {{-- Warning dot: top-right corner --}}
-                                    @if (! empty($chip['warnings']))
-                                        <div class="text-[10px] mt-0.5" style="color: #dc2626;">
-                                            ⚠ {{ implode(' · ', $chip['warnings']) }}
+                                    @if ($isMulti)
+                                        {{-- Day-of-tour label: "Day 2/3 · 3D/2N" --}}
+                                        <div class="text-[10px] text-gray-700 dark:text-gray-300 mt-0.5 font-medium">
+                                            <span style="background:#e5e7eb; color:#374151; padding:1px 4px; border-radius:3px;">
+                                                Day {{ $dayInTour }}/{{ $totalDays }}
+                                            </span>
+                                            <span class="ml-1">{{ $totalDays }}D/{{ $chip['total_nights'] ?? max(0, $totalDays - 1) }}N</span>
                                         </div>
+                                    @endif
+
+                                    @if ($isStart || ! $isMulti)
+                                        {{-- Row 2: Time + pax + payment (start day only on multi-day) --}}
+                                        <div class="flex items-center gap-1.5 text-[11px] text-gray-800 dark:text-gray-100 mt-0.5">
+                                            <span>⏰ {{ $chip['pickup_time'] ?? '—' }}</span>
+                                            <span>·</span>
+                                            <span>{{ $chip['pax_label'] }} pax</span>
+                                            <span>{{ $chip['view']['payment_icon'] }}</span>
+                                        </div>
+
+                                        {{-- Row 3: Driver + guide --}}
+                                        <div class="text-[11px] text-gray-800 dark:text-gray-200 mt-0.5 truncate">
+                                            @if ($chip['driver_name'])
+                                                🚗 {{ $chip['driver_name'] }}
+                                            @else
+                                                <span class="text-danger-500">🚗 —</span>
+                                            @endif
+                                            @if ($chip['guide_name'])
+                                                · 🧭 {{ $chip['guide_name'] }}
+                                            @endif
+                                        </div>
+
+                                        {{-- Warning dot --}}
+                                        @if (! empty($chip['warnings']))
+                                            <div class="text-[10px] mt-0.5" style="color: #dc2626;">
+                                                ⚠ {{ implode(' · ', $chip['warnings']) }}
+                                            </div>
+                                        @endif
                                     @endif
                                 </div>
                             @endif

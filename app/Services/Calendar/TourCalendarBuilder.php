@@ -266,10 +266,21 @@ class TourCalendarBuilder
 
         $this->windowFrom = $from;
 
+        // Multi-day tours: include rows that START before the window but
+        // are still running INSIDE it. Lookback = max(catalog duration_days)
+        // capped sensibly to bound the query — currently Best of Uzbekistan
+        // 10 days is the longest, +5d safety margin to absorb any future
+        // edits without re-tightening this bound.
+        $maxDuration = max(
+            (int) \App\Models\TourProduct::max('duration_days'),
+            10,
+        );
+        $lookbackFrom = $from->copy()->subDays($maxDuration + 5);
+
         $inquiries = BookingInquiry::query()
             ->whereIn('status', $statuses)
             ->whereNotNull('travel_date')
-            ->whereBetween('travel_date', [$from->toDateString(), $to->toDateString()])
+            ->whereBetween('travel_date', [$lookbackFrom->toDateString(), $to->toDateString()])
             ->when($assignedToUserId, fn ($q) => $q->where('assigned_to_user_id', $assignedToUserId))
             ->with(['driver', 'guide', 'stays.accommodation', 'tourProduct', 'tourProductDirection', 'assignedToUser'])
             ->orderBy('travel_date')
@@ -315,7 +326,24 @@ class TourCalendarBuilder
 
             $chips = [];
             foreach ($group as $inq) {
-                $chips[] = $this->buildChip($inq);
+                $chip = $this->buildChip($inq);
+                // Drop chips whose entire tour range is outside the visible
+                // window. day_index can be negative (started before window)
+                // so the visibility check is "any day in [day_index,
+                // day_index+duration-1] falls inside [0, 6]?"
+                $startCol = (int) $chip['day_index'];
+                $endCol   = $startCol + (int) $chip['duration'] - 1;
+                if ($endCol < 0 || $startCol > 6) {
+                    continue;
+                }
+                $chips[] = $chip;
+            }
+
+            // Skip rows whose every chip got filtered out by the window
+            // intersection check above (e.g. a tour with all rows ending
+            // before $from due to the lookback widening).
+            if ($chips === []) {
+                continue;
             }
 
             $rows[] = [
@@ -366,8 +394,26 @@ class TourCalendarBuilder
      */
     private function buildChip(BookingInquiry $inq): array
     {
-        $nightsTotal = (int) $inq->stays->sum('nights');
-        $duration    = $nightsTotal > 0 ? $nightsTotal + 1 : 1;
+        // Duration source ladder, most-trusted first:
+        //   1. Operator-attached stays (nights) — booking-level truth
+        //   2. Linked tour_products.duration_days — catalog default
+        //   3. 1 (day tour fallback)
+        // Day tours intentionally have no stays AND duration_days=1 so the
+        // calendar treats them as single-cell chips.
+        $nightsTotal   = (int) $inq->stays->sum('nights');
+        $catalogDays   = (int) ($inq->tourProduct?->duration_days ?? 0);
+        $catalogNights = (int) ($inq->tourProduct?->duration_nights ?? 0);
+        $duration      = match (true) {
+            $nightsTotal > 0  => $nightsTotal + 1,
+            $catalogDays > 1  => $catalogDays,
+            default           => 1,
+        };
+        $totalNights = match (true) {
+            $nightsTotal > 0    => $nightsTotal,
+            $catalogNights > 0  => $catalogNights,
+            $duration > 1       => $duration - 1,
+            default             => 0,
+        };
 
         $accommodations = $inq->stays
             ->map(fn ($s) => $s->accommodation?->name)
@@ -381,7 +427,11 @@ class TourCalendarBuilder
 
         // Day index relative to the window start date (not always Monday).
         // Stored in $this->windowFrom which is set during buildWeek().
-        $dayIndex = (int) $this->windowFrom->diffInDays($inq->travel_date);
+        // Signed (false → keep direction) so a tour that started before
+        // the window has day_index < 0 — Blade uses this to render
+        // mid-tour days inside the window without dropping the chip.
+        $dayIndex = (int) $this->windowFrom->copy()->startOfDay()
+            ->diffInDays(Carbon::parse($inq->travel_date)->startOfDay(), false);
 
         // Readiness: what's missing for this booking to be fully operational?
         $warnings = [];
@@ -433,6 +483,9 @@ class TourCalendarBuilder
             'customer_country'  => $inq->customer_country,
             'pax_label'         => $paxLabel,
             'duration'          => $duration,
+            'total_nights'      => $totalNights,
+            'start_date_iso'    => $inq->travel_date->toDateString(),
+            'end_date_iso'      => $inq->travel_date->copy()->addDays(max(0, $duration - 1))->toDateString(),
             'status'            => $inq->status,
             'payment_method'    => $inq->payment_method,
             'paid_at'           => $inq->paid_at?->toDateString(),
@@ -866,10 +919,20 @@ class TourCalendarBuilder
      */
     private function gridChipTooltip(array $chip): string
     {
+        // Date label: single day for day tours, "Apr 12 → Apr 14" for
+        // multi-day so dispatchers see the full window at a glance.
+        $duration   = (int) ($chip['duration'] ?? 1);
+        $startIso   = (string) ($chip['start_date_iso'] ?? '');
+        $endIso     = (string) ($chip['end_date_iso']   ?? '');
+        $dateBlock  = $duration > 1 && $startIso && $endIso
+            ? '📅 ' . Carbon::parse($startIso)->format('M j') . ' → ' . Carbon::parse($endIso)->format('M j')
+                . ' · ' . $duration . 'D/' . (int) ($chip['total_nights'] ?? max(0, $duration - 1)) . 'N'
+            : '📅 ' . ($chip['travel_date'] ?? '') . ' · day tour';
+
         return collect([
             ($chip['reference'] ?? '') . ' · ' . ($chip['customer_name'] ?? '')
                 . (! empty($chip['customer_country']) ? ' (' . $chip['customer_country'] . ')' : ''),
-            '📅 ' . ($chip['travel_date'] ?? '') . ' · ' . ($chip['duration'] ?? '') . ' day(s)',
+            $dateBlock,
             '👥 ' . ($chip['pax_label'] ?? '') . ' pax',
             ! empty($chip['pickup_time'])  ? '🕐 ' . $chip['pickup_time']  : null,
             ! empty($chip['pickup_point']) ? '📍 ' . $chip['pickup_point'] : null,
