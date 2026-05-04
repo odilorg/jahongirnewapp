@@ -678,16 +678,44 @@ class CashierBotController extends Controller
             $b = $this->importBookingFromLiveData($bid, $liveGuest);
         }
 
-        // Phase 1.7.2 — Group detection. If this booking has a master_booking_id
-        // (or is itself a master with siblings), present the bulk-vs-single fork
-        // BEFORE the FX presentation step. Lets operator settle the whole group
-        // in one journal of N legs instead of recording each room separately.
-        if ($b && $this->isGroupBooking($b)) {
-            $masterId = (string) ($b->master_booking_id ?? $b->beds24_booking_id);
-            $siblings = \App\Models\Beds24Booking::where('master_booking_id', $masterId)
-                ->orderBy('beds24_booking_id')
-                ->get(['beds24_booking_id', 'guest_name', 'total_amount', 'currency']);
-            if ($siblings->count() >= 2) {
+        // Phase 1.7.0 — Canonical Group Resolver replaces simple
+        // isGroupBooking() check. Self-heals stale/incomplete local data
+        // by querying Beds24 on suspicion (master null OR <2 siblings
+        // with non-null master), repairing local rows in place, then
+        // returning the canonical group composition with confidence state.
+        // See PHASE_1_5_PLAN.md doctrine: "never build payment
+        // orchestration on potentially stale topology."
+        if ($b) {
+            $resolver   = app(\App\Services\Beds24\Beds24GroupResolver::class);
+            $resolution = $resolver->resolve($b);
+
+            // Fail-safe: API down → tell operator instead of presenting
+            // wrong group / proceeding with unverified topology.
+            if ($resolution->state === 'failed_remote') {
+                Log::warning('CashierBot: group resolver failed remote — fallback prompt', [
+                    'beds24_booking_id' => $bid,
+                ]);
+                $this->send($chatId,
+                    "⚠ Не удалось подтвердить структуру группы.\n"
+                    . "Попробуйте снова или оплатите только эту бронь.\n\n"
+                    . "[Оплатить только эту: введите номер брони ещё раз]"
+                );
+                return $this->showMainMenu($chatId, $s);
+            }
+
+            if ($resolution->isGroup()) {
+                $masterId = (string) $resolution->masterBookingId;
+                $siblings = $resolution->siblings;
+                // Tell operator if data was just repaired so they understand
+                // what they're seeing might differ from a previous tap.
+                if ($resolution->wasRepaired()) {
+                    $stats = $resolution->repairStats;
+                    Log::info('CashierBot: group repaired in-flight', [
+                        'beds24_booking_id' => $bid,
+                        'master_id'         => $masterId,
+                        'stats'             => $stats,
+                    ]);
+                }
                 return $this->showGroupForkChoice($s, $chatId, $bid, $masterId, $siblings, $b);
             }
         }
