@@ -116,11 +116,14 @@
             {{-- Tour rows --}}
             @forelse ($data['rows'] as $row)
                 @php
-                    // Lane height = chip body (26px) + gap (6px). Row min
-                    // height absorbs all lanes plus a small bottom buffer
-                    // so chips never abut the next row's border.
+                    // Chip body 42px (2 lines: name + ops status), gap 6px.
+                    // Restoring readiness writings ("no driver", driver/guide
+                    // names, pickup time) inside the bar — operators need
+                    // them visible at scan time, not buried in the tooltip.
+                    $laneH    = 48;
+                    $chipH    = 42;
                     $laneCount = max(1, (int) ($row['lane_count'] ?? 1));
-                    $rowMinH   = $laneCount * 32 + 14;
+                    $rowMinH   = $laneCount * $laneH + 14;
                 @endphp
 
                 <div class="px-3 py-2 text-sm font-medium text-gray-900 dark:text-gray-100 border-b border-gray-200 dark:border-gray-700 flex items-center"
@@ -151,9 +154,10 @@
                             $lane   = (int) ($chip['lane_index'] ?? 0);
                             $left   = ($vStart / 7) * 100;
                             $width  = ($vSpan  / 7) * 100;
-                            $top    = $lane * 32 + 6;
+                            $top    = $lane * $laneH + 6;
                             $clipL  = ! empty($chip['clip_left']);
                             $clipR  = ! empty($chip['clip_right']);
+                            $hasWarn = ! empty($chip['warnings']);
                         @endphp
                         <div wire:click="openInquiry({{ $chip['id'] }})"
                              title="{{ $chip['view']['tooltip'] }}"
@@ -161,30 +165,61 @@
                                     left: calc({{ $left }}% + 4px);
                                     width: calc({{ $width }}% - 8px);
                                     top: {{ $top }}px;
-                                    height: 26px;
+                                    height: {{ $chipH }}px;
                                     {{ $chip['view']['style'] }}
                                     {{ $clipL ? 'border-top-left-radius:0; border-bottom-left-radius:0; border-left: 3px dashed #f97316;' : 'border-left: 4px solid #16a34a;' }}
                                     {{ $clipR ? 'border-top-right-radius:0; border-bottom-right-radius:0; border-right: 3px dashed #f97316;' : 'border-right: 4px solid #7c3aed;' }}"
-                             class="rounded border cursor-pointer overflow-hidden flex items-center px-2 text-xs font-semibold {{ $chip['view']['bg_class'] }}">
-                            @if ($clipL)
-                                <span class="shrink-0 mr-1 text-orange-600">◂</span>
-                            @endif
-                            <span class="shrink-0 inline-block"
-                                  title="Source: {{ $chip['view']['source_label'] }}"
-                                  style="width:8px; height:8px; border-radius:50%; background:{{ $chip['view']['source_color'] }}; box-shadow: 0 0 0 1px rgba(0,0,0,0.08); margin-right:8px;"></span>
-                            <span class="truncate flex-1">{{ $chip['customer_name'] }}</span>
-                            @if (! empty($chip['warnings']))
-                                <span class="shrink-0 ml-1" title="{{ implode(' · ', $chip['warnings']) }}" style="color:#dc2626;">⚠</span>
-                            @endif
-                            @if ($chip['assigned_initials'])
-                                <span class="shrink-0 ml-1" title="Assigned: {{ $chip['assigned_to'] }}"
-                                      style="font-size:9px; font-weight:700; background:#e0e7ff; color:#3730a3; padding:1px 4px; border-radius:3px;">
-                                    {{ $chip['assigned_initials'] }}
-                                </span>
-                            @endif
-                            @if ($clipR)
-                                <span class="shrink-0 ml-1 text-orange-600">▸</span>
-                            @endif
+                             class="rounded border cursor-pointer overflow-hidden flex flex-col justify-center px-2 {{ $chip['view']['bg_class'] }}">
+
+                            {{-- Line 1: name + identity badges --}}
+                            <div class="flex items-center text-xs font-semibold leading-tight">
+                                @if ($clipL)
+                                    <span class="shrink-0 mr-1 text-orange-600">◂</span>
+                                @endif
+                                <span class="shrink-0 inline-block"
+                                      title="Source: {{ $chip['view']['source_label'] }}"
+                                      style="width:8px; height:8px; border-radius:50%; background:{{ $chip['view']['source_color'] }}; box-shadow: 0 0 0 1px rgba(0,0,0,0.08); margin-right:8px;"></span>
+                                <span class="truncate flex-1">{{ $chip['customer_name'] }}</span>
+                                @if ($chip['view']['payment_icon'])
+                                    <span class="shrink-0 ml-1" style="font-size:11px;">{{ $chip['view']['payment_icon'] }}</span>
+                                @endif
+                                @if ($chip['assigned_initials'])
+                                    <span class="shrink-0 ml-1" title="Assigned: {{ $chip['assigned_to'] }}"
+                                          style="font-size:9px; font-weight:700; background:#e0e7ff; color:#3730a3; padding:1px 4px; border-radius:3px;">
+                                        {{ $chip['assigned_initials'] }}
+                                    </span>
+                                @endif
+                                @if ($clipR)
+                                    <span class="shrink-0 ml-1 text-orange-600">▸</span>
+                                @endif
+                            </div>
+
+                            {{-- Line 2: readiness signals.
+                                 Warning-first when present (red, screams);
+                                 otherwise a compact positive-state line so
+                                 operators see WHO is staffed at scan time. --}}
+                            <div class="flex items-center mt-0.5 truncate" style="font-size:10px; line-height:1.1;">
+                                @if ($hasWarn)
+                                    <span class="truncate" style="color:#dc2626; font-weight:600;">
+                                        ⚠ {{ implode(' · ', $chip['warnings']) }}
+                                    </span>
+                                @else
+                                    <span class="truncate text-gray-700 dark:text-gray-200">
+                                        @if (! empty($chip['pickup_time']))
+                                            ⏰ {{ $chip['pickup_time'] }}
+                                        @endif
+                                        @if (! empty($chip['pax_label']))
+                                            @if (! empty($chip['pickup_time'])) · @endif {{ $chip['pax_label'] }} pax
+                                        @endif
+                                        @if (! empty($chip['driver_name']))
+                                            · 🚗 {{ $chip['driver_name'] }}
+                                        @endif
+                                        @if (! empty($chip['guide_name']))
+                                            · 🧭 {{ $chip['guide_name'] }}
+                                        @endif
+                                    </span>
+                                @endif
+                            </div>
                         </div>
                     @endforeach
                 </div>
