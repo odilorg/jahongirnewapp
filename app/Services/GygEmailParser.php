@@ -237,7 +237,13 @@ class GygEmailParser
             }
         }
 
-        if (preg_match('/Date\s*\n?\s*([A-Z][a-z]+ \d{1,2},? \d{4}(?:\s+(?:at\s+)?\d{1,2}:\d{2}\s*(?:AM|PM))?)/i', $body, $m)) {
+        // Current GYG amendment layout flattens to:
+        //   "Date New\n\n<NEW DATE>\n\n<OLD DATE>\n\nPickup location"
+        // The "New" token is a UI badge between "Date" and the new date.
+        // (?:\s+New)? consumes it when present; first-match captures the
+        // new date (it precedes the strikethrough original in the flatten).
+        // Older "Date\n<DATE>" layouts still match because the group is optional.
+        if (preg_match('/Date(?:\s+New)?\s*\n?\s*([A-Z][a-z]+ \d{1,2},? \d{4}(?:\s+(?:at\s+)?\d{1,2}:\d{2}\s*(?:AM|PM))?)/i', $body, $m)) {
             try {
                 $parsed = Carbon::parse(str_replace(' at ', ' ', trim($m[1])));
                 $result['travel_date'] = $parsed->format('Y-m-d');

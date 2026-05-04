@@ -275,4 +275,118 @@ BODY;
         $this->assertStringContainsString('Shahrisabz', $result['tour_name']);
         $this->assertStringContainsString('Group Tour with Guide', $result['option_title']);
     }
+
+    // ── Amendment parsing ───────────────────────────────
+
+    /**
+     * Real flattened body from gyg_inbound_emails id 219 (production sample).
+     * "Booking detail change" layout: "New" badge next to "Date", new date
+     * above strikethrough original — both flatten into adjacent date lines
+     * with the new date first.
+     */
+    private function sampleAmendmentBodyWithNewMarker(): string
+    {
+        return <<<'BODY'
+Hi Jaxongir travel FK
+
+We would like to inform you that the following booking has changed.
+
+Samarkand: 2-Day Desert Yurt Camp & Camel Ride Tour
+
+Private 2-Day Desert Yurt Camp Journey
+
+Booking reference gygwzax2k3b9
+
+Date New
+
+May 29, 2026 at 9:00 AM
+
+May 31, 2026 at 9:00 AM
+
+Pickup location
+
+Customer hasn't specified a pickup location.
+
+Number of participants
+
+2 > contact customer
+BODY;
+    }
+
+    public function test_parses_amendment_with_new_date_marker(): void
+    {
+        $result = $this->parser->parseAmendment(
+            $this->sampleAmendmentBodyWithNewMarker(),
+            'Booking detail change: - S374926 - GYGWZAX2K3B9'
+        );
+
+        $this->assertEquals('GYGWZAX2K3B9', $result['gyg_booking_reference']);
+        $this->assertEquals('Samarkand: 2-Day Desert Yurt Camp & Camel Ride Tour', $result['tour_name']);
+        $this->assertEquals('Private 2-Day Desert Yurt Camp Journey', $result['option_title']);
+        // Must capture the NEW date (first one), not the strikethrough old date.
+        $this->assertEquals('2026-05-29', $result['travel_date']);
+        $this->assertEmpty($result['parse_errors']);
+    }
+
+    public function test_amendment_prefers_new_date_when_two_dates_present(): void
+    {
+        // Guard: regex must capture FIRST date after "Date [New]", never the
+        // strikethrough original that follows it.
+        $result = $this->parser->parseAmendment(
+            $this->sampleAmendmentBodyWithNewMarker(),
+            'Booking detail change: - S374926 - GYGWZAX2K3B9'
+        );
+
+        $this->assertNotEquals('2026-05-31', $result['travel_date']);
+        $this->assertEquals('2026-05-29', $result['travel_date']);
+    }
+
+    public function test_parses_amendment_legacy_layout_without_new_marker(): void
+    {
+        // Older layout: "Date\n<DATE>" with no "New" badge. Must keep working —
+        // 3 historical amendments parsed dates correctly via this path.
+        $body = <<<'BODY'
+Hi Supply Partner
+
+We would like to inform you that the following booking has changed.
+
+Samarkand: Shahrisabz Day Trip
+
+Group Tour with Guide
+
+Booking reference gygrfqy5raq4
+
+Date
+
+May 1, 2026 at 9:00 AM
+
+Number of participants
+
+3
+BODY;
+
+        $result = $this->parser->parseAmendment(
+            $body,
+            'Booking detail change: - S374926 - GYGRFQY5RAQ4'
+        );
+
+        $this->assertEquals('GYGRFQY5RAQ4', $result['gyg_booking_reference']);
+        $this->assertEquals('2026-05-01', $result['travel_date']);
+        $this->assertEmpty($result['parse_errors']);
+    }
+
+    public function test_amendment_validation_requires_reference_only(): void
+    {
+        // Reference is the only required field — date stays optional because
+        // the applicator never auto-mutates; amendments always go to needs_review.
+        $missing = $this->parser->validateRequired('amendment', [
+            'gyg_booking_reference' => 'GYGWZAX2K3B9',
+        ]);
+        $this->assertEmpty($missing);
+
+        $missing2 = $this->parser->validateRequired('amendment', [
+            'gyg_booking_reference' => null,
+        ]);
+        $this->assertContains('gyg_booking_reference', $missing2);
+    }
 }
