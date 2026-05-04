@@ -29,6 +29,11 @@ class CarResource extends Resource
     protected static ?string $navigationGroup = 'Tour Operations';
     protected static ?int    $navigationSort  = 40;
 
+    public static function getNavigationBadge(): ?string
+    {
+        return (string) static::getModel()::count();
+    }
+
     public static function form(Form $form): Form
     {
         return $form

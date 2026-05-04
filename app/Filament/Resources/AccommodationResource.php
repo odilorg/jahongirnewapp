@@ -30,6 +30,11 @@ class AccommodationResource extends Resource
     protected static ?string $navigationGroup = 'Tour Operations';
     protected static ?int    $navigationSort  = 30;
 
+    public static function getNavigationBadge(): ?string
+    {
+        return (string) static::getModel()::where('is_active', true)->count();
+    }
+
     public static function form(Form $form): Form
     {
         return $form->schema([
