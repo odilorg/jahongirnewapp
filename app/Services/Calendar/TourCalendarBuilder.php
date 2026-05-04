@@ -958,6 +958,12 @@ class TourCalendarBuilder
             'tooltip'        => $this->gridChipTooltip($chip),
             'tour_type_icon' => $this->tourTypeIcon($chip['tour_type'] ?? null),
             'source_icon'    => $this->gridSourceIcon($chip['source_badge'] ?? ''),
+            // Source colour as hex — matches the legend dots in the page
+            // header (orange = GYG, blue = Web, green = WA, …) so a chip
+            // visually identifies its origin without operators having to
+            // hover for the tooltip.
+            'source_color'   => $this->gridSourceColor($chip['source_badge'] ?? ''),
+            'source_label'   => $this->gridSourceLabel($chip['source_badge'] ?? ''),
             'payment_icon'   => $this->gridPaymentIcon(
                 paidAt: $chip['paid_at'] ?? null,
                 status: $chip['status'] ?? null,
@@ -1015,6 +1021,37 @@ class TourCalendarBuilder
             'WEB' => '🔵',
             'WA'  => '🟢',
             default => '⚪',
+        };
+    }
+
+    /**
+     * Hex colour mirroring the legend dots in the calendar header.
+     * Adding a new source: also add it here AND in the page header
+     * legend so the visual contract stays in sync.
+     */
+    private function gridSourceColor(string $source): string
+    {
+        return match ($source) {
+            'GYG' => '#f97316',  // orange-500
+            'WEB' => '#3b82f6',  // blue-500
+            'WA'  => '#16a34a',  // green-600
+            'TG'  => '#06b6d4',  // cyan-500 (telegram)
+            'PH'  => '#8b5cf6',  // violet-500 (phone)
+            'EM'  => '#64748b',  // slate-500 (email)
+            default => '#9ca3af',
+        };
+    }
+
+    private function gridSourceLabel(string $source): string
+    {
+        return match ($source) {
+            'GYG' => 'GetYourGuide',
+            'WEB' => 'Website',
+            'WA'  => 'WhatsApp',
+            'TG'  => 'Telegram',
+            'PH'  => 'Phone',
+            'EM'  => 'Email',
+            default => $source ?: 'Other',
         };
     }
 
