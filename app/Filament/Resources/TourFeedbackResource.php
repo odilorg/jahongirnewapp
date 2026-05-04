@@ -46,6 +46,28 @@ class TourFeedbackResource extends Resource
     protected static ?string $recordTitleAttribute = 'token';
 
     // ──────────────────────────────────────────────
+    // Navigation badge — submitted total, red on any low-rated
+    // ──────────────────────────────────────────────
+
+    public static function getNavigationBadge(): ?string
+    {
+        $count = (int) static::getModel()::query()->submitted()->count();
+
+        return $count > 0 ? (string) $count : null;
+    }
+
+    public static function getNavigationBadgeColor(): ?string
+    {
+        // Surface attention when at least one submitted row is low-rated.
+        // Default neutral matches inventory-count badges on sibling
+        // resources (Drivers / Guides / etc) so the colour shift is the
+        // signal, not the badge's mere presence.
+        $hasLowRated = static::getModel()::query()->lowRated()->exists();
+
+        return $hasLowRated ? 'danger' : 'gray';
+    }
+
+    // ──────────────────────────────────────────────
     // Authorization — read-only, admin/super_admin only
     // ──────────────────────────────────────────────
 
