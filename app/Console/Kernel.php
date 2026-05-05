@@ -147,14 +147,25 @@ class Kernel extends ConsoleKernel
             ->timezone('Asia/Tashkent')
             ->withoutOverlapping();
 
-        // Day-6 public-review nudge (Google + TripAdvisor) at 11:00 Tashkent — only
-        // for happy + silent guests; bad-rating guests are filtered out at command
-        // level. Pairs with the Day-1 internal feedback request to recover the
-        // public-review volume the gating costs us.
-        $schedule->command('tour:send-public-review-reminders')
-            ->dailyAt('11:00')
-            ->timezone('Asia/Tashkent')
-            ->withoutOverlapping();
+        // Public-review reminders are MANUAL-ONLY (Phase 1.7.0 / 2026-05-05).
+        //
+        // Business decision: operators (not the system) decide which guests
+        // to nudge for public TripAdvisor reviews — they read the room
+        // (which guests were happy, which had issues) far better than any
+        // rating filter we can encode. Auto-pinging silent guests was
+        // creating reputation risk: a polite "neutral" guest pushed to
+        // public surfaces sometimes wrote a tepid 3★, hurting our average.
+        //
+        // The Filament BookingInquiryResource view page has a "Send
+        // TripAdvisor Review Request" button that calls
+        // SendManualTripAdvisorReviewRequestAction. The legacy command
+        // (tour:send-public-review-reminders) is intentionally retained
+        // — `php artisan tour:send-public-review-reminders` still runs
+        // when invoked by hand, but it is no longer scheduled.
+        //
+        // The Day-1 internal feedback request (tour:send-review-requests
+        // above) keeps running on schedule — only the public-review nudge
+        // is manualised.
 
         // Hotel pickup requests at 09:00 Tashkent — email guests with bookings 3-30 days out, no hotel set
         $schedule->command('tour:send-hotel-requests')
