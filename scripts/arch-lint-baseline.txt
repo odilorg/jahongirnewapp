@@ -1,4 +1,4 @@
-# arch-lint baseline — regenerated 2026-05-04T11:22:47+05:00
+# arch-lint baseline — regenerated 2026-05-05T13:45:31+05:00
 # Format: file:line:rule-key (rule-key stable across runs)
 app/Console/Commands/SendDailyRecap.php:52:http-outside-adapter
 app/Console/Commands/TourSendReminders.php:397:http-outside-adapter
@@ -17,8 +17,8 @@ app/Filament/Resources/BookingInquiryResource.php:1829:long-action-closure
 app/Filament/Resources/BookingInquiryResource.php:983:long-action-closure
 app/Filament/Resources/CashierShiftResource/Pages/CloseShift.php:82:long-action-closure
 app/Filament/Resources/CashierShiftResource/Pages/StartShift.php:121:long-action-closure
-app/Filament/Resources/CashTransactionResource/Pages/ListCashTransactions.php:148:long-action-closure
-app/Filament/Resources/CashTransactionResource/Pages/ListCashTransactions.php:300:long-action-closure
+app/Filament/Resources/CashTransactionResource/Pages/ListCashTransactions.php:218:long-action-closure
+app/Filament/Resources/CashTransactionResource/Pages/ListCashTransactions.php:370:long-action-closure
 app/Filament/Resources/ContractResource.php:122:long-action-closure
 app/Http/Controllers/Api/BookingInquiryController.php:34:fat-controller
 app/Http/Controllers/Beds24WebhookController.php:48:fat-controller

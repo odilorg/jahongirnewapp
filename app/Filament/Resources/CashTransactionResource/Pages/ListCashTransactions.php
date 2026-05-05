@@ -4,9 +4,11 @@ namespace App\Filament\Resources\CashTransactionResource\Pages;
 
 use App\Actions\Cashier\RecordBulkGroupPaymentFromAdminAction;
 use App\Actions\Cashier\RecordMixedCurrencySplitFromAdminAction;
+use App\Actions\Cashier\RecordSmallSaleAction;
 use App\Filament\Resources\CashTransactionResource;
 use App\Models\Beds24Booking;
 use App\Models\CashierShift;
+use App\Models\IncomeCategory;
 use Filament\Actions;
 use Filament\Forms;
 use Filament\Notifications\Notification;
@@ -20,6 +22,74 @@ class ListCashTransactions extends ListRecords
     {
         return [
             Actions\CreateAction::make(),
+
+            // Phase 1.6.0 — Admin "Record Small Sale".
+            // Captures petty / shop sales (water, snacks, souvenirs, tour
+            // add-ons, tips, etc.) categorised by income_category_id so
+            // reports can break down ancillary revenue. Visible to roles
+            // that already operate the cash drawer (super_admin / admin /
+            // manager); cashiers continue using the bot's 'sale' flow
+            // until the bot's category picker ships in a future phase.
+            //
+            // Business logic lives in RecordSmallSaleAction so the same
+            // path is reachable from CLI, jobs, and future bot UX.
+            Actions\Action::make('recordSmallSale')
+                ->label('🛍 Record Small Sale')
+                ->color('success')
+                ->icon('heroicon-o-shopping-bag')
+                ->visible(fn (): bool => auth()->user()?->hasAnyRole(['super_admin', 'admin', 'manager']) ?? false)
+                ->modalHeading('Record a small sale')
+                ->modalDescription('Water, snacks, souvenirs, tour add-ons, tips. Attaches to the open cashier shift if one exists; otherwise admin-attributed.')
+                ->form([
+                    Forms\Components\Grid::make(2)->schema([
+                        Forms\Components\TextInput::make('amount')
+                            ->required()
+                            ->numeric()
+                            ->minValue(0.01)
+                            ->step(0.01)
+                            ->placeholder('0.00'),
+                        Forms\Components\Select::make('currency')
+                            ->required()
+                            ->default('UZS')
+                            ->options([
+                                'UZS' => 'UZS — Uzbek Som',
+                                'USD' => 'USD — US Dollar',
+                                'EUR' => 'EUR — Euro',
+                            ]),
+                    ]),
+                    Forms\Components\Select::make('income_category_id')
+                        ->label('Category')
+                        ->required()
+                        ->default(fn (): ?int => IncomeCategory::where('slug', 'water')->value('id'))
+                        ->options(fn () => IncomeCategory::query()
+                            ->where('is_active', true)
+                            ->orderBy('sort_order')
+                            ->pluck('name', 'id')
+                            ->all()),
+                    Forms\Components\Select::make('payment_method')
+                        ->label('Payment method')
+                        ->required()
+                        ->default('cash')
+                        ->options([
+                            'cash'  => 'Cash',
+                            'card'  => 'Card',
+                            'karta' => 'Karta (UzCard / Humo)',
+                        ]),
+                    Forms\Components\Textarea::make('notes')
+                        ->label('Note (optional)')
+                        ->rows(2)
+                        ->placeholder('e.g. 2 bottles, big group'),
+                ])
+                ->action(function (array $data): void {
+                    $tx = app(RecordSmallSaleAction::class)
+                        ->execute($data, auth()->id());
+
+                    Notification::make()
+                        ->success()
+                        ->title('Sale recorded')
+                        ->body("#{$tx->id} · " . number_format((float) $tx->amount, 2) . ' ' . $tx->currency)
+                        ->send();
+                }),
 
             // Phase 1.5.1 — Admin Manual Mixed-Currency Journal Builder.
             // Visible to roles that can already edit shift saldos (super_admin

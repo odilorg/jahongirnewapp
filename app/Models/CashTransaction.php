@@ -41,6 +41,7 @@ class CashTransaction extends Model
         'related_currency',
         'related_amount',
         'category',
+        'income_category_id',
         'reference',
         'notes',
         'created_by',
@@ -140,6 +141,11 @@ class CashTransaction extends Model
     public function creator(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by');
+    }
+
+    public function incomeCategory(): BelongsTo
+    {
+        return $this->belongsTo(IncomeCategory::class);
     }
 
     public function bookingFxSync(): BelongsTo
