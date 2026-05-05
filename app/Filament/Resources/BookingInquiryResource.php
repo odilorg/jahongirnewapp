@@ -782,6 +782,41 @@ class BookingInquiryResource extends Resource
                                 : ''),
                     ])->alignment(Alignment::End),
                 ])->from('md'),
+
+                // Review-follow-up surface (Phase 1.7.1). Toggleable;
+                // most useful on the "Review follow-up" tab, harmless on
+                // others. We render TRUE as the send timestamp + a small
+                // "✉" prefix so operators see at-a-glance whether the
+                // manual TripAdvisor request already went out.
+                Tables\Columns\TextColumn::make('review_request_sent_at')
+                    ->label('Review request')
+                    ->dateTime('d M H:i')
+                    ->placeholder('— not sent —')
+                    ->badge()
+                    ->color(fn ($state): string => $state ? 'success' : 'gray')
+                    ->prefix(fn ($state): string => $state ? '✉ ' : '')
+                    ->toggleable(),
+
+                // Feedback summary — derived state, no schema query
+                // beyond the single existing TourFeedback row per inquiry.
+                // Three buckets: no row, submitted positive, submitted
+                // low-rated; "sent but unfilled" intentionally collapses
+                // into "no feedback" so it doesn't compete visually.
+                Tables\Columns\TextColumn::make('feedback_summary')
+                    ->label('Feedback')
+                    ->state(function (BookingInquiry $record): string {
+                        $f = $record->feedback;
+                        if (! $f || $f->submitted_at === null) return 'No feedback';
+                        if ($f->isLowRated()) return '⚠ Low-rated';
+                        return '✓ Positive (' . ($f->overall_rating ?? '—') . '★)';
+                    })
+                    ->badge()
+                    ->color(function (BookingInquiry $record): string {
+                        $f = $record->feedback;
+                        if (! $f || $f->submitted_at === null) return 'gray';
+                        return $f->isLowRated() ? 'danger' : 'success';
+                    })
+                    ->toggleable(),
             ])
             ->filters([
                 SelectFilter::make('status')

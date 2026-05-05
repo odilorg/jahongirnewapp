@@ -80,6 +80,18 @@ class ListBookingInquiries extends ListRecords
                     ->count())
                 ->badgeColor('primary'),
 
+            // Review follow-up: tours that ENDED today (Tashkent). The
+            // operator scans this list each morning to decide who gets a
+            // manual TripAdvisor review request. End-date is computed
+            // as travel_date + (catalog duration_days - 1); fallback 1
+            // day when no catalog product is linked. Cancelled rows
+            // excluded; already-sent rows kept (visible review-sent column
+            // shows the timestamp so operator can decide whether to resend).
+            'review_followup' => Tab::make('Review follow-up')
+                ->modifyQueryUsing(fn (Builder $query) => $this->scopeReviewFollowupQuery($query))
+                ->badge(fn () => $this->scopeReviewFollowupQuery(BookingInquiry::query())->count())
+                ->badgeColor('info'),
+
             // Archive: tours that have actually run to completion.
             'completed' => Tab::make('Completed')
                 ->modifyQueryUsing(fn (Builder $query) => $query
@@ -98,5 +110,38 @@ class ListBookingInquiries extends ListRecords
     public function getDefaultActiveTab(): string|int|null
     {
         return 'new';
+    }
+
+    /**
+     * Centralised "tour ended today" scope used by the Review follow-up
+     * tab. Extracted because it's needed in two places (the modify-
+     * query callback + the badge counter), and the SQL deserves to live
+     * in one spot for testability and future tuning.
+     *
+     * Logic:
+     *   - status = confirmed
+     *   - cancelled_at IS NULL
+     *   - travel_date + (catalog duration_days − 1) = today (Asia/Tashkent)
+     *   - duration falls back to 1 when no tour_product is linked
+     *     (single-day tours are the dominant case)
+     *
+     * Bookings whose review request is already sent are intentionally
+     * KEPT in the list — operators sometimes want to resend; the
+     * review_request_sent_at column surfaces the prior send so they
+     * can decide consciously.
+     */
+    private function scopeReviewFollowupQuery(Builder $query): Builder
+    {
+        $today = now('Asia/Tashkent')->toDateString();
+
+        return $query
+            ->where('booking_inquiries.status', BookingInquiry::STATUS_CONFIRMED)
+            ->whereNull('booking_inquiries.cancelled_at')
+            ->whereRaw(
+                "DATE_ADD(booking_inquiries.travel_date, INTERVAL (
+                    COALESCE((SELECT duration_days FROM tour_products WHERE id = booking_inquiries.tour_product_id), 1) - 1
+                 ) DAY) = ?",
+                [$today]
+            );
     }
 }
