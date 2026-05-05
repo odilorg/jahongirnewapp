@@ -74,7 +74,7 @@ final class ShowMainMenuAction
         $kb = [
             [['text' => '💵 Оплата', 'callback_data' => 'payment'], ['text' => '📤 Расход', 'callback_data' => 'expense']],
             [['text' => '🔄 Обмен',  'callback_data' => 'exchange'], ['text' => '💰 Баланс', 'callback_data' => 'balance']],
-            [['text' => '📋 Мои операции', 'callback_data' => 'my_txns']],
+            [['text' => '🛍 Продажа', 'callback_data' => 'sale'], ['text' => '📋 Мои операции', 'callback_data' => 'my_txns']],
         ];
         if ($isAdmin) {
             $kb[] = [['text' => '➕ Внести', 'callback_data' => 'cash_in']];

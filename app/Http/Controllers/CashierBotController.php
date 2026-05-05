@@ -231,6 +231,7 @@ class CashierBotController extends Controller
             'payment_fx_amount' => $this->hPayFxAmount($s, $chatId, $text),
             'payment_fx_override_reason' => $this->hPayFxOverrideReason($s, $chatId, $text),
             'expense_amount' => $this->hExpAmt($s, $chatId, $text),
+            'sale_amount'    => $this->hSaleAmt($s, $chatId, $text),
             'expense_desc' => $this->hExpDesc($s, $chatId, $text),
             'cash_in_amount' => $this->hCashInAmt($s, $chatId, $text),
             'exchange_in_amount' => $this->hExInAmt($s, $chatId, $text),
@@ -1922,6 +1923,148 @@ class CashierBotController extends Controller
     // App\Actions\CashierBot\Handlers\ShowBalanceAction and
     // ShowMyTransactionsAction; the router dispatches them via
     // dispatchReply() above.
+
+    // ── SMALL SALE (Phase 1.6.2 — categorised petty income) ──────────────
+    //
+    // Mirrors the existing expense flow shape:
+    //   sale            → bot shows 8 income-category buttons (incat_<id>)
+    //   sale_amount     → operator types "5000" or "20 USD" etc.
+    //   sale_confirm    → operator taps Подтвердить → CashTransaction created
+    //
+    // Reuses RecordSmallSaleAction so admin Filament + bot share one
+    // write path. No new schema; income categories already seeded.
+
+    /** @internal Called by CashierBotCallbackRouter on 'sale' callback. */
+    public function startSale($s, int $chatId)
+    {
+        $shift = $this->getShift($s->user_id);
+        if (! $shift) {
+            $this->send($chatId, "Сначала откройте смену.");
+            return response('OK');
+        }
+
+        $cats = \App\Models\IncomeCategory::where('is_active', true)
+            ->orderBy('sort_order')
+            ->get(['id', 'name', 'slug']);
+
+        if ($cats->isEmpty()) {
+            $this->send($chatId, "Категории дохода ещё не настроены. Обратитесь к администратору.");
+            return response('OK');
+        }
+
+        // 2-column grid for tighter screen layout; each row holds up
+        // to 2 buttons. With 8 categories that's 4 rows — fits one screen.
+        $kb = [];
+        $row = [];
+        foreach ($cats as $c) {
+            $row[] = ['text' => $c->name, 'callback_data' => 'incat_' . $c->id];
+            if (count($row) === 2) {
+                $kb[] = $row;
+                $row = [];
+            }
+        }
+        if (! empty($row)) $kb[] = $row;
+        $kb[] = [['text' => 'Отмена', 'callback_data' => 'cancel']];
+
+        $s->update(['state' => 'sale_category', 'data' => ['shift_id' => $shift->id]]);
+        $this->send($chatId, "🛍 Категория продажи:", ['inline_keyboard' => $kb], 'inline');
+        return response('OK');
+    }
+
+    /** @internal Called by CashierBotCallbackRouter on 'incat_<id>' callbacks. */
+    public function selectIncomeCategory($s, int $chatId, string $data)
+    {
+        $catId = (int) str_replace('incat_', '', $data);
+        $cat = \App\Models\IncomeCategory::where('id', $catId)
+            ->where('is_active', true)
+            ->first();
+
+        if (! $cat) {
+            $this->send($chatId, "Категория не найдена. Попробуйте снова.");
+            return $this->showMainMenu($chatId, $s);
+        }
+
+        $d = $s->data ?? [];
+        $d['income_category_id']   = $cat->id;
+        $d['income_category_name'] = $cat->name;
+        $s->update(['state' => 'sale_amount', 'data' => $d]);
+        $this->send($chatId,
+            "Категория: {$cat->name}\nВведите сумму:\n• 5000 (UZS по умолчанию)\n• 5 USD\n• 4 EUR"
+        );
+        return response('OK');
+    }
+
+    protected function hSaleAmt($s, int $chatId, string $text)
+    {
+        [$amt, $cur] = $this->parseAmountCurrency($text);
+        if ($amt <= 0) {
+            $this->send($chatId, "Неверная сумма. Введите так:\n• 5000 (UZS)\n• 5 USD\n• 4 EUR");
+            return response('OK');
+        }
+        if ($cur === null) {
+            // Same financial-integrity rule as expense flow: never
+            // silently default unrecognised currency to UZS.
+            $this->send($chatId, "Не понял валюту. Введите ещё раз:\n• 5000 (UZS)\n• 5 USD\n• 4 EUR");
+            return response('OK');
+        }
+
+        $d = $s->data ?? [];
+        $d['amount']   = $amt;
+        $d['currency'] = $cur;
+        $s->update(['state' => 'sale_confirm', 'data' => $d]);
+        $this->send($chatId,
+            "Подтвердите продажу:\n\nКатегория: {$d['income_category_name']}\nСумма: " . number_format($amt, 0) . " {$cur}",
+            ['inline_keyboard' => [[
+                ['text' => '✅ Подтвердить', 'callback_data' => 'confirm_sale'],
+                ['text' => '❌ Отмена',     'callback_data' => 'cancel'],
+            ]]],
+            'inline'
+        );
+        return response('OK');
+    }
+
+    /** @internal Called by CashierBotCallbackRouter on 'confirm_sale' callback. */
+    public function confirmSale($s, int $chatId, string $callbackId = '')
+    {
+        try {
+            $d = $s->data ?? [];
+            $shift = CashierShift::find($d['shift_id'] ?? 0);
+            if (! $shift || ! $shift->isOpen()) {
+                $this->send($chatId, "Смена не найдена или закрыта.");
+                if ($callbackId) $this->failCallback($callbackId, 'Shift not found or closed');
+                return $this->showMainMenu($chatId, $s);
+            }
+
+            $catId = (int) ($d['income_category_id'] ?? 0);
+            $amt   = (float) ($d['amount'] ?? 0);
+            $cur   = (string) ($d['currency'] ?? '');
+
+            if ($catId <= 0 || $amt <= 0 || $cur === '') {
+                $this->send($chatId, "Данные неполные.");
+                if ($callbackId) $this->failCallback($callbackId, 'Missing fields');
+                return $this->showMainMenu($chatId, $s);
+            }
+
+            // Single write path — same Action used by Filament Record
+            // Small Sale; one source of truth for category=sale rows.
+            $tx = app(\App\Actions\Cashier\RecordSmallSaleAction::class)->execute([
+                'amount'             => $amt,
+                'currency'           => $cur,
+                'income_category_id' => $catId,
+                'payment_method'     => 'cash',
+                'notes'              => null,
+            ], $s->user_id);
+
+            if ($callbackId) $this->succeedCallback($callbackId);
+            $this->send($chatId,
+                "✅ Продажа записана: {$d['income_category_name']} — " . number_format($amt, 0) . " {$cur}\n#{$tx->id}\n\nБаланс: " . $this->fmtBal($this->getBal($shift->fresh()))
+            );
+            return $this->showMainMenu($chatId, $s);
+        } catch (\Throwable $e) {
+            if ($callbackId) $this->failCallback($callbackId, $e->getMessage());
+            throw $e;
+        }
+    }
 
     // ── CLOSE SHIFT ─────────────────────────────────────────────
 

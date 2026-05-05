@@ -32,6 +32,7 @@ final class CashierBotCallbackRouter
         'confirm_exchange',
         'confirm_close',
         'confirm_cash_in',
+        'confirm_sale',
     ];
 
     /**
@@ -133,6 +134,10 @@ final class CashierBotCallbackRouter
             $data === 'group_single'       => $controller->pickGroupFork($s, $chatId, $data),
             str_starts_with($data, 'gbm_') => $controller->pickGroupBulkMethod($s, $chatId, $data),
             $data === 'group_confirm'      => $controller->confirmGroupBulk($s, $chatId, $callbackId),
+            // Small-sale flow (Phase 1.6.2 — categorised petty income)
+            $data === 'sale'               => $controller->startSale($s, $chatId),
+            str_starts_with($data, 'incat_') => $controller->selectIncomeCategory($s, $chatId, $data),
+            $data === 'confirm_sale'       => $controller->confirmSale($s, $chatId, $callbackId),
             $data === 'cancel'             => $controller->showMainMenu($chatId, $s),
             $data === 'my_txns'            => $controller->dispatchReply($chatId, app(\App\Actions\CashierBot\Handlers\ShowMyTransactionsAction::class)->execute($s->user_id)),
             $data === 'guide'              => $controller->dispatchGuide($chatId, null),
