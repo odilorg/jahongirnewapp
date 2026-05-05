@@ -212,6 +212,14 @@ class CashTransactionResource extends Resource
                         'gray' => 'change',
                         'secondary' => 'other',
                     ]),
+                // Fine-grained income taxonomy — visible only on rows
+                // that have it (admin-recorded petty sales). Sortable +
+                // searchable so operators can group by sale type.
+                Tables\Columns\TextColumn::make('incomeCategory.name')
+                    ->label('Income type')
+                    ->placeholder('—')
+                    ->sortable()
+                    ->searchable(),
                 Tables\Columns\TextColumn::make('reference')
                     ->label(__c('reference'))
                     ->searchable(),
