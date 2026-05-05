@@ -91,6 +91,8 @@ class DriverResource extends Resource
                             ->helperText('Used for automated tour dispatch DMs')
                             ->maxLength(100),
                         Forms\Components\Select::make('fuel_type')
+                            ->required()
+                            ->default('propane')
                             ->options([
                                 'propane' => 'Propane',
                                 'methane' => 'Methane',
