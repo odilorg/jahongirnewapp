@@ -187,4 +187,82 @@ class ViatorEmailParserTest extends TestCase
         $this->assertSame(ViatorInboundEmail::TYPE_UNKNOWN, $r['email_type']);
         $this->assertNull($r['external_reference']);
     }
+
+    // ── tour_name extraction (regression for BR-1393592315) ─────────
+
+    /**
+     * Real production failure mode pinned: the email body repeats the
+     * subject preamble "New Booking for <date> (#BR-...)" near the top, and
+     * the old loose `|booking for` alternation captured that date/ref junk
+     * before the real reservation phrase. Inquiry 94 (Laura Tassi) ended up
+     * with tour_name="Tue, May 19, 2026 (#BR-...) No action is required",
+     * which broke fuzzy catalog matching → tour_product_id=NULL → calendar
+     * couldn't span the 2-day chip across May 19→May 20.
+     */
+    public function test_tour_name_uses_labeled_field_over_subject_preamble(): void
+    {
+        // Body shape mirrors the real BR-1393592315 email layout.
+        $body = <<<'BODY'
+New Booking for Tue, May 19, 2026 (#BR-1393592315)               No action is required. This booking is confirmed.
+
+Booking Confirmation     You have a new reservation for Private 2-Day Aydarkul & Yurt Camp Tour: Samarkand-Bukhara. This is an Instant Confirmation booking, so no action is required.
+
+Booking Details     Booking Reference: BR-1393592315         Tour Name: Private 2-Day Aydarkul & Yurt Camp Tour: Samarkand-Bukhara     Travel Date: Tue, May 19, 2026     Lead Traveler Name: Laura Tassi     Travelers: 2 Adults     Product Code: 153457P16      Tour Grade: Private 2-Day Aydarkul & Yurt Camp Tour: Samarkand-Bukhara 08:00     Tour Grade Code: TG1~08:00      Location: Samarkand, Uzbekistan
+BODY;
+
+        $r = $this->parser->parse(
+            'New Booking for Tue, May 19, 2026 (#BR-1393592315)',
+            $body,
+        )['parsed_payload'];
+
+        // Must NOT capture the subject preamble (the old bug).
+        $this->assertNotSame(
+            'Tue, May 19, 2026 (#BR-1393592315) No action is required',
+            $r['tour_name'],
+            'parser must not capture the date/ref preamble as tour_name',
+        );
+        // Must capture the real product name from the labeled field.
+        $this->assertSame(
+            'Private 2-Day Aydarkul & Yurt Camp Tour: Samarkand-Bukhara',
+            $r['tour_name'],
+        );
+    }
+
+    public function test_tour_name_fallback_when_label_field_absent(): void
+    {
+        // Older/edge-case templates omit the "Tour Name:" label. The
+        // narrowed fallback regex (no "|booking for") must still pick up
+        // the real product name from the reservation phrase.
+        $body = <<<'BODY'
+Booking Confirmation     You have a new reservation for Some Legacy Tour Name. This is an Instant Confirmation booking.
+
+Booking Details     Booking Reference: BR-9999999999         Travel Date: Sun, Sep 20, 2026
+BODY;
+
+        $r = $this->parser->parse('Booking - BR-9999999999', $body)['parsed_payload'];
+
+        $this->assertSame('Some Legacy Tour Name', $r['tour_name']);
+    }
+
+    public function test_existing_fixtures_still_extract_correct_tour_name(): void
+    {
+        // Triple-check no regression on the canonical happy paths.
+        [$s, $b] = $this->load('new_private');
+        $this->assertSame(
+            'Private Guided Tour Samarkand city history and culture',
+            $this->parser->parse($s, $b)['parsed_payload']['tour_name'],
+        );
+
+        [$s, $b] = $this->load('new_daytour');
+        $this->assertSame(
+            'Day Tour to Shahrisabz – Birthplace of Amir Temur',
+            $this->parser->parse($s, $b)['parsed_payload']['tour_name'],
+        );
+
+        [$s, $b] = $this->load('new_group');
+        $this->assertSame(
+            'Group Tour Samarkand city history, architecture and culture',
+            $this->parser->parse($s, $b)['parsed_payload']['tour_name'],
+        );
+    }
 }

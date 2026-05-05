@@ -268,7 +268,19 @@ class ViatorEmailParser
      */
     private function extractTourName(string $body): ?string
     {
-        if (preg_match('/(?:You have a new reservation for|reservation for|booking for)\s+(.+?)(?:\.|This is an Instant)/iu', $body, $m)) {
+        // Canonical source: the labeled "Tour Name:" field in the
+        // "Booking Details" section. Immune to the subject-preamble
+        // collision that broke BR-1393592315 (audit 2026-05-05) — the email
+        // repeats "New Booking for <date>..." near the top, which the old
+        // "|booking for" alternative greedily matched before reaching the
+        // real reservation phrase further down.
+        if (preg_match('/Tour Name:\s+(.+?)\s+(?:Travel Date|Tour Grade|Lead Traveler|Location|Product Code):/u', $body, $m)) {
+            return trim($m[1]);
+        }
+        // Fallback for older Viator templates without the explicit field.
+        // Note: do NOT add "|booking for" — that alternation matched the
+        // subject-line preamble and captured date/booking-ref junk.
+        if (preg_match('/(?:You have a new reservation for|reservation for)\s+(.+?)(?:\.|This is an Instant)/iu', $body, $m)) {
             return trim($m[1]);
         }
         // Cancellation body has tour name as bare line right after
