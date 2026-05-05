@@ -157,6 +157,30 @@
         @if ($inquiry->customer_country)
             <div class="text-gray-800 dark:text-gray-100">🌍 {{ $inquiry->customer_country }}</div>
         @endif
+
+        {{-- Manual TripAdvisor review request — operator-driven, never auto.
+             Visible for confirmed + non-cancelled inquiries with at least
+             one channel on file. Same Action as the full-page view. --}}
+        @if (
+            $inquiry->status === 'confirmed'
+            && ! $inquiry->cancelled_at
+            && (filled($inquiry->customer_phone) || filled($inquiry->customer_email))
+            && (auth()->user()?->hasAnyRole(['super_admin', 'admin', 'manager']) ?? false)
+        )
+            <div class="mt-2 pt-2 border-t border-gray-200 dark:border-gray-700">
+                <button type="button" wire:click="sendTripAdvisorRequest"
+                        wire:loading.attr="disabled"
+                        wire:loading.class="opacity-50"
+                        class="w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-info-600 hover:bg-info-500 text-white transition-colors">
+                    🌟 {{ $inquiry->review_request_sent_at ? 'Resend TripAdvisor request' : 'Send TripAdvisor request' }}
+                </button>
+                @if ($inquiry->review_request_sent_at)
+                    <div class="mt-1 text-[10px] text-gray-500 dark:text-gray-400 text-center">
+                        Last sent: {{ $inquiry->review_request_sent_at->format('d M Y H:i') }}
+                    </div>
+                @endif
+            </div>
+        @endif
     </div>
 
     {{-- Pickup (editable) + Dropoff --}}

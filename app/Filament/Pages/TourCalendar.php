@@ -175,6 +175,60 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
     /**
      * Record a guest payment from the slide-over.
      */
+    /**
+     * Send the manual TripAdvisor review request from the calendar
+     * slide-over. Mirrors the BookingInquiryResource view-page button —
+     * same Action, same eligibility, same stamp-only-on-success rule.
+     *
+     * UX deliberately simpler than the full-page version: no
+     * confirmation modal here (the slide-over already shows the guest's
+     * full context, so a click is informed). Operators get an explicit
+     * notification about send result either way.
+     */
+    public function sendTripAdvisorRequest(): void
+    {
+        $inquiry = BookingInquiry::find($this->selectedInquiryId);
+        if (! $inquiry) {
+            Notification::make()->title('No inquiry selected')->danger()->send();
+            return;
+        }
+
+        $user = auth()->user();
+        if (! $user || ! $user->hasAnyRole(['super_admin', 'admin', 'manager'])) {
+            Notification::make()->title('⛔ Insufficient role')->danger()->send();
+            return;
+        }
+
+        if ($inquiry->status !== BookingInquiry::STATUS_CONFIRMED || $inquiry->cancelled_at !== null) {
+            Notification::make()->title('Inquiry must be confirmed and not cancelled')->danger()->send();
+            return;
+        }
+
+        if (! filled($inquiry->customer_phone) && ! filled($inquiry->customer_email)) {
+            Notification::make()->title('No phone or email on file')->danger()->send();
+            return;
+        }
+
+        $result = app(\App\Actions\Feedback\SendManualTripAdvisorReviewRequestAction::class)
+            ->execute($inquiry, $user->id);
+
+        if ($result['sent']) {
+            Notification::make()
+                ->title('🌟 TripAdvisor request sent')
+                ->body("Channel: {$result['channel']} · {$inquiry->customer_name}")
+                ->success()
+                ->send();
+            return;
+        }
+
+        Notification::make()
+            ->title('Send failed — not stamped')
+            ->body((string) ($result['reason'] ?? 'Unknown error'))
+            ->danger()
+            ->persistent()
+            ->send();
+    }
+
     public function quickGuestPay(?string $amount = null, ?string $method = null): void
     {
         $amount = $amount ?: $this->guestPayAmount;
