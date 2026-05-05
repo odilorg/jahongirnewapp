@@ -160,6 +160,12 @@ TXT,
 
 {notes}
 
+⭐ Тур охирида:
+Агар меҳмонлар хурсанд бўлса, телефондаги review QR картани кўрсатинг.
+Фақат шуни айтинг: «TripAdvisor review, please. Thank you.»
+5 юлдуз сўраманг ва меҳмонга босим қилманг.
+🖼 {review_card_url}
+
 🤝 Jahongir Travel — {reference}
 TXT,
 
@@ -175,6 +181,12 @@ TXT,
 🚗 Ҳайдовчи: {driver_name} · {driver_phone}
 
 {notes}
+
+⭐ Тур охирида:
+Агар меҳмонлар хурсанд бўлса, телефондаги review QR картани кўрсатинг.
+Фақат шуни айтинг: «TripAdvisor review, please. Thank you.»
+5 юлдуз сўраманг ва меҳмонга босим қилманг.
+🖼 {review_card_url}
 
 🤝 Jahongir Travel — {reference}
 TXT,

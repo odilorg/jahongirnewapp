@@ -21,7 +21,18 @@ use Illuminate\Support\Facades\Log;
  */
 class PublicReviewRequestMessageFactory
 {
-    private const TRIPADVISOR_URL = 'https://www.tripadvisor.com/UserReviewEdit-g298068-d17464942-Jahongir_Travel-Samarkand_Samarqand_Province.html';
+    /**
+     * URL is read from config('services.tripadvisor.review_url') so the
+     * link lives in one place across the dispatch templates + this
+     * factory + any future surface (sticker, email signature, etc).
+     */
+    private function reviewUrl(): string
+    {
+        return (string) config(
+            'services.tripadvisor.review_url',
+            'https://www.tripadvisor.com/UserReviewEdit-g298068-d17464942-Jahongir_Travel-Samarkand_Samarqand_Province.html'
+        );
+    }
 
     /**
      * @return array{text: string, opener_index: int|null}
@@ -44,7 +55,7 @@ class PublicReviewRequestMessageFactory
         $opener        = $this->personalise($phrases[$index], $inquiry);
 
         $text = $opener . "\n\n"
-              . '🌟 TripAdvisor: ' . self::TRIPADVISOR_URL . "\n\n"
+              . '🌟 TripAdvisor: ' . $this->reviewUrl() . "\n\n"
               . "Thank you!\n— Jahongir Travel";
 
         return [
@@ -118,7 +129,7 @@ class PublicReviewRequestMessageFactory
 
         return $hi . " Hope you had a wonderful time with us.\n\n"
              . 'If you enjoyed the trip, a short TripAdvisor review would mean a lot 🙏' . "\n\n"
-             . '🌟 TripAdvisor: ' . self::TRIPADVISOR_URL . "\n\n"
+             . '🌟 TripAdvisor: ' . $this->reviewUrl() . "\n\n"
              . "Thank you!\n— Jahongir Travel";
     }
 }

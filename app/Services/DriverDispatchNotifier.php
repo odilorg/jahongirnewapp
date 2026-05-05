@@ -674,6 +674,12 @@ class DriverDispatchNotifier
             '{guide_name}'                 => $inquiry->guide?->full_name ?? '—',
             '{guide_phone}'                => $inquiry->guide?->phone01 ?? '—',
             '{notes}'                      => $notes,
+            // Phase 1.7.2 — TripAdvisor QR review card URL appended to
+            // driver/guide dispatch so they have something concrete to
+            // show happy guests at the end of the tour. URL lives in
+            // config/services.tripadvisor.review_card_url; the static
+            // image must be uploaded to public/images/review/.
+            '{review_card_url}'            => $this->reviewCardUrl(),
         ];
 
         $rendered = str_replace(array_keys($replacements), array_values($replacements), $template);
@@ -752,6 +758,27 @@ class DriverDispatchNotifier
         $month = self::RU_MONTHS[(int) $date->format('n')] ?? $date->format('M');
 
         return (int) $date->format('j') . ' ' . $month . ' ' . $date->format('Y');
+    }
+
+    /**
+     * Absolute URL of the TripAdvisor QR review card. Read from config
+     * so the path lives in one place; falls back to APP_URL + the
+     * default image path if config is not set (defensive — config gets
+     * cached and we never want a missing config to break a dispatch).
+     */
+    private function reviewCardUrl(): string
+    {
+        $relative = (string) config(
+            'services.tripadvisor.review_card_url',
+            '/images/review/tripadvisor-review-card-jahongir-travel.png'
+        );
+
+        if (preg_match('#^https?://#i', $relative) === 1) {
+            return $relative;
+        }
+
+        $base = rtrim((string) config('app.url', ''), '/');
+        return $base !== '' ? $base . $relative : $relative;
     }
 
     private function formatPax(int $adults, int $children): string

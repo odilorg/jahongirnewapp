@@ -173,5 +173,17 @@ return [
         'email' => env('DAILY_RECAP_EMAIL', 'odilorg@gmail.com'),
     ],
 
+    // Phase 1.7.2 — TripAdvisor public review surface.
+    // review_url       — the deep link guests scan/click to leave a review
+    // review_card_url  — public-facing image path of the QR review card
+    //                    drivers/guides show guests at end of tour
+    // Both centralised here so the URL lives in one place — the manual
+    // review-request message factory + the dispatch-template appender
+    // both read from this config.
+    'tripadvisor' => [
+        'review_url'      => env('TRIPADVISOR_REVIEW_URL', 'https://www.tripadvisor.com/UserReviewEdit-g298068-d17464942-Jahongir_Travel-Samarkand_Samarqand_Province.html'),
+        'review_card_url' => env('TRIPADVISOR_REVIEW_CARD_URL', '/images/review/tripadvisor-review-card-jahongir-travel.png'),
+    ],
+
 ];
 

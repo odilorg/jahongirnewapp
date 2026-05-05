@@ -60,6 +60,13 @@ class DispatchTemplateRenderingTest extends TestCase
             '{nights}'                     => '1',
             '{guest_count}'                => '4',
             '{meal_plan}'                  => 'dinner + breakfast',
+            '{review_card_url}'            => 'https://example.test/images/review/tripadvisor-review-card-jahongir-travel.png',
+            // Pre-existing template placeholders that weren't in the
+            // map — the test was silently mis-passing because
+            // assertDoesNotMatchRegularExpression with a partial map
+            // happens to short-circuit. Filled in for completeness.
+            '{direction}'                  => 'Samarkand → Bukhara',
+            '{tour_type}'                  => 'Private',
         ];
     }
 
