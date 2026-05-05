@@ -96,9 +96,14 @@ class GygFetchEmails extends Command
                     'email_date'        => $this->parseDate($envelope['date'] ?? null),
                     'body_text'         => $body,
                     'body_html'         => null, // himalaya returns plain text; HTML deferred
-                    // Timed-out emails are stored as 'skipped' so process-emails doesn't
-                    // waste cycles on them and repeated runs recognise them as duplicates.
-                    'processing_status' => $timedOut ? 'skipped' : 'fetched',
+                    // Always 'fetched' — the classifier inspects the subject only,
+                    // so even a body-fetch timeout must still go through process-emails.
+                    // If the subject is a real booking/cancellation/amendment but the
+                    // body is empty, gyg:process-emails marks the row 'failed' with
+                    // a clear parse_error so operators are alerted instead of a
+                    // silent drop (incident pattern: GYG48YVRXWBH 2026-04-27, and the
+                    // 14 booking + 5 cancellation skipped duplicates audit 2026-05-05).
+                    'processing_status' => 'fetched',
                 ]);
 
                 $knownIds[$messageId] = true; // track within this run

@@ -5,11 +5,15 @@ namespace App\Console\Commands;
 use App\Models\GygInboundEmail;
 use App\Services\GygEmailClassifier;
 use App\Services\GygEmailParser;
+use App\Services\OwnerAlertService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
 
 class GygProcessEmails extends Command
 {
+    /** Email types that represent real booking actions and must never be silently dropped. */
+    public const ACTIONABLE_TYPES = ['new_booking', 'cancellation', 'amendment'];
+
     protected $signature = 'gyg:process-emails
         {--limit=50 : Maximum emails to process per run}
         {--dry-run : Classify and parse but do not persist changes}
@@ -20,8 +24,21 @@ class GygProcessEmails extends Command
     public function __construct(
         private GygEmailClassifier $classifier,
         private GygEmailParser $parser,
+        private OwnerAlertService $ownerAlert,
     ) {
         parent::__construct();
+    }
+
+    /**
+     * A row is considered un-actionable-empty when classifier identified a real
+     * booking action but body_text is missing (Gmail body fetch timeout). The
+     * classifier works on subject alone, so this catches first-delivery timeouts
+     * that would otherwise drop a real booking on the floor.
+     */
+    public static function isActionableTypeWithEmptyBody(string $emailType, ?string $bodyText): bool
+    {
+        return in_array($emailType, self::ACTIONABLE_TYPES, true)
+            && trim((string) $bodyText) === '';
     }
 
     public function handle(): int
@@ -47,7 +64,10 @@ class GygProcessEmails extends Command
             return self::SUCCESS;
         }
 
-        $stats = ['classified' => 0, 'parsed' => 0, 'needs_review' => 0, 'skipped' => 0, 'error' => 0];
+        // 'needs_refetch' is recoverable (body-timeout retry expected by ops),
+        // not an exception — kept separate from 'error' so cron exit stays 0
+        // and the schedule's onFailure handler doesn't fire on every timeout.
+        $stats = ['classified' => 0, 'parsed' => 0, 'needs_review' => 0, 'skipped' => 0, 'needs_refetch' => 0, 'error' => 0];
 
         foreach ($emails as $email) {
             try {
@@ -90,6 +110,30 @@ class GygProcessEmails extends Command
         // Step 1: Classify
         $emailType = $this->classifier->classify($subject, $from);
         $this->line("  📧 [{$emailType}] " . $this->truncate($subject, 60));
+
+        // Step 1b: Body-missing safety net.
+        // The fetcher stores rows with body_text=NULL when the Gmail body read
+        // times out. Subject classification still works, so if we get an
+        // actionable type (new_booking|cancellation|amendment) without a body,
+        // the row CANNOT be parsed/applied — but it must NOT be silently
+        // skipped either. Mark 'failed' with a clear parse_error and fire an
+        // ops alert so an operator can re-fetch or handle manually.
+        if (self::isActionableTypeWithEmptyBody($emailType, $body)) {
+            $this->line("  ⚠️  [{$emailType}] body empty — marking failed for re-fetch");
+            if (! $dryRun) {
+                $email->update([
+                    'email_type'        => $emailType,
+                    'processing_status' => 'failed',
+                    'parse_error'       => 'Body fetch timed out — re-fetch required',
+                    'classified_at'     => now(),
+                    'parse_attempts'    => $email->parse_attempts + 1,
+                ]);
+
+                $this->dispatchEmptyBodyAlert($email, $emailType, $subject);
+            }
+            $stats['needs_refetch']++;
+            return;
+        }
 
         // Skip non-actionable types
         if (in_array($emailType, ['guest_reply', 'unknown'])) {
@@ -226,5 +270,36 @@ class GygProcessEmails extends Command
     private function truncate(string $text, int $max): string
     {
         return mb_strlen($text) > $max ? mb_substr($text, 0, $max) : $text;
+    }
+
+    /**
+     * Notify ops that a real booking-action email arrived without a body.
+     * Loud alert (error log + Telegram via OwnerAlertService) so the row
+     * cannot disappear silently. Failure to send must NOT abort processing.
+     */
+    private function dispatchEmptyBodyAlert(GygInboundEmail $email, string $emailType, string $subject): void
+    {
+        Log::error('gyg:process-emails: actionable email with empty body — re-fetch required', [
+            'email_id' => $email->id,
+            'type'     => $emailType,
+            'subject'  => $this->truncate($subject, 200),
+        ]);
+
+        try {
+            $this->ownerAlert->sendOpsAlert(sprintf(
+                "⚠️ GYG %s email arrived without body (Gmail timeout).\n"
+                . "Email ID: %d\n"
+                . "Subject: %s\n"
+                . "Action: re-fetch the body or handle manually — auto-apply was blocked to prevent silent loss.",
+                $emailType,
+                $email->id,
+                $this->truncate($subject, 150),
+            ));
+        } catch (\Throwable $e) {
+            Log::warning('gyg:process-emails: ops alert dispatch failed', [
+                'email_id' => $email->id,
+                'error'    => $e->getMessage(),
+            ]);
+        }
     }
 }
