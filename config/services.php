@@ -183,6 +183,15 @@ return [
     'tripadvisor' => [
         'review_url'      => env('TRIPADVISOR_REVIEW_URL', 'https://www.tripadvisor.com/UserReviewEdit-g298068-d17464942-Jahongir_Travel-Samarkand_Samarqand_Province.html'),
         'review_card_url' => env('TRIPADVISOR_REVIEW_CARD_URL', '/images/review/tripadvisor-review-card-jahongir-travel.png'),
+
+        // Phase 1.7.2 feature flag — also send the QR card as an
+        // actual Telegram photo (via tg-direct /send_photo) AFTER the
+        // dispatch text. Image-send failure NEVER fails dispatch
+        // (best-effort), but the URL inside the text remains as
+        // backup either way.
+        // Default OFF until smoke-tested in production with a real
+        // driver/guide. Flip via env: TRIPADVISOR_SEND_REVIEW_CARD_IMAGE=true
+        'send_review_card_image' => env('TRIPADVISOR_SEND_REVIEW_CARD_IMAGE', false),
     ],
 
 ];

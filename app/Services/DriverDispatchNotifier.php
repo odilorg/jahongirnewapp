@@ -223,10 +223,74 @@ class DriverDispatchNotifier
             'msg_id'      => $result['msg_id'] ?? null,
         ]);
 
+        // Phase 1.7.2 — best-effort QR review-card image dispatch.
+        // The driver/guide already received the URL inside the text;
+        // sending the actual image as a Telegram photo means they can
+        // open/show it later even on weak signal. Failure here NEVER
+        // marks the dispatch as failed — text already succeeded above.
+        $this->sendReviewCardPhotoBestEffort($inquiry, $role, $destination, $supplier);
+
         return [
             'ok'     => true,
             'msg_id' => (int) ($result['msg_id'] ?? 0),
         ];
+    }
+
+    /**
+     * Best-effort post-dispatch image send. All exceptions/failures
+     * swallowed + logged so the upstream dispatch contract stays
+     * "text succeeded ⇒ overall success".
+     *
+     * Gated by:
+     *   - services.tripadvisor.send_review_card_image (feature flag)
+     *   - services.tripadvisor.review_card_url        (image URL)
+     *
+     * Either being empty/false skips the photo step entirely.
+     */
+    private function sendReviewCardPhotoBestEffort(
+        BookingInquiry $inquiry,
+        string $role,
+        string $destination,
+        $supplier,
+    ): void {
+        if (! (bool) config('services.tripadvisor.send_review_card_image', false)) {
+            return;
+        }
+
+        $imageUrl = $this->reviewCardUrl();
+        if ($imageUrl === '') {
+            return;
+        }
+
+        try {
+            $caption = 'Show this to happy guests at the end of the tour. No pressure, no 5-star request.';
+            $photoResult = $this->tgDirect->sendPhoto(
+                $destination,
+                $imageUrl,
+                $caption,
+                $supplier->full_name ?? null,
+            );
+
+            if ($photoResult['ok'] ?? false) {
+                Log::info('DriverDispatchNotifier: review card photo sent', [
+                    'reference' => $inquiry->reference,
+                    'role'      => $role,
+                    'msg_id'    => $photoResult['msg_id'] ?? null,
+                ]);
+            } else {
+                Log::warning('DriverDispatchNotifier: review card photo failed (text already sent)', [
+                    'reference' => $inquiry->reference,
+                    'role'      => $role,
+                    'error'     => $photoResult['error'] ?? 'unknown',
+                ]);
+            }
+        } catch (\Throwable $e) {
+            Log::warning('DriverDispatchNotifier: review card photo exception (swallowed)', [
+                'reference' => $inquiry->reference,
+                'role'      => $role,
+                'error'     => $e->getMessage(),
+            ]);
+        }
     }
 
     /**

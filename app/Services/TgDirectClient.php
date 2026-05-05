@@ -125,6 +125,77 @@ class TgDirectClient
         return $plus . $digits;
     }
 
+    /**
+     * Send a Telegram photo with optional caption via tg-direct
+     * /send_photo. Used for the post-tour TripAdvisor QR review card
+     * dispatch — drivers/guides receive the actual image so they can
+     * show it to guests even with weak signal.
+     *
+     * The tg-direct service enforces an allowlist (env-controlled,
+     * default https://jahongir-app.uz/) on image_url, so only trusted
+     * URLs reach Telethon.
+     *
+     * @param  string       $to            phone (+998…), @username, or chat_id
+     * @param  string       $imageUrl      MUST be on the tg-direct allowlist
+     * @param  string|null  $caption       optional, up to 1024 chars
+     * @param  string|null  $contactName   imported as first_name when phone unknown
+     * @return array{ok: bool, msg_id?: int, error?: string, method?: string}
+     */
+    public function sendPhoto(
+        string $to,
+        string $imageUrl,
+        ?string $caption = null,
+        ?string $contactName = null,
+    ): array {
+        $url     = (string) config('services.tg_direct.url', 'http://127.0.0.1:8766');
+        $timeout = (int) config('services.tg_direct.timeout', 10);
+
+        $normalised = $this->normaliseDestination($to);
+        if ($normalised === '') {
+            Log::warning('TgDirectClient: empty destination on sendPhoto', ['input' => $to]);
+            return ['ok' => false, 'error' => 'empty_destination'];
+        }
+
+        $payload = [
+            'to'        => $normalised,
+            'image_url' => $imageUrl,
+        ];
+        if ($caption !== null && trim($caption) !== '') {
+            $payload['caption'] = trim($caption);
+        }
+        if ($contactName !== null && trim($contactName) !== '') {
+            $payload['first_name'] = trim($contactName);
+        }
+
+        try {
+            $response = Http::timeout($timeout)
+                ->connectTimeout(3)
+                ->asJson()
+                ->post(rtrim($url, '/') . '/send_photo', $payload);
+        } catch (\Throwable $e) {
+            Log::warning('TgDirectClient: sendPhoto HTTP exception', [
+                'to'    => $normalised,
+                'error' => $e->getMessage(),
+            ]);
+            return ['ok' => false, 'error' => 'http_exception: ' . $e->getMessage()];
+        }
+
+        if (! $response->successful()) {
+            Log::warning('TgDirectClient: sendPhoto non-2xx', [
+                'to'     => $normalised,
+                'status' => $response->status(),
+                'body'   => mb_substr($response->body(), 0, 300),
+            ]);
+            $json = $response->json();
+            return is_array($json)
+                ? $json
+                : ['ok' => false, 'error' => 'http_' . $response->status()];
+        }
+
+        $json = $response->json();
+        return is_array($json) ? $json : ['ok' => false, 'error' => 'invalid_json'];
+    }
+
     public function health(): bool
     {
         $url = (string) config('services.tg_direct.url', 'http://127.0.0.1:8766');
