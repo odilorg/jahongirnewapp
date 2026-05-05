@@ -81,6 +81,12 @@ class ViewBookingInquiry extends ViewRecord
         if (! $user || ! $user->hasAnyRole(['super_admin', 'admin', 'manager'])) {
             return false;
         }
+        // BookingInquiry has no STATUS_COMPLETED — post-tour rows stay
+        // STATUS_CONFIRMED. PREP_COMPLETED is a different prep_status
+        // axis (logistics readiness), unrelated to booking lifecycle.
+        // If we ever introduce a true post-tour completed state, add
+        // it here. Verified 2026-05-05: 59 confirmed inquiries on
+        // prod, no 'completed' status anywhere in the corpus.
         if ($record->status !== BookingInquiry::STATUS_CONFIRMED) {
             return false;
         }
