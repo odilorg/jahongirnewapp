@@ -171,7 +171,8 @@
                 <button type="button" wire:click="sendTripAdvisorRequest"
                         wire:loading.attr="disabled"
                         wire:loading.class="opacity-50"
-                        class="w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-info-600 hover:bg-info-500 text-white transition-colors">
+                        style="background:#fef3c7; color:#92400e; border:1px solid #f59e0b;"
+                        class="w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md hover:opacity-90 transition-opacity">
                     🌟 {{ $inquiry->review_request_sent_at ? 'Resend TripAdvisor request' : 'Send TripAdvisor request' }}
                 </button>
                 @if ($inquiry->review_request_sent_at)
