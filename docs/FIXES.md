@@ -14,6 +14,31 @@ Newest entries at top.
 
 ---
 
+## 2026-05-05 — Driver create 500: NOT NULL fuel_type without form `->required()`
+
+**Symptom:** `/admin/drivers/create` returned HTTP 500 on submit. Log:
+`SQLSTATE[23000]: Integrity constraint violation: 1048 Column 'fuel_type' cannot be null`.
+
+**Root cause:** `drivers.fuel_type` is `varchar(255) NOT NULL` (no default)
+but the Filament `Select::make('fuel_type')` was never marked
+`->required()`. Operator submits without picking → form passes `null`
+to INSERT → DB rejects with 1048.
+
+**Fix applied:** Added `->required()->default('propane')` to the Select
+in `app/Filament/Resources/DriverResource.php:93`. `propane` matches
+the existing-row convention so the common-case flow is one tap less.
+
+**Schema cleanup (deferred):** `fuel_type` is operator metadata
+(reimbursement-side), not operational truth — should be nullable.
+Filed as a separate ticket; this entry only contains the prod-blocker
+fix without a migration.
+
+**DB touched?** No. Code-only fix.
+
+**Commit:** `f842135` (deploy 5/5).
+
+---
+
 ## 2026-05-04 — Feedback submit 500: TypeError on rating cast
 
 **Symptom:** Guest Ruyi (and 1+ earlier) hit HTTP 500 when submitting the
