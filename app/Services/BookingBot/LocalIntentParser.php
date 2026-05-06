@@ -48,6 +48,7 @@ final class LocalIntentParser
             ?? $this->matchArrivalsRange($normalizedMessage)
             ?? $this->matchDeparturesRange($normalizedMessage)
             ?? $this->matchBookingsRange($normalizedMessage)
+            ?? $this->matchAvailRange($normalizedMessage)
             ?? $this->matchSearch($normalizedMessage);
     }
 
@@ -186,5 +187,81 @@ final class LocalIntentParser
             }
         }
         return null;
+    }
+
+    /**
+     * Match availability queries — `<range> avail`, `avail <range>`,
+     * `today avail`, `tomorrow avail`, etc. Daily-driver query that
+     * was previously LLM-only; making it deterministic so DeepSeek
+     * outages don't break the avail flow (real incident 2026-05-06
+     * 14:14 — DeepSeek 30s timeout took the avail check with it).
+     *
+     * Avail semantics differ from view_bookings: a single-date input
+     * implies a 1-night stay, so we advance check_out by one day when
+     * DateRangeParser collapsed both sides to the same date. Multi-day
+     * ranges (e.g. `9-10 may` = 1 night, `21-28 may` = 7 nights) pass
+     * through unchanged.
+     *
+     * @return array<string,mixed>|null
+     */
+    private function matchAvailRange(string $s): ?array
+    {
+        // "<rest> avail" / "<rest> availability"
+        if (preg_match('/^(?<rest>.+?)\s+(?:avail|availability)$/', $s, $m) === 1) {
+            return $this->buildAvailResult(trim((string) $m['rest']));
+        }
+
+        // "avail <rest>" / "availability <rest>"
+        if (preg_match('/^(?:avail|availability)\s+(?<rest>.+)$/', $s, $m) === 1) {
+            return $this->buildAvailResult(trim((string) $m['rest']));
+        }
+
+        return null;
+    }
+
+    /** @return array<string,mixed>|null */
+    private function buildAvailResult(string $rest): ?array
+    {
+        // DateRangeParser handles ISO + named dates but not the relative
+        // words "today" / "tomorrow"; resolve those inline as a 1-night
+        // stay starting on the named day.
+        if ($rest === 'today') {
+            $today    = CarbonImmutable::now()->format('Y-m-d');
+            $tomorrow = CarbonImmutable::now()->addDay()->format('Y-m-d');
+
+            return [
+                'intent' => 'check_availability',
+                'dates'  => ['check_in' => $today, 'check_out' => $tomorrow],
+            ];
+        }
+
+        if ($rest === 'tomorrow') {
+            $tomorrow      = CarbonImmutable::now()->addDay()->format('Y-m-d');
+            $dayAfterTomor = CarbonImmutable::now()->addDays(2)->format('Y-m-d');
+
+            return [
+                'intent' => 'check_availability',
+                'dates'  => ['check_in' => $tomorrow, 'check_out' => $dayAfterTomor],
+            ];
+        }
+
+        $range = $this->dateRange->parse($rest);
+        if ($range === null) {
+            return null;
+        }
+
+        // Single-date input → DateRangeParser returns check_in == check_out;
+        // for avail intent that's degenerate (Beds24 returns 0 nights),
+        // so advance check_out by 1 day to mean "stay this one night".
+        if ($range['check_in'] === $range['check_out']) {
+            $range['check_out'] = CarbonImmutable::parse($range['check_in'])
+                ->addDay()
+                ->format('Y-m-d');
+        }
+
+        return [
+            'intent' => 'check_availability',
+            'dates'  => $range,
+        ];
     }
 }

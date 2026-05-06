@@ -42,6 +42,27 @@ final class BookingIntentParserTest extends TestCase
         $this->assertSame('today', $out['filter_type']);
     }
 
+    public function test_avail_local_hit_bypasses_deepseek(): void
+    {
+        // 2026-05-07 regression-proofing: availability queries used to
+        // be LLM-only, breaking on every DeepSeek hiccup. The local
+        // parser now resolves them; this test pins the contract that
+        // DeepSeek is NOT consulted for the daily-driver shape.
+        $remote = Mockery::mock(DeepSeekIntentParser::class);
+        $remote->shouldNotReceive('parse');
+
+        $coord = new BookingIntentParser(
+            new LocalIntentParser(new DateRangeParser()),
+            $remote,
+            new MessageNormalizer(),
+        );
+
+        $out = $coord->parse('9-10 may avail');
+        $this->assertSame('check_availability', $out['intent']);
+        $this->assertNotEmpty($out['dates']['check_in'] ?? null);
+        $this->assertNotEmpty($out['dates']['check_out'] ?? null);
+    }
+
     public function test_local_miss_falls_through_to_deepseek_with_original_message(): void
     {
         $remote = Mockery::mock(DeepSeekIntentParser::class);
