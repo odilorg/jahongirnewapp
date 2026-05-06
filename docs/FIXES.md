@@ -65,8 +65,8 @@ their close audit trails are preserved as-is. Total invisible:
 **Backup reference:** Not applicable — this fix did not run any
 schema or bulk-data change.
 
-**Commit hash:** _to be set after merge to main_
-**Branch:** `fix/cashier-petty-sale-source-trigger`
+**Commit hash:** `fdc5361153c8f313d5a62898e7f59899a456c783` (squash-merge to main, deployed 2026-05-06 17:19 +0500, 5/5 health checks passed)
+**Branch:** `fix/cashier-petty-sale-source-trigger` (deleted post-merge)
 
 ---
 
