@@ -82,7 +82,7 @@ class ListCashTransactions extends ListRecords
                 ])
                 ->action(function (array $data): void {
                     $tx = app(RecordSmallSaleAction::class)
-                        ->execute($data, auth()->id());
+                        ->execute($data, auth()->id(), \App\Enums\CashTransactionSource::ManualAdmin);
 
                     Notification::make()
                         ->success()

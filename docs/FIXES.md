@@ -14,6 +14,62 @@ Newest entries at top.
 
 ---
 
+## 2026-05-06 — Cashier petty-sale silently excluded from drawer balance
+
+**Symptom:** Doniyor recorded a $10 incoming petty sale through the
+cashier Telegram bot. The bot replied "✅ Продажа записана" and the
+row landed in `cash_transactions` (id=488), but the displayed drawer
+balance never moved. Two earlier rows on the same code path had the
+same issue (id=483, 485 = 240 000 UZS each on shift 393).
+
+**Root cause:** `RecordSmallSaleAction::execute()` did not set
+`source_trigger` on the `CashTransaction::create([...])` payload.
+The DB column default `'beds24_external'` (introduced by migration
+`2026_03_29_100002_add_fx_columns_to_cash_transactions_table.php` to
+retro-classify pre-existing rows) silently took effect. The
+`drawerTruth()` scope used by `BalanceCalculator::getBal()` excludes
+`beds24_external` rows because they are audit-only mirrors of Beds24
+webhook payments — so legitimate cashier-bot petty-sale rows got
+silently filtered out of every running shift balance. Sibling write
+paths (`CashierExpenseService`, `CashierExchangeService`,
+`CashierBotController` deposit flow) all set `source_trigger`
+explicitly; `RecordSmallSaleAction` was the lone outlier introduced
+in Phase 1.6.0 as the unified Filament + bot recorder.
+
+**Fix applied:** `RecordSmallSaleAction::execute()` now takes a
+`CashTransactionSource $sourceTrigger` parameter (default
+`CashierBot` — the bot path is the highest-volume call site) and
+inserts that value on every row. Filament admin call site passes
+`ManualAdmin` explicitly. `Beds24External` is rejected at the API
+boundary so future callers cannot re-introduce the same silent
+drawer exclusion. Four regression tests in
+`tests/Feature/Cashier/RecordSmallSaleTest.php` pin the contract,
+including a test that exercises Doniyor's exact scenario through
+`BalanceCalculator::getBal()`. `BotSmallSaleFlowTest` extended to
+assert `source_trigger=cashier_bot` on the controller path.
+
+**Historical data NOT mutated** per the append-only ledger doctrine.
+The three impacted rows stay tagged `beds24_external` and remain
+invisible to drawer balance. Shifts 393 and 394 are already closed;
+their close audit trails are preserved as-is. Total invisible:
+240 000 UZS + 10 USD across three rows.
+
+| row id | shift | amount | currency | created_by | created_at |
+|---|---|---|---|---|---|
+| 483 | 393 | 120 000 | UZS | 1318 | 2026-05-05 23:12 |
+| 485 | 393 | 120 000 | UZS | 1318 | 2026-05-05 23:16 |
+| 488 | 394 | 10 | USD | 798 (Doniyor) | 2026-05-06 09:04 |
+
+**No DB schema change.** No migration. Beds24 webhook code untouched.
+
+**Backup reference:** Not applicable — this fix did not run any
+schema or bulk-data change.
+
+**Commit hash:** _to be set after merge to main_
+**Branch:** `fix/cashier-petty-sale-source-trigger`
+
+---
+
 ## 2026-05-05 — Driver create 500: NOT NULL fuel_type without form `->required()`
 
 **Symptom:** `/admin/drivers/create` returned HTTP 500 on submit. Log:

@@ -2047,13 +2047,20 @@ class CashierBotController extends Controller
 
             // Single write path — same Action used by Filament Record
             // Small Sale; one source of truth for category=sale rows.
-            $tx = app(\App\Actions\Cashier\RecordSmallSaleAction::class)->execute([
-                'amount'             => $amt,
-                'currency'           => $cur,
-                'income_category_id' => $catId,
-                'payment_method'     => 'cash',
-                'notes'              => null,
-            ], $s->user_id);
+            // Source trigger is passed explicitly so the row joins
+            // drawer truth — see RecordSmallSaleAction docblock for
+            // the 2026-05-06 incident this guards against.
+            $tx = app(\App\Actions\Cashier\RecordSmallSaleAction::class)->execute(
+                [
+                    'amount'             => $amt,
+                    'currency'           => $cur,
+                    'income_category_id' => $catId,
+                    'payment_method'     => 'cash',
+                    'notes'              => null,
+                ],
+                $s->user_id,
+                \App\Enums\CashTransactionSource::CashierBot,
+            );
 
             if ($callbackId) $this->succeedCallback($callbackId);
             $this->send($chatId,

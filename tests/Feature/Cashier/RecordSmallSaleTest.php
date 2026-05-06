@@ -5,10 +5,12 @@ declare(strict_types=1);
 namespace Tests\Feature\Cashier;
 
 use App\Actions\Cashier\RecordSmallSaleAction;
+use App\Enums\CashTransactionSource;
 use App\Models\CashTransaction;
 use App\Models\CashierShift;
 use App\Models\IncomeCategory;
 use App\Models\User;
+use App\Services\Cashier\BalanceCalculator;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Tests\TestCase;
 
@@ -153,5 +155,118 @@ final class RecordSmallSaleTest extends TestCase
 
         $count = CashTransaction::where('category', 'sale')->count();
         $this->assertGreaterThanOrEqual(1, $count, 'new petty-sale rows must remain visible to legacy category=sale reports');
+    }
+
+    // ── source_trigger tagging (2026-05-06 regression) ─────────────
+    //
+    // Real incident: Doniyor recorded $10 incoming through the cashier
+    // bot petty-sale flow. The row was inserted but the drawer balance
+    // never moved. Root cause: RecordSmallSaleAction did not set
+    // source_trigger, so the DB column default of 'beds24_external'
+    // (introduced by migration 2026_03_29_100002 to backfill legacy
+    // rows) silently classified the row as a Beds24 audit-only entry,
+    // which BalanceCalculator's drawerTruth() scope excludes.
+
+    /** @test */
+    public function default_source_trigger_is_cashier_bot(): void
+    {
+        $cashier = User::factory()->create();
+        $cat     = IncomeCategory::where('slug', 'water')->firstOrFail();
+
+        $tx = app(RecordSmallSaleAction::class)->execute([
+            'amount'             => 5000,
+            'currency'           => 'UZS',
+            'income_category_id' => $cat->id,
+            'payment_method'     => 'cash',
+        ], $cashier->id);
+
+        $this->assertSame('cashier_bot', $this->sourceTriggerValue($tx));
+    }
+
+    /** @test */
+    public function admin_call_site_can_tag_manual_admin(): void
+    {
+        $admin = User::factory()->create();
+        $cat   = IncomeCategory::where('slug', 'service_fee')->firstOrFail();
+
+        $tx = app(RecordSmallSaleAction::class)->execute(
+            [
+                'amount'             => 50000,
+                'currency'           => 'UZS',
+                'income_category_id' => $cat->id,
+                'payment_method'     => 'cash',
+            ],
+            $admin->id,
+            CashTransactionSource::ManualAdmin,
+        );
+
+        $this->assertSame('manual_admin', $this->sourceTriggerValue($tx));
+    }
+
+    /** @test */
+    public function rejects_beds24_external_to_prevent_silent_drawer_exclusion(): void
+    {
+        $cat = IncomeCategory::where('slug', 'other')->firstOrFail();
+
+        $this->expectException(\InvalidArgumentException::class);
+
+        app(RecordSmallSaleAction::class)->execute(
+            [
+                'amount'             => 1,
+                'currency'           => 'USD',
+                'income_category_id' => $cat->id,
+                'payment_method'     => 'cash',
+            ],
+            null,
+            CashTransactionSource::Beds24External,
+        );
+    }
+
+    /** @test */
+    public function bot_petty_sale_increases_drawer_balance(): void
+    {
+        // Replicates the 2026-05-06 incident: open shift + USD $10
+        // petty-sale via the cashier-bot path → balance must go up by
+        // exactly $10 USD.
+        $cashier = User::factory()->create();
+        $drawer  = \App\Models\CashDrawer::firstOrCreate(
+            ['name' => 'Test Drawer'],
+            ['is_active' => true]
+        );
+        $shift = CashierShift::create([
+            'user_id'        => $cashier->id,
+            'cash_drawer_id' => $drawer->id,
+            'opened_at'      => now(),
+            'status'         => 'open',
+        ]);
+
+        $cat = IncomeCategory::where('slug', 'water')->firstOrFail();
+
+        // Default source = CashierBot (cashier-bot path)
+        app(RecordSmallSaleAction::class)->execute([
+            'amount'             => 10,
+            'currency'           => 'USD',
+            'income_category_id' => $cat->id,
+            'payment_method'     => 'cash',
+        ], $cashier->id);
+
+        $balance = app(BalanceCalculator::class)->getBal($shift->fresh());
+
+        $this->assertSame(
+            10.0,
+            (float) ($balance['USD'] ?? 0),
+            'cashier-bot petty sale must move the USD drawer balance by +10'
+        );
+    }
+
+    /**
+     * source_trigger column may come back from the DB as a string
+     * (not auto-cast to enum); normalise to value for assertions.
+     */
+    private function sourceTriggerValue(CashTransaction $tx): string
+    {
+        $raw = $tx->fresh()->source_trigger;
+
+        return $raw instanceof \BackedEnum ? $raw->value : (string) $raw;
     }
 }

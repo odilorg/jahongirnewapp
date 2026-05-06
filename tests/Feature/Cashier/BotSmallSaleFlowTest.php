@@ -172,6 +172,13 @@ final class BotSmallSaleFlowTest extends TestCase
         $this->assertSame('UZS', $curVal);
         $this->assertSame($this->shift->id, $tx->cashier_shift_id);
         $this->assertSame($this->cashier->id, $tx->created_by);
+
+        // 2026-05-06 regression pin: bot-confirmed sale rows MUST tag
+        // source_trigger=cashier_bot so they join drawer truth and move
+        // the cashier's running balance.
+        $stRaw = $tx->source_trigger;
+        $stVal = $stRaw instanceof \BackedEnum ? $stRaw->value : (string) $stRaw;
+        $this->assertSame('cashier_bot', $stVal);
     }
 
     /** @test */

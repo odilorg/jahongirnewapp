@@ -1,4 +1,4 @@
-# arch-lint baseline — regenerated 2026-05-05T22:01:58+05:00
+# arch-lint baseline — regenerated 2026-05-06T15:15:15+05:00
 # Format: file:line:rule-key (rule-key stable across runs)
 app/Console/Commands/SendDailyRecap.php:52:http-outside-adapter
 app/Console/Commands/TourSendReminders.php:397:http-outside-adapter
@@ -30,7 +30,7 @@ app/Http/Controllers/CashierBotController.php:1805:fat-controller
 app/Http/Controllers/CashierBotController.php:1878:fat-controller
 app/Http/Controllers/CashierBotController.php:1938:fat-controller
 app/Http/Controllers/CashierBotController.php:2027:fat-controller
-app/Http/Controllers/CashierBotController.php:2325:fat-controller
+app/Http/Controllers/CashierBotController.php:2332:fat-controller
 app/Http/Controllers/CashierBotController.php:657:fat-controller
 app/Http/Controllers/CashierBotController.php:77:fat-controller
 app/Http/Controllers/CashierBotController.php:803:fat-controller
