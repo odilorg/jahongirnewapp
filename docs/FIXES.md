@@ -14,6 +14,71 @@ Newest entries at top.
 
 ---
 
+## 2026-05-06 — Hotel-booking bot avail check fragile to DeepSeek outages
+
+**Symptom:** At 14:14 +0500 the operator sent `9-11 may avail` to
+`@j_booking_hotel_bot`. DeepSeek API timed out (cURL error 28, 30s)
+and the bot replied with the generic `"I couldn't parse that. Try one
+of: bookings today / arrivals today / cancel 12345 / Type /help…"`.
+The rest of the bot kept working (cancel, view-bookings, search,
+/pay) — only avail was hit.
+
+**Root cause:** `LocalIntentParser` had no matcher for
+`check_availability`. Cancel, show, view-bookings, arrivals,
+departures, and search all had local regex; availability was the lone
+intent that always fell through to DeepSeek with `path:"llm"`. So
+every avail query — the hotel's daily-driver question — was a hard
+dependency on a remote LLM, with the bot's "graceful fallback" being
+the same generic menu hint regardless of how parseable the input was.
+
+**Fix applied:** Added `matchAvailRange()` to
+`app/Services/BookingBot/LocalIntentParser.php` covering the
+daily-driver shapes:
+
+```
+<range> avail | <range> availability
+avail <range> | availability <range>
+today avail   | tomorrow avail
+avail today   | availability tomorrow
+ISO single + ISO range with avail keyword
+```
+
+Single-date inputs auto-extend `check_out` by 1 day so Beds24 sees a
+1-night stay rather than 0 nights. `today`/`tomorrow` are resolved
+inline as 1-night stays starting on that day. Multi-day ranges
+(e.g. `9-10 may` = 1 night, `21-28 may` = 7 nights) flow through
+`DateRangeParser` unchanged. Returned shape matches DeepSeek's
+existing `check_availability` contract so `CheckAvailabilityAction`
+needed no change. Unparseable shapes (`avail nonsense`,
+`cancel booking #5 avail`) still fall through to DeepSeek — the LLM
+fallback path is preserved.
+
+**Verification:**
+- 66 / 66 targeted tests pass on VPS test DB (130 assertions),
+  including 9 dataProvider rows covering every documented pattern,
+  11 semantic tests pinning date correctness, and one integration
+  test in `BookingIntentParserTest::test_avail_local_hit_bypasses_deepseek`
+  that mocks `DeepSeekIntentParser` with `shouldNotReceive('parse')`
+  for `9-10 may avail` — proves the daily-driver shape is now
+  LLM-independent.
+- arch-lint clean (`new-P0=0  new-P1=0  P2=0`).
+- Pint clean for new lines.
+- Manual Telegram smoke test pending operator verification — expect
+  `path:"local"` on `9-10 may avail`, `today avail`, `tomorrow avail`,
+  `availability 21-28 may`.
+
+**No DB schema change.** No migration. No external HTTP added. No
+data mutated. Pure regex + DateRangeParser delegation.
+
+**Backup reference:** Not applicable.
+
+**Commit hash:** `14b9937729c1fef4f324cf868eece70f97ba0289`
+(squash-merge to main, deployed 2026-05-06 20:10 +0200, 5/5 health
+checks passed)
+**Branch:** `feat/local-avail-parser` (deleted post-merge)
+
+---
+
 ## 2026-05-06 — Cashier petty-sale silently excluded from drawer balance
 
 **Symptom:** Doniyor recorded a $10 incoming petty sale through the
