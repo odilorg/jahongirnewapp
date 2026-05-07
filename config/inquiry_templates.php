@@ -164,7 +164,6 @@ TXT,
 Агар меҳмонлар хурсанд бўлса, телефондаги review QR картани кўрсатинг.
 Фақат шуни айтинг: «TripAdvisor review, please. Thank you.»
 5 юлдуз сўраманг ва меҳмонга босим қилманг.
-🖼 Картани очиш: {review_card_url}
 
 🤝 Jahongir Travel — {reference}
 TXT,
@@ -186,7 +185,6 @@ TXT,
 Агар меҳмонлар хурсанд бўлса, телефондаги review QR картани кўрсатинг.
 Фақат шуни айтинг: «TripAdvisor review, please. Thank you.»
 5 юлдуз сўраманг ва меҳмонга босим қилманг.
-🖼 Картани очиш: {review_card_url}
 
 🤝 Jahongir Travel — {reference}
 TXT,

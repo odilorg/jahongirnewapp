@@ -75,12 +75,20 @@ final class DispatchReviewCardTest extends TestCase
     }
 
     /** @test */
-    public function review_card_url_placeholder_present_in_both_templates(): void
+    public function review_card_url_placeholder_NOT_in_dispatch_text(): void
     {
+        // 2026-05-07 operator request: the QR card image is already
+        // sent as a separate Telegram photo by
+        // DriverDispatchNotifier::sendReviewCardPhotoBestEffort(), so
+        // including the raw .png URL inside the dispatch text was
+        // redundant + visually noisy. The image alone is enough.
+        // Pin the contract that the placeholder stays out of templates.
         foreach (['driver_dispatch_uz', 'guide_dispatch_uz'] as $key) {
             $tpl = $this->loadTemplate($key);
-            $this->assertStringContainsString('{review_card_url}', $tpl,
-                "Template {$key} must carry the {review_card_url} placeholder");
+            $this->assertStringNotContainsString('{review_card_url}', $tpl,
+                "Template {$key} must NOT carry the {review_card_url} placeholder; the photo is sent separately");
+            $this->assertStringNotContainsString('Картани очиш', $tpl,
+                "Template {$key} must NOT contain the 'Картани очиш' line; the QR image is sent as a Telegram photo");
         }
     }
 

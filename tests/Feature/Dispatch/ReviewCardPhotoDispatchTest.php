@@ -24,7 +24,8 @@ use Tests\TestCase;
  *   5. Text dispatch failure SKIPS the photo step (no orphan photo)
  *   6. Caption uses the safety-compliant wording (no 5-star ask, no
  *      bonus/incentive language)
- *   7. Backup URL stays in the dispatch text (review_card_url placeholder)
+ *   7. Dispatch text does NOT contain the QR card .png URL — image is
+ *      sent separately as a Telegram photo (operator request 2026-05-07)
  *
  * Mockery is used to assert call sequence on the TgDirectClient binding
  * since the real Telethon path lives on a different process.
@@ -164,8 +165,17 @@ final class ReviewCardPhotoDispatchTest extends TestCase
     }
 
     /** @test */
-    public function backup_url_remains_in_dispatch_text(): void
+    public function backup_url_NOT_in_dispatch_text(): void
     {
+        // 2026-05-07 operator request: the QR card image is sent as a
+        // separate Telegram photo via sendReviewCardPhotoBestEffort();
+        // the raw .png URL inside the dispatch text was redundant and
+        // visually noisy, so it was removed from both
+        // driver_dispatch_uz and guide_dispatch_uz templates.
+        // Pin: even with the photo flag OFF, the text MUST NOT carry
+        // the URL. (When the operator wants the URL back, restore the
+        // {review_card_url} placeholder in config/inquiry_templates.php
+        // — this test will then fail loud and remind to revert.)
         config()->set('services.tripadvisor.send_review_card_image', false);
         config()->set('app.url', 'https://jahongir-app.uz');
 
@@ -174,6 +184,7 @@ final class ReviewCardPhotoDispatchTest extends TestCase
         $tgMock->shouldReceive('send')->once()
             ->withArgs(function ($dest, $msg, $name) use (&$capturedMessage) {
                 $capturedMessage = $msg;
+
                 return true;
             })
             ->andReturn(['ok' => true, 'msg_id' => 100]);
@@ -183,7 +194,10 @@ final class ReviewCardPhotoDispatchTest extends TestCase
         app(DriverDispatchNotifier::class)->dispatchSupplier($inquiry, 'driver');
 
         $this->assertNotNull($capturedMessage);
-        $this->assertStringContainsString('jahongir-app.uz/images/review/tripadvisor-review-card', $capturedMessage);
+        $this->assertStringNotContainsString('tripadvisor-review-card', $capturedMessage,
+            'QR card .png URL must not appear in the dispatch text — image is sent separately as a Telegram photo');
+        $this->assertStringNotContainsString('Картани очиш', $capturedMessage,
+            'The "Open the card" line must not appear in the dispatch text');
     }
 
     /** @test */
