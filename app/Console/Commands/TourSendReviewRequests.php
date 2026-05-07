@@ -4,41 +4,42 @@ declare(strict_types=1);
 
 namespace App\Console\Commands;
 
+use App\Actions\Feedback\SendManualInternalFeedbackRequestAction;
 use App\Models\BookingInquiry;
-use App\Models\TourFeedback;
-use App\Services\Feedback\FeedbackMessageBuilder;
-use App\Services\Messaging\WhatsAppSender;
 use Carbon\Carbon;
 use Illuminate\Console\Command;
-use Illuminate\Support\Facades\Log;
 
 /**
- * Send post-tour internal feedback requests to guests whose tour ended
- * yesterday.
+ * Batch-send post-tour internal feedback requests to guests whose tour
+ * ended yesterday.
  *
- * Phase 9.2: now points to the internal feedback flow (token-gated form
+ * 2026-05-07: this command is **no longer scheduled**. It still works
+ * when invoked by hand for batch backfills, but the per-inquiry send
+ * logic was lifted into SendManualInternalFeedbackRequestAction so the
+ * same path is shared with the operator-driven Filament button (and
+ * future surfaces). CLAUDE.md hard line: no duplicated business rule.
+ *
+ * Phase 9.2: points to the internal feedback flow (token-gated form
  * on jahongir-app.uz) instead of dropping Google/TripAdvisor URLs into
  * the outbound message. Public review CTAs only appear post-positive
  * submission inside the feedback form's thank-you page.
  *
  * Channels: WhatsApp first (wa-api via tunnel), email fallback via
- * himalaya for guests whose number doesn't normalise.
+ * himalaya for guests whose number doesn't normalise — both delegated
+ * to the Action.
  *
- * Idempotency:
- *   - Eligibility filter excludes inquiries that already have
- *     feedback_request_sent_at set
- *   - We create the TourFeedback row BEFORE the send so a partial
- *     send-then-crash doesn't leave the operator wondering whether
- *     it went out
+ * Idempotency: eligibility filter excludes inquiries that already have
+ * feedback_request_sent_at set. The Action's stamp-on-success-only
+ * contract means a transport failure doesn't poison retries.
  */
 class TourSendReviewRequests extends Command
 {
     protected $signature   = 'tour:send-review-requests {--dry-run : Print without sending}';
-    protected $description = 'Send post-tour feedback requests to guests whose tour ended yesterday';
+
+    protected $description = 'Send post-tour feedback requests to guests whose tour ended yesterday (manual / backfill use only — not scheduled)';
 
     public function __construct(
-        private WhatsAppSender $whatsApp,
-        private FeedbackMessageBuilder $messageBuilder,
+        private SendManualInternalFeedbackRequestAction $sendAction,
     ) {
         parent::__construct();
     }
@@ -82,115 +83,27 @@ class TourSendReviewRequests extends Command
 
             if ($dryRun) {
                 $sent++;
+
                 continue;
             }
 
-            $sentThis = $this->processInquiry($inquiry);
+            // Single source of truth: same Action used by the Filament
+            // operator button. Action handles token creation, WhatsApp,
+            // email fallback, orphan cleanup, and stamping
+            // feedback_request_sent_at on success.
+            $result = $this->sendAction->execute($inquiry);
 
-            if ($sentThis) {
-                $inquiry->forceFill(['feedback_request_sent_at' => now()])->save();
+            if ($result['sent']) {
                 $sent++;
-                $this->info('     ✅ Sent');
+                $this->info("     ✅ Sent via {$result['channel']}");
             } else {
                 $failed++;
-                $this->warn('     ⚠ No channel available');
+                $this->warn('     ⚠ ' . ($result['reason'] ?? 'No channel available'));
             }
         }
 
         $this->info("Feedback requests done. Sent: {$sent}, Failed: {$failed}");
 
         return self::SUCCESS;
-    }
-
-    private function processInquiry(BookingInquiry $inquiry): bool
-    {
-        // Pre-create the feedback row with token + supplier snapshot. If
-        // the send fails on every channel, we'll delete it back out so the
-        // operator can retry tomorrow without orphans.
-        $feedback = TourFeedback::create([
-            'inquiry_id'       => $inquiry->id,
-            'driver_id'        => $inquiry->driver_id,
-            'guide_id'         => $inquiry->guide_id,
-            'accommodation_id' => $inquiry->stays->first()?->accommodation_id,
-            'token'            => TourFeedback::generateToken(),
-            'source'           => 'whatsapp',
-        ]);
-
-        $url     = url('/feedback/' . $feedback->token);
-        $built   = $this->messageBuilder->build($inquiry, $url);
-        $message = $built['text'];
-
-        $sentVia = null;
-        $phone   = $this->whatsApp->normalizePhone($inquiry->customer_phone);
-
-        if ($phone) {
-            $this->line("     → WhatsApp: {$phone}");
-            $result = $this->whatsApp->send($phone, $message);
-            if ($result->success) {
-                $sentVia = 'whatsapp';
-                Log::info('TourSendReviewRequests: WhatsApp sent', [
-                    'inquiry_id'   => $inquiry->id,
-                    'reference'    => $inquiry->reference,
-                    'feedback_id'  => $feedback->id,
-                    'opener_index' => $built['opener_index'],
-                ]);
-            } else {
-                Log::warning('TourSendReviewRequests: WhatsApp failed', [
-                    'inquiry_id' => $inquiry->id,
-                    'phone'      => $phone,
-                    'error'      => $result->error,
-                ]);
-            }
-        }
-
-        if ($sentVia === null && filled($inquiry->customer_email)) {
-            if ($this->sendEmail($inquiry, $message)) {
-                $sentVia = 'email';
-            }
-        }
-
-        if ($sentVia === null) {
-            // No channel succeeded — clean up the orphan so retry tomorrow
-            // generates a fresh token + opener.
-            $feedback->delete();
-            return false;
-        }
-
-        $feedback->forceFill([
-            'source'       => $sentVia,
-            'opener_index' => $built['opener_index'],
-        ])->save();
-
-        return true;
-    }
-
-    private function sendEmail(BookingInquiry $inquiry, string $body): bool
-    {
-        $email   = trim((string) $inquiry->customer_email);
-        $subject = 'How was your trip? · Jahongir Travel';
-        $this->line("     → Email: {$email}");
-
-        $mml     = "From: odilorg@gmail.com\nTo: {$email}\nSubject: {$subject}\n\n{$body}";
-        $tmpFile = tempnam(sys_get_temp_dir(), 'fb_') . '.eml';
-        file_put_contents($tmpFile, $mml);
-
-        $out = [];
-        exec('himalaya template send < ' . escapeshellarg($tmpFile) . ' 2>&1', $out, $code);
-        @unlink($tmpFile);
-
-        if ($code === 0) {
-            Log::info('TourSendReviewRequests: email sent', [
-                'inquiry_id' => $inquiry->id,
-                'email'      => $email,
-            ]);
-            return true;
-        }
-
-        Log::warning('TourSendReviewRequests: email failed', [
-            'inquiry_id' => $inquiry->id,
-            'email'      => $email,
-            'output'     => implode("\n", $out),
-        ]);
-        return false;
     }
 }

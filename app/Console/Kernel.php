@@ -141,31 +141,33 @@ class Kernel extends ConsoleKernel
             ->withoutOverlapping()
             ->runInBackground();
 
-        // Post-tour review requests at 10:00 Tashkent — WhatsApp/email guests whose tour ended yesterday
-        $schedule->command('tour:send-review-requests')
-            ->dailyAt('10:00')
-            ->timezone('Asia/Tashkent')
-            ->withoutOverlapping();
-
-        // Public-review reminders are MANUAL-ONLY (Phase 1.7.0 / 2026-05-05).
+        // BOTH post-tour review systems are now MANUAL-ONLY (2026-05-07).
         //
-        // Business decision: operators (not the system) decide which guests
-        // to nudge for public TripAdvisor reviews — they read the room
-        // (which guests were happy, which had issues) far better than any
-        // rating filter we can encode. Auto-pinging silent guests was
-        // creating reputation risk: a polite "neutral" guest pushed to
-        // public surfaces sometimes wrote a tepid 3★, hurting our average.
+        // Phase 1.7.0 / 2026-05-05 made the public TripAdvisor reminder
+        // manual but left the Day-1 internal feedback request
+        // (tour:send-review-requests) on schedule. In practice the
+        // distinction was lost on operators: the auto-fired internal
+        // message ("Hi {name} 😊 Hope the trip was a good one… ⭐
+        // /feedback/{token}") feels indistinguishable from a public
+        // review push, so operators kept getting surprised by sends
+        // they didn't trigger (real example: Karl Marton, 2026-05-06,
+        // INQ-2026-000087).
         //
-        // The Filament BookingInquiryResource view page has a "Send
-        // TripAdvisor Review Request" button that calls
-        // SendManualTripAdvisorReviewRequestAction. The legacy command
-        // (tour:send-public-review-reminders) is intentionally retained
-        // — `php artisan tour:send-public-review-reminders` still runs
-        // when invoked by hand, but it is no longer scheduled.
+        // Business decision: operators (not the system) decide which
+        // guests to ping for ANY post-tour message — public review or
+        // internal feedback. They read the tour-day vibes far better
+        // than any date filter we can encode.
         //
-        // The Day-1 internal feedback request (tour:send-review-requests
-        // above) keeps running on schedule — only the public-review nudge
-        // is manualised.
+        // Both legacy commands (tour:send-public-review-reminders and
+        // tour:send-review-requests) are intentionally retained and
+        // still runnable by hand for batch backfills, but neither is
+        // scheduled.
+        //
+        // The Filament BookingInquiryResource view page has the two
+        // operator buttons that replace the crons:
+        //   - SendManualTripAdvisorReviewRequestAction  (public review)
+        //   - SendManualInternalFeedbackRequestAction   (internal Day-1)
+        // Both stamp their respective *_sent_at column on success only.
 
         // Hotel pickup requests at 09:00 Tashkent — email guests with bookings 3-30 days out, no hotel set
         $schedule->command('tour:send-hotel-requests')

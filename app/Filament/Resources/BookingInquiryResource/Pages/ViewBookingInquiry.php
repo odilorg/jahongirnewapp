@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Filament\Resources\BookingInquiryResource\Pages;
 
+use App\Actions\Feedback\SendManualInternalFeedbackRequestAction;
 use App\Actions\Feedback\SendManualTripAdvisorReviewRequestAction;
 use App\Filament\Resources\BookingInquiryResource;
 use App\Models\BookingInquiry;
@@ -44,6 +45,30 @@ class ViewBookingInquiry extends ViewRecord
                 })
                 ->modalSubmitActionLabel('Send')
                 ->action(fn (BookingInquiry $record) => $this->dispatchTripAdvisorRequest($record)),
+
+            // Manual Day-1 internal feedback request (2026-05-07).
+            // Auto-cron tour:send-review-requests was disabled by business
+            // decision — symmetric reasoning with TripAdvisor: operators
+            // pick happy guests by hand. Same eligibility rules; modal
+            // surfaces prior send timestamp on resends.
+            Actions\Action::make('sendInternalFeedbackRequest')
+                ->label('💬 Send Internal Feedback Request')
+                ->color('warning')
+                ->icon('heroicon-o-chat-bubble-left-right')
+                ->visible(fn (BookingInquiry $record): bool => $this->canSendReviewRequest($record))
+                ->requiresConfirmation()
+                ->modalHeading('Send internal feedback request')
+                ->modalDescription(function (BookingInquiry $record): string {
+                    if ($record->feedback_request_sent_at) {
+                        $when = $record->feedback_request_sent_at->format('d M Y H:i');
+
+                        return "⚠ A feedback request was already sent on {$when}. Send again to {$record->customer_name}?";
+                    }
+
+                    return "Send internal feedback request to {$record->customer_name}?";
+                })
+                ->modalSubmitActionLabel('Send')
+                ->action(fn (BookingInquiry $record) => $this->dispatchInternalFeedbackRequest($record)),
         ];
     }
 
@@ -64,6 +89,29 @@ class ViewBookingInquiry extends ViewRecord
                 ->title('Review request sent')
                 ->body("Channel: {$result['channel']} · {$record->customer_name}")
                 ->send();
+            return;
+        }
+
+        Notification::make()
+            ->danger()
+            ->title('Send failed — not stamped')
+            ->body((string) ($result['reason'] ?? 'Unknown error'))
+            ->persistent()
+            ->send();
+    }
+
+    private function dispatchInternalFeedbackRequest(BookingInquiry $record): void
+    {
+        $result = app(SendManualInternalFeedbackRequestAction::class)
+            ->execute($record, auth()->id());
+
+        if ($result['sent']) {
+            Notification::make()
+                ->success()
+                ->title('Feedback request sent')
+                ->body("Channel: {$result['channel']} · {$record->customer_name}")
+                ->send();
+
             return;
         }
 
