@@ -229,6 +229,61 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
             ->send();
     }
 
+    /**
+     * Send the manual Day-1 internal feedback request from the calendar
+     * slide-over. Symmetric with sendTripAdvisorRequest — same
+     * eligibility rules, same stamp-only-on-success rule, different
+     * Action + different stamp column (feedback_request_sent_at).
+     */
+    public function sendInternalFeedbackRequest(): void
+    {
+        $inquiry = BookingInquiry::find($this->selectedInquiryId);
+        if (! $inquiry) {
+            Notification::make()->title('No inquiry selected')->danger()->send();
+
+            return;
+        }
+
+        $user = auth()->user();
+        if (! $user || ! $user->hasAnyRole(['super_admin', 'admin', 'manager'])) {
+            Notification::make()->title('⛔ Insufficient role')->danger()->send();
+
+            return;
+        }
+
+        if ($inquiry->status !== BookingInquiry::STATUS_CONFIRMED || $inquiry->cancelled_at !== null) {
+            Notification::make()->title('Inquiry must be confirmed and not cancelled')->danger()->send();
+
+            return;
+        }
+
+        if (! filled($inquiry->customer_phone) && ! filled($inquiry->customer_email)) {
+            Notification::make()->title('No phone or email on file')->danger()->send();
+
+            return;
+        }
+
+        $result = app(\App\Actions\Feedback\SendManualInternalFeedbackRequestAction::class)
+            ->execute($inquiry, $user->id);
+
+        if ($result['sent']) {
+            Notification::make()
+                ->title('💬 Internal feedback request sent')
+                ->body("Channel: {$result['channel']} · {$inquiry->customer_name}")
+                ->success()
+                ->send();
+
+            return;
+        }
+
+        Notification::make()
+            ->title('Send failed — not stamped')
+            ->body((string) ($result['reason'] ?? 'Unknown error'))
+            ->danger()
+            ->persistent()
+            ->send();
+    }
+
     public function quickGuestPay(?string $amount = null, ?string $method = null): void
     {
         $amount = $amount ?: $this->guestPayAmount;

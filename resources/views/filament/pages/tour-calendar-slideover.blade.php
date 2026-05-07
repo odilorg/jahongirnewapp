@@ -180,6 +180,25 @@
                         Last sent: {{ $inquiry->review_request_sent_at->format('d M Y H:i') }}
                     </div>
                 @endif
+
+                {{-- Manual Day-1 internal feedback request — added 2026-05-07
+                     when the auto cron tour:send-review-requests was disabled.
+                     Distinct visuals (chat bubble + green palette) so
+                     operators can't conflate it with the TripAdvisor button
+                     immediately above. Same eligibility predicate; reads
+                     the feedback_request_sent_at column. --}}
+                <button type="button" wire:click="sendInternalFeedbackRequest"
+                        wire:loading.attr="disabled"
+                        wire:loading.class="opacity-50"
+                        style="background:#dcfce7; color:#166534; border:1px solid #22c55e;"
+                        class="mt-2 w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md hover:opacity-90 transition-opacity">
+                    💬 {{ $inquiry->feedback_request_sent_at ? 'Resend feedback request' : 'Send feedback request' }}
+                </button>
+                @if ($inquiry->feedback_request_sent_at)
+                    <div class="mt-1 text-[10px] text-gray-500 dark:text-gray-400 text-center">
+                        Last sent: {{ $inquiry->feedback_request_sent_at->format('d M Y H:i') }}
+                    </div>
+                @endif
             </div>
         @endif
     </div>
