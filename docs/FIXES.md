@@ -14,6 +14,82 @@ Newest entries at top.
 
 ---
 
+## 2026-05-07 — Day-1 internal feedback request: auto-cron disabled, operator-button replacement
+
+**Symptom:** At 10:00 +0500 the cron `tour:send-review-requests`
+fired and sent the Day-1 internal feedback message
+(`Hi {name} 😊 Hope the trip was a good one… ⭐ /feedback/{token}`)
+to every confirmed inquiry whose tour ended yesterday. Operators kept
+getting surprised by sends they didn't trigger because in practice
+the message wording was indistinguishable from the public-review
+push that Phase 1.7.0 (2026-05-05) had already manualised.
+Concrete example: Karl Marton, INQ-2026-000087, sent 2026-05-06
+10:00:04 — operator hadn't agreed to it.
+
+**Root cause:** Phase 1.7.0 split post-tour messages into two
+systems and made only one (TripAdvisor public review) manual. The
+internal feedback cron (`tour:send-review-requests`) was kept on
+schedule in `app/Console/Kernel.php:145–148` based on the assumption
+that "internal feedback" was reputation-safe enough to auto-fire.
+Operationally that distinction was lost: operators read both as
+"the system is sending review nudges without my approval".
+
+**Fix applied:** Symmetric with the 2026-05-05 TripAdvisor
+manualization. `tour:send-review-requests` removed from the
+scheduler in `app/Console/Kernel.php`. New
+`SendManualInternalFeedbackRequestAction` is the single source of
+truth for the per-inquiry send (token creation, WhatsApp + email
+fallback, orphan `TourFeedback` cleanup on full failure,
+stamp-on-success-only contract via `forceFill`). The legacy CLI
+(`tour:send-review-requests`) is intentionally retained but
+refactored to delegate to the Action — CLAUDE.md hard line "no
+duplicated business rule" satisfied; CLI shrinks 195→109 lines.
+A second header action `💬 Send Internal Feedback Request` (color
+warning, icon chat-bubble) lives next to the existing
+`🌟 Send TripAdvisor Review Request` on the Filament
+`BookingInquiryResource` view page. Same `canSendReviewRequest`
+eligibility predicate (super_admin/admin/manager + STATUS_CONFIRMED
++ cancelled_at IS NULL + phone-or-email present), same modal-on-
+resend pattern with prior-send timestamp warning, distinct visuals
+so operators can't conflate the two.
+
+**Verification:**
+- 5 / 5 new tests pass on VPS test DB:
+  `message_contains_internal_feedback_url_on_our_domain`,
+  `successful_whatsapp_send_stamps_feedback_request_sent_at`,
+  `both_channels_failing_does_not_stamp_and_cleans_orphan_feedback`,
+  `whatsapp_failure_does_not_stamp_when_email_also_missing`,
+  `auto_cron_is_no_longer_scheduled` (regression guard symmetric
+  with the existing public-review pin in
+  `ManualTripAdvisorReviewRequestTest`).
+- `php artisan schedule:list` post-deploy: `tour:send-review-requests`
+  ABSENT (target), `tour:send-public-review-reminders` ABSENT
+  (kept manual from before), three unrelated reminder crons
+  (`tour:send-reminders`, `tour:send-late-guest-reminders`,
+  `tour:send-hotel-requests`) PRESENT untouched.
+- Code-reviewer (deep mode): APPROVE, no blockers. One tracked
+  medium risk — double-click during slow WA send can produce a
+  duplicate `TourFeedback` row + duplicate send (same risk profile
+  as the already-shipped TripAdvisor button; future mitigation via
+  `Cache::lock("feedback-send:{$inquiry->id}", 30)` around the
+  Filament dispatch methods).
+- arch-lint clean (`new-P0=0  new-P1=0  P2=0`).
+- Pint clean for new lines.
+- Live operator smoke test: pending (operator will click the new
+  button on a confirmed non-cancelled inquiry).
+
+**No DB schema change.** No migration. No data mutation. Beds24,
+cashier, and bot code untouched.
+
+**Backup reference:** Not applicable.
+
+**Commit hash:** `57477b2507d46c5e5282ff89a748d9c1b1a1e558`
+(squash-merge to main, deployed 2026-05-07 08:05 +0200, 5/5 health
+checks passed)
+**Branch:** `feat/manual-internal-feedback-request` (deleted post-merge)
+
+---
+
 ## 2026-05-06 — Hotel-booking bot avail check fragile to DeepSeek outages
 
 **Symptom:** At 14:14 +0500 the operator sent `9-11 may avail` to
