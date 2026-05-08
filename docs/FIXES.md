@@ -140,8 +140,10 @@ fillable change inside `recordPayment()` and `CashTransaction`.
 
 **Backup reference:** Not applicable.
 
-**Commit hash:** _to be set after merge to main_
-**Branch:** `fix/cashier-split-leg-variance-bypass`
+**Commit hash:** `ea9bbea0119695aea96e7db62acec5118a80a634`
+(squash-merge to main, deployed 2026-05-08 10:04 +0200, 5/5 health
+checks passed)
+**Branch:** `fix/cashier-split-leg-variance-bypass` (deleted post-merge)
 
 ---
 
