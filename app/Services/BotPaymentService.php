@@ -5,6 +5,7 @@ namespace App\Services;
 use App\DTO\GroupAmountResolution;
 use App\DTO\PaymentPresentation;
 use App\DTO\RecordPaymentData;
+use App\DTOs\Fx\OverrideEvaluation;
 use App\Enums\CashTransactionSource;
 use App\Enums\Currency;
 use App\Enums\OverrideTier;
@@ -754,10 +755,38 @@ class BotPaymentService
         }
 
         // 2. Override policy — use canonical Fx evaluator (returns Blocked when threshold exceeded)
+        //
+        // EXCEPT for split-leg / group-bulk contexts: an individual leg
+        // amount is an operator partition of the total, not an
+        // independent variance against the presented booking amount.
+        // Comparing each leg to the full presented total falsely flags
+        // every realistic split (e.g. 520k + 270k = 790k → cash-leg
+        // variance reads as 34%, card-leg as 66%, both BLOCKED at
+        // >10% threshold). The parent layer is the right authority for
+        // sum-lock at this granularity:
+        //   - recordSplitPayment           → abs(sum - presented) > 1.0
+        //   - recordMixedCurrencySplitPayment → tiered variance against
+        //                                       expected_in_base, hard 5% ceiling
+        //   - recordBulkGroupPayment       → distributed shares vs entered total
+        //
+        // For split legs we yield a "skippedForSplit" evaluation that
+        // honestly records the bypass on the row's audit columns
+        // (within_tolerance=true, override_tier='none', variance_pct=0)
+        // rather than running a meaningless per-leg comparison.
         $presented  = $data->presentation->presentedAmountFor($data->currencyPaid);
         $currency   = Currency::tryFrom(strtoupper($data->currencyPaid)) ?? Currency::UZS;
-        $evaluation = $this->overridePolicy->evaluate($currency, $presented, $data->amountPaid);
-        $tier       = $evaluation->tier;
+
+        $isSplitLeg = in_array(
+            $data->paymentGroupType,
+            ['split', 'mixed_currency_split', 'group_bulk'],
+            true,
+        );
+
+        $evaluation = $isSplitLeg
+            ? OverrideEvaluation::skippedForSplit($currency, $presented, $data->amountPaid)
+            : $this->overridePolicy->evaluate($currency, $presented, $data->amountPaid);
+
+        $tier = $evaluation->tier;
 
         if ($evaluation->isBlocked()) {
             throw new PaymentBlockedException(

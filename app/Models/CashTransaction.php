@@ -98,6 +98,22 @@ class CashTransaction extends Model
         'deviation_pct',
         'was_overridden',
         // 'override_reason' is already in fillable above (legacy field reused).
+
+        // Journal Entry Foundation — links sibling rows of one logical
+        // transaction (split + group-bulk + future reversals/refunds).
+        // 2026-05-08 incident: these fields were absent from $fillable,
+        // so BotPaymentService::recordPayment() create() calls silently
+        // dropped them — the cash leg of a split persisted with
+        // journal_entry_id=NULL, then the card leg's duplicate-payment
+        // guard saw the cash row as a "prior unrelated payment" because
+        // the journal-id exemption couldn't match. Result: 100% of
+        // splits failed with DuplicatePaymentException on the second
+        // leg. Same silent-fillable pattern documented in
+        // feedback_no_mass_assign_for_system_state. See docs/FIXES.md.
+        'journal_entry_id',
+        'payment_group_type',
+        'base_currency_for_split',
+        'journal_status',
     ];
 
     protected $casts = [

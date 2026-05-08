@@ -14,6 +14,137 @@ Newest entries at top.
 
 ---
 
+## 2026-05-08 — Cashier split-payment broken end-to-end (two bugs)
+
+**Symptom:** Operator tried to record booking $65 USD as split
+520,000 UZS cash + 270,000 UZS card. Bot displayed
+`🚫 Оплата заблокирована. Эскалируйте вопрос руководству.` —
+exactly when sum-lock should have passed (520k + 270k = 790k UZS,
+matching the FX-presented total).
+
+Production audit: **0 successful splits in the prior 30 days, 43
+single-method payments in the same window**. Operators were
+working around it via single-method recording or by embedding
+amounts into `beds24_bookings.guest_name` (real example: row had
+`guest_name = "Tatyana Kreskas 800 000"`).
+
+**Root cause (two cooperating bugs):**
+
+1. **Per-leg variance evaluation in `recordPayment()`.**
+   `BotPaymentService::recordSplitPayment()` correctly enforced
+   sum-lock at the parent layer
+   (`abs(sum - presented) <= 1.0`). It then called `recordPayment()`
+   per leg. Inside `recordPayment()` the override-policy evaluator
+   was unconditionally comparing each leg against the FULL presented
+   booking total. For a 520k/270k split of 790k presented, each leg
+   read as 34% / 66% variance → `OverrideTier::Blocked`
+   (`fx.manager_threshold_pct = 10`) → `PaymentBlockedException`.
+   Same bug affected `recordMixedCurrencySplitPayment` and
+   `recordBulkGroupPayment` because both also delegate per-leg to
+   `recordPayment()`.
+
+2. **Silent `$fillable` failure on `CashTransaction` (co-conspirator).**
+   `journal_entry_id`, `payment_group_type`,
+   `base_currency_for_split`, and `journal_status` were absent from
+   `CashTransaction::$fillable`. Laravel mass-assignment silently
+   dropped them on `recordPayment()`'s `create()` call. The cash
+   leg of a split persisted with `journal_entry_id = NULL`, then
+   the card leg's duplicate-payment guard saw the cash row as a
+   "prior unrelated payment" because the journal-id exemption
+   couldn't match. Result: even with bug #1 fixed, the second leg
+   would still fail with `DuplicatePaymentException`. Same silent-
+   fillable pattern previously documented in
+   `feedback_no_mass_assign_for_system_state`.
+
+**Fix applied:**
+
+- `BotPaymentService::recordPayment()` — when
+  `paymentGroupType ∈ {split, mixed_currency_split, group_bulk}`,
+  skip the override-policy evaluator and use a new
+  `OverrideEvaluation::skippedForSplit()` factory yielding
+  `tier=None / withinTolerance=true / variancePct=0`. The parent
+  layer is the right authority for sum-lock at this granularity:
+
+    - `recordSplitPayment`              → `abs(sum - presented) <= 1.0`
+    - `recordMixedCurrencySplitPayment` → tiered variance against
+                                          `expected_in_base`, hard
+                                          5% ceiling
+    - `recordBulkGroupPayment`          → distributed shares vs
+                                          entered total
+
+  Standalone payments (`paymentGroupType = null`) are UNCHANGED.
+  The canonical evaluator still runs and `PaymentBlockedException`
+  still fires for >10% variance.
+
+- `CashTransaction::$fillable` — added the four journal-entry
+  fields with an inline comment pointing at this incident so a
+  future developer can't silently re-introduce the silent-drop
+  pattern.
+
+- `OverrideEvaluation::skippedForSplit()` — new factory documented
+  explicitly as the split-leg / group-bulk audit path, returning
+  honest audit columns rather than pretending an evaluator pass.
+
+**Reporting impact (worth knowing):** split-leg rows now have
+`within_tolerance=true / override_tier='none' / variance_pct=0`
+just like clean standalone payments. Reports that filter for
+"clean payments only" must add `WHERE payment_group_type IS NULL`
+to exclude split legs. Distinct journal_entry_id / payment_group_type
+columns are the canonical way to identify split rows.
+
+**Verification:**
+
+- 5 / 5 new tests pass on VPS test DB
+  (`tests/Feature/Cashier/SplitPaymentTest.php`):
+
+    - `realistic_uzs_split_succeeds_without_blocking` — the
+      2026-05-08 Tatyana Kreskas scenario; pre-fix throws
+      `PaymentBlockedException`, post-fix records 2 rows.
+    - `failing_sum_lock_throws_at_parent_not_payment_blocked` —
+      sum 700k vs presented 790k throws `\InvalidArgumentException`
+      at the parent, NOT `PaymentBlockedException`. Proves bypass
+      isn't too permissive.
+    - `split_legs_share_journal_uuid_and_payment_group_type` —
+      both legs share `journal_entry_id` and `payment_group_type='split'`,
+      audit columns honestly record bypass.
+    - `standalone_over_variance_payment_still_blocks` — 49%
+      under-payment with `paymentGroupType=null` still throws
+      `PaymentBlockedException`. Standalone gate intact.
+    - `standalone_payment_with_same_amount_as_leg_still_blocks` —
+      520k UZS standalone (same dollar value as a successful split
+      leg) still blocks. Proves bypass keys on context, not amount.
+
+- arch-lint clean (`new-P0=0  new-P1=0  P2=0`).
+- pint clean for new lines.
+- Code-reviewer (deep mode, money path): APPROVE, no blockers.
+- Existing tests preserved: `BotPaymentServiceOverrideTest::canonical_evaluator_is_injected`,
+  `MixedCurrencySplitPaymentTest` parent sum-lock cases.
+
+**Tracked follow-ups (not in this PR):**
+
+- `recordSplitPayment` hardcodes `1.0` absolute tolerance whereas
+  sister methods use `sumLockTolerance($cur)` (100 UZS / 0.50
+  USD/EUR). Consistent for UZS today; should align if helper widens.
+- `withMixedJournalContext()` stamps `paymentGroupType: 'split'`
+  for mixed-currency splits, so the `'mixed_currency_split'` arm
+  of the bypass list is currently dead code (still works because
+  the `'split'` arm covers it). Future cleanup: either remove
+  the dead string or stamp `'mixed_currency_split'` consistently.
+- Add a `recordMixedCurrencySplitPayment` end-to-end DB test
+  (existing test partial-mocks `recordPayment`, so the bypass
+  contract for that path isn't directly pinned).
+
+**No DB schema change.** No migration. No data mutation. Beds24,
+scheduler, bot menu, cashier flow UI all untouched. Pure logic +
+fillable change inside `recordPayment()` and `CashTransaction`.
+
+**Backup reference:** Not applicable.
+
+**Commit hash:** _to be set after merge to main_
+**Branch:** `fix/cashier-split-leg-variance-bypass`
+
+---
+
 ## 2026-05-07 — Day-1 internal feedback request: auto-cron disabled, operator-button replacement
 
 **Symptom:** At 10:00 +0500 the cron `tour:send-review-requests`

@@ -33,4 +33,33 @@ final class OverrideEvaluation
     {
         return $this->tier->canProceed();
     }
+
+    /**
+     * Factory for split-leg / group-bulk legs where per-leg variance
+     * evaluation is meaningless because the operator partitioned a
+     * total — a single leg's amount is by definition not equal to the
+     * full booking presented amount.
+     *
+     * The parent layer (recordSplitPayment / recordMixedCurrencySplitPayment
+     * / recordBulkGroupPayment) is responsible for sum-lock at the
+     * correct granularity. This factory yields a tier=None evaluation
+     * so the leg row's audit columns honestly record "variance check
+     * skipped because this is a split/bulk leg" rather than reporting
+     * a false withinTolerance=true that came from a real evaluator
+     * pass.
+     */
+    public static function skippedForSplit(
+        Currency $currency,
+        float    $presentedAmount,
+        float    $proposedAmount,
+    ): self {
+        return new self(
+            currency:        $currency,
+            presentedAmount: $presentedAmount,
+            proposedAmount:  $proposedAmount,
+            variancePct:     0.0,
+            withinTolerance: true,
+            tier:            OverrideTier::None,
+        );
+    }
 }
