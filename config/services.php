@@ -38,6 +38,15 @@ return [
         // or request from Octo support for shop_id 27061.
         'unique_key'                => env('OCTO_UNIQUE_KEY'),
         'verify_callback_signature' => (bool) env('OCTO_VERIFY_CALLBACK_SIGNATURE', false),
+
+        // Payment-link lifetime sent to Octo as the `ttl` field on
+        // /prepare_payment. Per Octo API spec the unit is MINUTES.
+        // Default 5000 ≈ 3 days 11 hours — long enough for guests to
+        // pay overnight, short enough that stale links don't accumulate.
+        // Override with OCTO_PAYMENT_LINK_TTL_MINUTES if a flow needs
+        // a different window; current callers (hotel TG bot,
+        // GeneratePaymentLinkAction for inquiries) all share this value.
+        'payment_link_ttl_minutes' => (int) env('OCTO_PAYMENT_LINK_TTL_MINUTES', 5000),
     ],
 
     'telegram' => [

@@ -282,7 +282,11 @@ class OctoPaymentService
             'return_url'  => url('/payment/success'),
             'notify_url'  => route('octo.callback'),
             'language'    => 'en',
-            'ttl'         => 5000,
+            // ttl in minutes per Octo API; default 5000 ≈ 3 days 11 hours.
+            // Use ?? to defend against `OCTO_PAYMENT_LINK_TTL_MINUTES=` (empty
+            // env → null config), which would cast to 0 with `(int) config(...)`
+            // and ship instant-expiry links.
+            'ttl'         => (int) (config('services.octo.payment_link_ttl_minutes') ?? 5000),
         ];
 
         if (!$payload['tsp_id']) {
@@ -374,7 +378,11 @@ class OctoPaymentService
             'return_url' => url('/payment/success'),
             'notify_url' => route('octo.callback'),
             'language'   => 'en',
-            'ttl'        => 5000,
+            // ttl in minutes per Octo API; default 5000 ≈ 3 days 11 hours.
+            // Use ?? to defend against `OCTO_PAYMENT_LINK_TTL_MINUTES=` (empty
+            // env → null config), which would cast to 0 with `(int) config(...)`
+            // and ship instant-expiry links.
+            'ttl'        => (int) (config('services.octo.payment_link_ttl_minutes') ?? 5000),
         ];
 
         if (! $payload['tsp_id']) {
