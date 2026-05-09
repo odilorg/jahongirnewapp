@@ -35,15 +35,20 @@ class TourSendHotelRequests extends Command
 
         $this->info("Checking inquiries from {$from} to {$to} with missing hotel...");
 
+        // Hotel-pickup ask is private-tour only. Group tours always meet
+        // at "Gur Emir Mausoleum" (canonical group meeting point), so it
+        // is a real pickup, NOT a missing-pickup placeholder. Asking a
+        // group guest for a hotel confused Matthew Sandoz (inquiry 103)
+        // on 2026-05-09 into thinking hotel pickup was included.
         $inquiries = BookingInquiry::query()
             ->where('status', BookingInquiry::STATUS_CONFIRMED)
+            ->where('tour_type', BookingInquiry::TOUR_TYPE_PRIVATE)
             ->whereNull('hotel_request_sent_at')
             ->whereBetween('travel_date', [$from, $to])
             ->where(function ($q) {
                 $q->whereNull('pickup_point')
                   ->orWhere('pickup_point', '')
-                  ->orWhere('pickup_point', 'Samarkand')
-                  ->orWhere('pickup_point', 'Gur Emir Mausoleum');
+                  ->orWhere('pickup_point', 'Samarkand');
             })
             ->where('customer_email', '!=', '')
             ->orderBy('travel_date')
