@@ -49,9 +49,12 @@ class OwnerAlertServiceTest extends TestCase
     {
         Bus::fake([SendTelegramNotificationJob::class]);
 
-        config(['services.owner_alert_bot.owner_chat_id' => '12345']);
+        config([
+            'services.owner_alert_bot.owner_chat_id' => '12345',
+            'services.owner_alert_bot.allow_outbound_in_testing' => true,
+        ]);
 
-        $service = new OwnerAlertService();
+        $service = new OwnerAlertService;
         $service->sendDailySummary([
             '41097' => ['new_bookings' => 1, 'cancellations' => 0, 'modifications' => 0, 'current_guests' => 5, 'arrivals_tomorrow' => 2, 'departures_tomorrow' => 1, 'revenue_today' => '500', 'currency' => 'USD'],
             '172793' => ['new_bookings' => 0, 'cancellations' => 0, 'modifications' => 0, 'current_guests' => 0, 'arrivals_tomorrow' => 0, 'departures_tomorrow' => 0, 'revenue_today' => '0', 'currency' => 'USD'],
@@ -77,7 +80,7 @@ class OwnerAlertServiceTest extends TestCase
 
         config(['services.owner_alert_bot.owner_chat_id' => '0']);
 
-        $service = new OwnerAlertService();
+        $service = new OwnerAlertService;
         $service->sendShiftCloseReport('<b>Shift closed</b>');
 
         Bus::assertNotDispatched(SendTelegramNotificationJob::class);
@@ -88,9 +91,12 @@ class OwnerAlertServiceTest extends TestCase
     {
         Bus::fake([SendTelegramNotificationJob::class]);
 
-        config(['services.owner_alert_bot.owner_chat_id' => '99']);
+        config([
+            'services.owner_alert_bot.owner_chat_id' => '99',
+            'services.owner_alert_bot.allow_outbound_in_testing' => true,
+        ]);
 
-        $service = new OwnerAlertService();
+        $service = new OwnerAlertService;
         $service->sendShiftCloseReport('<b>Test</b>');
 
         Bus::assertDispatched(SendTelegramNotificationJob::class, function ($job) {
@@ -102,5 +108,59 @@ class OwnerAlertServiceTest extends TestCase
 
             return true;
         });
+    }
+
+    /**
+     * Defensive env-guard: in `testing`/`local`, suppress outbound dispatch
+     * by default so VPS test runs (which symlink the production .env and
+     * therefore inherit the prod owner-bot tokens + real owner chat ID)
+     * cannot leak alerts into the operator's Telegram. Tests that
+     * deliberately exercise dispatch behavior (the dispatch tests above)
+     * opt in by setting `services.owner_alert_bot.allow_outbound_in_testing`.
+     *
+     * @test
+     */
+    public function does_not_dispatch_in_testing_environment_by_default(): void
+    {
+        // Sanity: confirm we're in the testing environment
+        // (set by phpunit.xml). If this ever changes, the test below
+        // wouldn't actually exercise the guard.
+        $this->assertTrue(app()->environment('testing'));
+
+        Bus::fake([SendTelegramNotificationJob::class]);
+
+        config([
+            'services.owner_alert_bot.owner_chat_id' => '12345',
+            // explicitly DO NOT set allow_outbound_in_testing — verifies
+            // the default is "suppress".
+        ]);
+
+        $service = new OwnerAlertService;
+        $service->sendShiftCloseReport('<b>Test</b>');
+
+        Bus::assertNotDispatched(SendTelegramNotificationJob::class);
+    }
+
+    /**
+     * Inverse of the above: when the test explicitly opts in via the
+     * config flag, the guard lets the dispatch through. Belt-and-suspenders
+     * proof that the opt-in mechanism works (so the dispatch tests above
+     * aren't relying on accidental behavior).
+     *
+     * @test
+     */
+    public function dispatches_in_testing_when_opt_in_flag_is_set(): void
+    {
+        Bus::fake([SendTelegramNotificationJob::class]);
+
+        config([
+            'services.owner_alert_bot.owner_chat_id' => '12345',
+            'services.owner_alert_bot.allow_outbound_in_testing' => true,
+        ]);
+
+        $service = new OwnerAlertService;
+        $service->sendShiftCloseReport('<b>Test</b>');
+
+        Bus::assertDispatched(SendTelegramNotificationJob::class);
     }
 }

@@ -2,15 +2,13 @@
 
 namespace App\Services;
 
-use App\Models\Beds24Booking;
-use App\Models\Beds24BookingChange;
-use App\Models\CashTransaction;
-use App\Models\CashierShift;
-use App\Enums\TransactionType;
 use App\Enums\Currency;
 use App\Jobs\SendTelegramNotificationJob;
-use Illuminate\Support\Facades\Log;
+use App\Models\Beds24Booking;
+use App\Models\Beds24BookingChange;
+use App\Models\CashierShift;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Log;
 
 class OwnerAlertService
 {
@@ -43,13 +41,13 @@ class OwnerAlertService
         $currency = $booking->currency;
         $paymentSection = '';
 
-        if (!empty($paymentLines)) {
+        if (! empty($paymentLines)) {
             $lines = [];
             foreach ($paymentLines as $line) {
                 $desc = $line['description'] ?? '?';
                 $amt = (float) ($line['amount'] ?? 0);
                 $method = $line['status'] ?? '';
-                $methodLabel = match(strtolower($method)) {
+                $methodLabel = match (strtolower($method)) {
                     'naqd' => 'наличные',
                     'plastk', 'plastik', 'card' => 'карта',
                     'perevod', 'transfer' => 'перевод',
@@ -57,27 +55,27 @@ class OwnerAlertService
                 };
                 $lines[] = "  • {$desc}: {$amt} {$currency} ({$methodLabel})";
             }
-            $paymentSection = "\n<b>Платежи:</b>\n" . implode("\n", $lines) . "\n";
+            $paymentSection = "\n<b>Платежи:</b>\n".implode("\n", $lines)."\n";
         }
 
         $text = implode("\n", [
-            "🟢💰 <b>Новое бронирование (оплачено)</b>",
-            "",
+            '🟢💰 <b>Новое бронирование (оплачено)</b>',
+            '',
             "🏨 <b>Объект:</b> {$booking->getPropertyName()}",
             "🆔 <b>Бронирование:</b> #{$booking->beds24_booking_id}",
             "👤 <b>Гость:</b> {$booking->guest_name}",
-            "📞 <b>Телефон:</b> " . ($booking->guest_phone ?: 'не указан'),
-            "✉️ <b>Email:</b> " . ($booking->guest_email ?: 'не указан'),
-            "🌐 <b>Канал:</b> " . ($booking->channel ?: 'прямое'),
+            '📞 <b>Телефон:</b> '.($booking->guest_phone ?: 'не указан'),
+            '✉️ <b>Email:</b> '.($booking->guest_email ?: 'не указан'),
+            '🌐 <b>Канал:</b> '.($booking->channel ?: 'прямое'),
             "📅 <b>Заезд:</b> {$this->formatDate($booking->arrival_date)}",
             "📅 <b>Выезд:</b> {$this->formatDate($booking->departure_date)}",
             "🌙 <b>Ночей:</b> {$booking->nights}",
-            "👥 <b>Гостей:</b> {$booking->num_adults} взрослых" . ($booking->num_children > 0 ? ", {$booking->num_children} детей" : ''),
-            "🛏️ <b>Комната:</b> " . ($booking->room_name ?: 'не указана'),
+            "👥 <b>Гостей:</b> {$booking->num_adults} взрослых".($booking->num_children > 0 ? ", {$booking->num_children} детей" : ''),
+            '🛏️ <b>Комната:</b> '.($booking->room_name ?: 'не указана'),
             "💰 <b>Сумма:</b> {$booking->total_amount} {$currency}",
-            "✅ <b>Статус:</b> Полностью оплачено",
+            '✅ <b>Статус:</b> Полностью оплачено',
             $paymentSection,
-            "⏰ " . now('Asia/Tashkent')->format('d.m.Y H:i'),
+            '⏰ '.now('Asia/Tashkent')->format('d.m.Y H:i'),
         ]);
 
         $this->send($text);
@@ -103,19 +101,19 @@ class OwnerAlertService
         $currency = $booking->currency;
 
         $text = implode("\n", [
-            "🔴 <b>КРИТИЧНО: Сумма бронирования снижена!</b>",
-            "",
+            '🔴 <b>КРИТИЧНО: Сумма бронирования снижена!</b>',
+            '',
             "🏨 <b>Объект:</b> {$booking->getPropertyName()}",
             "🆔 <b>Бронирование:</b> #{$booking->beds24_booking_id}",
             "👤 <b>Гость:</b> {$booking->guest_name}",
             "📅 <b>Заезд:</b> {$this->formatDate($booking->arrival_date)}",
             "📅 <b>Выезд:</b> {$this->formatDate($booking->departure_date)}",
-            "",
+            '',
             "💰 <b>Старая сумма:</b> {$oldAmount} {$currency}",
             "💰 <b>Новая сумма:</b> {$newAmount} {$currency}",
             "⚠️ <b>Разница:</b> -{$diff} {$currency}",
-            "",
-            "⏰ " . now('Asia/Tashkent')->format('d.m.Y H:i'),
+            '',
+            '⏰ '.now('Asia/Tashkent')->format('d.m.Y H:i'),
         ]);
 
         $this->send($text);
@@ -134,17 +132,17 @@ class OwnerAlertService
         $fieldsText = implode("\n", $fieldLines);
 
         $text = implode("\n", [
-            "🟡 <b>ИЗМЕНЕНИЕ бронирования</b>",
-            "",
+            '🟡 <b>ИЗМЕНЕНИЕ бронирования</b>',
+            '',
             "🏨 <b>Объект:</b> {$booking->getPropertyName()}",
             "🆔 <b>Бронирование:</b> #{$booking->beds24_booking_id}",
             "👤 <b>Гость:</b> {$booking->guest_name}",
             "📅 <b>Заезд:</b> {$this->formatDate($booking->arrival_date)}",
-            "",
-            "<b>Изменённые поля:</b>",
+            '',
+            '<b>Изменённые поля:</b>',
             $fieldsText,
-            "",
-            "⏰ " . now('Asia/Tashkent')->format('d.m.Y H:i'),
+            '',
+            '⏰ '.now('Asia/Tashkent')->format('d.m.Y H:i'),
         ]);
 
         $this->send($text);
@@ -157,27 +155,26 @@ class OwnerAlertService
     public function alertCancelledAfterCheckin(Beds24Booking $booking, Beds24BookingChange $change): void
     {
         $text = implode("\n", [
-            "🔴 <b>КРИТИЧНО: Бронирование отменено ПОСЛЕ заезда!</b>",
-            "",
+            '🔴 <b>КРИТИЧНО: Бронирование отменено ПОСЛЕ заезда!</b>',
+            '',
             "🏨 <b>Объект:</b> {$booking->getPropertyName()}",
             "🆔 <b>Бронирование:</b> #{$booking->beds24_booking_id}",
             "👤 <b>Гость:</b> {$booking->guest_name}",
-            "📞 <b>Телефон:</b> " . ($booking->guest_phone ?: 'не указан'),
-            "✉️ <b>Email:</b> " . ($booking->guest_email ?: 'не указан'),
+            '📞 <b>Телефон:</b> '.($booking->guest_phone ?: 'не указан'),
+            '✉️ <b>Email:</b> '.($booking->guest_email ?: 'не указан'),
             "📅 <b>Заезд:</b> {$this->formatDate($booking->arrival_date)}",
             "📅 <b>Выезд:</b> {$this->formatDate($booking->departure_date)}",
             "💰 <b>Сумма:</b> {$booking->total_amount} {$booking->currency}",
-            "🌐 <b>Канал:</b> " . ($booking->channel ?: 'не указан'),
-            "",
-            "⚠️ Немедленно проверьте наличие гостя в отеле!",
-            "",
-            "⏰ " . now('Asia/Tashkent')->format('d.m.Y H:i'),
+            '🌐 <b>Канал:</b> '.($booking->channel ?: 'не указан'),
+            '',
+            '⚠️ Немедленно проверьте наличие гостя в отеле!',
+            '',
+            '⏰ '.now('Asia/Tashkent')->format('d.m.Y H:i'),
         ]);
 
         $this->send($text);
         $change->markAlerted();
     }
-
 
     /**
      * Payment received (auto-synced from Beds24)
@@ -193,29 +190,28 @@ class OwnerAlertService
         $isPaidInFull = $newBalance <= 0;
 
         $statusLine = $isPaidInFull
-            ? "✅ <b>Полностью оплачено!</b>"
+            ? '✅ <b>Полностью оплачено!</b>'
             : "⚠️ <b>Остаток:</b> {$newBalance} {$currency}";
 
         $text = implode("\n", [
-            "💰 <b>Оплата получена</b>",
-            "",
+            '💰 <b>Оплата получена</b>',
+            '',
             "🏨 <b>Объект:</b> {$booking->getPropertyName()}",
             "\xF0\x9F\x86\x94 <b>Бронирование:</b> #{$booking->beds24_booking_id}",
             "👤 <b>Гость:</b> {$booking->guest_name}",
-            "🛏️ <b>Комната:</b> " . ($booking->room_name ?: 'не указана'),
+            '🛏️ <b>Комната:</b> '.($booking->room_name ?: 'не указана'),
             "📅 <b>Заезд:</b> {$this->formatDate($booking->arrival_date)}",
-            "",
+            '',
             "\xF0\x9F\x92\xB5 <b>Сумма оплаты:</b> {$paymentAmount} {$currency}",
             "💰 <b>Всего по брони:</b> {$booking->total_amount} {$currency}",
             $statusLine,
-            "",
-            "⏰ " . now('Asia/Tashkent')->format('d.m.Y H:i'),
+            '',
+            '⏰ '.now('Asia/Tashkent')->format('d.m.Y H:i'),
         ]);
 
         $this->send($text);
         $change->markAlerted();
     }
-
 
     /**
      * Payment received with full line details from Beds24 API
@@ -228,14 +224,14 @@ class OwnerAlertService
         float $newBalance
     ): void {
         $currency = $booking->currency;
-        $totalPaid = array_sum(array_map(fn($l) => (float) ($l['amount'] ?? 0), $paymentLines));
+        $totalPaid = array_sum(array_map(fn ($l) => (float) ($l['amount'] ?? 0), $paymentLines));
 
         $lines = [];
         foreach ($paymentLines as $line) {
             $desc = $line['description'] ?? '?';
             $amt = (float) ($line['amount'] ?? 0);
             $method = $line['status'] ?? '';
-            $methodLabel = match(strtolower($method)) {
+            $methodLabel = match (strtolower($method)) {
                 'naqd' => 'наличные',
                 'plastk', 'plastik', 'card' => 'карта',
                 'perevod', 'transfer' => 'перевод',
@@ -247,26 +243,26 @@ class OwnerAlertService
 
         $isPaidInFull = $newBalance <= 0;
         $statusLine = $isPaidInFull
-            ? "✅ Полностью оплачено!"
+            ? '✅ Полностью оплачено!'
             : "⚠️ Остаток: {$newBalance} {$currency}";
 
         $text = implode("\n", [
-            "💰 <b>Оплата получена</b>",
-            "",
+            '💰 <b>Оплата получена</b>',
+            '',
             "🏨 <b>Объект:</b> {$booking->getPropertyName()}",
             "🆔 <b>Бронирование:</b> #{$booking->beds24_booking_id}",
             "👤 <b>Гость:</b> {$booking->guest_name}",
-            "🛏️ <b>Комната:</b> " . ($booking->room_name ?: 'не указана'),
+            '🛏️ <b>Комната:</b> '.($booking->room_name ?: 'не указана'),
             "📅 <b>Заезд:</b> {$this->formatDate($booking->arrival_date)}",
-            "",
-            "<b>Платежи:</b>",
+            '',
+            '<b>Платежи:</b>',
             $linesText,
-            "",
+            '',
             "💵 <b>Итого оплачено:</b> {$totalPaid} {$currency}",
             "💰 <b>Всего по брони:</b> {$booking->total_amount} {$currency}",
             $statusLine,
-            "",
-            "⏰ " . now('Asia/Tashkent')->format('d.m.Y H:i'),
+            '',
+            '⏰ '.now('Asia/Tashkent')->format('d.m.Y H:i'),
         ]);
 
         $this->send($text);
@@ -306,27 +302,27 @@ class OwnerAlertService
         $balance = max(0, $totalCharges - $totalPayments);
 
         $balanceLine = $balance <= 0.01
-            ? "✅ Полностью оплачено"
+            ? '✅ Полностью оплачено'
             : "⚠️ Остаток к оплате: {$balance} {$currency}";
 
         $text = implode("\n", [
-            "📝 <b>Новый расход добавлен</b>",
-            "",
+            '📝 <b>Новый расход добавлен</b>',
+            '',
             "🏨 <b>Объект:</b> {$booking->getPropertyName()}",
             "🆔 <b>Бронирование:</b> #{$booking->beds24_booking_id}",
             "👤 <b>Гость:</b> {$booking->guest_name}",
-            "🛏️ <b>Комната:</b> " . ($booking->room_name ?: 'не указана'),
+            '🛏️ <b>Комната:</b> '.($booking->room_name ?: 'не указана'),
             "📅 <b>Заезд:</b> {$this->formatDate($booking->arrival_date)}",
-            "",
-            "<b>Новые расходы:</b>",
+            '',
+            '<b>Новые расходы:</b>',
             $linesText,
-            "",
+            '',
             "💵 <b>Сумма новых расходов:</b> {$totalNewCharges} {$currency}",
             "💰 <b>Итого расходов:</b> {$totalCharges} {$currency}",
             "💳 <b>Оплачено:</b> {$totalPayments} {$currency}",
             $balanceLine,
-            "",
-            "⏰ " . now('Asia/Tashkent')->format('d.m.Y H:i'),
+            '',
+            '⏰ '.now('Asia/Tashkent')->format('d.m.Y H:i'),
         ]);
 
         $this->send($text);
@@ -340,33 +336,33 @@ class OwnerAlertService
     {
         $date = now('Asia/Tashkent')->format('d.m.Y');
 
-        $hotelStats  = $stats['41097']  ?? [];
+        $hotelStats = $stats['41097'] ?? [];
         $premiumStats = $stats['172793'] ?? [];
 
         $text = implode("\n", [
             "📊 <b>Ежедневный отчёт — {$date}</b>",
-            "",
-            "🏨 <b>Jahongir Hotel</b>",
-            "  • Новых бронирований: " . ($hotelStats['new_bookings'] ?? 0),
-            "  • Отменено: " . ($hotelStats['cancellations'] ?? 0),
-            "  • Изменено: " . ($hotelStats['modifications'] ?? 0),
-            "  • Текущих гостей: " . ($hotelStats['current_guests'] ?? 0),
-            "  • Ожидается завтра: " . ($hotelStats['arrivals_tomorrow'] ?? 0),
-            "  • Выезжает завтра: " . ($hotelStats['departures_tomorrow'] ?? 0),
-            "  • Сумма за день: " . ($hotelStats['revenue_today'] ?? '0') . " " . ($hotelStats['currency'] ?? 'USD'),
-            "",
-            "⭐ <b>Jahongir Premium</b>",
-            "  • Новых бронирований: " . ($premiumStats['new_bookings'] ?? 0),
-            "  • Отменено: " . ($premiumStats['cancellations'] ?? 0),
-            "  • Изменено: " . ($premiumStats['modifications'] ?? 0),
-            "  • Текущих гостей: " . ($premiumStats['current_guests'] ?? 0),
-            "  • Ожидается завтра: " . ($premiumStats['arrivals_tomorrow'] ?? 0),
-            "  • Выезжает завтра: " . ($premiumStats['departures_tomorrow'] ?? 0),
-            "  • Сумма за день: " . ($premiumStats['revenue_today'] ?? '0') . " " . ($premiumStats['currency'] ?? 'USD'),
-            "",
-            "🔔 Неоплаченных броней: " . ($stats['unpaid_count'] ?? 0),
-            "",
-            "⏰ Сформировано: " . now('Asia/Tashkent')->format('d.m.Y H:i'),
+            '',
+            '🏨 <b>Jahongir Hotel</b>',
+            '  • Новых бронирований: '.($hotelStats['new_bookings'] ?? 0),
+            '  • Отменено: '.($hotelStats['cancellations'] ?? 0),
+            '  • Изменено: '.($hotelStats['modifications'] ?? 0),
+            '  • Текущих гостей: '.($hotelStats['current_guests'] ?? 0),
+            '  • Ожидается завтра: '.($hotelStats['arrivals_tomorrow'] ?? 0),
+            '  • Выезжает завтра: '.($hotelStats['departures_tomorrow'] ?? 0),
+            '  • Сумма за день: '.($hotelStats['revenue_today'] ?? '0').' '.($hotelStats['currency'] ?? 'USD'),
+            '',
+            '⭐ <b>Jahongir Premium</b>',
+            '  • Новых бронирований: '.($premiumStats['new_bookings'] ?? 0),
+            '  • Отменено: '.($premiumStats['cancellations'] ?? 0),
+            '  • Изменено: '.($premiumStats['modifications'] ?? 0),
+            '  • Текущих гостей: '.($premiumStats['current_guests'] ?? 0),
+            '  • Ожидается завтра: '.($premiumStats['arrivals_tomorrow'] ?? 0),
+            '  • Выезжает завтра: '.($premiumStats['departures_tomorrow'] ?? 0),
+            '  • Сумма за день: '.($premiumStats['revenue_today'] ?? '0').' '.($premiumStats['currency'] ?? 'USD'),
+            '',
+            '🔔 Неоплаченных броней: '.($stats['unpaid_count'] ?? 0),
+            '',
+            '⏰ Сформировано: '.now('Asia/Tashkent')->format('d.m.Y H:i'),
         ]);
 
         $this->send($text);
@@ -379,23 +375,23 @@ class OwnerAlertService
     private function buildNewBookingMessage(Beds24Booking $booking): string
     {
         return implode("\n", [
-            "🟢 <b>Новое бронирование</b>",
-            "",
+            '🟢 <b>Новое бронирование</b>',
+            '',
             "🏨 <b>Объект:</b> {$booking->getPropertyName()}",
             "🆔 <b>Бронирование:</b> #{$booking->beds24_booking_id}",
             "👤 <b>Гость:</b> {$booking->guest_name}",
-            "📞 <b>Телефон:</b> " . ($booking->guest_phone ?: 'не указан'),
-            "✉️ <b>Email:</b> " . ($booking->guest_email ?: 'не указан'),
-            "🌐 <b>Канал:</b> " . ($booking->channel ?: 'прямое'),
+            '📞 <b>Телефон:</b> '.($booking->guest_phone ?: 'не указан'),
+            '✉️ <b>Email:</b> '.($booking->guest_email ?: 'не указан'),
+            '🌐 <b>Канал:</b> '.($booking->channel ?: 'прямое'),
             "📅 <b>Заезд:</b> {$this->formatDate($booking->arrival_date)}",
             "📅 <b>Выезд:</b> {$this->formatDate($booking->departure_date)}",
             "🌙 <b>Ночей:</b> {$booking->nights}",
-            "👥 <b>Гостей:</b> {$booking->num_adults} взрослых" . ($booking->num_children > 0 ? ", {$booking->num_children} детей" : ''),
-            "🛏️ <b>Комната:</b> " . ($booking->room_name ?: 'не указана'),
+            "👥 <b>Гостей:</b> {$booking->num_adults} взрослых".($booking->num_children > 0 ? ", {$booking->num_children} детей" : ''),
+            '🛏️ <b>Комната:</b> '.($booking->room_name ?: 'не указана'),
             "💰 <b>Сумма:</b> {$booking->total_amount} {$booking->currency}",
-            "💳 <b>Статус оплаты:</b> " . $this->translatePaymentStatus($booking->payment_status),
-            "",
-            "⏰ " . now('Asia/Tashkent')->format('d.m.Y H:i'),
+            '💳 <b>Статус оплаты:</b> '.$this->translatePaymentStatus($booking->payment_status),
+            '',
+            '⏰ '.now('Asia/Tashkent')->format('d.m.Y H:i'),
         ]);
     }
 
@@ -405,22 +401,22 @@ class OwnerAlertService
         $isAfterCheckin = $booking->arrival_date && $booking->arrival_date->toDateString() <= $today;
 
         $prefix = $isAfterCheckin
-            ? "🔴 <b>КРИТИЧНО: Отмена ПОСЛЕ заезда!</b>"
-            : "🔴 <b>Бронирование отменено</b>";
+            ? '🔴 <b>КРИТИЧНО: Отмена ПОСЛЕ заезда!</b>'
+            : '🔴 <b>Бронирование отменено</b>';
 
         return implode("\n", [
             $prefix,
-            "",
+            '',
             "🏨 <b>Объект:</b> {$booking->getPropertyName()}",
             "🆔 <b>Бронирование:</b> #{$booking->beds24_booking_id}",
             "👤 <b>Гость:</b> {$booking->guest_name}",
-            "📞 <b>Телефон:</b> " . ($booking->guest_phone ?: 'не указан'),
-            "🌐 <b>Канал:</b> " . ($booking->channel ?: 'прямое'),
+            '📞 <b>Телефон:</b> '.($booking->guest_phone ?: 'не указан'),
+            '🌐 <b>Канал:</b> '.($booking->channel ?: 'прямое'),
             "📅 <b>Заезд:</b> {$this->formatDate($booking->arrival_date)}",
             "📅 <b>Выезд:</b> {$this->formatDate($booking->departure_date)}",
             "💰 <b>Сумма:</b> {$booking->total_amount} {$booking->currency}",
-            "",
-            "⏰ " . now('Asia/Tashkent')->format('d.m.Y H:i'),
+            '',
+            '⏰ '.now('Asia/Tashkent')->format('d.m.Y H:i'),
         ]);
     }
 
@@ -451,34 +447,35 @@ class OwnerAlertService
             Log::warning('OwnerAlertService: owner chat ID not configured (cashier bot payment)', [
                 'tx_id' => $tx->id,
             ]);
+
             return;
         }
 
-        $cashierName = optional(\App\Models\User::find($tx->created_by))->name ?? 'Кассир #' . (int) $tx->created_by;
-        $drawerName  = optional(\App\Models\CashierShift::find($tx->cashier_shift_id))?->cashDrawer?->name
+        $cashierName = optional(\App\Models\User::find($tx->created_by))->name ?? 'Кассир #'.(int) $tx->created_by;
+        $drawerName = optional(\App\Models\CashierShift::find($tx->cashier_shift_id))?->cashDrawer?->name
                       ?? 'неизвестно';
 
         $methodLabel = match ($tx->payment_method) {
-            'cash'     => '💵 Наличные',
-            'card'     => '💳 Карта',
+            'cash' => '💵 Наличные',
+            'card' => '💳 Карта',
             'transfer' => '🔄 Перевод',
-            null, ''   => 'не указан',
-            default    => $tx->payment_method,
+            null, '' => 'не указан',
+            default => $tx->payment_method,
         };
 
         $currency = is_object($tx->currency) ? $tx->currency->value : (string) $tx->currency;
-        $amount   = number_format((float) $tx->amount, 0, '.', ' ');
-        $when     = optional($tx->occurred_at)->format('d.m.Y H:i') ?? '—';
+        $amount = number_format((float) $tx->amount, 0, '.', ' ');
+        $when = optional($tx->occurred_at)->format('d.m.Y H:i') ?? '—';
         $bookingId = (int) $tx->beds24_booking_id;
-        $guest    = trim((string) $tx->guest_name) ?: '—';
-        $room     = trim((string) $tx->room_number);
+        $guest = trim((string) $tx->guest_name) ?: '—';
+        $room = trim((string) $tx->room_number);
 
         $lines = [
             '💰 <b>Касса: новая оплата</b>',
             '',
             "👤 Кассир: {$cashierName}",
             "🏪 Касса: {$drawerName}",
-            "🛏 Гость: {$guest}" . ($room !== '' ? "  (комн. {$room})" : ''),
+            "🛏 Гость: {$guest}".($room !== '' ? "  (комн. {$room})" : ''),
             "🔖 Бронь: #{$bookingId}",
             "💱 Метод: {$methodLabel}",
             "💵 Сумма: {$amount} {$currency}",
@@ -487,7 +484,7 @@ class OwnerAlertService
 
         if ($tx->is_override) {
             $tier = is_object($tx->override_tier) ? $tx->override_tier->value : (string) $tx->override_tier;
-            $lines[] = "⚠️ Override: tier={$tier}" . ($tx->override_reason ? " — {$tx->override_reason}" : '');
+            $lines[] = "⚠️ Override: tier={$tier}".($tx->override_reason ? " — {$tx->override_reason}" : '');
         }
 
         if ($tx->is_group_payment) {
@@ -505,6 +502,39 @@ class OwnerAlertService
     {
         if ($this->ownerChatId === 0) {
             Log::warning('OwnerAlertService: owner chat ID not configured');
+
+            return;
+        }
+
+        // 2026-05-10 — defensive: never dispatch production-shaped alerts
+        // from `testing`/`local` environments. Real-world incident: VPS
+        // test runs (which symlink the production .env so the test
+        // process has prod owner-bot tokens + the real owner chat ID)
+        // were leaking "🚨 Beds24 Token Error" and "💰 Касса: новая
+        // оплата · Tatyana Test" alerts into the operator's Telegram
+        // every time SplitPaymentTest or StaleFxRateGuardTest exercised
+        // a recordPayment / Beds24 path. The QUEUE_CONNECTION=sync
+        // setting in phpunit.xml made dispatched jobs fire synchronously
+        // and hit the real Telegram API before any rollback could
+        // intervene.
+        //
+        // Existing OwnerAlertServiceTest tests that DELIBERATELY assert
+        // dispatch behavior (with `Bus::fake` so nothing actually
+        // reaches Telegram) flip the opt-in config in their setUp:
+        //
+        //     config(['services.owner_alert_bot.allow_outbound_in_testing' => true]);
+        //
+        // Default false — silently suppresses outbound from testing/local
+        // and logs at INFO so audits can confirm the guard fired.
+        if (
+            app()->environment('testing', 'local')
+            && ! (bool) config('services.owner_alert_bot.allow_outbound_in_testing', false)
+        ) {
+            Log::info('OwnerAlertService: outbound suppressed in non-prod env', [
+                'env' => app()->environment(),
+                'text_prefix' => mb_substr($text, 0, 60),
+            ]);
+
             return;
         }
 
@@ -512,8 +542,8 @@ class OwnerAlertService
             'owner-alert',
             'sendMessage',
             [
-                'chat_id'    => $this->ownerChatId,
-                'text'       => $text,
+                'chat_id' => $this->ownerChatId,
+                'text' => $text,
                 'parse_mode' => 'HTML',
             ]
         );
@@ -534,6 +564,7 @@ class OwnerAlertService
             Log::warning('OwnerAlertService: owner chat ID not configured (shift approval)', [
                 'shift_id' => $shift->id,
             ]);
+
             return;
         }
 
@@ -549,18 +580,18 @@ class OwnerAlertService
             'owner-alert',
             'sendMessage',
             [
-                'chat_id'      => $this->ownerChatId,
-                'text'         => $text,
-                'parse_mode'   => 'HTML',
+                'chat_id' => $this->ownerChatId,
+                'text' => $text,
+                'parse_mode' => 'HTML',
                 'reply_markup' => json_encode($keyboard),
             ]
         );
 
         Log::info('Shift close approval requested', [
-            'shift_id'     => $shift->id,
-            'tier'         => $eval->tier->value,
+            'shift_id' => $shift->id,
+            'tier' => $eval->tier->value,
             'severity_uzs' => $eval->severityUzs,
-            'fx_stale'     => $eval->fxStale,
+            'fx_stale' => $eval->fxStale,
         ]);
     }
 
@@ -569,13 +600,13 @@ class OwnerAlertService
         \App\DTOs\Cashier\ShiftCloseEvaluation $eval,
     ): string {
         $cashierName = optional($shift->user)->name ?? "user #{$shift->user_id}";
-        $severity    = number_format($eval->severityUzs, 0, '.', ' ');
+        $severity = number_format($eval->severityUzs, 0, '.', ' ');
 
         $lines = [
             '🔍 <b>Закрытие смены требует одобрения</b>',
             '',
             "Кассир: <b>{$cashierName}</b>",
-            "Смена: #{$shift->id} (открыта " . ($shift->opened_at?->format('Y-m-d H:i') ?? '—') . ')',
+            "Смена: #{$shift->id} (открыта ".($shift->opened_at?->format('Y-m-d H:i') ?? '—').')',
             "Расхождение (UZS-эквивалент): <b>{$severity} UZS</b>",
             '',
             '<b>По валютам:</b>',
@@ -583,11 +614,13 @@ class OwnerAlertService
 
         foreach ($eval->perCurrencyBreakdown as $currency => $row) {
             $delta = (float) ($row['delta'] ?? 0);
-            if ($delta == 0.0) continue;
-            $sign     = $delta > 0 ? '+' : '';
+            if ($delta == 0.0) {
+                continue;
+            }
+            $sign = $delta > 0 ? '+' : '';
             $deltaStr = number_format($delta, 2, '.', ' ');
-            $uzsEq    = number_format((float) ($row['uzs_equiv'] ?? 0), 0, '.', ' ');
-            $lines[]  = "  {$currency}: {$sign}{$deltaStr} (~{$uzsEq} UZS)";
+            $uzsEq = number_format((float) ($row['uzs_equiv'] ?? 0), 0, '.', ' ');
+            $lines[] = "  {$currency}: {$sign}{$deltaStr} (~{$uzsEq} UZS)";
         }
 
         if ($eval->fxStale) {
@@ -604,7 +637,7 @@ class OwnerAlertService
 
     private function formatDate($date): string
     {
-        if (!$date) {
+        if (! $date) {
             return 'не указана';
         }
 
@@ -618,10 +651,10 @@ class OwnerAlertService
     private function translatePaymentStatus(string $status): string
     {
         return match ($status) {
-            'paid'    => '✅ Оплачено',
+            'paid' => '✅ Оплачено',
             'partial' => '⚠️ Частично',
             'pending' => '🕐 Ожидает оплаты',
-            default   => $status,
+            default => $status,
         };
     }
 
@@ -635,20 +668,20 @@ class OwnerAlertService
 
         $text = implode("\n", array_filter([
             "💰 <b>Кассовый отчёт — {$date}</b>",
-            "",
-            "📥 <b>ПРИХОД (Доход):</b>",
+            '',
+            '📥 <b>ПРИХОД (Доход):</b>',
             $this->formatIncomeSection($data['income']),
-            "",
-            "📤 <b>РАСХОД:</b>",
+            '',
+            '📤 <b>РАСХОД:</b>',
             $this->formatExpenseSection($data['expenses']),
-            "",
-            "━━━━━━━━━━━━━━━━━━",
-            "📊 <b>ИТОГО за день:</b>",
+            '',
+            '━━━━━━━━━━━━━━━━━━',
+            '📊 <b>ИТОГО за день:</b>',
             $this->formatBalanceSection($data['balance']),
-            "",
+            '',
             $data['shift_info'] ? "👤 <b>Смена:</b> {$data['shift_info']}" : null,
-            "",
-            "⏰ Сформировано: " . now('Asia/Tashkent')->format('d.m.Y H:i'),
+            '',
+            '⏰ Сформировано: '.now('Asia/Tashkent')->format('d.m.Y H:i'),
         ]));
 
         $this->send($text);
@@ -658,21 +691,21 @@ class OwnerAlertService
     {
         $text = implode("\n", array_filter([
             "📊 <b>МЕСЯЧНЫЙ ОТЧЁТ — {$data['period']}</b>",
-            "",
-            "📥 <b>ПРИХОД (Доход):</b>",
+            '',
+            '📥 <b>ПРИХОД (Доход):</b>',
             $this->formatIncomeSection($data['income']),
-            "",
-            "📤 <b>РАСХОД:</b>",
+            '',
+            '📤 <b>РАСХОД:</b>',
             $this->formatExpenseSection($data['expenses']),
-            "",
-            "━━━━━━━━━━━━━━━━━━",
-            "📊 <b>ИТОГО за месяц:</b>",
+            '',
+            '━━━━━━━━━━━━━━━━━━',
+            '📊 <b>ИТОГО за месяц:</b>',
             $this->formatBalanceSection($data['balance']),
-            "",
+            '',
             "👥 <b>Смены за месяц:</b> {$data['shifts_count']}",
             $data['prev_month_comparison'] ? "\n📈 <b>Сравнение с прошлым месяцем:</b>\n{$data['prev_month_comparison']}" : null,
-            "",
-            "⏰ Сформировано: " . now('Asia/Tashkent')->format('d.m.Y H:i'),
+            '',
+            '⏰ Сформировано: '.now('Asia/Tashkent')->format('d.m.Y H:i'),
         ]));
 
         $this->send($text);
@@ -684,10 +717,10 @@ class OwnerAlertService
         foreach ($income as $currency => $details) {
             $total = number_format($details['total'], 2);
             $lines[] = "  <b>{$currency}:</b> {$total}";
-            if (!empty($details['by_method'])) {
+            if (! empty($details['by_method'])) {
                 foreach ($details['by_method'] as $method => $amount) {
                     $methodLabel = $this->translatePaymentMethod($method);
-                    $lines[] = "    • {$methodLabel}: " . number_format($amount, 2);
+                    $lines[] = "    • {$methodLabel}: ".number_format($amount, 2);
                 }
             }
             // Source split — shown only when ≥2 sources contributed for this
@@ -695,15 +728,16 @@ class OwnerAlertService
             // Surfaces the OTA-vs-till split for reconciliation without
             // adding a separate report.
             if (! empty($details['by_source']) && count($details['by_source']) >= 2) {
-                $lines[] = "    📊 По источнику:";
+                $lines[] = '    📊 По источнику:';
                 foreach ($details['by_source'] as $source => $stats) {
                     $label = $this->translateSourceTrigger((string) $source);
-                    $lines[] = "      {$label}: " . number_format($stats['total'], 2)
-                        . " ({$stats['count']})";
+                    $lines[] = "      {$label}: ".number_format($stats['total'], 2)
+                        ." ({$stats['count']})";
                 }
             }
         }
-        return $lines ? implode("\n", $lines) : "  — нет";
+
+        return $lines ? implode("\n", $lines) : '  — нет';
     }
 
     /**
@@ -713,10 +747,10 @@ class OwnerAlertService
     private function translateSourceTrigger(string $source): string
     {
         return match ($source) {
-            'cashier_bot'     => '📱 Cashier Bot',
+            'cashier_bot' => '📱 Cashier Bot',
             'beds24_external' => '🏨 Beds24',
-            'manual_admin'    => '🛠 Ручной (admin)',
-            default           => $source,
+            'manual_admin' => '🛠 Ручной (admin)',
+            default => $source,
         };
     }
 
@@ -726,13 +760,14 @@ class OwnerAlertService
         foreach ($expenses as $currency => $details) {
             $total = number_format($details['total'], 2);
             $lines[] = "  <b>{$currency}:</b> {$total}";
-            if (!empty($details['items'])) {
+            if (! empty($details['items'])) {
                 foreach ($details['items'] as $item) {
-                    $lines[] = "    • {$item['notes']}: " . number_format($item['amount'], 2);
+                    $lines[] = "    • {$item['notes']}: ".number_format($item['amount'], 2);
                 }
             }
         }
-        return $lines ? implode("\n", $lines) : "  — нет";
+
+        return $lines ? implode("\n", $lines) : '  — нет';
     }
 
     private function formatBalanceSection(array $balance): string
@@ -745,14 +780,15 @@ class OwnerAlertService
             $sign = $amounts['net'] >= 0 ? '+' : '';
             $lines[] = "  <b>{$currency}:</b> +{$in} / -{$out} = {$sign}{$net}";
         }
-        return $lines ? implode("\n", $lines) : "  — нет данных";
+
+        return $lines ? implode("\n", $lines) : '  — нет данных';
     }
 
     private function translatePaymentMethod(string $method): string
     {
         return match (strtolower(trim($method))) {
             'naqd', 'cash', 'наличные' => '💵 Наличные',
-            'plastk', 'card', 'карта'  => '💳 Карта',
+            'plastk', 'card', 'карта' => '💳 Карта',
             'perevod', 'transfer', 'перевод' => '🔄 Перевод',
             'karta' => '💳 Карта',
             default => $method ?: 'Не указан',
@@ -767,29 +803,35 @@ class OwnerAlertService
     {
         $lines = [
             "\xF0\x9F\x94\xB4 <b>СВЕРКА ПЛАТЕЖЕЙ — {$date}</b>",
-            "",
+            '',
             "\xE2\x9A\xA0\xEF\xB8\x8F <b>Обнаружены расхождения!</b>",
-            "",
+            '',
         ];
 
         foreach ($results['flagged'] as $flag) {
             $emoji = $flag['status'] === 'no_payment' ? "\xF0\x9F\x9A\xAB" : "\xE2\x9A\xA0\xEF\xB8\x8F";
-            $statusLabel = match($flag['status']) {
-                'underpaid'  => 'Недоплата',
+            $statusLabel = match ($flag['status']) {
+                'underpaid' => 'Недоплата',
                 'no_payment' => 'НЕТ ОПЛАТЫ',
-                'overpaid'   => 'Переплата',
-                default      => $flag['status'],
+                'overpaid' => 'Переплата',
+                default => $flag['status'],
             };
 
             $lines[] = "{$emoji} <b>Бронь #{$flag['booking_id']}</b>";
             $lines[] = "  \xF0\x9F\x8F\xA8 {$flag['property']}";
-            if (!empty($flag['room']) && $flag['room'] !== '—') $lines[] = "  \xF0\x9F\x9B\x8F\xEF\xB8\x8F Комната: {$flag['room']}";
-            if (!empty($flag['guest']) && $flag['guest'] !== 'Не указан') $lines[] = "  \xF0\x9F\x91\xA4 {$flag['guest']}";
-            if (!empty($flag['dates'])) $lines[] = "  \xF0\x9F\x93\x85 {$flag['dates']}";
+            if (! empty($flag['room']) && $flag['room'] !== '—') {
+                $lines[] = "  \xF0\x9F\x9B\x8F\xEF\xB8\x8F Комната: {$flag['room']}";
+            }
+            if (! empty($flag['guest']) && $flag['guest'] !== 'Не указан') {
+                $lines[] = "  \xF0\x9F\x91\xA4 {$flag['guest']}";
+            }
+            if (! empty($flag['dates'])) {
+                $lines[] = "  \xF0\x9F\x93\x85 {$flag['dates']}";
+            }
             $lines[] = "  \xF0\x9F\x92\xB0 Ожидалось: {$flag['expected']} {$flag['currency']}";
             $lines[] = "  \xF0\x9F\x92\xB3 Получено: {$flag['reported']} {$flag['currency']}";
             $lines[] = "  \xE2\x9D\x8C <b>{$statusLabel}: {$flag['discrepancy']} {$flag['currency']}</b>";
-            $lines[] = "";
+            $lines[] = '';
         }
 
         $lines[] = "\xE2\x94\x80\xE2\x94\x80\xE2\x94\x80\xE2\x94\x80\xE2\x94\x80\xE2\x94\x80\xE2\x94\x80\xE2\x94\x80\xE2\x94\x80\xE2\x94\x80\xE2\x94\x80\xE2\x94\x80\xE2\x94\x80\xE2\x94\x80\xE2\x94\x80\xE2\x94\x80\xE2\x94\x80\xE2\x94\x80";
@@ -797,8 +839,8 @@ class OwnerAlertService
         $lines[] = "  \xE2\x9C\x85 Совпадает: {$results['matched']}";
         $lines[] = "  \xE2\x9A\xA0\xEF\xB8\x8F Недоплата: {$results['underpaid']}";
         $lines[] = "  \xF0\x9F\x9A\xAB Нет оплаты: {$results['no_payment']}";
-        $lines[] = "";
-        $lines[] = "\xE2\x8F\xB0 " . now('Asia/Tashkent')->format('d.m.Y H:i');
+        $lines[] = '';
+        $lines[] = "\xE2\x8F\xB0 ".now('Asia/Tashkent')->format('d.m.Y H:i');
 
         $this->send(implode("\n", $lines));
     }
@@ -807,15 +849,15 @@ class OwnerAlertService
     {
         $text = implode("\n", [
             "\xE2\x9C\x85 <b>Сверка платежей — {$date}</b>",
-            "",
+            '',
             "\xF0\x9F\x93\x8A Проверено: {$results['total']} бронирований",
             "  \xE2\x9C\x85 Совпадает: {$results['matched']}",
             "  \xE2\x9A\xA0\xEF\xB8\x8F Недоплата: {$results['underpaid']}",
             "  \xF0\x9F\x9A\xAB Нет оплаты: {$results['no_payment']}",
-            "",
+            '',
             "Расхождений не обнаружено \xE2\x9C\x85",
-            "",
-            "\xE2\x8F\xB0 " . now('Asia/Tashkent')->format('d.m.Y H:i'),
+            '',
+            "\xE2\x8F\xB0 ".now('Asia/Tashkent')->format('d.m.Y H:i'),
         ]);
 
         $this->send($text);

@@ -14,12 +14,11 @@ return [
     |
     */
 
-
     'octo' => [
-        'shop_id'              => env('OCTO_SHOP_ID'),
-        'secret'               => env('OCTO_SECRET'),
-        'url'                  => env('OCTO_API_URL'),
-        'tsp_id'               => env('OCTO_TSP_ID'),
+        'shop_id' => env('OCTO_SHOP_ID'),
+        'secret' => env('OCTO_SECRET'),
+        'url' => env('OCTO_API_URL'),
+        'tsp_id' => env('OCTO_TSP_ID'),
         'fallback_usd_uzs_rate' => env('OCTO_FALLBACK_USD_UZS_RATE', 12100),
 
         // CF-proxied relay on vps-main (Germany) used as a fallback when
@@ -27,7 +26,7 @@ return [
         // routing between 161.97.129.31 and secure.octo.uz drops
         // periodically. Relay fronts the same /prepare_payment endpoint
         // and is gated by CF-level IP allowlist + shared secret header.
-        'relay_url'    => env('OCTO_RELAY_URL'),
+        'relay_url' => env('OCTO_RELAY_URL'),
         'relay_secret' => env('OCTO_RELAY_SECRET'),
 
         // Phase S — callback signature verification.
@@ -36,7 +35,7 @@ return [
         // unique_key is a SEPARATE secret from OCTO technical team —
         // NOT octo_secret. Find it at merchant.octo.uz → Integration settings,
         // or request from Octo support for shop_id 27061.
-        'unique_key'                => env('OCTO_UNIQUE_KEY'),
+        'unique_key' => env('OCTO_UNIQUE_KEY'),
         'verify_callback_signature' => (bool) env('OCTO_VERIFY_CALLBACK_SIGNATURE', false),
 
         // Payment-link lifetime sent to Octo as the `ttl` field on
@@ -74,12 +73,12 @@ return [
     ],
 
     'beds24' => [
-        'api_token'             => env('BEDS24_API_TOKEN'),
-        'api_v2_token'          => env('BEDS24_API_V2_TOKEN'),
-        'api_v2_refresh_token'  => env('BEDS24_API_V2_REFRESH_TOKEN'),
+        'api_token' => env('BEDS24_API_TOKEN'),
+        'api_v2_token' => env('BEDS24_API_V2_TOKEN'),
+        'api_v2_refresh_token' => env('BEDS24_API_V2_REFRESH_TOKEN'),
         // Comma-separated property IDs whose room maps are warmed after token refresh.
         // Add a new property here when onboarding additional hotels.
-        'room_map_properties'   => array_map(
+        'room_map_properties' => array_map(
             'intval',
             array_filter(explode(',', env('BEDS24_ROOM_MAP_PROPERTIES', '41097,172793')))
         ),
@@ -102,20 +101,28 @@ return [
         'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
     ],
 
-
     'owner_alert_bot' => [
-        'token'          => env('OWNER_ALERT_BOT_TOKEN', ''),
-        'owner_chat_id'  => env('OWNER_TELEGRAM_ID', ''),
+        'token' => env('OWNER_ALERT_BOT_TOKEN', ''),
+        'owner_chat_id' => env('OWNER_TELEGRAM_ID', ''),
         'webhook_secret' => env('OWNER_ALERT_WEBHOOK_SECRET', ''),
+
+        // 2026-05-10 — defensive escape valve for OwnerAlertService::send().
+        // When false (default) AND app()->environment('testing','local'),
+        // OwnerAlertService::send() short-circuits before dispatching,
+        // preventing test runs from leaking real alerts into the operator's
+        // Telegram. Tests that deliberately assert dispatch behavior (with
+        // Bus::fake() so nothing reaches Telegram) flip this to true via
+        // `config([...])` in their setUp. NEVER set true via env on
+        // production — guard is irrelevant there because app()->environment()
+        // is `production` so the guard never fires.
+        'allow_outbound_in_testing' => (bool) env('OWNER_ALERT_ALLOW_OUTBOUND_IN_TESTING', false),
     ],
 
     'driver_guide_bot' => [
-        'token'          => env('TELEGRAM_BOT_TOKEN_DRIVER_GUIDE', ''),
+        'token' => env('TELEGRAM_BOT_TOKEN_DRIVER_GUIDE', ''),
         'webhook_secret' => env('DRIVER_GUIDE_WEBHOOK_SECRET', ''),
-        'owner_chat_id'  => env('TELEGRAM_OWNER_CHAT_ID', '38738713'),
+        'owner_chat_id' => env('TELEGRAM_OWNER_CHAT_ID', '38738713'),
     ],
-
-
 
     'cashier_bot' => [
         'token' => env('CASHIER_BOT_TOKEN', ''),
@@ -133,28 +140,28 @@ return [
         'expense_approval_threshold_rub' => env('EXPENSE_APPROVAL_THRESHOLD_RUB', 4000),
         // Default arrival-date range for the payment quick-pick list.
         // Manual booking-ID entry remains available for any date regardless.
-        'payment_arrival_days_back'      => (int) env('CASHIER_PAYMENT_ARRIVAL_DAYS_BACK', 3),
-        'payment_arrival_days_forward'   => (int) env('CASHIER_PAYMENT_ARRIVAL_DAYS_FORWARD', 14),
+        'payment_arrival_days_back' => (int) env('CASHIER_PAYMENT_ARRIVAL_DAYS_BACK', 3),
+        'payment_arrival_days_forward' => (int) env('CASHIER_PAYMENT_ARRIVAL_DAYS_FORWARD', 14),
     ],
 
     'housekeeping_bot' => [
-        'token'                  => env('HOUSEKEEPING_BOT_TOKEN', ''),
-        'mgmt_group_id'          => env('HOUSEKEEPING_MGMT_GROUP_ID', ''),
-        'premium_mgmt_group_id'  => env('HOUSEKEEPING_PREMIUM_MGMT_GROUP_ID', ''),
-        'webhook_secret'         => env('HOUSEKEEPING_WEBHOOK_SECRET', ''),
+        'token' => env('HOUSEKEEPING_BOT_TOKEN', ''),
+        'mgmt_group_id' => env('HOUSEKEEPING_MGMT_GROUP_ID', ''),
+        'premium_mgmt_group_id' => env('HOUSEKEEPING_PREMIUM_MGMT_GROUP_ID', ''),
+        'webhook_secret' => env('HOUSEKEEPING_WEBHOOK_SECRET', ''),
     ],
 
     'kitchen_bot' => [
-        'token'           => env('KITCHEN_BOT_TOKEN', ''),
-        'webhook_secret'  => env('KITCHEN_WEBHOOK_SECRET', ''),
+        'token' => env('KITCHEN_BOT_TOKEN', ''),
+        'webhook_secret' => env('KITCHEN_WEBHOOK_SECRET', ''),
         'session_timeout' => env('KITCHEN_SESSION_TIMEOUT', 480), // minutes (8h shift)
     ],
 
     // Operator-only bot for manual tour booking entry (/newbooking command)
     'ops_bot' => [
-        'token'          => env('OPS_BOT_TOKEN', ''),
+        'token' => env('OPS_BOT_TOKEN', ''),
         'webhook_secret' => env('OPS_BOT_WEBHOOK_SECRET', ''),
-        'owner_chat_id'  => env('TELEGRAM_OWNER_CHAT_ID', '38738713'),
+        'owner_chat_id' => env('TELEGRAM_OWNER_CHAT_ID', '38738713'),
     ],
 
     // Static API key used by mailer-tours.php to authenticate website booking submissions
@@ -164,17 +171,17 @@ return [
     // reached locally via the systemd-managed autossh reverse tunnel
     // (tg-direct-tunnel.service on jahongir VPS).
     'tg_direct' => [
-        'url'     => env('TG_DIRECT_URL', 'http://127.0.0.1:8766'),
+        'url' => env('TG_DIRECT_URL', 'http://127.0.0.1:8766'),
         'timeout' => (int) env('TG_DIRECT_TIMEOUT', 5),
         'enabled' => (bool) env('TG_DIRECT_ENABLED', true),
     ],
 
     'gyg' => [
-        'username'          => env('GYG_API_USERNAME', 'Jahongirtravel'),
-        'password'          => env('GYG_API_PASSWORD'),
-        'api_url'           => env('GYG_API_URL', 'https://supplier-api.getyourguide.com'),
+        'username' => env('GYG_API_USERNAME', 'Jahongirtravel'),
+        'password' => env('GYG_API_PASSWORD'),
+        'api_url' => env('GYG_API_URL', 'https://supplier-api.getyourguide.com'),
         'email_override_to' => env('GYG_EMAIL_OVERRIDE_TO'),
-        'wa_api_url'        => env('GYG_WA_API_URL', 'http://127.0.0.1:8080/api/send'),
+        'wa_api_url' => env('GYG_WA_API_URL', 'http://127.0.0.1:8080/api/send'),
     ],
 
     // Phase 22 — daily operator recap email destination
@@ -190,7 +197,7 @@ return [
     // review-request message factory + the dispatch-template appender
     // both read from this config.
     'tripadvisor' => [
-        'review_url'      => env('TRIPADVISOR_REVIEW_URL', 'https://www.tripadvisor.com/UserReviewEdit-g298068-d17464942-Jahongir_Travel-Samarkand_Samarqand_Province.html'),
+        'review_url' => env('TRIPADVISOR_REVIEW_URL', 'https://www.tripadvisor.com/UserReviewEdit-g298068-d17464942-Jahongir_Travel-Samarkand_Samarqand_Province.html'),
         'review_card_url' => env('TRIPADVISOR_REVIEW_CARD_URL', '/images/review/tripadvisor-review-card-jahongir-travel.png'),
 
         // Phase 1.7.2 feature flag — also send the QR card as an
@@ -204,4 +211,3 @@ return [
     ],
 
 ];
-
