@@ -54,7 +54,10 @@ class StoreBookingInquiryRequest extends FormRequest
             // Deliberately accept past dates: an inquiry for "last weekend" is
             // still a valid lead an operator should see. We'd rather capture
             // a quirky date and let the operator clarify than reject the row.
+            // Accepts ISO datetime ("2026-06-02T09:00") — toInquiryData()
+            // extracts the time component into pickup_time when present.
             'travel_date'    => ['nullable', 'date'],
+            'pickup_time'    => ['nullable', 'date_format:H:i'],
             'flexible_dates' => ['nullable', 'boolean'],
 
             'message' => ['nullable', 'string', 'max:5000'],
@@ -81,6 +84,16 @@ class StoreBookingInquiryRequest extends FormRequest
     {
         $v = $this->validated();
 
+        // The website form sends `travel_date` as ISO datetime (e.g.
+        // "2026-06-02T09:00"). The DB column is `date`, which silently
+        // strips the time. Extract pickup_time from the input ONLY when
+        // a real time component was present — never default to 00:00:00,
+        // which would mislead operators about the actual pickup time.
+        [$travelDate, $pickupTime] = $this->splitTravelDateTime(
+            $v['travel_date'] ?? null,
+            $v['pickup_time'] ?? null,
+        );
+
         return [
             'source'             => $v['source'] ?? 'website',
             'tour_slug'          => $v['tour_slug'] ?? null,
@@ -97,12 +110,45 @@ class StoreBookingInquiryRequest extends FormRequest
             'people_adults'   => (int) $v['people_adults'],
             'people_children' => (int) ($v['people_children'] ?? 0),
 
-            'travel_date'    => $v['travel_date'] ?? null,
+            'travel_date'    => $travelDate,
+            'pickup_time'    => $pickupTime,
             'flexible_dates' => (bool) ($v['flexible_dates'] ?? false),
 
             'message' => $v['message'] ?? null,
 
             'status' => BookingInquiry::STATUS_NEW,
         ];
+    }
+
+    /**
+     * Split a possibly-ISO travel_date input into a date-only string and
+     * a separate pickup_time. Explicit pickup_time wins over the embedded
+     * time component. Returns [date|null, time|null].
+     */
+    private function splitTravelDateTime(?string $rawDate, ?string $explicitTime): array
+    {
+        if ($rawDate === null) {
+            return [null, $explicitTime];
+        }
+
+        // Detect a real time component in the raw input. Carbon::parse always
+        // attaches 00:00:00 to a date-only string, so we cannot rely on the
+        // parsed object alone to know if the user supplied a time.
+        $hasTimeInInput = (bool) preg_match('/[T ]\d{1,2}:\d{2}/', $rawDate);
+
+        try {
+            $parsed = \Carbon\Carbon::parse($rawDate);
+        } catch (\Throwable $e) {
+            // Validation already enforced 'date' rule, so this should not
+            // happen. Pass through raw to avoid swallowing a parse failure.
+            return [$rawDate, $explicitTime];
+        }
+
+        $dateOnly  = $parsed->format('Y-m-d');
+        $extracted = $hasTimeInInput ? $parsed->format('H:i:s') : null;
+
+        // Explicit pickup_time on the request body wins. Otherwise, fall
+        // back to the time embedded in travel_date (if any).
+        return [$dateOnly, $explicitTime !== null ? $explicitTime.':00' : $extracted];
     }
 }

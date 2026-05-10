@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api;
 
+use App\Actions\BookingInquiries\EnrichWebsiteInquiryFromTourSlugAction;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreBookingInquiryRequest;
 use App\Models\BookingInquiry;
@@ -29,6 +30,7 @@ class BookingInquiryController extends Controller
     public function __construct(
         private readonly BookingInquiryNotifier $notifier,
         private readonly WebsiteAutoReplyService $autoReply,
+        private readonly EnrichWebsiteInquiryFromTourSlugAction $enrichFromSlug,
     ) {}
 
     public function store(StoreBookingInquiryRequest $request): JsonResponse
@@ -63,6 +65,24 @@ class BookingInquiryController extends Controller
                 'reference' => null,
                 'message'   => 'Inquiry accepted but not persisted.',
             ], 202);
+        }
+
+        // Resolve tour_slug → tour_product_id/direction/type (fail-soft).
+        // Runs BEFORE the notifier so the Telegram ping carries the linked
+        // tour catalog reference. Failure is non-fatal: row already persisted,
+        // operator can fix the FK manually in Filament. Same fail-soft pattern
+        // as notifier/autoReply below.
+        if ($inquiry->status !== BookingInquiry::STATUS_SPAM) {
+            try {
+                $this->enrichFromSlug->handle($inquiry);
+                $inquiry->refresh();
+            } catch (Throwable $e) {
+                Log::warning('BookingInquiry: tour-slug enrichment failed', [
+                    'reference' => $inquiry->reference,
+                    'tour_slug' => $inquiry->tour_slug,
+                    'error'     => $e->getMessage(),
+                ]);
+            }
         }
 
         // Fire notification for non-spam only — bots don't need Telegram pings.
