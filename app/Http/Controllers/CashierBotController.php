@@ -784,6 +784,19 @@ class CashierBotController extends Controller
                 );
                 return response('OK');
 
+            } catch (\App\Exceptions\Fx\StaleFxRateException $e) {
+                // 2026-05-08 follow-up #1 — staleness-specific surface so the
+                // log distinguishes "rate is stale" from "rate is unavailable" and
+                // the operator gets a clearer hint that this is recoverable by
+                // refreshing the rate (cron re-run or Filament manual override)
+                // rather than escalating to the dev team.
+                Log::warning('CashierBot: stale FX rate — payment session refused', [
+                    'beds24_booking_id' => $bid,
+                    'error'             => $e->getMessage(),
+                ]);
+                $this->send($chatId, '⏱ Курсы валют устарели. Обратитесь к менеджеру для обновления.');
+
+                return response('OK');
             } catch (\Throwable $e) {
                 // FX presentation unavailable — hard block (Microphase 7).
                 Log::warning('CashierBot: FX presentation unavailable — payment blocked', [

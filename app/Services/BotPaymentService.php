@@ -68,9 +68,18 @@ class BotPaymentService
      * @throws \Illuminate\Database\Eloquent\ModelNotFoundException
      * @throws \App\Exceptions\Beds24RateLimitException
      * @throws IncompleteGroupSyncException — group booking cannot be fully resolved
+     * @throws \App\Exceptions\Fx\StaleFxRateException — latest daily_exchange_rates row older than fx.stale_after_hours
      */
     public function preparePayment(string $beds24BookingId, string $botSessionId): PaymentPresentation
     {
+        // 2026-05-08 follow-up #1 — refuse to open a payment session if the
+        // latest persisted FX row is older than fx.stale_after_hours. Single
+        // canonical guard; covers both the cashier-bot path AND the Filament
+        // admin mixed-currency path because the latter (
+        // RecordMixedCurrencySplitFromAdminAction) also delegates here.
+        // See docs/FIXES.md tracked entry for the full incident reasoning.
+        app(\App\Services\Fx\FxStalenessGuard::class)->ensureFreshOrFail();
+
         // IMPORTANT: query by beds24_booking_id (external Beds24 ID), NOT by local model PK (id)
         $booking = Beds24Booking::where('beds24_booking_id', $beds24BookingId)->firstOrFail();
 

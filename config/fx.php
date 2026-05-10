@@ -50,8 +50,20 @@ return [
     |--------------------------------------------------------------------------
     | Staleness
     |--------------------------------------------------------------------------
-    | A booking_fx_syncs row is considered stale if the rate date is older
-    | than today's published exchange rate date.
+    | Maximum age (in hours) of the latest persisted FX data before consumers
+    | refuse to use it. Read by two distinct enforcers, both fail-closed:
+    |
+    |   1. FxSyncService — a `booking_fx_syncs` row is considered stale if
+    |      its rate date is older than today's published exchange rate date
+    |      (warning-only, falls back to latest row).
+    |
+    |   2. FxStalenessGuard (added 2026-05-08) — refuses to open a payment
+    |      session at `BotPaymentService::preparePayment` time if the
+    |      latest `daily_exchange_rates.fetched_at` is older than this
+    |      threshold. Throws `StaleFxRateException`. Both the cashier-bot
+    |      path and the Filament admin mixed-currency path are covered.
+    |      Values <= 0 are clamped to 1 with a warning log to prevent
+    |      misconfiguration silently disabling the guard.
     */
     'stale_after_hours' => (int) env('FX_STALE_HOURS', 4),
 

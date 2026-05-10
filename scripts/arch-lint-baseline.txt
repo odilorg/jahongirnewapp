@@ -1,4 +1,4 @@
-# arch-lint baseline — regenerated 2026-05-06T15:15:15+05:00
+# arch-lint baseline — regenerated 2026-05-10T11:45:43+05:00
 # Format: file:line:rule-key (rule-key stable across runs)
 app/Console/Commands/SendDailyRecap.php:52:http-outside-adapter
 app/Console/Commands/TourSendReminders.php:397:http-outside-adapter
@@ -23,19 +23,19 @@ app/Filament/Resources/ContractResource.php:122:long-action-closure
 app/Http/Controllers/Api/BookingInquiryController.php:34:fat-controller
 app/Http/Controllers/Beds24WebhookController.php:48:fat-controller
 app/Http/Controllers/Beds24WebhookController.php:97:fat-controller
-app/Http/Controllers/CashierBotController.php:1255:fat-controller
-app/Http/Controllers/CashierBotController.php:1553:fat-controller
-app/Http/Controllers/CashierBotController.php:1625:fat-controller
-app/Http/Controllers/CashierBotController.php:1805:fat-controller
-app/Http/Controllers/CashierBotController.php:1878:fat-controller
-app/Http/Controllers/CashierBotController.php:1938:fat-controller
-app/Http/Controllers/CashierBotController.php:2027:fat-controller
-app/Http/Controllers/CashierBotController.php:2332:fat-controller
+app/Http/Controllers/CashierBotController.php:1012:fat-controller
+app/Http/Controllers/CashierBotController.php:1268:fat-controller
+app/Http/Controllers/CashierBotController.php:1566:fat-controller
+app/Http/Controllers/CashierBotController.php:1638:fat-controller
+app/Http/Controllers/CashierBotController.php:1818:fat-controller
+app/Http/Controllers/CashierBotController.php:1891:fat-controller
+app/Http/Controllers/CashierBotController.php:1951:fat-controller
+app/Http/Controllers/CashierBotController.php:2040:fat-controller
+app/Http/Controllers/CashierBotController.php:2345:fat-controller
 app/Http/Controllers/CashierBotController.php:657:fat-controller
 app/Http/Controllers/CashierBotController.php:77:fat-controller
-app/Http/Controllers/CashierBotController.php:803:fat-controller
-app/Http/Controllers/CashierBotController.php:943:fat-controller
-app/Http/Controllers/CashierBotController.php:999:fat-controller
+app/Http/Controllers/CashierBotController.php:816:fat-controller
+app/Http/Controllers/CashierBotController.php:956:fat-controller
 app/Http/Controllers/HousekeepingBotController.php:1718:http-outside-adapter
 app/Http/Controllers/HousekeepingBotController.php:1756:http-outside-adapter
 app/Http/Controllers/OctoCallbackController.php:15:fat-controller
