@@ -2,48 +2,59 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\User;
-use App\Models\CashierShift;
-use App\Models\CashTransaction;
-use App\Models\CashExpense;
-use App\Models\ShiftHandover;
-use App\Models\EndSaldo;
-use App\Enums\CashTransactionSource;
-use App\Enums\Currency;
-use App\Models\BeginningSaldo;
-use App\Models\Beds24Booking;
-use App\Models\TelegramPosSession;
-use App\Models\ExpenseCategory;
 use App\Contracts\Telegram\BotResolverInterface;
 use App\Contracts\Telegram\TelegramTransportInterface;
 use App\DTO\PaymentPresentation;
 use App\DTO\RecordPaymentData;
+use App\Enums\CashTransactionSource;
+use App\Enums\Currency;
 use App\Enums\OverrideTier;
+use App\Models\Beds24Booking;
+use App\Models\CashierShift;
+use App\Models\CashTransaction;
+use App\Models\ExpenseCategory;
+use App\Models\ShiftHandover;
+use App\Models\TelegramPosSession;
+use App\Models\User;
+use App\Services\Beds24BookingService;
 use App\Services\BotPaymentService;
 use App\Services\CashierExchangeService;
 use App\Services\CashierExpenseService;
 use App\Services\CashierShiftService;
 use App\Services\Fx\OverridePolicyEvaluator as FxOverridePolicyEvaluator;
-use App\Services\Beds24BookingService;
 use App\Services\OwnerAlertService;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Carbon\Carbon;
 
 class CashierBotController extends Controller
 {
     protected OwnerAlertService $ownerAlert;
+
     protected BotPaymentService $botPaymentService;
+
     protected FxOverridePolicyEvaluator $overridePolicy;
+
     protected CashierShiftService $shiftService;
+
     protected CashierExpenseService $expenseService;
+
     protected CashierExchangeService $exchangeService;
+
     protected BotResolverInterface $botResolver;
+
     protected TelegramTransportInterface $transport;
+
     protected Beds24BookingService $beds24;
+
     protected \App\Services\Cashier\BalanceCalculator $balance;
+
     protected \App\Services\CashierBot\CashierBotCallbackRouter $callbackRouter;
+
+    protected \App\Services\Fx\FxStalenessGuard $fxGuard;
+
+    protected \App\Services\CashierBot\GuestListPriceFormatter $priceFormatter;
 
     // Property ID for Beds24 — must match HousekeepingBotController
     protected const PROPERTY_ID = 41097;
@@ -60,6 +71,8 @@ class CashierBotController extends Controller
         Beds24BookingService $beds24,
         \App\Services\Cashier\BalanceCalculator $balance,
         \App\Services\CashierBot\CashierBotCallbackRouter $callbackRouter,
+        \App\Services\Fx\FxStalenessGuard $fxGuard,
+        \App\Services\CashierBot\GuestListPriceFormatter $priceFormatter,
     ) {
         $this->ownerAlert = $ownerAlert;
         $this->botPaymentService = $botPaymentService;
@@ -72,6 +85,8 @@ class CashierBotController extends Controller
         $this->beds24 = $beds24;
         $this->balance = $balance;
         $this->callbackRouter = $callbackRouter;
+        $this->fxGuard = $fxGuard;
+        $this->priceFormatter = $priceFormatter;
     }
 
     public function handleWebhook(Request $request)
@@ -88,18 +103,18 @@ class CashierBotController extends Controller
             $webhook = \App\Models\IncomingWebhook::firstOrCreate(
                 ['event_id' => $eventId],
                 [
-                    'source'      => 'telegram:cashier',
-                    'payload'     => $data,
-                    'status'      => \App\Models\IncomingWebhook::STATUS_PENDING,
+                    'source' => 'telegram:cashier',
+                    'payload' => $data,
+                    'status' => \App\Models\IncomingWebhook::STATUS_PENDING,
                     'received_at' => now(),
                 ]
             );
         } else {
             $webhook = \App\Models\IncomingWebhook::create([
-                'source'      => 'telegram:cashier',
-                'event_id'    => null,
-                'payload'     => $data,
-                'status'      => \App\Models\IncomingWebhook::STATUS_PENDING,
+                'source' => 'telegram:cashier',
+                'event_id' => null,
+                'payload' => $data,
+                'status' => \App\Models\IncomingWebhook::STATUS_PENDING,
                 'received_at' => now(),
             ]);
         }
@@ -118,8 +133,16 @@ class CashierBotController extends Controller
     public function processUpdate(array $data): void
     {
         try {
-            if ($callback = $data['callback_query'] ?? null) { $this->handleCallback($callback); return; }
-            if ($message = $data['message'] ?? null) { $this->handleMessage($message); return; }
+            if ($callback = $data['callback_query'] ?? null) {
+                $this->handleCallback($callback);
+
+                return;
+            }
+            if ($message = $data['message'] ?? null) {
+                $this->handleMessage($message);
+
+                return;
+            }
         } catch (\Throwable $e) {
             Log::error('CashierBot unhandled error', ['e' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
             $this->alertOwnerOnError('Webhook', $e);
@@ -133,32 +156,46 @@ class CashierBotController extends Controller
         $text = trim($message['text'] ?? '');
         $photo = $message['photo'] ?? null;
         $contact = $message['contact'] ?? null;
-        if (!$chatId) return response('OK');
+        if (! $chatId) {
+            return response('OK');
+        }
 
         // Phone auth only works in private chats — ignore group messages
-        if (($message['chat']['type'] ?? 'private') !== 'private') return response('OK');
+        if (($message['chat']['type'] ?? 'private') !== 'private') {
+            return response('OK');
+        }
 
-        if ($contact) return $this->handleAuth($chatId, $contact);
+        if ($contact) {
+            return $this->handleAuth($chatId, $contact);
+        }
 
         $session = TelegramPosSession::where('chat_id', $chatId)->first();
-        if (!$session || !$session->user_id) {
-            $this->send($chatId, "Отправьте номер телефона для авторизации.", $this->phoneKb());
+        if (! $session || ! $session->user_id) {
+            $this->send($chatId, 'Отправьте номер телефона для авторизации.', $this->phoneKb());
+
             return response('OK');
         }
         // Only expire idle sessions, not active workflows
         if ($session->isExpired() && in_array($session->state, ['main_menu', 'idle', null])) {
             $session->update(['user_id' => null, 'state' => 'idle', 'data' => null]);
-            $this->send($chatId, "Сессия истекла. Отправьте номер телефона.", $this->phoneKb());
+            $this->send($chatId, 'Сессия истекла. Отправьте номер телефона.', $this->phoneKb());
+
             return response('OK');
         }
         $session->updateActivity(); // touches updated_at; isExpired() checks that column
-        if ($photo && $session->state === 'shift_close_photo') return $this->handleShiftPhoto($session, $chatId, $photo);
-        if ($text === '/start' || $text === '/menu') return $this->showMainMenu($chatId, $session);
+        if ($photo && $session->state === 'shift_close_photo') {
+            return $this->handleShiftPhoto($session, $chatId, $photo);
+        }
+        if ($text === '/start' || $text === '/menu') {
+            return $this->showMainMenu($chatId, $session);
+        }
         if ($text === '/logout') {
             $session->update(['user_id' => null, 'state' => 'idle', 'data' => null]);
-            $this->send($chatId, "Вы вышли. Отправьте номер телефона для входа.", $this->phoneKb());
+            $this->send($chatId, 'Вы вышли. Отправьте номер телефона для входа.', $this->phoneKb());
+
             return response('OK');
         }
+
         return $this->handleState($session, $chatId, $text);
     }
 
@@ -217,21 +254,21 @@ class CashierBotController extends Controller
             ->where('callback_query_id', $callbackId)
             ->where('status', 'processing')
             ->update([
-                'status'       => 'failed',
-                'error'        => mb_substr($error, 0, 500),
+                'status' => 'failed',
+                'error' => mb_substr($error, 0, 500),
                 'completed_at' => now(),
             ]);
     }
 
     protected function handleState($s, int $chatId, string $text)
     {
-        return match($s->state) {
+        return match ($s->state) {
             'payment_room' => $this->hPayRoom($s, $chatId, $text),
             'payment_arrival_date' => $this->hPaymentArrivalDate($s, $chatId, $text),
             'payment_fx_amount' => $this->hPayFxAmount($s, $chatId, $text),
             'payment_fx_override_reason' => $this->hPayFxOverrideReason($s, $chatId, $text),
             'expense_amount' => $this->hExpAmt($s, $chatId, $text),
-            'sale_amount'    => $this->hSaleAmt($s, $chatId, $text),
+            'sale_amount' => $this->hSaleAmt($s, $chatId, $text),
             'expense_desc' => $this->hExpDesc($s, $chatId, $text),
             'cash_in_amount' => $this->hCashInAmt($s, $chatId, $text),
             'exchange_in_amount' => $this->hExInAmt($s, $chatId, $text),
@@ -256,8 +293,8 @@ class CashierBotController extends Controller
     protected function resetSessionToMainMenu(TelegramPosSession $s, int $chatId)
     {
         Log::info('CashierBot: orphan session state reset', [
-            'chat_id'   => $chatId,
-            'user_id'   => $s->user_id,
+            'chat_id' => $chatId,
+            'user_id' => $s->user_id,
             'old_state' => $s->state,
             'data_keys' => array_keys($s->data ?? []),
         ]);
@@ -294,7 +331,11 @@ class CashierBotController extends Controller
     public function startPayment($s, int $chatId)
     {
         $shift = $this->getShift($s->user_id);
-        if (!$shift) { $this->send($chatId, "Сначала откройте смену."); return response('OK'); }
+        if (! $shift) {
+            $this->send($chatId, 'Сначала откройте смену.');
+
+            return response('OK');
+        }
 
         // Minimal date picker: today vs other date. The previous default
         // (-3/+14 day window from b13a921) produced lists that felt long;
@@ -312,6 +353,7 @@ class CashierBotController extends Controller
             [['text' => '📅 Другая дата',  'callback_data' => 'pick_date_other']],
         ];
         $this->send($chatId, 'Выберите дату заездов:', ['inline_keyboard' => $btns], 'inline');
+
         return response('OK');
     }
 
@@ -320,11 +362,11 @@ class CashierBotController extends Controller
      * Used by both startPayment (default range) and pick_arrival_date
      * callbacks (single-date or relative-day jumps).
      *
-     * @param bool $includePaid  When false (default), bookings with an
-     *   existing cashier_bot payment are hidden from the list to keep
-     *   the keyboard short and actionable. The header reports how many
-     *   were hidden, and a "show paid" toggle button is appended so
-     *   operators can verify or correct duplicates when needed.
+     * @param  bool  $includePaid  When false (default), bookings with an
+     *                             existing cashier_bot payment are hidden from the list to keep
+     *                             the keyboard short and actionable. The header reports how many
+     *                             were hidden, and a "show paid" toggle button is appended so
+     *                             operators can verify or correct duplicates when needed.
      */
     protected function renderGuestList($s, int $chatId, string $arrivalFrom, string $arrivalTo, int $shiftId, bool $includePaid = false): \Illuminate\Http\Response
     {
@@ -335,6 +377,7 @@ class CashierBotController extends Controller
             $s->update(['state' => 'payment_room', 'data' => $d]);
             $rangeLabel = $arrivalFrom === $arrivalTo ? $arrivalFrom : "{$arrivalFrom} → {$arrivalTo}";
             $this->send($chatId, "Гостей не найдено ({$rangeLabel}).\nВведите номер брони Beds24:");
+
             return response('OK');
         }
 
@@ -372,7 +415,7 @@ class CashierBotController extends Controller
             $btns = [];
             if ($hiddenPaid > 0) {
                 $btns[] = [[
-                    'text'          => "🔍 Показать оплаченные ({$hiddenPaid})",
+                    'text' => "🔍 Показать оплаченные ({$hiddenPaid})",
                     'callback_data' => "pick_show_all_{$arrivalFrom}_{$arrivalTo}",
                 ]];
             }
@@ -388,30 +431,59 @@ class CashierBotController extends Controller
                 ? "Все {$hiddenPaid} брони за {$rangeLabel} уже оплачены.\nВыберите другую дату или покажите оплаченные."
                 : "Гостей не найдено ({$rangeLabel}).";
             $this->send($chatId, $msg, ['inline_keyboard' => $btns], 'inline');
+
             return response('OK');
         }
 
         $d['_live_guests'] = collect($guests)->keyBy('id')->toArray();
         $s->update(['state' => 'payment_guest_select', 'data' => $d]);
 
+        // FX rate for UZS conversion in the listing body.
+        // - getFreshOrNull() shares semantics with the payment-collection
+        //   guard via FxStalenessGuard so listing and payment screen agree
+        //   on what "stale" means.
+        // - Soft-degrade only: when null (stale or missing rate) we show
+        //   USD-only prices in the body and add a banner. The hard guard
+        //   that refuses payment sessions still fires later in
+        //   BotPaymentService::preparePayment.
+        $fxRate = $this->fxGuard->getFreshOrNull();
+
         $btns = [];
+        $bodyLines = [];
         foreach ($guests as $g) {
-            $bid    = (int) $g['id'];
-            $name   = trim(($g['firstName'] ?? '') . ' ' . ($g['lastName'] ?? '')) ?: '—';
-            $arr    = isset($g['arrival']) ? Carbon::parse($g['arrival'])->format('d.m') : '?';
+            $bid = (int) $g['id'];
+            $name = trim(($g['firstName'] ?? '').' '.($g['lastName'] ?? '')) ?: '—';
+            $arr = isset($g['arrival']) ? Carbon::parse($g['arrival'])->format('d.m') : '?';
             // ✅ only renders when includePaid=true (paid rows are filtered
             // out otherwise); kept so the verify-mode list still shows status.
-            $paid   = isset($paidSet[$bid]) ? ' ✅' : '';
+            $paid = isset($paidSet[$bid]) ? ' ✅' : '';
+
             $btns[] = [[
-                'text'          => "#{$bid} | {$name} | {$arr}{$paid}",
+                'text' => "#{$bid} · {$name} · {$arr}{$paid}",
                 'callback_data' => "guest_{$bid}",
             ]];
+
+            // Body line per guest: ID/name/date on first line, price on
+            // second line. Two-line block + blank separator gives the
+            // cashier the "second line for price" effect that buttons
+            // can't provide (Telegram inline-button text is single-line).
+            //
+            // HTML-escape any guest-derived field. send() uses
+            // parse_mode=HTML; a name containing <, >, or & (e.g.
+            // "O'Brien <test>") would cause Telegram to reject the
+            // whole message with 400 and the cashier would see no list.
+            // Inline-button text above is unaffected — Telegram does
+            // not HTML-parse button labels, so $name there stays raw.
+            $price = $this->priceFormatter->format($g, $fxRate);
+            $bodyLines[] = '#'.$bid.' · '.e($name).' · '.$arr.$paid;
+            $bodyLines[] = '💰 '.e($price);
+            $bodyLines[] = '';
         }
 
         // Toggle row — only shown when there are paid rows we hid.
         if ($hiddenPaid > 0 && ! $includePaid) {
             $btns[] = [[
-                'text'          => "🔍 Показать оплаченные ({$hiddenPaid})",
+                'text' => "🔍 Показать оплаченные ({$hiddenPaid})",
                 'callback_data' => "pick_show_all_{$arrivalFrom}_{$arrivalTo}",
             ]];
         }
@@ -434,7 +506,18 @@ class CashierBotController extends Controller
         } elseif ($includePaid) {
             $header .= ' (вкл. оплаченные)';
         }
-        $this->send($chatId, $header . ':', ['inline_keyboard' => $btns], 'inline');
+
+        $messageParts = [$header.':', ''];
+        if ($fxRate === null) {
+            $messageParts[] = '⚠️ Курс UZS недоступен сегодня — суммы показаны в USD';
+            $messageParts[] = '';
+        }
+        $messageParts = array_merge($messageParts, $bodyLines);
+        // Trim trailing blank line for visual cleanliness.
+        $message = rtrim(implode("\n", $messageParts));
+
+        $this->send($chatId, $message, ['inline_keyboard' => $btns], 'inline');
+
         return response('OK');
     }
 
@@ -448,26 +531,33 @@ class CashierBotController extends Controller
     {
         try {
             $arrivalFrom = $arrivalFrom ?? Carbon::today()->format('Y-m-d');
-            $arrivalTo   = $arrivalTo ?? $arrivalFrom;
-            $propertyId  = [(string) self::PROPERTY_ID];
+            $arrivalTo = $arrivalTo ?? $arrivalFrom;
+            $propertyId = [(string) self::PROPERTY_ID];
 
             $resp = $this->beds24->getBookings([
                 'arrivalFrom' => $arrivalFrom,
-                'arrivalTo'   => $arrivalTo,
-                'propertyId'  => $propertyId,
+                'arrivalTo' => $arrivalTo,
+                'propertyId' => $propertyId,
             ]);
 
             $today = Carbon::today();
             $all = collect($resp['data'] ?? [])
-                ->filter(fn ($b) => !in_array($b['status'] ?? '', ['cancelled', 'declined']))
+                ->filter(fn ($b) => ! in_array($b['status'] ?? '', ['cancelled', 'declined']))
                 ->unique('id')
                 ->sortBy(function ($b) use ($today) {
                     // Sort key: today=0, future=days_ahead, past=1000+days_back
                     // → today first, then upcoming asc, then recent past desc.
-                    if (empty($b['arrival'])) return 99999;
+                    if (empty($b['arrival'])) {
+                        return 99999;
+                    }
                     $diff = Carbon::parse($b['arrival'])->diffInDays($today, false);
-                    if ($diff === 0)  return 0;          // today
-                    if ($diff < 0)    return abs($diff); // future: 1, 2, 3...
+                    if ($diff === 0) {
+                        return 0;
+                    }          // today
+                    if ($diff < 0) {
+                        return abs($diff);
+                    } // future: 1, 2, 3...
+
                     return 1000 + $diff;                 // past: 1001, 1002... (after future)
                 })
                 ->values()
@@ -477,9 +567,10 @@ class CashierBotController extends Controller
         } catch (\Throwable $e) {
             Log::warning('CashierBot: Beds24 guest fetch failed', [
                 'arrivalFrom' => $arrivalFrom,
-                'arrivalTo'   => $arrivalTo,
-                'error'       => $e->getMessage(),
+                'arrivalTo' => $arrivalTo,
+                'error' => $e->getMessage(),
             ]);
+
             return [];
         }
     }
@@ -491,23 +582,31 @@ class CashierBotController extends Controller
     public function pickArrivalDate($s, int $chatId, string $callback): \Illuminate\Http\Response
     {
         $shift = $this->getShift($s->user_id);
-        if (!$shift) { $this->send($chatId, "Сначала откройте смену."); return response('OK'); }
+        if (! $shift) {
+            $this->send($chatId, 'Сначала откройте смену.');
+
+            return response('OK');
+        }
 
         if ($callback === 'pick_date_yesterday') {
             $date = Carbon::yesterday()->format('Y-m-d');
+
             return $this->renderGuestList($s, $chatId, $date, $date, $shift->id);
         }
         if ($callback === 'pick_date_today') {
             $date = Carbon::today()->format('Y-m-d');
+
             return $this->renderGuestList($s, $chatId, $date, $date, $shift->id);
         }
         if ($callback === 'pick_date_tomorrow') {
             $date = Carbon::tomorrow()->format('Y-m-d');
+
             return $this->renderGuestList($s, $chatId, $date, $date, $shift->id);
         }
         // pick_date_other → ask operator for date input
         $s->update(['state' => 'payment_arrival_date', 'data' => ['shift_id' => $shift->id]]);
         $this->send($chatId, "Введите дату заезда:\n• 2026-04-28\n• 28.04\n• 28/04\n• вчера / сегодня / завтра");
+
         return response('OK');
     }
 
@@ -520,13 +619,18 @@ class CashierBotController extends Controller
     public function pickShowAll($s, int $chatId, string $callback): \Illuminate\Http\Response
     {
         $shift = $this->getShift($s->user_id);
-        if (! $shift) { $this->send($chatId, "Сначала откройте смену."); return response('OK'); }
+        if (! $shift) {
+            $this->send($chatId, 'Сначала откройте смену.');
+
+            return response('OK');
+        }
 
         // pick_show_all_2026-05-02_2026-05-16 → ['2026-05-02', '2026-05-16']
-        $rest  = substr($callback, strlen('pick_show_all_'));
+        $rest = substr($callback, strlen('pick_show_all_'));
         $parts = explode('_', $rest);
         if (count($parts) !== 2 || ! preg_match('/^\d{4}-\d{2}-\d{2}$/', $parts[0]) || ! preg_match('/^\d{4}-\d{2}-\d{2}$/', $parts[1])) {
-            $this->send($chatId, "Неверный диапазон. Попробуйте заново.");
+            $this->send($chatId, 'Неверный диапазон. Попробуйте заново.');
+
             return response('OK');
         }
 
@@ -542,13 +646,15 @@ class CashierBotController extends Controller
         $d = $s->data ?? [];
         $shiftId = (int) ($d['shift_id'] ?? 0);
         if ($shiftId <= 0) {
-            $this->send($chatId, "Смена не найдена. Начните заново.");
+            $this->send($chatId, 'Смена не найдена. Начните заново.');
+
             return $this->showMainMenu($chatId, $s);
         }
 
         $date = $this->parseFlexibleDate($text);
         if ($date === null) {
-            $this->send($chatId, "Не понял дату. Попробуйте: 2026-04-28, 28.04, 28/04, вчера, сегодня или завтра.");
+            $this->send($chatId, 'Не понял дату. Попробуйте: 2026-04-28, 28.04, 28/04, вчера, сегодня или завтра.');
+
             return response('OK');
         }
 
@@ -567,8 +673,8 @@ class CashierBotController extends Controller
         $today = Carbon::today();
 
         $relative = [
-            'вчера'     => -1, 'сегодня' => 0, 'завтра' => 1,
-            'yesterday' => -1, 'today'   => 0, 'tomorrow' => 1,
+            'вчера' => -1, 'сегодня' => 0, 'завтра' => 1,
+            'yesterday' => -1, 'today' => 0, 'tomorrow' => 1,
         ];
         if (isset($relative[$t])) {
             return $today->copy()->addDays($relative[$t])->format('Y-m-d');
@@ -581,7 +687,10 @@ class CashierBotController extends Controller
         // DD.MM[.YYYY] or DD/MM[/YYYY]
         if (preg_match('#^(\d{1,2})[./](\d{1,2})(?:[./](\d{2,4}))?$#', $t, $m)) {
             $year = isset($m[3]) ? (int) $m[3] : $today->year;
-            if ($year < 100) { $year += 2000; }
+            if ($year < 100) {
+                $year += 2000;
+            }
+
             return $this->buildDateStrict($year, (int) $m[2], (int) $m[1]);
         }
 
@@ -595,15 +704,22 @@ class CashierBotController extends Controller
      */
     private function buildDateStrict(int $year, int $month, int $day): ?string
     {
-        if ($month < 1 || $month > 12) { return null; }
-        if ($day < 1 || $day > 31)     { return null; }
-        if ($year < 1900 || $year > 2100) { return null; }
+        if ($month < 1 || $month > 12) {
+            return null;
+        }
+        if ($day < 1 || $day > 31) {
+            return null;
+        }
+        if ($year < 1900 || $year > 2100) {
+            return null;
+        }
         try {
             $d = Carbon::create($year, $month, $day);
             // Verify Carbon didn't silently overflow (e.g. Feb 30 → Mar 2).
             if ($d->year !== $year || $d->month !== $month || $d->day !== $day) {
                 return null;
             }
+
             return $d->format('Y-m-d');
         } catch (\Throwable) {
             return null;
@@ -621,7 +737,8 @@ class CashierBotController extends Controller
 
         // Accept only numeric booking IDs
         if (! ctype_digit($bid)) {
-            $this->send($chatId, "Введите числовой номер брони Beds24 (например: 79454530):");
+            $this->send($chatId, 'Введите числовой номер брони Beds24 (например: 79454530):');
+
             return response('OK');
         }
 
@@ -629,22 +746,24 @@ class CashierBotController extends Controller
         $b = Beds24Booking::where('beds24_booking_id', $bid)->first();
         if (! $b) {
             try {
-                $resp       = $this->beds24->getBooking($bid);
-                $liveGuest  = $resp['data'][0] ?? null;
+                $resp = $this->beds24->getBooking($bid);
+                $liveGuest = $resp['data'][0] ?? null;
                 if (! $liveGuest) {
                     $this->send($chatId, "Бронь #{$bid} не найдена в Beds24.\nПроверьте номер и повторите:");
+
                     return response('OK');
                 }
                 // Stash in session so selectGuest can use live fields directly
-                $d                     = $s->data ?? [];
+                $d = $s->data ?? [];
                 $d['_live_guests'][$bid] = $liveGuest;
                 $s->update(['data' => $d]);
             } catch (\Throwable $e) {
                 Log::warning('CashierBot: live booking lookup failed for manual ID', [
-                    'bid'   => $bid,
+                    'bid' => $bid,
                     'error' => $e->getMessage(),
                 ]);
                 $this->send($chatId, "Бронь #{$bid} не найдена.\nПроверьте номер и повторите:");
+
                 return response('OK');
             }
         }
@@ -662,13 +781,14 @@ class CashierBotController extends Controller
         if ($bid === 'manual') {
             // Microphase 7: manual/legacy entry point removed.
             // Manual payments bypass the FX snapshot controls — operators must contact manager.
-            $this->send($chatId, "❌ Курсы ФX недоступны. Обратитесь к менеджеру.");
+            $this->send($chatId, '❌ Курсы ФX недоступны. Обратитесь к менеджеру.');
+
             return response('OK');
         }
 
         // 1. Use live guest payload stored in session during arrivals list fetch (no extra API call)
-        $liveGuest  = $d['_live_guests'][$bid] ?? null;
-        $snap       = $this->extractLiveBookingSnapshot($liveGuest, $bid);
+        $liveGuest = $d['_live_guests'][$bid] ?? null;
+        $snap = $this->extractLiveBookingSnapshot($liveGuest, $bid);
 
         // 2. Local DB — needed for FX presentation path
         $b = Beds24Booking::where('beds24_booking_id', $bid)->first();
@@ -687,7 +807,7 @@ class CashierBotController extends Controller
         // See PHASE_1_5_PLAN.md doctrine: "never build payment
         // orchestration on potentially stale topology."
         if ($b) {
-            $resolver   = app(\App\Services\Beds24\Beds24GroupResolver::class);
+            $resolver = app(\App\Services\Beds24\Beds24GroupResolver::class);
             $resolution = $resolver->resolve($b);
 
             // Fail-safe: API down → tell operator instead of presenting
@@ -698,9 +818,10 @@ class CashierBotController extends Controller
                 ]);
                 $this->send($chatId,
                     "⚠ Не удалось подтвердить структуру группы.\n"
-                    . "Попробуйте снова или оплатите только эту бронь.\n\n"
-                    . "[Оплатить только эту: введите номер брони ещё раз]"
+                    ."Попробуйте снова или оплатите только эту бронь.\n\n"
+                    .'[Оплатить только эту: введите номер брони ещё раз]'
                 );
+
                 return $this->showMainMenu($chatId, $s);
             }
 
@@ -713,27 +834,28 @@ class CashierBotController extends Controller
                     $stats = $resolution->repairStats;
                     Log::info('CashierBot: group repaired in-flight', [
                         'beds24_booking_id' => $bid,
-                        'master_id'         => $masterId,
-                        'stats'             => $stats,
+                        'master_id' => $masterId,
+                        'stats' => $stats,
                     ]);
                 }
+
                 return $this->showGroupForkChoice($s, $chatId, $bid, $masterId, $siblings, $b);
             }
         }
 
         // Merge: live snapshot wins, local DB fills gaps, hard defaults last
-        $d['guest_name']       = $snap['guest_name']       ?? ($b?->guest_name ?? '?');
-        $d['booking_id']       = $bid;
+        $d['guest_name'] = $snap['guest_name'] ?? ($b?->guest_name ?? '?');
+        $d['booking_id'] = $bid;
         $d['booking_currency'] = $snap['booking_currency'] ?? ($b ? strtoupper($b->currency ?? 'USD') : 'USD');
-        $d['booking_amount']   = $snap['booking_amount']   ?? ($b ? (float)($b->invoice_balance > 0 ? $b->invoice_balance : $b->total_amount) : null);
+        $d['booking_amount'] = $snap['booking_amount'] ?? ($b ? (float) ($b->invoice_balance > 0 ? $b->invoice_balance : $b->total_amount) : null);
 
         // Log whenever a fallback was used — helps catch stale sync or parse issues
         if ($snap['currency_source'] !== 'live_rate_description') {
             Log::warning('CashierBot: booking currency not from live payload', [
-                'beds24_booking_id'  => $bid,
-                'raw_rateDescription'=> $liveGuest['rateDescription'] ?? null,
-                'currency_source'    => $snap['currency_source'],
-                'resolved_currency'  => $d['booking_currency'],
+                'beds24_booking_id' => $bid,
+                'raw_rateDescription' => $liveGuest['rateDescription'] ?? null,
+                'currency_source' => $snap['currency_source'],
+                'resolved_currency' => $d['booking_currency'],
             ]);
         }
 
@@ -741,16 +863,16 @@ class CashierBotController extends Controller
         if (! $b) {
             Log::warning('CashierBot: booking not in local DB and import failed — payment blocked', [
                 'beds24_booking_id' => $bid,
-                'amount_from_live'  => $d['booking_amount'],
-                'guest_name'        => $d['guest_name'],
+                'amount_from_live' => $d['booking_amount'],
+                'guest_name' => $d['guest_name'],
                 'live_data_present' => (bool) $liveGuest,
-                'import_attempted'  => (bool) $liveGuest,
+                'import_attempted' => (bool) $liveGuest,
             ]);
         }
 
         if ($b && $d['booking_amount'] > 0) {
             try {
-                $botSessionId = (string) $chatId . ':' . ($d['shift_id'] ?? '0');
+                $botSessionId = (string) $chatId.':'.($d['shift_id'] ?? '0');
                 $presentation = $this->botPaymentService->preparePayment($bid, $botSessionId);
                 $d['fx_presentation'] = $presentation->toArray();
 
@@ -763,25 +885,26 @@ class CashierBotController extends Controller
                 // we keep its button shown even at 0 (showing 0 is rare and
                 // operationally informative).
                 $row = [
-                    ['text' => '🇺🇿 UZS: ' . number_format($presentation->uzsPresented, 0, '.', ' '), 'callback_data' => 'cur_UZS'],
+                    ['text' => '🇺🇿 UZS: '.number_format($presentation->uzsPresented, 0, '.', ' '), 'callback_data' => 'cur_UZS'],
                 ];
                 if ($presentation->usdPresented > 0) {
-                    $row[] = ['text' => '🇺🇸 USD: ' . number_format($presentation->usdPresented, 2, '.', ' '), 'callback_data' => 'cur_USD'];
+                    $row[] = ['text' => '🇺🇸 USD: '.number_format($presentation->usdPresented, 2, '.', ' '), 'callback_data' => 'cur_USD'];
                 }
                 if ($presentation->eurPresented > 0) {
-                    $row[] = ['text' => '🇪🇺 EUR: ' . number_format($presentation->eurPresented, 0), 'callback_data' => 'cur_EUR'];
+                    $row[] = ['text' => '🇪🇺 EUR: '.number_format($presentation->eurPresented, 0), 'callback_data' => 'cur_EUR'];
                 }
                 if ($presentation->rubPresented > 0) {
-                    $row[] = ['text' => '🇷🇺 RUB: ' . number_format($presentation->rubPresented, 0, '.', ' '), 'callback_data' => 'cur_RUB'];
+                    $row[] = ['text' => '🇷🇺 RUB: '.number_format($presentation->rubPresented, 0, '.', ' '), 'callback_data' => 'cur_RUB'];
                 }
 
                 $this->send($chatId,
                     "💳 Бронь #{$bid} | {$presentation->guestName} | Заезд: {$arrival}\n"
-                    . "Курс на {$presentation->fxRateDate}\n\n"
-                    . "Выберите валюту оплаты:",
+                    ."Курс на {$presentation->fxRateDate}\n\n"
+                    .'Выберите валюту оплаты:',
                     ['inline_keyboard' => [$row]],
                     'inline'
                 );
+
                 return response('OK');
 
             } catch (\App\Exceptions\Fx\StaleFxRateException $e) {
@@ -792,7 +915,7 @@ class CashierBotController extends Controller
                 // rather than escalating to the dev team.
                 Log::warning('CashierBot: stale FX rate — payment session refused', [
                     'beds24_booking_id' => $bid,
-                    'error'             => $e->getMessage(),
+                    'error' => $e->getMessage(),
                 ]);
                 $this->send($chatId, '⏱ Курсы валют устарели. Обратитесь к менеджеру для обновления.');
 
@@ -801,14 +924,15 @@ class CashierBotController extends Controller
                 // FX presentation unavailable — hard block (Microphase 7).
                 Log::warning('CashierBot: FX presentation unavailable — payment blocked', [
                     'beds24_booking_id' => $bid,
-                    'error'             => $e->getMessage(),
+                    'error' => $e->getMessage(),
                 ]);
             }
         }
 
         // FX presentation unavailable: booking not locally synced, zero amount, or FX service down.
         // Microphase 7: legacy/manual fallback removed — operator must contact manager.
-        $this->send($chatId, "❌ Курсы ФX недоступны. Обратитесь к менеджеру.");
+        $this->send($chatId, '❌ Курсы ФX недоступны. Обратитесь к менеджеру.');
+
         return response('OK');
     }
 
@@ -826,21 +950,23 @@ class CashierBotController extends Controller
                 $d['fx_presented_amount'] = $presented;
                 $s->update(['state' => 'payment_fx_amount', 'data' => $d]);
                 $this->send($chatId,
-                    "💰 По форме: " . number_format((int) $presented, 0, '.', ' ') . " {$d['currency']}\n\n"
-                    . "Введите фактически полученную сумму или нажмите ✅:",
+                    '💰 По форме: '.number_format((int) $presented, 0, '.', ' ')." {$d['currency']}\n\n"
+                    .'Введите фактически полученную сумму или нажмите ✅:',
                     ['inline_keyboard' => [[
-                        ['text' => '✅ Принять (' . number_format((int) $presented, 0, '.', ' ') . " {$d['currency']})", 'callback_data' => 'fx_confirm_amount'],
+                        ['text' => '✅ Принять ('.number_format((int) $presented, 0, '.', ' ')." {$d['currency']})", 'callback_data' => 'fx_confirm_amount'],
                     ]]],
                     'inline'
                 );
+
                 return response('OK');
             } catch (\Throwable $e) {
                 // Microphase 7.1: FX presentation invalid — stop immediately, do not fall through.
                 Log::warning('CashierBot: failed to get presentedAmountFor — payment blocked', [
                     'currency' => $d['currency'],
-                    'error'    => $e->getMessage(),
+                    'error' => $e->getMessage(),
                 ]);
-                $this->send($chatId, "❌ Курсы ФX недоступны. Обратитесь к менеджеру.");
+                $this->send($chatId, '❌ Курсы ФX недоступны. Обратитесь к менеджеру.');
+
                 return response('OK');
             }
         }
@@ -848,14 +974,15 @@ class CashierBotController extends Controller
         // Microphase 7.1: FX presentation absent — hard block (defence-in-depth).
         // This path was the legacy manual/fallback route; it is no longer reachable
         // from real cashier traffic because selectGuest() blocks before we get here.
-        $this->send($chatId, "❌ Курсы ФX недоступны. Обратитесь к менеджеру.");
+        $this->send($chatId, '❌ Курсы ФX недоступны. Обратитесь к менеджеру.');
+
         return response('OK');
     }
 
     protected function proceedToPaymentMethod($s, int $chatId, array $d)
     {
         $s->update(['state' => 'payment_method', 'data' => $d]);
-        $this->send($chatId, "Способ оплаты:", ['inline_keyboard' => [
+        $this->send($chatId, 'Способ оплаты:', ['inline_keyboard' => [
             [
                 ['text' => 'Наличные', 'callback_data' => 'method_cash'],
                 ['text' => 'Карта',    'callback_data' => 'method_card'],
@@ -868,6 +995,7 @@ class CashierBotController extends Controller
                 ['text' => '💱 Разбить (разные валюты)', 'callback_data' => 'method_mc_split'],
             ],
         ]], 'inline');
+
         return response('OK');
     }
 
@@ -876,6 +1004,7 @@ class CashierBotController extends Controller
     private function isGroupBooking(\App\Models\Beds24Booking $b): bool
     {
         $masterId = $b->master_booking_id ?? $b->beds24_booking_id;
+
         // Has siblings if there's >= 2 rows sharing this master
         return \App\Models\Beds24Booking::where('master_booking_id', $masterId)->count() >= 2;
     }
@@ -909,7 +1038,7 @@ class CashierBotController extends Controller
         ];
         foreach ($siblings as $sib) {
             $bidStr = (string) $sib->beds24_booking_id;
-            $paid   = in_array($bidStr, $paidIds, true) ? ' ✅' : '';
+            $paid = in_array($bidStr, $paidIds, true) ? ' ✅' : '';
             $lines[] = sprintf(
                 '#%s · %s · %.2f %s%s',
                 $bidStr,
@@ -920,21 +1049,21 @@ class CashierBotController extends Controller
             );
         }
         $lines[] = '';
-        $lines[] = "Всего по группе: " . number_format($totalSum, 2, '.', ' ') . " {$currency}";
+        $lines[] = 'Всего по группе: '.number_format($totalSum, 2, '.', ' ')." {$currency}";
         $lines[] = "Не оплачено: {$unpaidCount} из {$siblings->count()}";
 
         // Snapshot for composition guard at submit time
         $snapshot = $siblings->map(fn ($s) => [
-            'booking_id'    => (string) $s->beds24_booking_id,
-            'invoice_total' => (float)  $s->total_amount,
+            'booking_id' => (string) $s->beds24_booking_id,
+            'invoice_total' => (float) $s->total_amount,
         ])->all();
 
         $d = $s->data ?? [];
-        $d['group_master_id']        = $masterId;
-        $d['group_picked_bid']       = $pickedBid;
-        $d['group_snapshot']         = $snapshot;
-        $d['group_total']            = $totalSum;
-        $d['group_currency']         = $currency;
+        $d['group_master_id'] = $masterId;
+        $d['group_picked_bid'] = $pickedBid;
+        $d['group_snapshot'] = $snapshot;
+        $d['group_total'] = $totalSum;
+        $d['group_currency'] = $currency;
         $d['group_already_paid_ids'] = $paidIds;
         $s->update(['state' => 'payment_group_fork', 'data' => $d]);
 
@@ -950,6 +1079,7 @@ class CashierBotController extends Controller
         $kb[] = [['text' => 'Отмена', 'callback_data' => 'cancel']];
 
         $this->send($chatId, implode("\n", $lines), ['inline_keyboard' => $kb], 'inline');
+
         return response('OK');
     }
 
@@ -962,6 +1092,7 @@ class CashierBotController extends Controller
             $bid = (string) ($d['group_picked_bid'] ?? '');
             unset($d['group_master_id'], $d['group_snapshot'], $d['group_total'], $d['group_currency'], $d['group_already_paid_ids'], $d['group_picked_bid']);
             $s->update(['data' => $d]);
+
             return $this->selectGuest($s, $chatId, "guest_{$bid}");
         }
 
@@ -971,8 +1102,8 @@ class CashierBotController extends Controller
         $s->update(['state' => 'payment_group_method', 'data' => $d]);
         $this->send($chatId,
             "🏨 Оплата за группу\n\n"
-            . "Сумма: {$totalLabel} {$cur}\n\n"
-            . "Способ оплаты:",
+            ."Сумма: {$totalLabel} {$cur}\n\n"
+            .'Способ оплаты:',
             ['inline_keyboard' => [[
                 ['text' => 'Наличные', 'callback_data' => 'gbm_cash'],
                 ['text' => 'Карта',    'callback_data' => 'gbm_card'],
@@ -980,6 +1111,7 @@ class CashierBotController extends Controller
             ]]],
             'inline'
         );
+
         return response('OK');
     }
 
@@ -990,22 +1122,25 @@ class CashierBotController extends Controller
         $s->update(['state' => 'payment_group_confirm', 'data' => $d]);
 
         $totalLabel = number_format((float) $d['group_total'], 2, '.', ' ');
-        $methodLabel = match ($d['group_method']) { 'cash' => 'Наличные', 'card' => 'Карта', 'transfer' => 'Перевод', default => $d['group_method'] };
+        $methodLabel = match ($d['group_method']) {
+            'cash' => 'Наличные', 'card' => 'Карта', 'transfer' => 'Перевод', default => $d['group_method']
+        };
         $siblingCount = count($d['group_snapshot'] ?? []);
 
         $this->send($chatId,
             "Подтвердите оплату за группу:\n\n"
-            . "Мастер: #{$d['group_master_id']}\n"
-            . "Броней: {$siblingCount}\n"
-            . "Всего: {$totalLabel} {$d['group_currency']}\n"
-            . "Способ: {$methodLabel}\n\n"
-            . "Распределение по комнатам пропорциональное (largest-remainder rounding).",
+            ."Мастер: #{$d['group_master_id']}\n"
+            ."Броней: {$siblingCount}\n"
+            ."Всего: {$totalLabel} {$d['group_currency']}\n"
+            ."Способ: {$methodLabel}\n\n"
+            .'Распределение по комнатам пропорциональное (largest-remainder rounding).',
             ['inline_keyboard' => [[
                 ['text' => '✅ Подтвердить', 'callback_data' => 'group_confirm'],
                 ['text' => 'Отмена',         'callback_data' => 'cancel'],
             ]]],
             'inline'
         );
+
         return response('OK');
     }
 
@@ -1014,49 +1149,61 @@ class CashierBotController extends Controller
         $d = $s->data ?? [];
         $shift = CashierShift::find($d['shift_id'] ?? 0);
         if (! $shift || ! $shift->isOpen()) {
-            $this->send($chatId, "Смена не найдена или закрыта.");
-            if ($callbackId) $this->failCallback($callbackId, 'Shift not found');
+            $this->send($chatId, 'Смена не найдена или закрыта.');
+            if ($callbackId) {
+                $this->failCallback($callbackId, 'Shift not found');
+            }
+
             return $this->showMainMenu($chatId, $s);
         }
 
         try {
             $result = $this->botPaymentService->recordBulkGroupPayment(
-                masterBookingId:  (string) $d['group_master_id'],
-                totalCurrency:    (string) $d['group_currency'],
-                totalAmount:      (float)  $d['group_total'],
-                paymentMethod:    (string) $d['group_method'],
-                shiftId:          (int) $shift->id,
-                cashierId:        (int) $s->user_id,
+                masterBookingId: (string) $d['group_master_id'],
+                totalCurrency: (string) $d['group_currency'],
+                totalAmount: (float) $d['group_total'],
+                paymentMethod: (string) $d['group_method'],
+                shiftId: (int) $shift->id,
+                cashierId: (int) $s->user_id,
                 expectedSnapshot: $d['group_snapshot'] ?? [],
             );
-            if ($callbackId) $this->succeedCallback($callbackId);
+            if ($callbackId) {
+                $this->succeedCallback($callbackId);
+            }
             $count = count($result['transactions']);
             $this->send($chatId,
                 "✅ Оплата за группу записана!\n\n"
-                . "Создано записей: {$count}\n"
-                . "Журнал: " . substr((string) $result['journal_uuid'], 0, 8) . "…\n"
-                . "Баланс: " . $this->fmtBal($this->getBal($shift->fresh()))
+                ."Создано записей: {$count}\n"
+                .'Журнал: '.substr((string) $result['journal_uuid'], 0, 8)."…\n"
+                .'Баланс: '.$this->fmtBal($this->getBal($shift->fresh()))
             );
         } catch (\App\Exceptions\GroupAlreadyPartiallyPaidException $e) {
-            if ($callbackId) $this->failCallback($callbackId, $e->getMessage());
+            if ($callbackId) {
+                $this->failCallback($callbackId, $e->getMessage());
+            }
             $p = $e->payload();
             $this->send($chatId,
                 "⚠ Часть группы уже оплачена.\n\n"
-                . "Оплачены: " . implode(', ', $p['already_paid_booking_ids']) . "\n"
-                . "Не оплачены: " . implode(', ', $p['unpaid_booking_ids']) . "\n\n"
-                . "Запишите оставшиеся комнаты по одной."
+                .'Оплачены: '.implode(', ', $p['already_paid_booking_ids'])."\n"
+                .'Не оплачены: '.implode(', ', $p['unpaid_booking_ids'])."\n\n"
+                .'Запишите оставшиеся комнаты по одной.'
             );
         } catch (\App\Exceptions\GroupCompositionChangedException $e) {
-            if ($callbackId) $this->failCallback($callbackId, $e->getMessage());
-            $this->send($chatId, "⚠ Состав группы изменился. Откройте оплату заново.");
+            if ($callbackId) {
+                $this->failCallback($callbackId, $e->getMessage());
+            }
+            $this->send($chatId, '⚠ Состав группы изменился. Откройте оплату заново.');
         } catch (\Throwable $e) {
-            if ($callbackId) $this->failCallback($callbackId, $e->getMessage());
+            if ($callbackId) {
+                $this->failCallback($callbackId, $e->getMessage());
+            }
             \Illuminate\Support\Facades\Log::error('Group bulk payment failed', [
-                'data'  => $d,
+                'data' => $d,
                 'error' => $e->getMessage(),
             ]);
-            $this->send($chatId, "❌ Ошибка: " . $e->getMessage());
+            $this->send($chatId, '❌ Ошибка: '.$e->getMessage());
         }
+
         return $this->showMainMenu($chatId, $s);
     }
 
@@ -1077,14 +1224,14 @@ class CashierBotController extends Controller
         // Snapshot booking-level info into mc_* keys so the regular
         // single-method state machine can co-exist with this flow.
         $d['mc_base_currency'] = (string) ($d['currency'] ?? 'UZS');
-        $d['mc_total_in_base'] = (float)  ($d['amount']   ?? 0);
+        $d['mc_total_in_base'] = (float) ($d['amount'] ?? 0);
         $s->update(['state' => 'payment_mc_leg1_currency', 'data' => $d]);
 
         $this->send($chatId,
             "💱 Сплит в разных валютах\n\n"
-            . "Бронь: #{$d['booking_id']} — {$d['guest_name']}\n"
-            . "Всего: " . number_format($d['mc_total_in_base'], 0, '.', ' ') . " {$d['mc_base_currency']}\n\n"
-            . "Валюта ПЕРВОЙ части:",
+            ."Бронь: #{$d['booking_id']} — {$d['guest_name']}\n"
+            .'Всего: '.number_format($d['mc_total_in_base'], 0, '.', ' ')." {$d['mc_base_currency']}\n\n"
+            .'Валюта ПЕРВОЙ части:',
             ['inline_keyboard' => [[
                 ['text' => '🇺🇿 UZS', 'callback_data' => 'mc1cur_UZS'],
                 ['text' => '🇺🇸 USD', 'callback_data' => 'mc1cur_USD'],
@@ -1092,6 +1239,7 @@ class CashierBotController extends Controller
             ]]],
             'inline'
         );
+
         return response('OK');
     }
 
@@ -1101,13 +1249,18 @@ class CashierBotController extends Controller
         $d['mc_leg1_currency'] = str_replace('mc1cur_', '', $callback);
         $s->update(['state' => 'payment_mc_leg1_amount', 'data' => $d]);
         $this->send($chatId, "Сумма ПЕРВОЙ части в {$d['mc_leg1_currency']}:");
+
         return response('OK');
     }
 
     protected function hMcLeg1Amount($s, int $chatId, string $text)
     {
         $amt = floatval(str_replace([' ', ','], ['', '.'], $text));
-        if ($amt <= 0) { $this->send($chatId, "Сумма должна быть больше нуля. Введите ещё раз:"); return response('OK'); }
+        if ($amt <= 0) {
+            $this->send($chatId, 'Сумма должна быть больше нуля. Введите ещё раз:');
+
+            return response('OK');
+        }
         $d = $s->data ?? [];
         $d['mc_leg1_amount'] = $amt;
         $s->update(['state' => 'payment_mc_leg1_method', 'data' => $d]);
@@ -1116,6 +1269,7 @@ class CashierBotController extends Controller
             ['text' => 'Карта',    'callback_data' => 'mc1m_card'],
             ['text' => 'Перевод',  'callback_data' => 'mc1m_transfer'],
         ]]], 'inline');
+
         return response('OK');
     }
 
@@ -1128,11 +1282,12 @@ class CashierBotController extends Controller
         $row = array_map(fn ($c) => ['text' => $c, 'callback_data' => "mc2cur_{$c}"], $remaining);
         $s->update(['state' => 'payment_mc_leg2_currency', 'data' => $d]);
         $this->send($chatId,
-            "Первая часть зафиксирована: " . number_format($d['mc_leg1_amount'], 2, '.', ' ') . " {$d['mc_leg1_currency']}\n\n"
-            . "Валюта ВТОРОЙ части:",
+            'Первая часть зафиксирована: '.number_format($d['mc_leg1_amount'], 2, '.', ' ')." {$d['mc_leg1_currency']}\n\n"
+            .'Валюта ВТОРОЙ части:',
             ['inline_keyboard' => [$row]],
             'inline'
         );
+
         return response('OK');
     }
 
@@ -1150,17 +1305,22 @@ class CashierBotController extends Controller
         $s->update(['state' => 'payment_mc_leg2_amount', 'data' => $d]);
 
         $line = $suggestion > 0
-            ? "Сумма ВТОРОЙ части в {$d['mc_leg2_currency']} (предлагаю: " . number_format($suggestion, 2, '.', ' ') . "):"
+            ? "Сумма ВТОРОЙ части в {$d['mc_leg2_currency']} (предлагаю: ".number_format($suggestion, 2, '.', ' ').'):'
             : "Сумма ВТОРОЙ части в {$d['mc_leg2_currency']}:";
 
         $this->send($chatId, $line);
+
         return response('OK');
     }
 
     protected function hMcLeg2Amount($s, int $chatId, string $text)
     {
         $amt = floatval(str_replace([' ', ','], ['', '.'], $text));
-        if ($amt <= 0) { $this->send($chatId, "Сумма должна быть больше нуля. Введите ещё раз:"); return response('OK'); }
+        if ($amt <= 0) {
+            $this->send($chatId, 'Сумма должна быть больше нуля. Введите ещё раз:');
+
+            return response('OK');
+        }
         $d = $s->data ?? [];
         $d['mc_leg2_amount'] = $amt;
         $s->update(['state' => 'payment_mc_leg2_method', 'data' => $d]);
@@ -1169,6 +1329,7 @@ class CashierBotController extends Controller
             ['text' => 'Карта',    'callback_data' => 'mc2m_card'],
             ['text' => 'Перевод',  'callback_data' => 'mc2m_transfer'],
         ]]], 'inline');
+
         return response('OK');
     }
 
@@ -1177,6 +1338,7 @@ class CashierBotController extends Controller
         $d = $s->data ?? [];
         $d['mc_leg2_method'] = str_replace('mc2m_', '', $callback);
         $s->update(['data' => $d]);
+
         return $this->showMcConfirm($s, $chatId);
     }
 
@@ -1197,9 +1359,10 @@ class CashierBotController extends Controller
             return $this->showMcVarianceReasonPicker($s, $chatId, $d, $e);
         } catch (\InvalidArgumentException $e) {
             $msg = preg_match('/hard ceiling/', $e->getMessage())
-                ? "🚨 Расхождение превышает 5% — слишком большое для записи. Скорректируйте суммы и начните заново."
-                : "❌ " . $e->getMessage();
+                ? '🚨 Расхождение превышает 5% — слишком большое для записи. Скорректируйте суммы и начните заново.'
+                : '❌ '.$e->getMessage();
             $this->send($chatId, $msg);
+
             return $this->showMainMenu($chatId, $s);
         }
 
@@ -1209,6 +1372,7 @@ class CashierBotController extends Controller
             ['text' => '✅ Подтвердить', 'callback_data' => 'mc_confirm'],
             ['text' => 'Отмена',         'callback_data' => 'cancel'],
         ]]], 'inline');
+
         return response('OK');
     }
 
@@ -1221,14 +1385,14 @@ class CashierBotController extends Controller
         $direction = $p['variance_in_base'] > 0 ? 'излишек (плюс)' : 'недостача (минус)';
 
         $msg = "⚠ Расхождение сумм\n\n"
-            . "Ожидалось:  " . number_format($p['expected_in_base'], 0, '.', ' ') . " {$p['base_currency']}\n"
-            . "По частям:  " . number_format($p['actual_in_base'],   0, '.', ' ') . " {$p['base_currency']}\n"
-            . "Расхождение: " . ($p['variance_in_base'] > 0 ? '+' : '') . number_format($p['variance_in_base'], 0, '.', ' ') . " {$p['base_currency']} (" . number_format($p['variance_pct'], 2) . "% — {$direction})\n\n"
-            . "Курс по факту: " . number_format($p['implied_rate'], 2) . "\n"
-            . "Курс системы:  " . number_format($p['frozen_rate'],  2) . "\n\n"
-            . ($p['requires_manager_approval']
-                ? "⚠ Требуется одобрение менеджера. Свяжитесь с менеджером, затем выберите причину."
-                : "Выберите причину расхождения:");
+            .'Ожидалось:  '.number_format($p['expected_in_base'], 0, '.', ' ')." {$p['base_currency']}\n"
+            .'По частям:  '.number_format($p['actual_in_base'], 0, '.', ' ')." {$p['base_currency']}\n"
+            .'Расхождение: '.($p['variance_in_base'] > 0 ? '+' : '').number_format($p['variance_in_base'], 0, '.', ' ')." {$p['base_currency']} (".number_format($p['variance_pct'], 2)."% — {$direction})\n\n"
+            .'Курс по факту: '.number_format($p['implied_rate'], 2)."\n"
+            .'Курс системы:  '.number_format($p['frozen_rate'], 2)."\n\n"
+            .($p['requires_manager_approval']
+                ? '⚠ Требуется одобрение менеджера. Свяжитесь с менеджером, затем выберите причину.'
+                : 'Выберите причину расхождения:');
 
         $this->send($chatId, $msg, ['inline_keyboard' => [
             [['text' => 'Договорной курс', 'callback_data' => 'mcvr_agreed_shop_rate']],
@@ -1238,6 +1402,7 @@ class CashierBotController extends Controller
             [['text' => 'Дрейф курса',      'callback_data' => 'mcvr_rate_drift']],
             [['text' => 'Отмена',           'callback_data' => 'cancel']],
         ]], 'inline');
+
         return response('OK');
     }
 
@@ -1253,8 +1418,9 @@ class CashierBotController extends Controller
         if ($needsManager) {
             $this->send($chatId,
                 "⚠ Эта величина расхождения требует одобрения менеджера.\n"
-                . "Запись через бот недоступна — попросите менеджера записать через админ-панель."
+                .'Запись через бот недоступна — попросите менеджера записать через админ-панель.'
             );
+
             return $this->showMainMenu($chatId, $s);
         }
 
@@ -1262,6 +1428,7 @@ class CashierBotController extends Controller
             ['text' => '✅ Подтвердить', 'callback_data' => 'mc_confirm'],
             ['text' => 'Отмена',         'callback_data' => 'cancel'],
         ]]], 'inline');
+
         return response('OK');
     }
 
@@ -1269,28 +1436,36 @@ class CashierBotController extends Controller
     {
         $d = $s->data ?? [];
         $shift = CashierShift::find($d['shift_id'] ?? 0);
-        if (!$shift || !$shift->isOpen()) {
-            $this->send($chatId, "Смена не найдена или закрыта.");
-            if ($callbackId) $this->failCallback($callbackId, 'Shift not found');
+        if (! $shift || ! $shift->isOpen()) {
+            $this->send($chatId, 'Смена не найдена или закрыта.');
+            if ($callbackId) {
+                $this->failCallback($callbackId, 'Shift not found');
+            }
+
             return $this->showMainMenu($chatId, $s);
         }
 
         try {
             $result = $this->attemptMcRecord($s, $d, dryRun: false);
-            if ($callbackId) $this->succeedCallback($callbackId);
+            if ($callbackId) {
+                $this->succeedCallback($callbackId);
+            }
             $this->send($chatId,
                 "✅ Сплит-платеж в разных валютах записан!\n\n"
-                . "Журнал: " . substr((string) $result['journal_uuid'], 0, 8) . "…\n"
-                . "Баланс: " . $this->fmtBal($this->getBal($shift->fresh()))
+                .'Журнал: '.substr((string) $result['journal_uuid'], 0, 8)."…\n"
+                .'Баланс: '.$this->fmtBal($this->getBal($shift->fresh()))
             );
         } catch (\Throwable $e) {
-            if ($callbackId) $this->failCallback($callbackId, $e->getMessage());
+            if ($callbackId) {
+                $this->failCallback($callbackId, $e->getMessage());
+            }
             \Illuminate\Support\Facades\Log::error('MC split confirm failed', [
-                'data'  => $d,
+                'data' => $d,
                 'error' => $e->getMessage(),
             ]);
-            $this->send($chatId, "❌ Ошибка при записи. " . $e->getMessage());
+            $this->send($chatId, '❌ Ошибка при записи. '.$e->getMessage());
         }
+
         return $this->showMainMenu($chatId, $s);
     }
 
@@ -1303,23 +1478,23 @@ class CashierBotController extends Controller
         $presentation = \App\DTO\PaymentPresentation::fromArray($d['fx_presentation']);
 
         $leg1 = new \App\DTO\RecordPaymentData(
-            presentation:    $presentation,
-            shiftId:         (int) $d['shift_id'],
-            cashierId:       (int) $s->user_id,
-            currencyPaid:    (string) $d['mc_leg1_currency'],
-            amountPaid:      (float)  $d['mc_leg1_amount'],
-            paymentMethod:   (string) $d['mc_leg1_method'],
-            overrideReason:  null,
+            presentation: $presentation,
+            shiftId: (int) $d['shift_id'],
+            cashierId: (int) $s->user_id,
+            currencyPaid: (string) $d['mc_leg1_currency'],
+            amountPaid: (float) $d['mc_leg1_amount'],
+            paymentMethod: (string) $d['mc_leg1_method'],
+            overrideReason: null,
             managerApproval: null,
         );
         $leg2 = new \App\DTO\RecordPaymentData(
-            presentation:    $presentation,
-            shiftId:         (int) $d['shift_id'],
-            cashierId:       (int) $s->user_id,
-            currencyPaid:    (string) $d['mc_leg2_currency'],
-            amountPaid:      (float)  $d['mc_leg2_amount'],
-            paymentMethod:   (string) $d['mc_leg2_method'],
-            overrideReason:  null,
+            presentation: $presentation,
+            shiftId: (int) $d['shift_id'],
+            cashierId: (int) $s->user_id,
+            currencyPaid: (string) $d['mc_leg2_currency'],
+            amountPaid: (float) $d['mc_leg2_amount'],
+            paymentMethod: (string) $d['mc_leg2_method'],
+            overrideReason: null,
             managerApproval: null,
         );
 
@@ -1339,12 +1514,14 @@ class CashierBotController extends Controller
             // pre-check that mirrors recordMixedCurrencySplitPayment's
             // sum-lock + variance gating WITHOUT inserting rows.
             $this->dryRunMcVariance($leg1, $leg2, (string) $d['mc_base_currency'], $varianceContext);
+
             return ['journal_uuid' => 'dry', 'tx1_id' => 0, 'tx2_id' => 0];
         }
 
         [$tx1, $tx2] = $this->botPaymentService->recordMixedCurrencySplitPayment(
             $leg1, $leg2, (string) $d['mc_base_currency'], $varianceContext,
         );
+
         return ['journal_uuid' => (string) $tx1->journal_entry_id, 'tx1_id' => (int) $tx1->id, 'tx2_id' => (int) $tx2->id];
     }
 
@@ -1371,7 +1548,9 @@ class CashierBotController extends Controller
         $sum = $leg1Base + $leg2Base;
         $variance = $sum - $expected;
         $variancePct = $expected > 0 ? (abs($variance) / $expected) * 100.0 : 0.0;
-        $tolerance = match ($baseCurrency) { 'UZS' => 100.0, 'USD' => 0.50, 'EUR' => 0.50, default => 1.0 };
+        $tolerance = match ($baseCurrency) {
+            'UZS' => 100.0, 'USD' => 0.50, 'EUR' => 0.50, default => 1.0
+        };
 
         if (abs($variance) <= $tolerance || $variancePct < \App\Services\BotPaymentService::VARIANCE_SILENT_PCT) {
             return; // silent pass
@@ -1382,10 +1561,10 @@ class CashierBotController extends Controller
         $requiresManager = $variancePct > \App\Services\BotPaymentService::VARIANCE_REASON_PCT;
         if ($varianceContext === null) {
             $foreignCurrency = $leg1->currencyPaid !== $baseCurrency ? $leg1->currencyPaid : $leg2->currencyPaid;
-            $foreignPresent  = $leg1->presentation->presentedAmountFor($foreignCurrency);
+            $foreignPresent = $leg1->presentation->presentedAmountFor($foreignCurrency);
             $impliedRate = ($expected - ($leg1->currencyPaid === $baseCurrency ? $leg1->amountPaid : $leg2->amountPaid))
                 / max(0.0001, $leg1->currencyPaid === $baseCurrency ? $leg2->amountPaid : $leg1->amountPaid);
-            $frozenRate  = $foreignPresent > 0 ? $expected / $foreignPresent : 0.0;
+            $frozenRate = $foreignPresent > 0 ? $expected / $foreignPresent : 0.0;
             throw new \App\Exceptions\RequiresVarianceReasonException(
                 expectedInBase: $expected,
                 actualInBase: $sum,
@@ -1402,35 +1581,37 @@ class CashierBotController extends Controller
     private function buildMcConfirmText(array $d): string
     {
         $reasonLabel = match ($d['mc_variance_reason'] ?? '') {
-            'agreed_shop_rate'  => 'Договорной курс',
+            'agreed_shop_rate' => 'Договорной курс',
             'bill_denomination' => 'Округление купюр',
-            'guest_overpay'     => 'Гость переплатил',
-            'guest_underpay'    => 'Гость недоплатил',
-            'rate_drift'        => 'Дрейф курса',
-            'other'             => 'Другое',
-            default             => null,
+            'guest_overpay' => 'Гость переплатил',
+            'guest_underpay' => 'Гость недоплатил',
+            'rate_drift' => 'Дрейф курса',
+            'other' => 'Другое',
+            default => null,
         };
         $varianceLine = $reasonLabel ? "\n💱 Расхождение принято — причина: {$reasonLabel}" : '';
 
         return "Подтвердите сплит в разных валютах:\n\n"
-            . "Бронь: #{$d['booking_id']}\n"
-            . "Гость: {$d['guest_name']}\n"
-            . "Всего: " . number_format($d['mc_total_in_base'], 0, '.', ' ') . " {$d['mc_base_currency']}\n\n"
-            . "1️⃣ " . number_format($d['mc_leg1_amount'], 2, '.', ' ') . " {$d['mc_leg1_currency']} ({$d['mc_leg1_method']})\n"
-            . "2️⃣ " . number_format($d['mc_leg2_amount'], 2, '.', ' ') . " {$d['mc_leg2_currency']} ({$d['mc_leg2_method']})"
-            . $varianceLine;
+            ."Бронь: #{$d['booking_id']}\n"
+            ."Гость: {$d['guest_name']}\n"
+            .'Всего: '.number_format($d['mc_total_in_base'], 0, '.', ' ')." {$d['mc_base_currency']}\n\n"
+            .'1️⃣ '.number_format($d['mc_leg1_amount'], 2, '.', ' ')." {$d['mc_leg1_currency']} ({$d['mc_leg1_method']})\n"
+            .'2️⃣ '.number_format($d['mc_leg2_amount'], 2, '.', ' ')." {$d['mc_leg2_currency']} ({$d['mc_leg2_method']})"
+            .$varianceLine;
     }
 
     private function computeMcLeg2Suggestion(array $d): float
     {
-        if (empty($d['fx_presentation'])) return 0.0;
+        if (empty($d['fx_presentation'])) {
+            return 0.0;
+        }
         $presentation = \App\DTO\PaymentPresentation::fromArray($d['fx_presentation']);
         $base = (string) $d['mc_base_currency'];
         $totalBase = (float) $d['mc_total_in_base'];
 
         // Convert leg1 to base
         $leg1Cur = (string) $d['mc_leg1_currency'];
-        $leg1Amt = (float)  $d['mc_leg1_amount'];
+        $leg1Amt = (float) $d['mc_leg1_amount'];
         $leg1Base = $leg1Cur === $base
             ? $leg1Amt
             : ($leg1Amt * $presentation->presentedAmountFor($base))
@@ -1439,11 +1620,16 @@ class CashierBotController extends Controller
         $remainingBase = max(0.0, $totalBase - $leg1Base);
 
         $leg2Cur = (string) $d['mc_leg2_currency'];
-        if ($leg2Cur === $base) return round($remainingBase, 2);
+        if ($leg2Cur === $base) {
+            return round($remainingBase, 2);
+        }
 
         $leg2Present = $presentation->presentedAmountFor($leg2Cur);
         $basePresent = $presentation->presentedAmountFor($base);
-        if ($basePresent <= 0) return 0.0;
+        if ($basePresent <= 0) {
+            return 0.0;
+        }
+
         return round(($remainingBase * $leg2Present) / $basePresent, 2);
     }
 
@@ -1458,12 +1644,14 @@ class CashierBotController extends Controller
         $d = $s->data ?? [];
         $presented = (float) ($d['fx_presented_amount'] ?? 0);
         if ($presented <= 0) {
-            $this->send($chatId, "Ошибка сессии. Начните заново.");
+            $this->send($chatId, 'Ошибка сессии. Начните заново.');
+
             return $this->showMainMenu($chatId, $s);
         }
         $d['amount'] = $presented;
         $d['override_tier'] = OverrideTier::None->value;
         $d['override_reason'] = null;
+
         return $this->proceedToPaymentMethod($s, $chatId, $d);
     }
 
@@ -1475,7 +1663,8 @@ class CashierBotController extends Controller
     {
         $amount = (float) str_replace([' ', ','], ['', '.'], $text);
         if ($amount <= 0) {
-            $this->send($chatId, "Неверная сумма. Введите число, например: 850000");
+            $this->send($chatId, 'Неверная сумма. Введите число, например: 850000');
+
             return response('OK');
         }
 
@@ -1487,6 +1676,7 @@ class CashierBotController extends Controller
             // No presented amount to compare — treat as no-override
             $d['override_tier'] = OverrideTier::None->value;
             $d['override_reason'] = null;
+
             return $this->proceedToPaymentMethod($s, $chatId, $d);
         }
 
@@ -1516,12 +1706,13 @@ class CashierBotController extends Controller
 
         $s->update(['state' => 'payment_fx_override_reason', 'data' => $d]);
         $this->send($chatId,
-            "⚠️ Сумма отличается от формы на " . number_format($variance, 0, '.', ' ')
-            . " {$d['currency']} ({$pct}%)\n\n"
-            . "По форме: " . number_format((int) $presented, 0, '.', ' ') . " {$d['currency']}\n"
-            . "Фактически: " . number_format((int) $d['amount'], 0, '.', ' ') . " {$d['currency']}\n\n"
-            . "Укажите причину расхождения:"
+            '⚠️ Сумма отличается от формы на '.number_format($variance, 0, '.', ' ')
+            ." {$d['currency']} ({$pct}%)\n\n"
+            .'По форме: '.number_format((int) $presented, 0, '.', ' ')." {$d['currency']}\n"
+            .'Фактически: '.number_format((int) $d['amount'], 0, '.', ' ')." {$d['currency']}\n\n"
+            .'Укажите причину расхождения:'
         );
+
         return response('OK');
     }
 
@@ -1539,10 +1730,11 @@ class CashierBotController extends Controller
 
         $this->send($chatId,
             "{$label}\n\n"
-            . "По форме: " . number_format((int) $presented, 0, '.', ' ') . " {$d['currency']}\n"
-            . "Фактически: " . number_format((int) $d['amount'], 0, '.', ' ') . " {$d['currency']}\n\n"
-            . "Эскалируйте вопрос руководству офлайн. Начните ввод заново с правильной суммой."
+            .'По форме: '.number_format((int) $presented, 0, '.', ' ')." {$d['currency']}\n"
+            .'Фактически: '.number_format((int) $d['amount'], 0, '.', ' ')." {$d['currency']}\n\n"
+            .'Эскалируйте вопрос руководству офлайн. Начните ввод заново с правильной суммой.'
         );
+
         return $this->showMainMenu($chatId, $s);
     }
 
@@ -1552,11 +1744,13 @@ class CashierBotController extends Controller
     protected function hPayFxOverrideReason($s, int $chatId, string $text)
     {
         if (strlen(trim($text)) < 3) {
-            $this->send($chatId, "Причина слишком короткая. Опишите подробнее:");
+            $this->send($chatId, 'Причина слишком короткая. Опишите подробнее:');
+
             return response('OK');
         }
         $d = $s->data ?? [];
         $d['override_reason'] = trim($text);
+
         return $this->proceedToPaymentMethod($s, $chatId, $d);
     }
 
@@ -1587,29 +1781,32 @@ class CashierBotController extends Controller
         // selected presentation currency.
         if ($data === 'method_split') {
             $totalLabel = number_format((float) ($d['amount'] ?? 0), 0, '.', ' ');
-            $cur        = (string) ($d['currency'] ?? 'UZS');
+            $cur = (string) ($d['currency'] ?? 'UZS');
             $s->update(['state' => 'payment_split_cash', 'data' => $d]);
             $this->send($chatId,
                 "➗ Сплит-платеж ({$cur})\n\n"
-                . "Всего к оплате: {$totalLabel} {$cur}\n\n"
-                . "Введите сумму НАЛИЧНЫМИ (остаток будет картой, та же валюта):"
+                ."Всего к оплате: {$totalLabel} {$cur}\n\n"
+                .'Введите сумму НАЛИЧНЫМИ (остаток будет картой, та же валюта):'
             );
+
             return response('OK');
         }
 
         $d['method'] = str_replace('method_', '', $data);
         $s->update(['state' => 'payment_confirm', 'data' => $d]);
-        $ml = match($d['method']) { 'cash' => 'Наличные', 'card' => 'Карта', 'transfer' => 'Перевод', default => $d['method'] };
+        $ml = match ($d['method']) {
+            'cash' => 'Наличные', 'card' => 'Карта', 'transfer' => 'Перевод', default => $d['method']
+        };
         $room = $d['room'] ?? ($d['booking_id'] ? "Beds24 #{$d['booking_id']}" : '—');
-        $t = "Подтвердите:\n\nБронь: {$room}\nГость: {$d['guest_name']}\nСумма: " . number_format($d['amount'], 0) . " {$d['currency']}\nСпособ: {$ml}";
+        $t = "Подтвердите:\n\nБронь: {$room}\nГость: {$d['guest_name']}\nСумма: ".number_format($d['amount'], 0)." {$d['currency']}\nСпособ: {$ml}";
 
         // FX presentation path: show comparison against the printed form
         if (! empty($d['fx_presentation']) && ! empty($d['fx_presented_amount'])) {
             $presented = (float) $d['fx_presented_amount'];
             $diff = round((float) $d['amount'] - $presented);
-            $t .= "\n\n📋 По форме: " . number_format((int) $presented, 0, '.', ' ') . " {$d['currency']}";
+            $t .= "\n\n📋 По форме: ".number_format((int) $presented, 0, '.', ' ')." {$d['currency']}";
             if ($diff !== 0.0) {
-                $t .= "\nРасхождение: " . ($diff >= 0 ? '+' : '') . number_format((int) $diff, 0, '.', ' ') . " {$d['currency']}";
+                $t .= "\nРасхождение: ".($diff >= 0 ? '+' : '').number_format((int) $diff, 0, '.', ' ')." {$d['currency']}";
                 if (! empty($d['override_reason'])) {
                     $t .= "\nПричина: {$d['override_reason']}";
                 }
@@ -1622,7 +1819,7 @@ class CashierBotController extends Controller
         // source / amount / date / method so the operator decides.
         $bookingId = (int) ($d['booking_id'] ?? 0);
         if ($bookingId > 0) {
-            $detector  = app(\App\Services\CashierBot\PriorPaymentDetector::class);
+            $detector = app(\App\Services\CashierBot\PriorPaymentDetector::class);
             $detection = $detector->detect($bookingId, (float) $d['amount'], (string) $d['currency']);
             $t .= $detector->formatWarning($detection, $bookingId);
         }
@@ -1631,6 +1828,7 @@ class CashierBotController extends Controller
             ['text' => 'Подтвердить', 'callback_data' => 'confirm_payment'],
             ['text' => 'Отмена', 'callback_data' => 'cancel'],
         ]]], 'inline');
+
         return response('OK');
     }
 
@@ -1639,9 +1837,12 @@ class CashierBotController extends Controller
     {
         $d = $s->data ?? [];
         $shift = CashierShift::find($d['shift_id'] ?? 0);
-        if (!$shift || !$shift->isOpen()) {
-            $this->send($chatId, "Смена не найдена или закрыта.");
-            if ($callbackId) $this->failCallback($callbackId, 'Shift not found or closed');
+        if (! $shift || ! $shift->isOpen()) {
+            $this->send($chatId, 'Смена не найдена или закрыта.');
+            if ($callbackId) {
+                $this->failCallback($callbackId, 'Shift not found or closed');
+            }
+
             return $this->showMainMenu($chatId, $s);
         }
 
@@ -1656,34 +1857,34 @@ class CashierBotController extends Controller
                     // enforces sum-lock + writes both rows under one UUID.
                     $cashLeg = new RecordPaymentData(
                         presentation: $presentation,
-                        shiftId:      $shift->id,
-                        cashierId:    $s->user_id,
+                        shiftId: $shift->id,
+                        cashierId: $s->user_id,
                         currencyPaid: $d['currency'],
-                        amountPaid:   (float) $d['split_cash'],
-                        paymentMethod:'cash',
+                        amountPaid: (float) $d['split_cash'],
+                        paymentMethod: 'cash',
                         overrideReason: $d['override_reason'] ?? null,
                         managerApproval: null,
                     );
                     $cardLeg = new RecordPaymentData(
                         presentation: $presentation,
-                        shiftId:      $shift->id,
-                        cashierId:    $s->user_id,
+                        shiftId: $shift->id,
+                        cashierId: $s->user_id,
                         currencyPaid: $d['currency'],
-                        amountPaid:   (float) $d['split_card'],
-                        paymentMethod:'card',
+                        amountPaid: (float) $d['split_card'],
+                        paymentMethod: 'card',
                         overrideReason: $d['override_reason'] ?? null,
                         managerApproval: null,
                     );
                     $this->botPaymentService->recordSplitPayment($cashLeg, $cardLeg);
                 } else {
                     $recordData = new RecordPaymentData(
-                        presentation:    $presentation,
-                        shiftId:         $shift->id,
-                        cashierId:       $s->user_id,
-                        currencyPaid:    $d['currency'],
-                        amountPaid:      (float) $d['amount'],
-                        paymentMethod:   $d['method'],
-                        overrideReason:  $d['override_reason'] ?? null,
+                        presentation: $presentation,
+                        shiftId: $shift->id,
+                        cashierId: $s->user_id,
+                        currencyPaid: $d['currency'],
+                        amountPaid: (float) $d['amount'],
+                        paymentMethod: $d['method'],
+                        overrideReason: $d['override_reason'] ?? null,
                         managerApproval: null,
                     );
                     $this->botPaymentService->recordPayment($recordData);
@@ -1691,38 +1892,55 @@ class CashierBotController extends Controller
             } else {
                 // Microphases 7 & 8: FX presentation absent — hard block.
                 // CashierPaymentService has been deleted; only the FX path above is reachable.
-                if ($callbackId) $this->failCallback($callbackId, 'FX presentation unavailable');
-                $this->send($chatId, "❌ Курсы ФX недоступны. Обратитесь к менеджеру.");
+                if ($callbackId) {
+                    $this->failCallback($callbackId, 'FX presentation unavailable');
+                }
+                $this->send($chatId, '❌ Курсы ФX недоступны. Обратитесь к менеджеру.');
+
                 return $this->showMainMenu($chatId, $s);
             }
 
-            if ($callbackId) $this->succeedCallback($callbackId);
+            if ($callbackId) {
+                $this->succeedCallback($callbackId);
+            }
             $confirmMsg = ($d['method'] ?? '') === 'split'
-                ? "✅ Сплит-платеж записан!\nБаланс: " . $this->fmtBal($this->getBal($shift->fresh()))
-                : "✅ Оплата записана!\nБаланс: " . $this->fmtBal($this->getBal($shift->fresh()));
+                ? "✅ Сплит-платеж записан!\nБаланс: ".$this->fmtBal($this->getBal($shift->fresh()))
+                : "✅ Оплата записана!\nБаланс: ".$this->fmtBal($this->getBal($shift->fresh()));
             $this->send($chatId, $confirmMsg);
         } catch (\App\Exceptions\StalePaymentSessionException $e) {
-            if ($callbackId) $this->failCallback($callbackId, $e->getMessage());
-            $this->send($chatId, "⏱ Сессия устарела (прошло > 20 мин). Начните заново.");
+            if ($callbackId) {
+                $this->failCallback($callbackId, $e->getMessage());
+            }
+            $this->send($chatId, '⏱ Сессия устарела (прошло > 20 мин). Начните заново.');
         } catch (\App\Exceptions\BookingNotPayableException $e) {
-            if ($callbackId) $this->failCallback($callbackId, $e->getMessage());
-            $this->send($chatId, "⚠️ Бронирование недоступно для оплаты (отменено?). Начните заново.");
+            if ($callbackId) {
+                $this->failCallback($callbackId, $e->getMessage());
+            }
+            $this->send($chatId, '⚠️ Бронирование недоступно для оплаты (отменено?). Начните заново.');
         } catch (\App\Exceptions\DuplicatePaymentException $e) {
             // Operator already recorded this booking once. Show the existing tx
             // details so they can confirm / hand off without retrying blindly.
-            if ($callbackId) $this->failCallback($callbackId, $e->getMessage());
+            if ($callbackId) {
+                $this->failCallback($callbackId, $e->getMessage());
+            }
             $this->send($chatId, $this->formatDuplicatePaymentMessage((int) ($d['booking_id'] ?? 0)));
         } catch (\App\Exceptions\DuplicateGroupPaymentException $e) {
-            if ($callbackId) $this->failCallback($callbackId, $e->getMessage());
+            if ($callbackId) {
+                $this->failCallback($callbackId, $e->getMessage());
+            }
             $this->send($chatId, $this->formatDuplicateGroupPaymentMessage((int) ($d['booking_id'] ?? 0)));
         } catch (\App\Exceptions\PaymentBlockedException $e) {
-            if ($callbackId) $this->failCallback($callbackId, $e->getMessage());
-            $this->send($chatId, "🚫 Оплата заблокирована. Эскалируйте вопрос руководству.");
+            if ($callbackId) {
+                $this->failCallback($callbackId, $e->getMessage());
+            }
+            $this->send($chatId, '🚫 Оплата заблокирована. Эскалируйте вопрос руководству.');
         } catch (\Exception $e) {
-            if ($callbackId) $this->failCallback($callbackId, $e->getMessage());
+            if ($callbackId) {
+                $this->failCallback($callbackId, $e->getMessage());
+            }
             Log::error('Payment failed', ['e' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
             $this->alertOwnerOnError('Payment', $e, $s->user_id);
-            $this->send($chatId, "❌ Ошибка при записи оплаты. Попробуйте снова.");
+            $this->send($chatId, '❌ Ошибка при записи оплаты. Попробуйте снова.');
         }
 
         return $this->showMainMenu($chatId, $s);
@@ -1734,15 +1952,22 @@ class CashierBotController extends Controller
     public function startExpense($s, int $chatId)
     {
         $shift = $this->getShift($s->user_id);
-        if (!$shift) { $this->send($chatId, "Сначала откройте смену."); return response('OK'); }
+        if (! $shift) {
+            $this->send($chatId, 'Сначала откройте смену.');
+
+            return response('OK');
+        }
         $cats = ExpenseCategory::all();
         if ($cats->isEmpty()) {
-            foreach (['Еда', 'Уборка', 'Ремонт', 'Такси', 'Хозтовары', 'Другое'] as $n) ExpenseCategory::firstOrCreate(['name' => $n]);
+            foreach (['Еда', 'Уборка', 'Ремонт', 'Такси', 'Хозтовары', 'Другое'] as $n) {
+                ExpenseCategory::firstOrCreate(['name' => $n]);
+            }
             $cats = ExpenseCategory::all();
         }
-        $btns = $cats->map(fn($c) => [['text' => $c->name, 'callback_data' => "expcat_{$c->id}"]])->toArray();
+        $btns = $cats->map(fn ($c) => [['text' => $c->name, 'callback_data' => "expcat_{$c->id}"]])->toArray();
         $s->update(['state' => 'expense_category', 'data' => ['shift_id' => $shift->id]]);
-        $this->send($chatId, "Категория расхода:", ['inline_keyboard' => $btns], 'inline');
+        $this->send($chatId, 'Категория расхода:', ['inline_keyboard' => $btns], 'inline');
+
         return response('OK');
     }
 
@@ -1755,6 +1980,7 @@ class CashierBotController extends Controller
         $d['cat_name'] = $cat->name ?? '?';
         $s->update(['state' => 'expense_amount', 'data' => $d]);
         $this->send($chatId, "Категория: {$d['cat_name']}\nВведите сумму:\n• 50000 (UZS по умолчанию)\n• 20 USD\n• 15 EUR\n• 1500 RUB");
+
         return response('OK');
     }
 
@@ -1764,6 +1990,7 @@ class CashierBotController extends Controller
         [$amt, $cur] = $this->parseAmountCurrency($text);
         if ($amt <= 0) {
             $this->send($chatId, "Неверная сумма. Введите так:\n• 50000 (UZS)\n• 20 USD\n• 15 EUR\n• 1500 RUB");
+
             return response('OK');
         }
         if ($cur === null) {
@@ -1771,12 +1998,14 @@ class CashierBotController extends Controller
             // default to UZS — that silently mis-records foreign-currency
             // expenses (financial-integrity rule).
             $this->send($chatId, "Не понял валюту. Введите ещё раз:\n• 50000 (UZS)\n• 20 USD\n• 15 EUR\n• 1500 RUB");
+
             return response('OK');
         }
         $d['amount'] = $amt;
         $d['currency'] = $cur;
         $s->update(['state' => 'expense_desc', 'data' => $d]);
-        $this->send($chatId, "Сумма: " . number_format($amt, 0) . " {$d['currency']}\nОписание расхода:");
+        $this->send($chatId, 'Сумма: '.number_format($amt, 0)." {$d['currency']}\nОписание расхода:");
+
         return response('OK');
     }
 
@@ -1805,12 +2034,15 @@ class CashierBotController extends Controller
         }
 
         $s->update(['state' => 'expense_confirm', 'data' => $d]);
-        $t = "Подтвердите расход:\n\nКатегория: {$d['cat_name']}\nСумма: " . number_format($d['amount'], 0) . " {$d['currency']}\nОписание: {$d['desc']}";
-        if ($d['needs_approval']) $t .= "\n\nТребуется одобрение владельца.";
+        $t = "Подтвердите расход:\n\nКатегория: {$d['cat_name']}\nСумма: ".number_format($d['amount'], 0)." {$d['currency']}\nОписание: {$d['desc']}";
+        if ($d['needs_approval']) {
+            $t .= "\n\nТребуется одобрение владельца.";
+        }
         $this->send($chatId, $t, ['inline_keyboard' => [[
             ['text' => 'Подтвердить', 'callback_data' => 'confirm_expense'],
             ['text' => 'Отмена', 'callback_data' => 'cancel'],
         ]]], 'inline');
+
         return response('OK');
     }
 
@@ -1819,9 +2051,12 @@ class CashierBotController extends Controller
     {
         $d = $s->data ?? [];
         $shift = CashierShift::find($d['shift_id'] ?? 0);
-        if (!$shift || !$shift->isOpen()) {
-            $this->send($chatId, "Смена не найдена или закрыта.");
-            if ($callbackId) $this->failCallback($callbackId, 'Shift not found or closed');
+        if (! $shift || ! $shift->isOpen()) {
+            $this->send($chatId, 'Смена не найдена или закрыта.');
+            if ($callbackId) {
+                $this->failCallback($callbackId, 'Shift not found or closed');
+            }
+
             return $this->showMainMenu($chatId, $s);
         }
 
@@ -1836,12 +2071,14 @@ class CashierBotController extends Controller
                     Log::warning('Expense approval notification failed', ['expense_id' => $expense->id, 'e' => $e->getMessage()]);
                 }
             }
-            $this->send($chatId, "Расход записан!\nБаланс: " . $this->fmtBal($this->getBal($shift->fresh())));
+            $this->send($chatId, "Расход записан!\nБаланс: ".$this->fmtBal($this->getBal($shift->fresh())));
         } catch (\Exception $e) {
-            if ($callbackId) $this->failCallback($callbackId, $e->getMessage());
+            if ($callbackId) {
+                $this->failCallback($callbackId, $e->getMessage());
+            }
             Log::error('Expense failed', ['e' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
             $this->alertOwnerOnError('Expense', $e, $s->user_id);
-            $this->send($chatId, "Ошибка при записи расхода. Попробуйте снова.");
+            $this->send($chatId, 'Ошибка при записи расхода. Попробуйте снова.');
         }
 
         return $this->showMainMenu($chatId, $s);
@@ -1853,12 +2090,19 @@ class CashierBotController extends Controller
     public function startCashIn($s, int $chatId)
     {
         $shift = $this->getShift($s->user_id);
-        if (!$shift) { $this->send($chatId, "Сначала откройте смену."); return response('OK'); }
-        if (!User::find($s->user_id)?->hasAnyRole(['super_admin', 'admin', 'manager'])) {
-            $this->send($chatId, "⛔ Недостаточно прав."); return response('OK');
+        if (! $shift) {
+            $this->send($chatId, 'Сначала откройте смену.');
+
+            return response('OK');
+        }
+        if (! User::find($s->user_id)?->hasAnyRole(['super_admin', 'admin', 'manager'])) {
+            $this->send($chatId, '⛔ Недостаточно прав.');
+
+            return response('OK');
         }
         $s->update(['state' => 'cash_in_amount', 'data' => ['shift_id' => $shift->id]]);
         $this->send($chatId, "Введите сумму и валюту для внесения (одна за раз):\n\nПримеры:\n• 500 USD\n• 200 EUR\n• 2000000 UZS");
+
         return response('OK');
     }
 
@@ -1867,10 +2111,12 @@ class CashierBotController extends Controller
         [$amt, $cur] = $this->parseAmountCurrency($text);
         if ($amt <= 0) {
             $this->send($chatId, "Неверная сумма. Введите так:\n• 500 USD\n• 200 EUR\n• 2000000 UZS\n• 1500 RUB");
+
             return response('OK');
         }
         if ($cur === null) {
             $this->send($chatId, "Не понял валюту. Введите ещё раз:\n• 500 USD\n• 200 EUR\n• 2000000 UZS\n• 1500 RUB");
+
             return response('OK');
         }
         $d = $s->data ?? [];
@@ -1878,12 +2124,13 @@ class CashierBotController extends Controller
         $d['currency'] = $cur;
         $s->update(['state' => 'cash_in_amount', 'data' => $d]); // keep state until confirm
         $this->send($chatId,
-            "Внести в кассу:\n\n" . number_format($amt, 0) . " {$cur}\n\nПодтвердите:",
+            "Внести в кассу:\n\n".number_format($amt, 0)." {$cur}\n\nПодтвердите:",
             ['inline_keyboard' => [[
                 ['text' => '✅ Внести', 'callback_data' => 'confirm_cash_in'],
                 ['text' => '❌ Отмена', 'callback_data' => 'cancel'],
             ]]], 'inline'
         );
+
         return response('OK');
     }
 
@@ -1893,41 +2140,55 @@ class CashierBotController extends Controller
         try {
             $d = $s->data ?? [];
             $shift = CashierShift::find($d['shift_id'] ?? 0);
-            if (!$shift || !$shift->isOpen()) {
-                $this->send($chatId, "Смена не найдена или закрыта.");
-                if ($callbackId) $this->failCallback($callbackId, 'Shift not found or closed');
+            if (! $shift || ! $shift->isOpen()) {
+                $this->send($chatId, 'Смена не найдена или закрыта.');
+                if ($callbackId) {
+                    $this->failCallback($callbackId, 'Shift not found or closed');
+                }
+
                 return $this->showMainMenu($chatId, $s);
             }
-            if (!User::find($s->user_id)?->hasAnyRole(['super_admin', 'admin', 'manager'])) {
-                $this->send($chatId, "⛔ Недостаточно прав.");
-                if ($callbackId) $this->failCallback($callbackId, 'Insufficient role');
+            if (! User::find($s->user_id)?->hasAnyRole(['super_admin', 'admin', 'manager'])) {
+                $this->send($chatId, '⛔ Недостаточно прав.');
+                if ($callbackId) {
+                    $this->failCallback($callbackId, 'Insufficient role');
+                }
+
                 return response('OK');
             }
             $amt = (float) ($d['amount'] ?? 0);
             $cur = $d['currency'] ?? 'USD';
             if ($amt <= 0) {
-                $this->send($chatId, "Сумма не найдена.");
-                if ($callbackId) $this->failCallback($callbackId, 'Amount missing');
+                $this->send($chatId, 'Сумма не найдена.');
+                if ($callbackId) {
+                    $this->failCallback($callbackId, 'Amount missing');
+                }
+
                 return $this->showMainMenu($chatId, $s);
             }
 
             CashTransaction::create([
                 'cashier_shift_id' => $shift->id,
-                'type'             => 'in',
-                'category'         => 'deposit',
-                'source_trigger'   => 'manual_admin',
-                'currency'         => $cur,
-                'amount'           => $amt,
-                'notes'            => 'Внесение наличных (начальный баланс)',
-                'created_by'       => $s->user_id,
-                'occurred_at'      => now(),
+                'type' => 'in',
+                'category' => 'deposit',
+                'source_trigger' => 'manual_admin',
+                'currency' => $cur,
+                'amount' => $amt,
+                'notes' => 'Внесение наличных (начальный баланс)',
+                'created_by' => $s->user_id,
+                'occurred_at' => now(),
             ]);
 
-            if ($callbackId) $this->succeedCallback($callbackId);
-            $this->send($chatId, "✅ Внесено: " . number_format($amt, 0) . " {$cur}\nБаланс: " . $this->fmtBal($this->getBal($shift->fresh())));
+            if ($callbackId) {
+                $this->succeedCallback($callbackId);
+            }
+            $this->send($chatId, '✅ Внесено: '.number_format($amt, 0)." {$cur}\nБаланс: ".$this->fmtBal($this->getBal($shift->fresh())));
+
             return $this->showMainMenu($chatId, $s);
         } catch (\Throwable $e) {
-            if ($callbackId) $this->failCallback($callbackId, $e->getMessage());
+            if ($callbackId) {
+                $this->failCallback($callbackId, $e->getMessage());
+            }
             throw $e;
         }
     }
@@ -1952,7 +2213,8 @@ class CashierBotController extends Controller
     {
         $shift = $this->getShift($s->user_id);
         if (! $shift) {
-            $this->send($chatId, "Сначала откройте смену.");
+            $this->send($chatId, 'Сначала откройте смену.');
+
             return response('OK');
         }
 
@@ -1961,7 +2223,8 @@ class CashierBotController extends Controller
             ->get(['id', 'name', 'slug']);
 
         if ($cats->isEmpty()) {
-            $this->send($chatId, "Категории дохода ещё не настроены. Обратитесь к администратору.");
+            $this->send($chatId, 'Категории дохода ещё не настроены. Обратитесь к администратору.');
+
             return response('OK');
         }
 
@@ -1970,17 +2233,20 @@ class CashierBotController extends Controller
         $kb = [];
         $row = [];
         foreach ($cats as $c) {
-            $row[] = ['text' => $c->name, 'callback_data' => 'incat_' . $c->id];
+            $row[] = ['text' => $c->name, 'callback_data' => 'incat_'.$c->id];
             if (count($row) === 2) {
                 $kb[] = $row;
                 $row = [];
             }
         }
-        if (! empty($row)) $kb[] = $row;
+        if (! empty($row)) {
+            $kb[] = $row;
+        }
         $kb[] = [['text' => 'Отмена', 'callback_data' => 'cancel']];
 
         $s->update(['state' => 'sale_category', 'data' => ['shift_id' => $shift->id]]);
-        $this->send($chatId, "🛍 Категория продажи:", ['inline_keyboard' => $kb], 'inline');
+        $this->send($chatId, '🛍 Категория продажи:', ['inline_keyboard' => $kb], 'inline');
+
         return response('OK');
     }
 
@@ -1993,17 +2259,19 @@ class CashierBotController extends Controller
             ->first();
 
         if (! $cat) {
-            $this->send($chatId, "Категория не найдена. Попробуйте снова.");
+            $this->send($chatId, 'Категория не найдена. Попробуйте снова.');
+
             return $this->showMainMenu($chatId, $s);
         }
 
         $d = $s->data ?? [];
-        $d['income_category_id']   = $cat->id;
+        $d['income_category_id'] = $cat->id;
         $d['income_category_name'] = $cat->name;
         $s->update(['state' => 'sale_amount', 'data' => $d]);
         $this->send($chatId,
             "Категория: {$cat->name}\nВведите сумму:\n• 5000 (UZS по умолчанию)\n• 5 USD\n• 4 EUR"
         );
+
         return response('OK');
     }
 
@@ -2012,27 +2280,30 @@ class CashierBotController extends Controller
         [$amt, $cur] = $this->parseAmountCurrency($text);
         if ($amt <= 0) {
             $this->send($chatId, "Неверная сумма. Введите так:\n• 5000 (UZS)\n• 5 USD\n• 4 EUR");
+
             return response('OK');
         }
         if ($cur === null) {
             // Same financial-integrity rule as expense flow: never
             // silently default unrecognised currency to UZS.
             $this->send($chatId, "Не понял валюту. Введите ещё раз:\n• 5000 (UZS)\n• 5 USD\n• 4 EUR");
+
             return response('OK');
         }
 
         $d = $s->data ?? [];
-        $d['amount']   = $amt;
+        $d['amount'] = $amt;
         $d['currency'] = $cur;
         $s->update(['state' => 'sale_confirm', 'data' => $d]);
         $this->send($chatId,
-            "Подтвердите продажу:\n\nКатегория: {$d['income_category_name']}\nСумма: " . number_format($amt, 0) . " {$cur}",
+            "Подтвердите продажу:\n\nКатегория: {$d['income_category_name']}\nСумма: ".number_format($amt, 0)." {$cur}",
             ['inline_keyboard' => [[
                 ['text' => '✅ Подтвердить', 'callback_data' => 'confirm_sale'],
                 ['text' => '❌ Отмена',     'callback_data' => 'cancel'],
             ]]],
             'inline'
         );
+
         return response('OK');
     }
 
@@ -2043,18 +2314,24 @@ class CashierBotController extends Controller
             $d = $s->data ?? [];
             $shift = CashierShift::find($d['shift_id'] ?? 0);
             if (! $shift || ! $shift->isOpen()) {
-                $this->send($chatId, "Смена не найдена или закрыта.");
-                if ($callbackId) $this->failCallback($callbackId, 'Shift not found or closed');
+                $this->send($chatId, 'Смена не найдена или закрыта.');
+                if ($callbackId) {
+                    $this->failCallback($callbackId, 'Shift not found or closed');
+                }
+
                 return $this->showMainMenu($chatId, $s);
             }
 
             $catId = (int) ($d['income_category_id'] ?? 0);
-            $amt   = (float) ($d['amount'] ?? 0);
-            $cur   = (string) ($d['currency'] ?? '');
+            $amt = (float) ($d['amount'] ?? 0);
+            $cur = (string) ($d['currency'] ?? '');
 
             if ($catId <= 0 || $amt <= 0 || $cur === '') {
-                $this->send($chatId, "Данные неполные.");
-                if ($callbackId) $this->failCallback($callbackId, 'Missing fields');
+                $this->send($chatId, 'Данные неполные.');
+                if ($callbackId) {
+                    $this->failCallback($callbackId, 'Missing fields');
+                }
+
                 return $this->showMainMenu($chatId, $s);
             }
 
@@ -2065,23 +2342,28 @@ class CashierBotController extends Controller
             // the 2026-05-06 incident this guards against.
             $tx = app(\App\Actions\Cashier\RecordSmallSaleAction::class)->execute(
                 [
-                    'amount'             => $amt,
-                    'currency'           => $cur,
+                    'amount' => $amt,
+                    'currency' => $cur,
                     'income_category_id' => $catId,
-                    'payment_method'     => 'cash',
-                    'notes'              => null,
+                    'payment_method' => 'cash',
+                    'notes' => null,
                 ],
                 $s->user_id,
                 \App\Enums\CashTransactionSource::CashierBot,
             );
 
-            if ($callbackId) $this->succeedCallback($callbackId);
+            if ($callbackId) {
+                $this->succeedCallback($callbackId);
+            }
             $this->send($chatId,
-                "✅ Продажа записана: {$d['income_category_name']} — " . number_format($amt, 0) . " {$cur}\n#{$tx->id}\n\nБаланс: " . $this->fmtBal($this->getBal($shift->fresh()))
+                "✅ Продажа записана: {$d['income_category_name']} — ".number_format($amt, 0)." {$cur}\n#{$tx->id}\n\nБаланс: ".$this->fmtBal($this->getBal($shift->fresh()))
             );
+
             return $this->showMainMenu($chatId, $s);
         } catch (\Throwable $e) {
-            if ($callbackId) $this->failCallback($callbackId, $e->getMessage());
+            if ($callbackId) {
+                $this->failCallback($callbackId, $e->getMessage());
+            }
             throw $e;
         }
     }
@@ -2092,17 +2374,26 @@ class CashierBotController extends Controller
     public function startClose($s, int $chatId)
     {
         $shift = $this->getShift($s->user_id);
-        if (!$shift) { $this->send($chatId, "Нет открытой смены."); return response('OK'); }
+        if (! $shift) {
+            $this->send($chatId, 'Нет открытой смены.');
+
+            return response('OK');
+        }
         $bal = $this->getBal($shift);
         $s->update(['state' => 'shift_count_uzs', 'data' => ['shift_id' => $shift->id, 'expected' => $bal]]);
-        $this->send($chatId, "Закрытие смены\n\nОжидаемый баланс:\n" . $this->fmtBal($bal) . "\n\nПосчитайте UZS:");
+        $this->send($chatId, "Закрытие смены\n\nОжидаемый баланс:\n".$this->fmtBal($bal)."\n\nПосчитайте UZS:");
+
         return response('OK');
     }
 
     protected function hCount($s, int $chatId, string $text, string $cur)
     {
         $amt = floatval(str_replace([' ', ','], ['', '.'], $text));
-        if ($amt < 0) { $this->send($chatId, "Сумма не может быть отрицательной. Введите ещё раз:"); return response('OK'); }
+        if ($amt < 0) {
+            $this->send($chatId, 'Сумма не может быть отрицательной. Введите ещё раз:');
+
+            return response('OK');
+        }
         $d = $s->data ?? [];
 
         // Missing-zeros check — catches 608 vs 608,000 typos before they
@@ -2115,33 +2406,34 @@ class CashierBotController extends Controller
             $suggested = app(\App\Services\CashierBot\CashCountSanityChecker::class)
                 ->detectMissingZeros($amt, $expected);
             if ($suggested !== null && abs($suggested - $amt) > 0.01) {
-                $d['counted_' . strtolower($cur)]   = $amt;        // tentative
-                $d['typo_check_cur']                = $cur;
-                $d['typo_check_suggested']          = $suggested;
-                $d['typo_check_entered']            = $amt;
+                $d['counted_'.strtolower($cur)] = $amt;        // tentative
+                $d['typo_check_cur'] = $cur;
+                $d['typo_check_suggested'] = $suggested;
+                $d['typo_check_entered'] = $amt;
                 $s->update(['state' => 'shift_count_typo_check', 'data' => $d]);
 
-                $entered   = number_format($amt, 0, '.', ' ');
+                $entered = number_format($amt, 0, '.', ' ');
                 $suggLabel = number_format($suggested, 0, '.', ' ');
-                $expLabel  = number_format($expected, 0, '.', ' ');
+                $expLabel = number_format($expected, 0, '.', ' ');
 
                 $this->send($chatId,
                     "⚠ Похоже на опечатку.\n\n"
-                    . "Ожидалось: {$expLabel} {$cur}\n"
-                    . "Вы ввели: {$entered} {$cur}\n\n"
-                    . "Возможно, вы имели в виду {$suggLabel} {$cur}?",
+                    ."Ожидалось: {$expLabel} {$cur}\n"
+                    ."Вы ввели: {$entered} {$cur}\n\n"
+                    ."Возможно, вы имели в виду {$suggLabel} {$cur}?",
                     ['inline_keyboard' => [
                         [['text' => "✅ Да, {$suggLabel}",   'callback_data' => 'typo_yes']],
                         [['text' => "❌ Нет, {$entered}",    'callback_data' => 'typo_no']],
                     ]],
                     'inline'
                 );
+
                 return response('OK');
             }
         }
 
-        $d['counted_' . strtolower($cur)] = $amt;
-        $next = match($cur) {
+        $d['counted_'.strtolower($cur)] = $amt;
+        $next = match ($cur) {
             'UZS' => ['shift_count_usd', 'Посчитайте USD (0 если нет):'],
             'USD' => ['shift_count_eur', 'Посчитайте EUR (0 если нет):'],
             'EUR' => ['shift_close_confirm', null], // Skip photo, go to confirm
@@ -2151,6 +2443,7 @@ class CashierBotController extends Controller
             return $this->showCloseConfirm($s, $chatId);
         }
         $this->send($chatId, $next[1]);
+
         return response('OK');
     }
 
@@ -2160,7 +2453,7 @@ class CashierBotController extends Controller
      */
     public function resolveCountTypo($s, int $chatId, string $callback): \Illuminate\Http\Response
     {
-        $d   = $s->data ?? [];
+        $d = $s->data ?? [];
         $cur = (string) ($d['typo_check_cur'] ?? 'UZS');
 
         if ($callback === 'typo_yes') {
@@ -2168,11 +2461,11 @@ class CashierBotController extends Controller
         } else {
             $final = (float) ($d['typo_check_entered'] ?? 0);
         }
-        $d['counted_' . strtolower($cur)] = $final;
+        $d['counted_'.strtolower($cur)] = $final;
 
         unset($d['typo_check_cur'], $d['typo_check_suggested'], $d['typo_check_entered']);
 
-        $next = match($cur) {
+        $next = match ($cur) {
             'UZS' => ['shift_count_usd', 'Посчитайте USD (0 если нет):'],
             'USD' => ['shift_count_eur', 'Посчитайте EUR (0 если нет):'],
             'EUR' => ['shift_close_confirm', null],
@@ -2182,6 +2475,7 @@ class CashierBotController extends Controller
             return $this->showCloseConfirm($s, $chatId);
         }
         $this->send($chatId, $next[1]);
+
         return response('OK');
     }
 
@@ -2196,43 +2490,46 @@ class CashierBotController extends Controller
      */
     protected function hPaymentSplitCash($s, int $chatId, string $text)
     {
-        $cash  = floatval(str_replace([' ', ','], ['', '.'], $text));
-        $d     = $s->data ?? [];
+        $cash = floatval(str_replace([' ', ','], ['', '.'], $text));
+        $d = $s->data ?? [];
         $total = (float) ($d['amount'] ?? 0);
-        $cur   = (string) ($d['currency'] ?? 'UZS');
+        $cur = (string) ($d['currency'] ?? 'UZS');
 
         if ($cash <= 0) {
-            $this->send($chatId, "Сумма должна быть больше нуля. Введите наличную часть ещё раз:");
+            $this->send($chatId, 'Сумма должна быть больше нуля. Введите наличную часть ещё раз:');
+
             return response('OK');
         }
         if ($cash >= $total) {
             $this->send($chatId,
                 "Наличная часть ({$cash}) ≥ общей суммы ({$total}). Если оплата только наличными — нажмите Отмена и выберите «Наличные» в способе оплаты."
             );
+
             return response('OK');
         }
 
         $card = round($total - $cash, 2);
         $d['split_cash'] = $cash;
         $d['split_card'] = $card;
-        $d['method']     = 'split';
+        $d['method'] = 'split';
         $s->update(['state' => 'payment_confirm', 'data' => $d]);
 
         $room = $d['room'] ?? ($d['booking_id'] ? "Beds24 #{$d['booking_id']}" : '—');
         $totalLabel = number_format($total, 0, '.', ' ');
-        $cashLabel  = number_format($cash,  0, '.', ' ');
-        $cardLabel  = number_format($card,  0, '.', ' ');
+        $cashLabel = number_format($cash, 0, '.', ' ');
+        $cardLabel = number_format($card, 0, '.', ' ');
 
         $t = "Подтвердите сплит-платеж:\n\n"
-            . "Бронь: {$room}\nГость: {$d['guest_name']}\n\n"
-            . "Всего: {$totalLabel} {$cur}\n"
-            . "💵 Наличными: {$cashLabel} {$cur}\n"
-            . "💳 Картой:    {$cardLabel} {$cur}";
+            ."Бронь: {$room}\nГость: {$d['guest_name']}\n\n"
+            ."Всего: {$totalLabel} {$cur}\n"
+            ."💵 Наличными: {$cashLabel} {$cur}\n"
+            ."💳 Картой:    {$cardLabel} {$cur}";
 
         $this->send($chatId, $t, ['inline_keyboard' => [[
             ['text' => 'Подтвердить', 'callback_data' => 'confirm_payment'],
             ['text' => 'Отмена',      'callback_data' => 'cancel'],
         ]]], 'inline');
+
         return response('OK');
     }
 
@@ -2241,18 +2538,20 @@ class CashierBotController extends Controller
         $d = $s->data ?? [];
         $exp = $d['expected'] ?? [];
 
-        $checker  = app(\App\Services\CashierBot\CashCountSanityChecker::class);
-        $rows     = [];
-        $lines    = [];
+        $checker = app(\App\Services\CashierBot\CashCountSanityChecker::class);
+        $rows = [];
+        $lines = [];
         foreach (['uzs', 'usd', 'eur'] as $c) {
-            $e   = (float) ($exp[strtoupper($c)] ?? 0);
-            $cnt = (float) ($d['counted_' . $c] ?? 0);
+            $e = (float) ($exp[strtoupper($c)] ?? 0);
+            $cnt = (float) ($d['counted_'.$c] ?? 0);
             if ($e != 0 || $cnt != 0) {
-                $diff   = round($cnt - $e, 2);
-                $ds     = abs($diff) < 0.01 ? '' : ($diff > 0 ? " (+" . number_format($diff, 0) . ")" : " (" . number_format($diff, 0) . ")");
-                $sev    = $checker->classifySeverity($cnt, $e);
-                $emoji  = match ($sev) { 'red' => '🚨 ', 'yellow' => '⚠ ', default => '' };
-                $lines[] = $emoji . strtoupper($c) . ": ожид. " . number_format($e, 0) . " / факт " . number_format($cnt, 0) . $ds;
+                $diff = round($cnt - $e, 2);
+                $ds = abs($diff) < 0.01 ? '' : ($diff > 0 ? ' (+'.number_format($diff, 0).')' : ' ('.number_format($diff, 0).')');
+                $sev = $checker->classifySeverity($cnt, $e);
+                $emoji = match ($sev) {
+                    'red' => '🚨 ', 'yellow' => '⚠ ', default => ''
+                };
+                $lines[] = $emoji.strtoupper($c).': ожид. '.number_format($e, 0).' / факт '.number_format($cnt, 0).$ds;
                 $rows[strtoupper($c)] = ['counted' => $cnt, 'expected' => $e];
             }
         }
@@ -2267,21 +2566,23 @@ class CashierBotController extends Controller
         if ($worstSev === 'red') {
             $s->update(['state' => 'shift_close_reason', 'data' => $d]);
             $this->send($chatId,
-                "🚨 КРУПНОЕ РАСХОЖДЕНИЕ\n\n" . implode("\n", $lines)
-                . "\n\nЭто расхождение требует объяснения.\nВведите причину (минимум 10 символов):"
+                "🚨 КРУПНОЕ РАСХОЖДЕНИЕ\n\n".implode("\n", $lines)
+                ."\n\nЭто расхождение требует объяснения.\nВведите причину (минимум 10 символов):"
             );
+
             return response('OK');
         }
 
         // YELLOW: show but allow close. Operator gets the warning, no extra step.
         $header = $worstSev === 'yellow'
             ? "⚠ Расхождение зафиксировано — проверьте сумму ещё раз\n\nИтог:"
-            : "Итог:";
+            : 'Итог:';
 
-        $this->send($chatId, $header . "\n\n" . implode("\n", $lines), ['inline_keyboard' => [[
+        $this->send($chatId, $header."\n\n".implode("\n", $lines), ['inline_keyboard' => [[
             ['text' => 'Закрыть смену', 'callback_data' => 'confirm_close'],
             ['text' => 'Отмена', 'callback_data' => 'cancel'],
         ]]], 'inline');
+
         return response('OK');
     }
 
@@ -2296,7 +2597,8 @@ class CashierBotController extends Controller
     {
         $reason = trim($text);
         if (mb_strlen($reason) < 10) {
-            $this->send($chatId, "Причина слишком короткая (минимум 10 символов). Введите подробнее:");
+            $this->send($chatId, 'Причина слишком короткая (минимум 10 символов). Введите подробнее:');
+
             return response('OK');
         }
 
@@ -2307,28 +2609,28 @@ class CashierBotController extends Controller
         // Re-render the confirm view with the reason captured and offer
         // the close button. Discrepancy is still visible on screen so
         // the operator commits with eyes open.
-        $exp   = $d['expected'] ?? [];
+        $exp = $d['expected'] ?? [];
         $lines = [];
         foreach (['uzs', 'usd', 'eur'] as $c) {
-            $e   = (float) ($exp[strtoupper($c)] ?? 0);
-            $cnt = (float) ($d['counted_' . $c] ?? 0);
+            $e = (float) ($exp[strtoupper($c)] ?? 0);
+            $cnt = (float) ($d['counted_'.$c] ?? 0);
             if ($e != 0 || $cnt != 0) {
-                $diff   = round($cnt - $e, 2);
-                $ds     = abs($diff) < 0.01 ? '' : ($diff > 0 ? " (+" . number_format($diff, 0) . ")" : " (" . number_format($diff, 0) . ")");
-                $lines[] = strtoupper($c) . ": ожид. " . number_format($e, 0) . " / факт " . number_format($cnt, 0) . $ds;
+                $diff = round($cnt - $e, 2);
+                $ds = abs($diff) < 0.01 ? '' : ($diff > 0 ? ' (+'.number_format($diff, 0).')' : ' ('.number_format($diff, 0).')');
+                $lines[] = strtoupper($c).': ожид. '.number_format($e, 0).' / факт '.number_format($cnt, 0).$ds;
             }
         }
 
         $this->send($chatId,
-            "🚨 КРУПНОЕ РАСХОЖДЕНИЕ\n\n" . implode("\n", $lines)
-            . "\n\nПричина: {$reason}\n\nСмена будет закрыта со статусом «На проверке»."
-            ,
+            "🚨 КРУПНОЕ РАСХОЖДЕНИЕ\n\n".implode("\n", $lines)
+            ."\n\nПричина: {$reason}\n\nСмена будет закрыта со статусом «На проверке».",
             ['inline_keyboard' => [[
                 ['text' => '✅ Подтвердить закрытие', 'callback_data' => 'confirm_close'],
                 ['text' => 'Отмена',                 'callback_data' => 'cancel'],
             ]]],
             'inline'
         );
+
         return response('OK');
     }
 
@@ -2338,6 +2640,7 @@ class CashierBotController extends Controller
         $d = $s->data ?? [];
         $d['photo_id'] = $photo['file_id'] ?? '';
         $s->update(['state' => 'shift_close_confirm', 'data' => $d]);
+
         return $this->showCloseConfirm($s, $chatId);
     }
 
@@ -2346,9 +2649,12 @@ class CashierBotController extends Controller
     {
         $d = $s->data ?? [];
         $shift = CashierShift::find($d['shift_id'] ?? 0);
-        if (!$shift) {
-            $this->send($chatId, "Смена не найдена.");
-            if ($callbackId) $this->failCallback($callbackId, 'Shift not found');
+        if (! $shift) {
+            $this->send($chatId, 'Смена не найдена.');
+            if ($callbackId) {
+                $this->failCallback($callbackId, 'Shift not found');
+            }
+
             return $this->showMainMenu($chatId, $s);
         }
 
@@ -2357,7 +2663,7 @@ class CashierBotController extends Controller
             // the shift lands in 'under_review' and the discrepancy reason
             // is preserved in end_saldos. Operations don't block — next
             // shift can still open — but finance has the audit trail.
-            $tier   = ((string) ($d['close_severity'] ?? 'green') === 'red')
+            $tier = ((string) ($d['close_severity'] ?? 'green') === 'red')
                 ? \App\Enums\OverrideTier::Manager
                 : \App\Enums\OverrideTier::None;
             $reason = (string) ($d['close_reason'] ?? '') ?: null;
@@ -2375,15 +2681,17 @@ class CashierBotController extends Controller
             $this->sendShiftCloseNotifications($shift->fresh(), $s, $d, $ho);
 
             $this->send($chatId, $tier === \App\Enums\OverrideTier::Manager
-                ? "Смена закрыта (статус: на проверке)."
-                : "Смена закрыта!");
+                ? 'Смена закрыта (статус: на проверке).'
+                : 'Смена закрыта!');
         } catch (\Exception $e) {
-            if ($callbackId) $this->failCallback($callbackId, $e->getMessage());
+            if ($callbackId) {
+                $this->failCallback($callbackId, $e->getMessage());
+            }
             Log::error('Close shift failed', ['e' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
             $this->alertOwnerOnError('Close shift', $e, $s->user_id);
             // Clear stale counted amounts so retry forces re-count
             $s->update(['state' => 'main_menu', 'data' => null]);
-            $this->send($chatId, "Ошибка при закрытии смены. Попробуйте заново.");
+            $this->send($chatId, 'Ошибка при закрытии смены. Попробуйте заново.');
         }
 
         return $this->showMainMenu($chatId, $s);
@@ -2401,7 +2709,7 @@ class CashierBotController extends Controller
         $discrepancies = [];
         foreach (['UZS', 'USD', 'EUR'] as $cur) {
             $exp = $d['expected'][$cur] ?? 0;
-            $cnt = $d['counted_' . strtolower($cur)] ?? 0;
+            $cnt = $d['counted_'.strtolower($cur)] ?? 0;
             $diff = round($cnt - $exp, 2);
             if ($exp > 0 || $cnt > 0) {
                 $discrepancies[$cur] = ['expected' => $exp, 'counted' => $cnt, 'diff' => $diff];
@@ -2423,18 +2731,18 @@ class CashierBotController extends Controller
         $severityLabel = $maxDiffPct < 1 ? 'Без расхождений' : ($maxDiffPct < 5 ? 'Небольшое расхождение' : 'КРУПНОЕ РАСХОЖДЕНИЕ');
 
         $ownerMsg = "{$severity} <b>Смена закрыта</b>\n\n"
-            . "👤 Сотрудник: " . ($user->name ?? '?') . "\n"
-            . "⏰ " . $shift->opened_at->timezone('Asia/Tashkent')->format('H:i') . '–' . now('Asia/Tashkent')->format('H:i') . "\n"
-            . "📊 Операций: {$txn}\n\n";
+            .'👤 Сотрудник: '.($user->name ?? '?')."\n"
+            .'⏰ '.$shift->opened_at->timezone('Asia/Tashkent')->format('H:i').'–'.now('Asia/Tashkent')->format('H:i')."\n"
+            ."📊 Операций: {$txn}\n\n";
 
         foreach ($discrepancies as $cur => $vals) {
             $diffSign = $vals['diff'] >= 0 ? '+' : '';
-            $diffStr = $vals['diff'] != 0 ? " (<b>{$diffSign}" . number_format($vals['diff'], 0) . "</b>)" : '';
-            $ownerMsg .= "<b>{$cur}:</b> " . number_format($vals['expected'], 0) . " → " . number_format($vals['counted'], 0) . $diffStr . "\n";
+            $diffStr = $vals['diff'] != 0 ? " (<b>{$diffSign}".number_format($vals['diff'], 0).'</b>)' : '';
+            $ownerMsg .= "<b>{$cur}:</b> ".number_format($vals['expected'], 0).' → '.number_format($vals['counted'], 0).$diffStr."\n";
         }
 
         if ($hasDisc) {
-            $ownerMsg .= "\n⚠️ <b>{$severityLabel}</b> (" . round($maxDiffPct, 1) . "%)";
+            $ownerMsg .= "\n⚠️ <b>{$severityLabel}</b> (".round($maxDiffPct, 1).'%)';
         } else {
             $ownerMsg .= "\n✅ {$severityLabel}";
         }
@@ -2442,7 +2750,7 @@ class CashierBotController extends Controller
         try {
             $this->ownerAlert->sendShiftCloseReport($ownerMsg);
 
-            if (!empty($d['photo_id'])) {
+            if (! empty($d['photo_id'])) {
                 $oid = (int) config('services.owner_alert_bot.owner_chat_id', env('OWNER_TELEGRAM_ID', '0'));
                 if ($oid !== 0) {
                     $ownerBot = $this->botResolver->resolve('owner-alert');
@@ -2456,14 +2764,17 @@ class CashierBotController extends Controller
         }
     }
 
-
     // ── EXCHANGE ──────────────────────────────────────────────
 
     /** @internal Used only by CashierBotCallbackRouter during A2/A3 extraction. */
     public function startExchange($s, int $chatId)
     {
         $shift = $this->getShift($s->user_id);
-        if (!$shift) { $this->send($chatId, "Сначала откройте смену."); return response('OK'); }
+        if (! $shift) {
+            $this->send($chatId, 'Сначала откройте смену.');
+
+            return response('OK');
+        }
         $s->update(['state' => 'exchange_in_currency', 'data' => ['shift_id' => $shift->id]]);
         $this->send($chatId, "🔄 <b>Обмен валюты</b>\n\nВалюта ПРИЁМА (что получаете):", ['inline_keyboard' => [
             [
@@ -2473,6 +2784,7 @@ class CashierBotController extends Controller
             ],
             [['text' => '❌ Отмена', 'callback_data' => 'cancel']],
         ]], 'inline');
+
         return response('OK');
     }
 
@@ -2483,13 +2795,18 @@ class CashierBotController extends Controller
         $d['in_currency'] = str_replace('excur_', '', $data);
         $s->update(['state' => 'exchange_in_amount', 'data' => $d]);
         $this->send($chatId, "Валюта приёма: <b>{$d['in_currency']}</b>\nВведите сумму ПРИЁМА:");
+
         return response('OK');
     }
 
     protected function hExInAmt($s, int $chatId, string $text)
     {
         $amt = floatval(str_replace([' ', ','], ['', '.'], $text));
-        if ($amt <= 0) { $this->send($chatId, "Неверная сумма. Введите ещё раз:"); return response('OK'); }
+        if ($amt <= 0) {
+            $this->send($chatId, 'Неверная сумма. Введите ещё раз:');
+
+            return response('OK');
+        }
         $d = $s->data ?? [];
         $d['in_amount'] = $amt;
         $s->update(['state' => 'exchange_out_currency', 'data' => $d]);
@@ -2501,10 +2818,11 @@ class CashierBotController extends Controller
                 $btns[] = ['text' => $c, 'callback_data' => "exout_{$c}"];
             }
         }
-        $this->send($chatId, "Приём: <b>" . number_format($amt, 0) . " {$d['in_currency']}</b>\n\nВалюта ВЫДАЧИ (что отдаёте):", ['inline_keyboard' => [
+        $this->send($chatId, 'Приём: <b>'.number_format($amt, 0)." {$d['in_currency']}</b>\n\nВалюта ВЫДАЧИ (что отдаёте):", ['inline_keyboard' => [
             $btns,
             [['text' => '❌ Отмена', 'callback_data' => 'cancel']],
         ]], 'inline');
+
         return response('OK');
     }
 
@@ -2514,14 +2832,19 @@ class CashierBotController extends Controller
         $d = $s->data ?? [];
         $d['out_currency'] = str_replace('exout_', '', $data);
         $s->update(['state' => 'exchange_out_amount', 'data' => $d]);
-        $this->send($chatId, "Приём: <b>" . number_format($d['in_amount'], 0) . " {$d['in_currency']}</b>\nВыдача: <b>{$d['out_currency']}</b>\n\nВведите сумму ВЫДАЧИ:");
+        $this->send($chatId, 'Приём: <b>'.number_format($d['in_amount'], 0)." {$d['in_currency']}</b>\nВыдача: <b>{$d['out_currency']}</b>\n\nВведите сумму ВЫДАЧИ:");
+
         return response('OK');
     }
 
     protected function hExOutAmt($s, int $chatId, string $text)
     {
         $amt = floatval(str_replace([' ', ','], ['', '.'], $text));
-        if ($amt <= 0) { $this->send($chatId, "Неверная сумма. Введите ещё раз:"); return response('OK'); }
+        if ($amt <= 0) {
+            $this->send($chatId, 'Неверная сумма. Введите ещё раз:');
+
+            return response('OK');
+        }
         $d = $s->data ?? [];
         $d['out_amount'] = $amt;
         $s->update(['state' => 'exchange_confirm', 'data' => $d]);
@@ -2530,18 +2853,19 @@ class CashierBotController extends Controller
         $rate = '';
         if ($d['in_currency'] === 'UZS' && $d['out_currency'] !== 'UZS') {
             $r = round($d['in_amount'] / $amt, 0);
-            $rate = "\nКурс: ~" . number_format($r, 0) . " UZS/{$d['out_currency']}";
+            $rate = "\nКурс: ~".number_format($r, 0)." UZS/{$d['out_currency']}";
         } elseif ($d['out_currency'] === 'UZS' && $d['in_currency'] !== 'UZS') {
             $r = round($d['out_amount'] / $d['in_amount'], 0);
-            $rate = "\nКурс: ~" . number_format($r, 0) . " UZS/{$d['in_currency']}";
+            $rate = "\nКурс: ~".number_format($r, 0)." UZS/{$d['in_currency']}";
         }
 
-        $this->send($chatId, "🔄 <b>Подтвердите обмен:</b>\n\n📥 Приём: <b>" . number_format($d['in_amount'], 0) . " {$d['in_currency']}</b>"
-            . "\n📤 Выдача: <b>" . number_format($amt, 0) . " {$d['out_currency']}</b>"
-            . $rate, ['inline_keyboard' => [[
+        $this->send($chatId, "🔄 <b>Подтвердите обмен:</b>\n\n📥 Приём: <b>".number_format($d['in_amount'], 0)." {$d['in_currency']}</b>"
+            ."\n📤 Выдача: <b>".number_format($amt, 0)." {$d['out_currency']}</b>"
+            .$rate, ['inline_keyboard' => [[
                 ['text' => '✅ Подтвердить', 'callback_data' => 'confirm_exchange'],
                 ['text' => '❌ Отмена', 'callback_data' => 'cancel'],
             ]]], 'inline');
+
         return response('OK');
     }
 
@@ -2550,9 +2874,12 @@ class CashierBotController extends Controller
     {
         $d = $s->data ?? [];
         $shift = CashierShift::find($d['shift_id'] ?? 0);
-        if (!$shift || !$shift->isOpen()) {
-            $this->send($chatId, "Смена не найдена или закрыта.");
-            if ($callbackId) $this->failCallback($callbackId, 'Shift not found or closed');
+        if (! $shift || ! $shift->isOpen()) {
+            $this->send($chatId, 'Смена не найдена или закрыта.');
+            if ($callbackId) {
+                $this->failCallback($callbackId, 'Shift not found or closed');
+            }
+
             return $this->showMainMenu($chatId, $s);
         }
 
@@ -2560,12 +2887,14 @@ class CashierBotController extends Controller
             $this->exchangeService->recordExchange($shift->id, $d, $s->user_id, $callbackId);
 
             // Outside transaction: non-critical messaging
-            $this->send($chatId, "✅ Обмен записан!\n\n📥 +" . number_format($d['in_amount'], 0) . " {$d['in_currency']}\n📤 -" . number_format($d['out_amount'], 0) . " {$d['out_currency']}\n\nБаланс: " . $this->fmtBal($this->getBal($shift->fresh())));
+            $this->send($chatId, "✅ Обмен записан!\n\n📥 +".number_format($d['in_amount'], 0)." {$d['in_currency']}\n📤 -".number_format($d['out_amount'], 0)." {$d['out_currency']}\n\nБаланс: ".$this->fmtBal($this->getBal($shift->fresh())));
         } catch (\Exception $e) {
-            if ($callbackId) $this->failCallback($callbackId, $e->getMessage());
+            if ($callbackId) {
+                $this->failCallback($callbackId, $e->getMessage());
+            }
             Log::error('Exchange failed', ['e' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
             $this->alertOwnerOnError('Exchange', $e, $s->user_id);
-            $this->send($chatId, "Ошибка при записи обмена. Попробуйте снова.");
+            $this->send($chatId, 'Ошибка при записи обмена. Попробуйте снова.');
         }
 
         return $this->showMainMenu($chatId, $s);
@@ -2580,46 +2909,48 @@ class CashierBotController extends Controller
      * when a fallback was used (regex failed or live payload missing).
      *
      * @param  array|null  $liveGuest  Raw Beds24 API booking object (may be null if not in session)
-     * @param  string      $bid        Beds24 booking ID (for log context only)
+     * @param  string  $bid  Beds24 booking ID (for log context only)
      * @return array{guest_name:string|null, booking_amount:float|null, booking_currency:string|null, currency_source:string}
      */
     protected function extractLiveBookingSnapshot(?array $liveGuest, string $bid): array
     {
         if (! $liveGuest) {
             return [
-                'guest_name'       => null,
-                'booking_amount'   => null,
+                'guest_name' => null,
+                'booking_amount' => null,
                 'booking_currency' => null,
-                'currency_source'  => 'no_live_payload',
+                'currency_source' => 'no_live_payload',
             ];
         }
 
         $firstName = trim($liveGuest['firstName'] ?? '');
-        $lastName  = trim($liveGuest['lastName']  ?? '');
+        $lastName = trim($liveGuest['lastName'] ?? '');
         $guestName = trim("{$firstName} {$lastName}") ?: null;
 
         // Outstanding = total price minus deposit already collected; floor to price if result ≤ 0
-        $amount = (float)($liveGuest['price'] ?? 0) - (float)($liveGuest['deposit'] ?? 0);
-        if ($amount <= 0) $amount = (float)($liveGuest['price'] ?? 0);
+        $amount = (float) ($liveGuest['price'] ?? 0) - (float) ($liveGuest['deposit'] ?? 0);
+        if ($amount <= 0) {
+            $amount = (float) ($liveGuest['price'] ?? 0);
+        }
 
         // Beds24 REST GET /bookings has no dedicated currency field.
         // Currency is reliably embedded in rateDescription e.g. "2026-06-07 (ID Rate) USD 43.20"
-        $currency       = null;
+        $currency = null;
         $currencySource = 'no_live_payload';
 
         if (! empty($liveGuest['rateDescription']) &&
             preg_match('/\b(USD|EUR|GBP|RUB|UZS|JPY|CNY|AUD|CAD|CHF)\b/', $liveGuest['rateDescription'], $m)) {
-            $currency       = $m[1];
+            $currency = $m[1];
             $currencySource = 'live_rate_description';
         } else {
             $currencySource = 'live_payload_present_but_currency_regex_failed';
         }
 
         return [
-            'guest_name'       => $guestName,
-            'booking_amount'   => $amount > 0 ? $amount : null,
+            'guest_name' => $guestName,
+            'booking_amount' => $amount > 0 ? $amount : null,
             'booking_currency' => $currency,
-            'currency_source'  => $currencySource,
+            'currency_source' => $currencySource,
         ];
     }
 
@@ -2648,22 +2979,23 @@ class CashierBotController extends Controller
         if (empty($liveGuest['arrival'])) {
             Log::warning('CashierBot: on-demand import skipped — arrival_date missing from live payload', [
                 'beds24_booking_id' => $bid,
-                'live_keys'         => array_keys($liveGuest),
+                'live_keys' => array_keys($liveGuest),
             ]);
+
             return null;
         }
 
         try {
             $firstName = trim($liveGuest['firstName'] ?? '');
-            $lastName  = trim($liveGuest['lastName']  ?? '');
+            $lastName = trim($liveGuest['lastName'] ?? '');
             $guestName = trim("{$firstName} {$lastName}") ?: 'Guest';
 
-            $price   = (float) ($liveGuest['price']   ?? 0);
+            $price = (float) ($liveGuest['price'] ?? 0);
             $deposit = (float) ($liveGuest['deposit'] ?? 0);
             $balance = max(0.0, $price - $deposit);
 
             // Map Beds24 status to our known values; treat unknown as 'confirmed'.
-            $rawStatus     = (string) ($liveGuest['status'] ?? 'confirmed');
+            $rawStatus = (string) ($liveGuest['status'] ?? 'confirmed');
             $bookingStatus = in_array($rawStatus, ['confirmed', 'new'], true) ? $rawStatus : 'confirmed';
 
             // Identity key: external Beds24 booking ID (not our local PK).
@@ -2675,30 +3007,30 @@ class CashierBotController extends Controller
             $booking = Beds24Booking::updateOrCreate(
                 ['beds24_booking_id' => $bid],
                 [
-                    'property_id'    => (string) ($liveGuest['propertyId'] ?? '41097'),
-                    'guest_name'     => $guestName,
-                    'arrival_date'   => $liveGuest['arrival'],
+                    'property_id' => (string) ($liveGuest['propertyId'] ?? '41097'),
+                    'guest_name' => $guestName,
+                    'arrival_date' => $liveGuest['arrival'],
                     'departure_date' => $liveGuest['departure'] ?? null,
-                    'num_adults'     => max(1, (int) ($liveGuest['numAdult'] ?? 1)),
-                    'num_children'   => max(0, (int) ($liveGuest['numChild'] ?? 0)),
-                    'total_amount'   => $price,
-                    'invoice_balance'=> $balance,
-                    'currency'       => 'USD',
+                    'num_adults' => max(1, (int) ($liveGuest['numAdult'] ?? 1)),
+                    'num_children' => max(0, (int) ($liveGuest['numChild'] ?? 0)),
+                    'total_amount' => $price,
+                    'invoice_balance' => $balance,
+                    'currency' => 'USD',
                     'booking_status' => $bookingStatus,
-                    'room_id'        => $liveGuest['roomId']   ?? null,
-                    'room_name'      => $liveGuest['roomName'] ?? null,
+                    'room_id' => $liveGuest['roomId'] ?? null,
+                    'room_name' => $liveGuest['roomName'] ?? null,
                 ]
             );
 
             Log::info('CashierBot: booking imported on-demand from live Beds24 data', [
                 'beds24_booking_id' => $bid,
-                'property_id'       => $liveGuest['propertyId'] ?? null,
-                'guest_name'        => $guestName,
-                'arrival_date'      => $liveGuest['arrival'],
-                'total_amount'      => $price,
-                'invoice_balance'   => $balance,
-                'booking_status'    => $bookingStatus,
-                'action'            => $booking->wasRecentlyCreated ? 'created' : 'updated',
+                'property_id' => $liveGuest['propertyId'] ?? null,
+                'guest_name' => $guestName,
+                'arrival_date' => $liveGuest['arrival'],
+                'total_amount' => $price,
+                'invoice_balance' => $balance,
+                'booking_status' => $bookingStatus,
+                'action' => $booking->wasRecentlyCreated ? 'created' : 'updated',
             ]);
 
             return $booking;
@@ -2706,9 +3038,10 @@ class CashierBotController extends Controller
         } catch (\Throwable $e) {
             Log::error('CashierBot: on-demand booking import failed', [
                 'beds24_booking_id' => $bid,
-                'error'             => $e->getMessage(),
-                'live_keys'         => array_keys($liveGuest),
+                'error' => $e->getMessage(),
+                'live_keys' => array_keys($liveGuest),
             ]);
+
             return null;
         }
     }
@@ -2742,7 +3075,7 @@ class CashierBotController extends Controller
     protected function formatDuplicatePaymentMessage(int $bookingId): string
     {
         if ($bookingId <= 0) {
-            return "⚠️ По этому бронированию оплата уже зарегистрирована. Повторное внесение невозможно.";
+            return '⚠️ По этому бронированию оплата уже зарегистрирована. Повторное внесение невозможно.';
         }
 
         $tx = CashTransaction::where('beds24_booking_id', $bookingId)
@@ -2750,27 +3083,27 @@ class CashierBotController extends Controller
             ->orderBy('id', 'desc')
             ->first();
 
-        if (!$tx) {
-            return "⚠️ По этому бронированию оплата уже зарегистрирована. Повторное внесение невозможно.";
+        if (! $tx) {
+            return '⚠️ По этому бронированию оплата уже зарегистрирована. Повторное внесение невозможно.';
         }
 
         $methodLabel = match ($tx->payment_method) {
-            'cash'     => 'наличные',
-            'card'     => 'карта',
+            'cash' => 'наличные',
+            'card' => 'карта',
             'transfer' => 'перевод',
-            null, ''   => 'не указан',
-            default    => $tx->payment_method,
+            null, '' => 'не указан',
+            default => $tx->payment_method,
         };
 
-        $amount   = number_format((float) $tx->amount, 0, '.', ' ');
+        $amount = number_format((float) $tx->amount, 0, '.', ' ');
         $currency = is_object($tx->currency) ? $tx->currency->value : (string) $tx->currency;
-        $when     = optional($tx->occurred_at)->format('d.m.Y H:i') ?? '—';
+        $when = optional($tx->occurred_at)->format('d.m.Y H:i') ?? '—';
 
         return "⚠️ По бронированию #{$bookingId} оплата уже зарегистрирована.\n\n"
-             . "• Способ: {$methodLabel}\n"
-             . "• Сумма: {$amount} {$currency}\n"
-             . "• Дата: {$when}\n\n"
-             . "Повторное внесение невозможно. Если запись ошибочна — обратитесь к менеджеру.";
+             ."• Способ: {$methodLabel}\n"
+             ."• Сумма: {$amount} {$currency}\n"
+             ."• Дата: {$when}\n\n"
+             .'Повторное внесение невозможно. Если запись ошибочна — обратитесь к менеджеру.';
     }
 
     /**
@@ -2783,10 +3116,10 @@ class CashierBotController extends Controller
             ? CashTransaction::where('beds24_booking_id', $attemptedBookingId)
                 ->orWhere(function ($q) use ($attemptedBookingId) {
                     $q->whereNotNull('group_master_booking_id')
-                      ->where(function ($qq) use ($attemptedBookingId) {
-                          $qq->where('group_master_booking_id', $attemptedBookingId)
-                             ->orWhere('beds24_booking_id', $attemptedBookingId);
-                      });
+                        ->where(function ($qq) use ($attemptedBookingId) {
+                            $qq->where('group_master_booking_id', $attemptedBookingId)
+                                ->orWhere('beds24_booking_id', $attemptedBookingId);
+                        });
                 })
                 ->where('source_trigger', CashTransactionSource::CashierBot->value)
                 ->where('is_group_payment', true)
@@ -2794,24 +3127,24 @@ class CashierBotController extends Controller
                 ->first()
             : null;
 
-        if (!$existing) {
-            return "⚠️ По этой групповой брони оплата уже зарегистрирована (другой сегмент группы). Проверьте историю и обратитесь к менеджеру.";
+        if (! $existing) {
+            return '⚠️ По этой групповой брони оплата уже зарегистрирована (другой сегмент группы). Проверьте историю и обратитесь к менеджеру.';
         }
 
         $methodLabel = match ($existing->payment_method) {
             'cash' => 'наличные', 'card' => 'карта', 'transfer' => 'перевод',
             null, '' => 'не указан', default => $existing->payment_method,
         };
-        $amount   = number_format((float) $existing->amount, 0, '.', ' ');
+        $amount = number_format((float) $existing->amount, 0, '.', ' ');
         $currency = is_object($existing->currency) ? $existing->currency->value : (string) $existing->currency;
-        $when     = optional($existing->occurred_at)->format('d.m.Y H:i') ?? '—';
+        $when = optional($existing->occurred_at)->format('d.m.Y H:i') ?? '—';
 
         return "⚠️ Это бронирование — часть группы, по которой оплата уже зарегистрирована.\n\n"
-             . "• Сегмент с оплатой: #{$existing->beds24_booking_id}\n"
-             . "• Способ: {$methodLabel}\n"
-             . "• Сумма: {$amount} {$currency}\n"
-             . "• Дата: {$when}\n\n"
-             . "Повторное внесение невозможно. Проверьте историю или обратитесь к менеджеру.";
+             ."• Сегмент с оплатой: #{$existing->beds24_booking_id}\n"
+             ."• Способ: {$methodLabel}\n"
+             ."• Сумма: {$amount} {$currency}\n"
+             ."• Дата: {$when}\n\n"
+             .'Повторное внесение невозможно. Проверьте историю или обратитесь к менеджеру.';
     }
 
     // menuKb was moved into ShowMainMenuAction::buildKeyboard. It was
@@ -2852,10 +3185,10 @@ class CashierBotController extends Controller
         $symbolMap = ['$' => 'USD', '€' => 'EUR', '₽' => 'RUB'];
         $wordMap = [
             'доллар' => 'USD', 'долларов' => 'USD', 'долларa' => 'USD',
-            'баксов'  => 'USD', 'бакс'    => 'USD', 'usd'     => 'USD',
-            'евро'    => 'EUR', 'eur'     => 'EUR',
-            'сум'     => 'UZS', 'сумов'   => 'UZS', 'uzs'     => 'UZS',
-            'руб'     => 'RUB', 'рублей'  => 'RUB', 'рубль'   => 'RUB', 'rub' => 'RUB',
+            'баксов' => 'USD', 'бакс' => 'USD', 'usd' => 'USD',
+            'евро' => 'EUR', 'eur' => 'EUR',
+            'сум' => 'UZS', 'сумов' => 'UZS', 'uzs' => 'UZS',
+            'руб' => 'RUB', 'рублей' => 'RUB', 'рубль' => 'RUB', 'rub' => 'RUB',
         ];
         $codes = ['UZS', 'USD', 'EUR', 'RUB'];
 
@@ -2870,13 +3203,14 @@ class CashierBotController extends Controller
         foreach ($symbolMap as $sym => $cur) {
             if (str_ends_with(rtrim($text), $sym)) {
                 $stripped = rtrim(rtrim($text), $sym);
+
                 return [$this->parseAmountToken($stripped), $cur];
             }
         }
 
         // 3) Currency-code prefix: "USD 20", "EUR 45"
         foreach ($codes as $code) {
-            if (preg_match('/^' . $code . '\s+(.+)$/i', $text, $m)) {
+            if (preg_match('/^'.$code.'\s+(.+)$/i', $text, $m)) {
                 return [$this->parseAmountToken($m[1]), $code];
             }
         }
@@ -2888,7 +3222,7 @@ class CashierBotController extends Controller
 
         // 5) Russian-word suffix WITHOUT space: "45евро", "1500руб"
         foreach ($wordMap as $word => $cur) {
-            if (preg_match('/^(.+?)' . preg_quote($word, '/') . '\b/iu', $text, $m)) {
+            if (preg_match('/^(.+?)'.preg_quote($word, '/').'\b/iu', $text, $m)) {
                 $token = trim($m[1]);
                 if ($token !== '' && preg_match('/[0-9]/', $token)) {
                     return [$this->parseAmountToken($token), $cur];
@@ -2912,6 +3246,7 @@ class CashierBotController extends Controller
             if (preg_match('/[^0-9]/', (string) $cleanNumeric)) {
                 return [$amt, null];
             }
+
             return [$amt, 'UZS'];
         }
 
@@ -2948,7 +3283,7 @@ class CashierBotController extends Controller
         // Strip thousand-separator spaces.
         $token = str_replace(' ', '', $token);
 
-        $hasDot   = str_contains($token, '.');
+        $hasDot = str_contains($token, '.');
         $hasComma = str_contains($token, ',');
 
         if ($hasDot && $hasComma) {
@@ -2975,11 +3310,13 @@ class CashierBotController extends Controller
     public function send(int $chatId, string $text, ?array $kb = null, string $type = 'reply')
     {
         $extra = ['parse_mode' => 'HTML'];
-        if ($kb) $extra['reply_markup'] = json_encode($kb);
+        if ($kb) {
+            $extra['reply_markup'] = json_encode($kb);
+        }
         try {
             $bot = $this->botResolver->resolve('cashier');
             $result = $this->transport->sendMessage($bot, $chatId, $text, $extra);
-            if (!$result->succeeded()) {
+            if (! $result->succeeded()) {
                 Log::warning('CashierBot send failed', ['chat' => $chatId, 'status' => $result->httpStatus]);
             }
         } catch (\Throwable $e) {
@@ -2990,7 +3327,9 @@ class CashierBotController extends Controller
     /** @internal Used only by CashierBotCallbackRouter during A2/A3 extraction. */
     public function aCb(string $id)
     {
-        if (!$id) return;
+        if (! $id) {
+            return;
+        }
         try {
             $bot = $this->botResolver->resolve('cashier');
             $this->transport->call($bot, 'answerCallbackQuery', ['callback_query_id' => $id]);
@@ -3004,12 +3343,13 @@ class CashierBotController extends Controller
         try {
             $user = $userId ? (User::find($userId)?->name ?? "ID:{$userId}") : 'unknown';
             $msg = "\xF0\x9F\x94\xB4 <b>Cashier Bot Error</b>\n\n"
-                . "\xF0\x9F\x93\x8D {$context}\n"
-                . "\xF0\x9F\x91\xA4 {$user}\n"
-                . "\xE2\x9D\x8C " . mb_substr($e->getMessage(), 0, 200) . "\n"
-                . "\xF0\x9F\x93\x84 " . basename($e->getFile()) . ":" . $e->getLine();
+                ."\xF0\x9F\x93\x8D {$context}\n"
+                ."\xF0\x9F\x91\xA4 {$user}\n"
+                ."\xE2\x9D\x8C ".mb_substr($e->getMessage(), 0, 200)."\n"
+                ."\xF0\x9F\x93\x84 ".basename($e->getFile()).':'.$e->getLine();
             $this->ownerAlert->sendShiftCloseReport($msg);
-        } catch (\Throwable $ignore) {}
+        } catch (\Throwable $ignore) {
+        }
     }
 
     // ── Action reply dispatch ───────────────────────────────────
@@ -3033,5 +3373,4 @@ class CashierBotController extends Controller
     {
         return $this->dispatchReply($chatId, app(\App\Actions\CashierBot\Handlers\ShowGuideAction::class)->execute($topic));
     }
-
 }
