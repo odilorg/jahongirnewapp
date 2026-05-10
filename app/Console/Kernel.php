@@ -230,13 +230,20 @@ class Kernel extends ConsoleKernel
             });
 
         // Payment follow-up: nudge guests with unpaid links (4+ hours old)
-        $schedule->command('inquiry:send-payment-reminders')
-            ->hourly()
-            ->withoutOverlapping()
-            ->runInBackground()
-            ->onFailure(function () {
-                \Illuminate\Support\Facades\Log::error('Scheduled inquiry:send-payment-reminders FAILED');
-            });
+        // DISABLED 2026-05-10 by operator request. Reason: the automated
+        // WhatsApp nudge arrived while the operator was already in active
+        // conversation with the guest (inquiry 109, Andrea Sterrantino),
+        // creating a "bot talking over operator" UX. To re-enable,
+        // uncomment the schedule block below. Idempotency / one-shot
+        // guarantee in InquirySendPaymentReminders is unchanged — no
+        // schema migration needed for re-enable.
+        // $schedule->command('inquiry:send-payment-reminders')
+        //     ->hourly()
+        //     ->withoutOverlapping()
+        //     ->runInBackground()
+        //     ->onFailure(function () {
+        //         \Illuminate\Support\Facades\Log::error('Scheduled inquiry:send-payment-reminders FAILED');
+        //     });
 
         // Queue health: alert if jobs stuck >10 min (catches dead workers)
         $schedule->command('queue:health-check')
