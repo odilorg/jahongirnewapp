@@ -43,10 +43,8 @@ final class FxStalenessGuardCompanionTest extends TestCase
     /** @test */
     public function fresh_row_passes_both_companions(): void
     {
-        DailyExchangeRate::create([
+        $this->seedRate([
             'rate_date' => Carbon::today()->toDateString(),
-            'usd_uzs_rate' => 12500,
-            'source' => 'cbu',
             'fetched_at' => Carbon::now()->subHours(7),
         ]);
 
@@ -55,16 +53,14 @@ final class FxStalenessGuardCompanionTest extends TestCase
         $this->assertTrue($guard->isFresh());
         $rate = $guard->getFreshOrNull();
         $this->assertNotNull($rate);
-        $this->assertSame('12500.0000', (string) $rate->usd_uzs_rate);
+        $this->assertSame('12115.0000', (string) $rate->usd_uzs_rate);
     }
 
     /** @test */
     public function yesterdays_row_fails_both_companions(): void
     {
-        DailyExchangeRate::create([
+        $this->seedRate([
             'rate_date' => Carbon::yesterday()->toDateString(),
-            'usd_uzs_rate' => 12500,
-            'source' => 'cbu',
             'fetched_at' => Carbon::now()->subHours(7),
         ]);
 
@@ -77,9 +73,8 @@ final class FxStalenessGuardCompanionTest extends TestCase
     /** @test */
     public function todays_row_with_absurd_fetched_at_fails_both_companions(): void
     {
-        DailyExchangeRate::create([
+        $this->seedRate([
             'rate_date' => Carbon::today()->toDateString(),
-            'usd_uzs_rate' => 12500,
             'source' => 'manual',
             'fetched_at' => Carbon::now()->subDays(3),
         ]);
@@ -105,13 +100,13 @@ final class FxStalenessGuardCompanionTest extends TestCase
         // Cron at 07:00, then a manual override at 11:00 same day.
         // `getFreshOrNull` should return the manual row (newer id),
         // matching the throwing path's tie-breaker.
-        DailyExchangeRate::create([
+        $this->seedRate([
             'rate_date' => Carbon::today()->toDateString(),
             'usd_uzs_rate' => 12500,
             'source' => 'cbu',
             'fetched_at' => Carbon::now()->setTime(7, 0),
         ]);
-        DailyExchangeRate::create([
+        $this->seedRate([
             'rate_date' => Carbon::today()->toDateString(),
             'usd_uzs_rate' => 12750,
             'source' => 'manual',
@@ -124,5 +119,30 @@ final class FxStalenessGuardCompanionTest extends TestCase
         $this->assertNotNull($rate);
         $this->assertSame('manual', $rate->source);
         $this->assertSame('12750.0000', (string) $rate->usd_uzs_rate);
+    }
+
+    /**
+     * Mirror of `StaleFxRateGuardTest::seedRate` so this test exercises
+     * the same realistic row shape that the throwing-path test uses —
+     * any drift between the two test files would make the
+     * single-source-of-truth invariant unprovable.
+     */
+    private function seedRate(array $overrides = []): DailyExchangeRate
+    {
+        return DailyExchangeRate::create(array_merge([
+            'rate_date' => Carbon::today()->toDateString(),
+            'usd_uzs_rate' => 12_115.0,
+            'eur_uzs_cbu_rate' => 14_261.0,
+            'eur_margin' => 200.0,
+            'eur_effective_rate' => 14_061.0,
+            'rub_uzs_cbu_rate' => 162.0,
+            'rub_margin' => 20.0,
+            'rub_effective_rate' => 142.0,
+            'uzs_rounding_increment' => 1000,
+            'eur_rounding_increment' => 1,
+            'rub_rounding_increment' => 100,
+            'source' => 'cbu',
+            'fetched_at' => Carbon::now(),
+        ], $overrides));
     }
 }
