@@ -88,13 +88,13 @@ final class FxStalenessGuard
 
     /**
      * @param  int|null  $freshFetchedMaxHours  Override for the
-     *                   secondary `fetched_at` age cap (used by tests).
-     *                   Production callers pass null; the value is
-     *                   read from `config('fx.fresh_fetched_max_hours')`
-     *                   (default 28) at construction time. Values <= 0
-     *                   clamp to 1 with a warning log to prevent a
-     *                   misconfigured env from silently disabling the
-     *                   guard or shifting the threshold into the future.
+     *                                          secondary `fetched_at` age cap (used by tests).
+     *                                          Production callers pass null; the value is
+     *                                          read from `config('fx.fresh_fetched_max_hours')`
+     *                                          (default 28) at construction time. Values <= 0
+     *                                          clamp to 1 with a warning log to prevent a
+     *                                          misconfigured env from silently disabling the
+     *                                          guard or shifting the threshold into the future.
      */
     public function __construct(?int $freshFetchedMaxHours = null)
     {
@@ -104,7 +104,7 @@ final class FxStalenessGuard
         if ($configured <= 0) {
             Log::warning('FxStalenessGuard: configured fresh_fetched_max_hours out of range — clamping', [
                 'configured_hours' => $configured,
-                'clamped_to'       => 1,
+                'clamped_to' => 1,
             ]);
             $configured = 1;
         }
@@ -143,28 +143,28 @@ final class FxStalenessGuard
 
             throw new StaleFxRateException(
                 'No FX rate available. Run `php artisan fx:push-payment-options` to seed today\'s rate, '
-                . 'or set a manual rate in Filament admin.'
+                .'or set a manual rate in Filament admin.'
             );
         }
 
         // ── Primary check: rate_date must be today (app timezone) ───
-        $today    = Carbon::today();
+        $today = Carbon::today();
         $rateDate = $row->rate_date instanceof Carbon
             ? $row->rate_date
             : Carbon::parse((string) $row->rate_date);
 
         if (! $rateDate->isSameDay($today)) {
             Log::warning('FxStalenessGuard: latest rate_date is not today', [
-                'row_id'       => $row->id,
-                'rate_date'    => $rateDate->toDateString(),
-                'today'        => $today->toDateString(),
-                'source'       => $row->source,
-                'fetched_at'   => optional($row->fetched_at)->toIso8601String(),
+                'row_id' => $row->id,
+                'rate_date' => $rateDate->toDateString(),
+                'today' => $today->toDateString(),
+                'source' => $row->source,
+                'fetched_at' => optional($row->fetched_at)->toIso8601String(),
             ]);
 
             throw new StaleFxRateException(sprintf(
-                "Latest FX rate is for %s, not today (%s). The morning cron may have failed. "
-                . 'Run `php artisan fx:push-payment-options` or set a manual rate in Filament admin.',
+                'Latest FX rate is for %s, not today (%s). The morning cron may have failed. '
+                .'Run `php artisan fx:push-payment-options` or set a manual rate in Filament admin.',
                 $rateDate->toDateString(),
                 $today->toDateString(),
             ));
@@ -173,14 +173,14 @@ final class FxStalenessGuard
         // ── Secondary check: fetched_at not absurdly old ────────────
         if ($row->fetched_at === null) {
             Log::warning('FxStalenessGuard: latest row has no fetched_at', [
-                'row_id'    => $row->id,
+                'row_id' => $row->id,
                 'rate_date' => $rateDate->toDateString(),
-                'source'    => $row->source,
+                'source' => $row->source,
             ]);
 
             throw new StaleFxRateException(sprintf(
                 'FX rate row #%d has no fetched_at timestamp. Cannot evaluate freshness; '
-                . 'reseed via `php artisan fx:push-payment-options`.',
+                .'reseed via `php artisan fx:push-payment-options`.',
                 $row->id,
             ));
         }
@@ -190,22 +190,67 @@ final class FxStalenessGuard
         if ($row->fetched_at->lt($threshold)) {
             $hoursOld = (int) $row->fetched_at->diffInHours(Carbon::now());
             Log::warning('FxStalenessGuard: fetched_at exceeds absurd-age cap', [
-                'row_id'                  => $row->id,
-                'rate_date'               => $rateDate->toDateString(),
-                'fetched_at'              => $row->fetched_at->toIso8601String(),
-                'hours_old'               => $hoursOld,
+                'row_id' => $row->id,
+                'rate_date' => $rateDate->toDateString(),
+                'fetched_at' => $row->fetched_at->toIso8601String(),
+                'hours_old' => $hoursOld,
                 'fresh_fetched_max_hours' => $this->freshFetchedMaxHours,
-                'source'                  => $row->source,
+                'source' => $row->source,
             ]);
 
             throw new StaleFxRateException(sprintf(
                 'FX rate has rate_date=today but fetched_at=%s is %d hours old; max allowed %d. '
-                . 'Row likely stuck — reseed via `php artisan fx:push-payment-options` '
-                . 'or set a fresh manual rate in Filament admin.',
+                .'Row likely stuck — reseed via `php artisan fx:push-payment-options` '
+                .'or set a fresh manual rate in Filament admin.',
                 $row->fetched_at->toDateTimeString(),
                 $hoursOld,
                 $this->freshFetchedMaxHours,
             ));
         }
+    }
+
+    /**
+     * Non-throwing freshness check. Same semantics as `ensureFreshOrFail()`
+     * but returns a bool instead of throwing — for read-only callers that
+     * need to soft-degrade (e.g. cashier-bot guest-list price display
+     * showing USD only when UZS conversion is unavailable).
+     *
+     * Single source of truth: delegates to `ensureFreshOrFail()` so the
+     * primary + secondary checks (rate_date == today, fetched_at within
+     * cap) cannot drift between read-only and money-write paths.
+     *
+     * Do NOT use this in a payment-collection or settlement code path —
+     * that path MUST throw via `ensureFreshOrFail()` so refusal is loud
+     * and traceable. This companion is for display-only code.
+     */
+    public function isFresh(): bool
+    {
+        try {
+            $this->ensureFreshOrFail();
+
+            return true;
+        } catch (StaleFxRateException) {
+            return false;
+        }
+    }
+
+    /**
+     * Non-throwing variant that returns the latest row when fresh, null
+     * otherwise. Mirrors `isFresh()`'s semantics but hands back the row
+     * itself so display callers can read `usd_uzs_rate` etc. without a
+     * second lookup. Returns null when the rate is stale OR missing.
+     *
+     * Same caveat as `isFresh()`: never use this in money-write paths.
+     */
+    public function getFreshOrNull(): ?DailyExchangeRate
+    {
+        if (! $this->isFresh()) {
+            return null;
+        }
+
+        return DailyExchangeRate::query()
+            ->orderByDesc('rate_date')
+            ->orderByDesc('id')
+            ->first();
     }
 }
