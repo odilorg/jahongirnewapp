@@ -14,7 +14,127 @@ Newest entries at top.
 
 ---
 
-## 2026-05-08 — FX pipeline review: 3 tracked follow-ups (NOT YET SHIPPED)
+## 2026-05-10 — FX staleness guard v2 (calendar-day + max-fetched_at-age hybrid)
+
+**Type:** Re-shipped fix. Supersedes the rolled-back v1 attempt
+(commit `cb54bd2`, deployed and rolled back the same day).
+
+**Symptom — what v1 broke:** v1 used a single hourly threshold
+(`fetched_at < now - fx.stale_after_hours`, default 4h). The morning
+cron `fx:push-payment-options` writes once a day at 07:00 Tashkent.
+With v1's semantics, by 11:00 the row was 4h old and the guard
+refused payments for the rest of the day even on a perfectly healthy
+day. Hourly-freshness semantics are wrong for a daily exchange-rate
+system.
+
+**v1 deploy / rollback timeline:**
+- 2026-05-10 09:03:45 +0200 — v1 commit `cb54bd2` deployed.
+- 2026-05-10 09:10:05 +0200 — rolled back to `2189c8a` after
+  post-deploy verification surfaced the all-day-blocked behavior.
+- Window: 6 minutes 20 seconds.
+- User-facing outage: ZERO. No nginx hits to
+  `/api/telegram/cashier/webhook` during the window, no real
+  `BotPaymentService` activity, only the post-deploy tinker
+  verification triggered the broken path.
+
+**Root cause (v1):** I shipped hourly-freshness semantics for a
+daily exchange-rate system. The original `config/fx.php:54` docblock
+described date-based staleness; v1 implemented it literally as
+`fetched_at` age in hours. Both my implementation and the deep-mode
+reviewer pass missed the operational impact (focused on
+implementation correctness of the threshold, not whether the
+threshold's semantics matched the once-a-day cron cadence).
+
+**Fix applied (v2):** Hybrid check at
+`BotPaymentService::preparePayment` time:
+
+  1. **Primary** — `latest_row.rate_date == today` in app timezone.
+     Catches the actual cron-failure mode: cron failed today → no
+     row written for today → latest row is yesterday's → refused.
+
+  2. **Secondary** — `fetched_at` not older than
+     `config('fx.fresh_fetched_max_hours')` (default 28h, env-
+     tunable via `FX_FRESH_FETCHED_MAX_HOURS`). Catches the rare
+     case where a row has today's `rate_date` but `fetched_at` is
+     wildly old (data fix that backdated, system clock drift,
+     stuck row that survived across days). 28h gives one full
+     daily cycle from any 07:00 cron run plus a 4h operational
+     buffer.
+
+Both checks must pass. Either failing throws
+`StaleFxRateException`. Source field
+(`cbu` / `open.er-api` / `floatrates` / `manual`) is uniformly
+subject to both — no per-source exemption. A manual override is
+the operator's escape valve when the cron fails (admin enters a
+row with `rate_date=today`, both checks pass trivially), but a
+manual row from yesterday is still treated as yesterday by the
+primary check.
+
+Both Filament-admin mixed-currency path
+(`RecordMixedCurrencySplitFromAdminAction`) and the cashier-bot
+path (`CashierBotController::selectGuest`) flow through
+`BotPaymentService::preparePayment`, so a single guard call
+covers both surfaces (CLAUDE.md "no duplicated business rule").
+
+`CashierBotController` catches `StaleFxRateException` BEFORE the
+generic `\Throwable` so the log distinguishes "stale" from
+"unavailable" and the operator sees:
+`⏱ Курсы валют устарели. Обратитесь к менеджеру для обновления.`
+
+**Verification:**
+- 12 / 12 new tests pass on VPS test DB:
+
+    - `todays_morning_cron_row_passes_at_14_00` (the v1 regression
+      scenario explicitly pinned)
+    - `todays_morning_cron_row_passes_at_23_59`
+    - `yesterdays_row_throws_on_primary_check`
+    - `todays_rate_date_with_absurdly_old_fetched_at_throws`
+    - `fresh_fetched_max_hours_uses_config_value_not_hardcoded`
+    - `misconfigured_threshold_clamps_to_one_hour`
+    - `empty_daily_exchange_rates_table_throws`
+    - `manual_source_today_passes`
+    - `manual_source_yesterday_still_throws` (defensive — pins
+      uniform source treatment)
+    - `bot_session_refuses_on_yesterdays_row` (end-to-end through
+      `BotPaymentService`)
+    - `bot_session_passes_guard_on_todays_morning_cron_row`
+    - `mixed_currency_admin_path_also_refuses_on_yesterdays_row`
+      (end-to-end through `RecordMixedCurrencySplitFromAdminAction`)
+
+  Time-of-day fixtures use `Carbon::setTestNow()` so behavior is
+  deterministic regardless of the test-runner's wall clock.
+
+- arch-lint clean (`new-P0=0 new-P1=0 P2=0`).
+- pint clean for new lines.
+- Existing `SplitPaymentTest` (5 cases, 21 assertions) still passes
+  — no regression.
+- Code-reviewer (deep mode, money path): _to be run on the v2 branch
+  before deploy_.
+
+**Reporting impact (worth knowing):** `daily_exchange_rates` rows
+with `rate_date < today` will now refuse cashier sessions
+explicitly. Existing reports / dashboards that read FX rate via
+`DailyExchangeRate::today()` already had this assumption — now the
+cashier path matches.
+
+**No DB schema change.** No migration. No data mutation. Beds24
+webhook, scheduler, bot menu UI, parent sum-lock logic on splits —
+all untouched.
+
+**Tracked follow-up #1 status:** SHIPPED in v2 on this commit.
+Tracked follow-ups #2 (cron-failure alert) and #3 (fallback
+sanity-band) remain in the planning entry below — to be tackled in
+separate branches per the recommended sequencing.
+
+**Backup reference:** Not applicable (no schema or bulk-data
+change).
+
+**Commit hash:** _to be set after merge to main_
+**Branch:** `fix/fx-staleness-guard-v2`
+
+---
+
+## 2026-05-08 — FX pipeline review: 3 tracked follow-ups (#1 NOW SUPERSEDED BY 2026-05-10)
 
 **Type:** Tracked follow-up plan, NOT a shipped fix. Listed here so future
 sessions don't re-discover the same risks.

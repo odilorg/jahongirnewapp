@@ -7,7 +7,6 @@ namespace Tests\Feature\Cashier;
 use App\Actions\Cashier\RecordMixedCurrencySplitFromAdminAction;
 use App\Exceptions\Fx\StaleFxRateException;
 use App\Models\Beds24Booking;
-use App\Models\BookingFxSync;
 use App\Models\CashDrawer;
 use App\Models\CashierShift;
 use App\Models\DailyExchangeRate;
@@ -16,27 +15,41 @@ use App\Services\BotPaymentService;
 use App\Services\Fx\FxStalenessGuard;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
+use Illuminate\Support\Carbon;
 use Tests\TestCase;
 
 /**
- * 2026-05-08 follow-up #1 — `fx.stale_after_hours` consumer-side
- * enforcement.
+ * 2026-05-10 follow-up #1 v2 — calendar-day + max-fetched_at-age
+ * staleness gate at payment-session preparation.
  *
- * Pins:
- *   1. Cashier-bot payment-session preparation refuses when the latest
- *      `daily_exchange_rates` row is older than the configured threshold.
- *   2. Same path opens normally when the row is fresh.
- *   3. The threshold is read from `config('fx.stale_after_hours')` at
- *      construction time — not hardcoded.
- *   4. The Filament admin mixed-currency path
- *      (`RecordMixedCurrencySplitFromAdminAction`) hits the same guard
- *      because both surfaces flow through `BotPaymentService::preparePayment`.
- *   5. Source-discrimination is uniform: a `source='manual'` row inside
- *      threshold passes (no per-source exemption logic that could
- *      silently bypass freshness elsewhere).
+ * v1 (commit cb54bd2, rolled back the same day) used pure hourly
+ * freshness on `fetched_at` (default 4h). That falsely blocked normal
+ * afternoon operations because the morning cron writes once at 07:00
+ * Tashkent — by 11:00 the row was already past the 4h threshold and
+ * cashier sessions were refused for the rest of the day even on a
+ * perfectly healthy day. Zero user-facing outage during the 6-min
+ * deploy window, caught by post-deploy verification.
  *
- * See `docs/FIXES.md` 2026-05-08 tracked entry for the full incident
- * reasoning.
+ * v2 hybrid semantics:
+ *   PRIMARY   — `rate_date == today` (app timezone)
+ *   SECONDARY — `fetched_at` not older than `fx.fresh_fetched_max_hours`
+ *               (default 28h, env-tunable)
+ *
+ * Both must pass.
+ *
+ * Pinned invariants:
+ *   - Today's morning cron (e.g. 07:00:07) row stays valid all day
+ *     including 14:00, 18:00, 23:59
+ *   - Yesterday's row (cron failed today) is refused
+ *   - Today's rate_date with a wildly-old fetched_at is refused
+ *   - Bot session refusal surfaces clean Russian message
+ *   - Filament admin mixed-currency path uses the same guard
+ *   - Manual source rows are uniformly subject to both checks
+ *   - Misconfigured threshold clamps to 1h with warning log
+ *   - Empty table is a cold-start refusal
+ *
+ * Carbon::setTestNow is used so time-of-day fixtures are deterministic
+ * regardless of the test-runner's wall clock.
  */
 final class StaleFxRateGuardTest extends TestCase
 {
@@ -46,102 +59,300 @@ final class StaleFxRateGuardTest extends TestCase
     {
         parent::setUp();
         config([
-            'features.beds24_auto_push_payment' => false, // never push real Beds24 from tests
+            'features.beds24_auto_push_payment' => false,
         ]);
-        // Default config is 4h. Tests that want a different threshold
-        // construct FxStalenessGuard with an explicit value so they
-        // don't depend on the env.
     }
 
-    // ── Test #1 — bot session refuses to open when row is stale ───
+    protected function tearDown(): void
+    {
+        // Carbon::setTestNow() is process-global; reset so other tests
+        // in the same suite don't inherit a frozen "now".
+        Carbon::setTestNow();
+        CarbonImmutable::setTestNow();
+        parent::tearDown();
+    }
+
+    // ── PRIMARY check: rate_date == today ─────────────────────────
 
     /** @test */
-    public function bot_session_refuses_to_open_when_latest_row_older_than_threshold(): void
+    public function todays_morning_cron_row_passes_at_14_00(): void
     {
-        $this->seedRate(['fetched_at' => CarbonImmutable::now()->subHours(8)]);
-        [$shift, $user, $booking] = $this->bookingScenario();
+        // The actual production scenario from 2026-05-10 that v1 broke:
+        // morning cron at 07:00:07 writes today's row; cashier session
+        // at 14:00 must succeed.
+        Carbon::setTestNow(Carbon::parse('2026-05-10 14:00:00', config('app.timezone')));
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-05-10 14:00:00', config('app.timezone')));
 
-        // Use a 4h threshold; the row above is 8h old → must throw.
-        $this->bindGuardWithMaxAgeHours(4);
+        $this->seedRate([
+            'rate_date'  => '2026-05-10',
+            'fetched_at' => Carbon::parse('2026-05-10 07:00:07', config('app.timezone')),
+        ]);
+
+        $this->expectNoException(
+            fn () => (new FxStalenessGuard(28))->ensureFreshOrFail(),
+            "today's 07:00 row at 14:00 must pass — this is the v1 regression scenario",
+        );
+    }
+
+    /** @test */
+    public function todays_morning_cron_row_passes_at_23_59(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-05-10 23:59:00', config('app.timezone')));
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-05-10 23:59:00', config('app.timezone')));
+
+        $this->seedRate([
+            'rate_date'  => '2026-05-10',
+            'fetched_at' => Carbon::parse('2026-05-10 07:00:07', config('app.timezone')),
+        ]);
+
+        $this->expectNoException(
+            fn () => (new FxStalenessGuard(28))->ensureFreshOrFail(),
+            "today's 07:00 row at 23:59 must pass — full-day cycle ~17h is within 28h cap",
+        );
+    }
+
+    /** @test */
+    public function yesterdays_row_throws_on_primary_check(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-05-10 14:00:00', config('app.timezone')));
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-05-10 14:00:00', config('app.timezone')));
+
+        // Cron failed today; only yesterday's row exists.
+        $this->seedRate([
+            'rate_date'  => '2026-05-09',
+            'fetched_at' => Carbon::parse('2026-05-09 07:00:00', config('app.timezone')),
+        ]);
+
+        $this->expectThrowsException(
+            StaleFxRateException::class,
+            fn () => (new FxStalenessGuard(28))->ensureFreshOrFail(),
+            "yesterday's row must throw — primary check (rate_date == today) fails",
+        );
+    }
+
+    // ── SECONDARY check: fetched_at not absurdly old ──────────────
+
+    /** @test */
+    public function todays_rate_date_with_absurdly_old_fetched_at_throws(): void
+    {
+        // Edge case: someone backdates fetched_at via a data-fix or
+        // a stuck row survives across days. Today's rate_date alone
+        // shouldn't be enough — the secondary cap catches this.
+        Carbon::setTestNow(Carbon::parse('2026-05-10 14:00:00', config('app.timezone')));
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-05-10 14:00:00', config('app.timezone')));
+
+        $this->seedRate([
+            'rate_date'  => '2026-05-10',
+            'fetched_at' => Carbon::parse('2026-05-08 14:00:00', config('app.timezone')), // 48h old
+        ]);
+
+        $exception = null;
+        try {
+            (new FxStalenessGuard(28))->ensureFreshOrFail();
+        } catch (StaleFxRateException $e) {
+            $exception = $e;
+        }
+
+        $this->assertNotNull($exception, '48h-old fetched_at must throw even with today rate_date');
+        $this->assertStringContainsString('48 hours old', $exception->getMessage(),
+            'exception must surface the actual age in hours');
+        $this->assertStringContainsString('max allowed 28', $exception->getMessage(),
+            'exception must surface the configured max');
+    }
+
+    // ── Config plumbing ───────────────────────────────────────────
+
+    /** @test */
+    public function fresh_fetched_max_hours_uses_config_value_not_hardcoded(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-05-10 14:00:00', config('app.timezone')));
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-05-10 14:00:00', config('app.timezone')));
+
+        // 30h-old fetched_at on today's rate_date.
+        $this->seedRate([
+            'rate_date'  => '2026-05-10',
+            'fetched_at' => Carbon::now()->subHours(30),
+        ]);
+
+        // Default 28h → throws on 30h.
+        $this->expectThrowsException(
+            StaleFxRateException::class,
+            fn () => (new FxStalenessGuard(28))->ensureFreshOrFail(),
+            '30h-old fetched_at vs max 28h must throw',
+        );
+
+        // Bumped to 36h → passes.
+        $this->expectNoException(
+            fn () => (new FxStalenessGuard(36))->ensureFreshOrFail(),
+            '30h-old fetched_at vs max 36h must pass',
+        );
+
+        // No-arg constructor reads config; set to 24h → must throw.
+        config(['fx.fresh_fetched_max_hours' => 24]);
+        $this->expectThrowsException(
+            StaleFxRateException::class,
+            fn () => (new FxStalenessGuard())->ensureFreshOrFail(),
+            'no-arg ctor must read config; with 24h cap, 30h row throws',
+        );
+
+        // Config 48h → must pass.
+        config(['fx.fresh_fetched_max_hours' => 48]);
+        $this->expectNoException(
+            fn () => (new FxStalenessGuard())->ensureFreshOrFail(),
+            'no-arg ctor must read config; with 48h cap, 30h row passes',
+        );
+    }
+
+    /** @test */
+    public function misconfigured_threshold_clamps_to_one_hour(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-05-10 14:00:00', config('app.timezone')));
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-05-10 14:00:00', config('app.timezone')));
+
+        // Today's rate_date, 2h-old fetched_at.
+        $this->seedRate([
+            'rate_date'  => '2026-05-10',
+            'fetched_at' => Carbon::now()->subHours(2),
+        ]);
+
+        // 0 → clamps to 1, 2h-old throws.
+        $this->expectThrowsException(
+            StaleFxRateException::class,
+            fn () => (new FxStalenessGuard(0))->ensureFreshOrFail(),
+            '0-hour threshold must clamp to 1, then 2h-old throws',
+        );
+
+        // -5 → clamps to 1, 2h-old throws.
+        $this->expectThrowsException(
+            StaleFxRateException::class,
+            fn () => (new FxStalenessGuard(-5))->ensureFreshOrFail(),
+            'negative threshold must clamp to 1, then 2h-old throws',
+        );
+
+        // Sanity: 30-min row passes the 1h-clamped threshold.
+        DailyExchangeRate::query()->delete();
+        $this->seedRate([
+            'rate_date'  => '2026-05-10',
+            'fetched_at' => Carbon::now()->subMinutes(30),
+        ]);
+        $this->expectNoException(
+            fn () => (new FxStalenessGuard(0))->ensureFreshOrFail(),
+            '0 → clamped to 1; 30-min-old row passes',
+        );
+    }
+
+    // ── Empty table ───────────────────────────────────────────────
+
+    /** @test */
+    public function empty_daily_exchange_rates_table_throws(): void
+    {
+        $this->expectThrowsException(
+            StaleFxRateException::class,
+            fn () => (new FxStalenessGuard(28))->ensureFreshOrFail(),
+            'no rows at all must throw — cold-start refusal',
+        );
+    }
+
+    // ── Source uniformity ─────────────────────────────────────────
+
+    /** @test */
+    public function manual_source_today_passes(): void
+    {
+        // Manual rates entered by an admin via Filament are the
+        // operator's escape valve when the cron fails. They pass when
+        // both checks succeed (rate_date=today, fetched_at within cap).
+        Carbon::setTestNow(Carbon::parse('2026-05-10 14:00:00', config('app.timezone')));
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-05-10 14:00:00', config('app.timezone')));
+
+        $this->seedRate([
+            'rate_date'  => '2026-05-10',
+            'fetched_at' => Carbon::now()->subMinutes(15),
+            'source'     => 'manual',
+        ]);
+
+        $this->expectNoException(
+            fn () => (new FxStalenessGuard(28))->ensureFreshOrFail(),
+            'fresh manual row must pass — source-discrimination is intentionally absent',
+        );
+    }
+
+    /** @test */
+    public function manual_source_yesterday_still_throws(): void
+    {
+        // Defensive: manual rate from yesterday must NOT bypass the
+        // primary check. Operator must update it to today's rate_date
+        // — manual is not a permanent exemption.
+        Carbon::setTestNow(Carbon::parse('2026-05-10 14:00:00', config('app.timezone')));
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-05-10 14:00:00', config('app.timezone')));
+
+        $this->seedRate([
+            'rate_date'  => '2026-05-09',
+            'fetched_at' => Carbon::parse('2026-05-09 14:00:00', config('app.timezone')),
+            'source'     => 'manual',
+        ]);
+
+        $this->expectThrowsException(
+            StaleFxRateException::class,
+            fn () => (new FxStalenessGuard(28))->ensureFreshOrFail(),
+            'yesterday manual row must throw — source field grants no permanent exemption',
+        );
+    }
+
+    // ── End-to-end: bot path + Filament admin path ───────────────
+
+    /** @test */
+    public function bot_session_refuses_on_yesterdays_row(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-05-10 14:00:00', config('app.timezone')));
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-05-10 14:00:00', config('app.timezone')));
+
+        $this->seedRate([
+            'rate_date'  => '2026-05-09',
+            'fetched_at' => Carbon::parse('2026-05-09 07:00:00', config('app.timezone')),
+        ]);
+        [, , $booking] = $this->bookingScenario();
+
+        $this->bindGuardWithMaxAgeHours(28);
 
         $this->expectException(StaleFxRateException::class);
-        $this->expectExceptionMessageMatches('/8 hours old.*max allowed 4/');
 
         app(BotPaymentService::class)
             ->preparePayment($booking->beds24_booking_id, 'test-stale-' . uniqid());
     }
 
-    // ── Test #2 — bot session opens normally when row is fresh ────
-
     /** @test */
-    public function bot_session_opens_normally_when_row_is_fresh(): void
+    public function bot_session_passes_guard_on_todays_morning_cron_row(): void
     {
-        // The guard is the single new gate added at the top of
-        // BotPaymentService::preparePayment. Beyond it the existing
-        // preparePayment flow runs (FxSyncService → Beds24 API roundtrip)
-        // which is out of scope for this PR's invariants and requires
-        // a valid Beds24 token + sync row to exercise end-to-end.
-        // Pinning the contract this PR actually changes:
-        //   "fresh daily_exchange_rates row → guard does NOT throw,
-        //    so preparePayment is allowed to proceed."
-        // The downstream Beds24 path is covered by existing
-        // UsdCollectedPaymentTest / GroupPaymentIntegrationTest fixtures
-        // that already maintain a valid token.
-        $this->seedRate(['fetched_at' => CarbonImmutable::now()->subMinutes(30)]);
+        // The exact production scenario from 2026-05-10 that v1 broke.
+        // Pinning via the guard alone (downstream Beds24 path is out of
+        // scope for this PR's invariants and requires a valid token).
+        Carbon::setTestNow(Carbon::parse('2026-05-10 14:00:00', config('app.timezone')));
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-05-10 14:00:00', config('app.timezone')));
+
+        $this->seedRate([
+            'rate_date'  => '2026-05-10',
+            'fetched_at' => Carbon::parse('2026-05-10 07:00:07', config('app.timezone')),
+        ]);
 
         $this->expectNoException(
-            fn () => (new FxStalenessGuard(4))->ensureFreshOrFail(),
-            'fresh row must pass the guard so preparePayment can proceed normally',
+            fn () => (new FxStalenessGuard(28))->ensureFreshOrFail(),
+            "v1's regression scenario (07:00 row at 14:00) must pass under v2",
         );
     }
 
-    // ── Test #3 — threshold reads from config ─────────────────────
-
     /** @test */
-    public function staleness_threshold_uses_config_value_not_hardcoded(): void
+    public function mixed_currency_admin_path_also_refuses_on_yesterdays_row(): void
     {
-        // Row 5h old. With config=4h it must fail. With config=6h it must pass.
-        $this->seedRate(['fetched_at' => CarbonImmutable::now()->subHours(5)]);
+        Carbon::setTestNow(Carbon::parse('2026-05-10 14:00:00', config('app.timezone')));
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-05-10 14:00:00', config('app.timezone')));
 
-        // 4h threshold → stale
-        $this->expectThrowsException(
-            StaleFxRateException::class,
-            fn () => (new FxStalenessGuard(4))->ensureFreshOrFail(),
-            'fetched 5h ago vs max 4h must throw',
-        );
+        $this->seedRate([
+            'rate_date'  => '2026-05-09',
+            'fetched_at' => Carbon::parse('2026-05-09 07:00:00', config('app.timezone')),
+        ]);
+        [$shift, , $booking] = $this->bookingScenario();
 
-        // 6h threshold → fresh enough
-        $this->expectNoException(
-            fn () => (new FxStalenessGuard(6))->ensureFreshOrFail(),
-            'fetched 5h ago vs max 6h must pass',
-        );
-
-        // Sanity: the no-arg constructor reads config('fx.stale_after_hours').
-        // Set config to 10 → must pass.
-        config(['fx.stale_after_hours' => 10]);
-        $this->expectNoException(
-            fn () => (new FxStalenessGuard())->ensureFreshOrFail(),
-            'no-arg constructor must read config; with config=10h, 5h-old row passes',
-        );
-
-        // Set config to 2 → must throw.
-        config(['fx.stale_after_hours' => 2]);
-        $this->expectThrowsException(
-            StaleFxRateException::class,
-            fn () => (new FxStalenessGuard())->ensureFreshOrFail(),
-            'no-arg constructor must read config; with config=2h, 5h-old row throws',
-        );
-    }
-
-    // ── Test #4 — admin mixed-currency path also refuses ──────────
-
-    /** @test */
-    public function mixed_currency_admin_path_also_refuses_on_stale_row(): void
-    {
-        $this->seedRate(['fetched_at' => CarbonImmutable::now()->subHours(8)]);
-        [$shift, $user, $booking] = $this->bookingScenario();
-
-        $this->bindGuardWithMaxAgeHours(4);
+        $this->bindGuardWithMaxAgeHours(28);
 
         $this->expectException(StaleFxRateException::class);
 
@@ -156,98 +367,6 @@ final class StaleFxRateGuardTest extends TestCase
             'leg2_amount'       => 50,
             'leg2_method'       => 'cash',
         ]);
-    }
-
-    // ── Test #5 — manual source within threshold passes ───────────
-
-    /** @test */
-    public function staleness_check_skips_for_rows_with_source_manual_AND_fetched_at_within_threshold(): void
-    {
-        // Manual rates entered by an admin via Filament are the
-        // operator's escape valve when the cron fails. They must be
-        // honored if recent enough — the guard does NOT discriminate
-        // by source. This test verifies the affirmative case: a
-        // manual row inside the threshold passes.
-        $this->seedRate([
-            'fetched_at' => CarbonImmutable::now()->subMinutes(30),
-            'source'     => 'manual',
-        ]);
-
-        $this->expectNoException(
-            fn () => (new FxStalenessGuard(4))->ensureFreshOrFail(),
-            'fresh manual row must pass — source-discrimination is intentionally absent',
-        );
-    }
-
-    // ── Defensive bonus — empty table case ────────────────────────
-
-    /** @test */
-    public function empty_daily_exchange_rates_table_throws(): void
-    {
-        // Cold-start case — first prod deploy before any cron has run.
-        // Refuse loudly rather than silently default to anything.
-        $this->expectThrowsException(
-            StaleFxRateException::class,
-            fn () => (new FxStalenessGuard(4))->ensureFreshOrFail(),
-            'no rows at all must throw — cold-start refusal',
-        );
-    }
-
-    // ── Defensive: manual + stale STILL throws (no source-exemption shortcut)
-
-    /** @test */
-    public function manual_source_row_that_is_stale_still_throws(): void
-    {
-        // Mirror of test #5 (the affirmative manual-source case) — pins
-        // the negative invariant. If a future change adds
-        // `if ($row->source === 'manual') return;` somewhere in the guard,
-        // this test fails. A manual row that has aged past the threshold
-        // is just as stale as a cron-fetched one — operators must
-        // re-enter a fresh manual rate in Filament rather than relying
-        // on the source flag to grant a permanent exemption.
-        $this->seedRate([
-            'fetched_at' => CarbonImmutable::now()->subHours(8),
-            'source'     => 'manual',
-        ]);
-
-        $this->expectThrowsException(
-            StaleFxRateException::class,
-            fn () => (new FxStalenessGuard(4))->ensureFreshOrFail(),
-            '8h-old manual row must throw — source field grants no permanent exemption',
-        );
-    }
-
-    // ── Defensive: misconfigured threshold clamps to safe minimum
-
-    /** @test */
-    public function misconfigured_threshold_clamps_to_one_hour(): void
-    {
-        // Spec: a misconfigured 0 or negative threshold must NOT
-        // silently disable the guard or shift the threshold into the
-        // future. Both should clamp to 1h with a warning log.
-        $this->seedRate(['fetched_at' => CarbonImmutable::now()->subHours(2)]);
-
-        // 0 → clamps to 1, row is 2h old → throws
-        $this->expectThrowsException(
-            StaleFxRateException::class,
-            fn () => (new FxStalenessGuard(0))->ensureFreshOrFail(),
-            '0-hour threshold must clamp to 1, then 2h-old row throws',
-        );
-
-        // -5 → clamps to 1, row is 2h old → throws
-        $this->expectThrowsException(
-            StaleFxRateException::class,
-            fn () => (new FxStalenessGuard(-5))->ensureFreshOrFail(),
-            'negative threshold must clamp to 1, then 2h-old row throws',
-        );
-
-        // Sanity: clamped 1h boundary — fresh row passes
-        DailyExchangeRate::query()->delete();
-        $this->seedRate(['fetched_at' => CarbonImmutable::now()->subMinutes(30)]);
-        $this->expectNoException(
-            fn () => (new FxStalenessGuard(0))->ensureFreshOrFail(),
-            '0-hour clamped to 1; 30-min-old row passes',
-        );
     }
 
     // ── Helpers ───────────────────────────────────────────────────
@@ -300,41 +419,11 @@ final class StaleFxRateGuardTest extends TestCase
         return [$shift, $user, $booking];
     }
 
-    private function seedFxSync(Beds24Booking $booking): BookingFxSync
-    {
-        $rate = DailyExchangeRate::orderByDesc('rate_date')->orderByDesc('id')->first();
-
-        return BookingFxSync::create([
-            'beds24_booking_id'      => $booking->beds24_booking_id,
-            'fx_rate_date'           => $rate->rate_date->toDateString(),
-            'daily_exchange_rate_id' => $rate->id,
-            'arrival_date_used'      => now()->addDay()->toDateString(),
-            'usd_amount_used'        => 65.0,
-            'uzs_final'              => 790_000,
-            'eur_final'              => 57.0,
-            'rub_final'              => 5_600.0,
-            'usd_final'              => 65.0,
-            'push_status'            => 'pending',
-        ]);
-    }
-
-    /**
-     * Override the container binding for FxStalenessGuard so the
-     * production code path uses our test threshold without needing
-     * to mutate the global config (which other tests in the same
-     * suite may rely on).
-     */
     private function bindGuardWithMaxAgeHours(int $hours): void
     {
         $this->app->bind(FxStalenessGuard::class, fn () => new FxStalenessGuard($hours));
     }
 
-    /**
-     * Local helpers — renamed to avoid clashing with Laravel's
-     * `TestCase::assertThrows` introduced in newer versions
-     * (visibility conflict: Laravel declares it protected, ours
-     * was private).
-     */
     private function expectThrowsException(string $expectedException, callable $fn, string $message = ''): void
     {
         try {
@@ -351,7 +440,7 @@ final class StaleFxRateGuardTest extends TestCase
             $fn();
             $this->assertTrue(true);
         } catch (\Throwable $e) {
-            $this->fail("Did not expect any exception, got " . $e::class . ": {$e->getMessage()}. {$message}");
+            $this->fail('Did not expect any exception, got ' . $e::class . ": {$e->getMessage()}. {$message}");
         }
     }
 }
