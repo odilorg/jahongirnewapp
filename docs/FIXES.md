@@ -129,8 +129,17 @@ separate branches per the recommended sequencing.
 **Backup reference:** Not applicable (no schema or bulk-data
 change).
 
-**Commit hash:** _to be set after merge to main_
-**Branch:** `fix/fx-staleness-guard-v2`
+**Commit hash:** `7aaea25f0f79d4854c9963fa5b6aa185d1d2fd98`
+(squash-merge to main, deployed 2026-05-10 09:31:45 +0200, 5/5 health
+checks passed)
+
+**Post-deploy real-time verification:** `daily_exchange_rates` row id=43
+(rate_date=2026-05-10, fetched_at=2026-05-10T07:00:07+05:00, age=5h)
+— this is the **exact scenario v1 broke**. The dry-run guard call
+returned `PASS: guard does NOT throw — today's row is fresh.` Zero
+StaleFxRateException events from real cashier traffic since deploy.
+
+**Branch:** `fix/fx-staleness-guard-v2` (deleted post-merge)
 
 ---
 
