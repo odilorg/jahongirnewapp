@@ -94,32 +94,13 @@ final class FxStalenessGuardCompanionTest extends TestCase
         $this->assertNull($guard->getFreshOrNull());
     }
 
-    /** @test */
-    public function get_fresh_or_null_returns_the_newest_when_two_rows_today(): void
-    {
-        // Cron at 07:00, then a manual override at 11:00 same day.
-        // `getFreshOrNull` should return the manual row (newer id),
-        // matching the throwing path's tie-breaker.
-        $this->seedRate([
-            'rate_date' => Carbon::today()->toDateString(),
-            'usd_uzs_rate' => 12500,
-            'source' => 'cbu',
-            'fetched_at' => Carbon::now()->setTime(7, 0),
-        ]);
-        $this->seedRate([
-            'rate_date' => Carbon::today()->toDateString(),
-            'usd_uzs_rate' => 12750,
-            'source' => 'manual',
-            'fetched_at' => Carbon::now()->setTime(11, 0),
-        ]);
-
-        $guard = app(FxStalenessGuard::class);
-        $rate = $guard->getFreshOrNull();
-
-        $this->assertNotNull($rate);
-        $this->assertSame('manual', $rate->source);
-        $this->assertSame('12750.0000', (string) $rate->usd_uzs_rate);
-    }
+    // The "two rows on the same rate_date" scenario hypothesised by the
+    // throwing-path's `orderByDesc('rate_date')->orderByDesc('id')`
+    // tie-breaker comment cannot actually occur: the
+    // `daily_exchange_rates_rate_date_unique` index makes one row per
+    // date the only legal shape. Both the morning cron and the Filament
+    // admin manual-override path go through `updateOrCreate(['rate_date'])`
+    // so the unique key is respected. No test added for that hypothetical.
 
     /**
      * Mirror of `StaleFxRateGuardTest::seedRate` so this test exercises
