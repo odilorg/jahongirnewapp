@@ -14,6 +14,286 @@ Newest entries at top.
 
 ---
 
+## 2026-05-08 — FX pipeline review: 3 tracked follow-ups (NOT YET SHIPPED)
+
+**Type:** Tracked follow-up plan, NOT a shipped fix. Listed here so future
+sessions don't re-discover the same risks.
+
+**Origin:** read-only deep-mode code-reviewer pass over `ExchangeRateService`,
+`CalculateAndPushDailyPaymentOptions`, `DailyExchangeRate`, and the FX-read
+side of `BotPaymentService` (2026-05-08). Verdict: APPROVE WITH RISKS — no
+active money-moving bug today, but three latent gaps in the FX ingestion +
+persistence pipeline. Each below is a future PR; convert to a "fixed" entry
+when shipped (newest-on-top, this entry stays as a back-reference).
+
+**Common discipline for all three:**
+- Money-sensitive code → feature branch + code-reviewer in deep mode
+  (`ai-coding-safety-policy.md` §2 high-risk tier).
+- External HTTP must live in `app/Services/*Client.php` per CLAUDE.md hard
+  line. New work should rename `ExchangeRateService` into `CbuClient` +
+  `OpenErApiClient` + `FloatratesClient` + a thin orchestrator OR document
+  the deviation. Not in any of the 3 follow-ups below — but the right time
+  to land that rename is alongside follow-up #3 since it's the largest
+  diff to that file.
+- Real-sample testing (`feedback_no_mass_assign_for_system_state` +
+  `ai-coding-safety-policy.md` §8): no mocked-perfect-input-only tests
+  for parsers / integrations; use sanitized real CBU JSON fixtures where
+  possible.
+- Tests required for each item (gap categories listed per item).
+
+### Follow-up #1 — Enforce `fx.stale_after_hours` consumer-side (HIGHEST PRIORITY)
+
+**Problem:** `config/fx.php:56` defines `stale_after_hours=4` but **no code
+reads it.** If the 07:00 cron fails on day N, cashier sessions on day N
+silently keep using the day-N-1 `daily_exchange_rates` row indefinitely
+(within the 6h Redis cache window, then re-fetches on cache miss but
+still falls back to the latest persisted row via
+`FxSyncService:88-106`). Operator-visible only via a `Log::warning`.
+Removes the entire "morning cron failed silently → cashier uses stale
+rate" failure mode.
+
+**Desired behavior:**
+- At payment-session preparation time
+  (`BotPaymentService::preparePayment`) AND at any other consumer that
+  resolves a frozen FX presentation, refuse to continue if the latest
+  usable `daily_exchange_rates.fetched_at` is older than `now() -
+  config('fx.stale_after_hours') hours`.
+- Hard error with clear operational message: e.g.
+  `StaleFxRateException("FX rate from {fetched_at} is X hours old; max
+  allowed Y. Refresh via 'fx:push-payment-options' or set manual rate
+  in Filament.")`.
+- Bot user-facing reply (Russian): "Курсы валют устарели. Свяжитесь с
+  менеджером." Same wording as the existing FX-presentation-unavailable
+  block at `CashierBotController:1681-1683`.
+- Filament admin's "Send Mixed-currency journal" parallel path: same
+  refusal.
+
+**Architecture (no code yet):**
+- New exception: `app/Exceptions/Fx/StaleFxRateException.php` extending
+  `\RuntimeException`. Caught at the controller boundary, surfaces a
+  clean operator message; logged at WARNING (not ERROR — staleness is
+  expected after a cron failure, ERROR is reserved for unexpected).
+- Single canonical staleness check in `FxSyncService` or a new tiny
+  helper `FxStalenessGuard` (Action). Called from
+  `BotPaymentService::preparePayment` and from
+  `RecordMixedCurrencySplitFromAdminAction::execute`. CLAUDE.md
+  hard-line: no duplicated business rule → one place.
+- The check reads `daily_exchange_rates` ordered by `rate_date desc`,
+  takes the most recent row, compares its `fetched_at` against
+  `now()->subHours(config('fx.stale_after_hours'))`.
+
+**Scope (files likely touched):**
+- `app/Exceptions/Fx/StaleFxRateException.php` (new)
+- `app/Services/FxSyncService.php` (or new
+  `app/Services/Fx/FxStalenessGuard.php`)
+- `app/Services/BotPaymentService.php` (call the guard at session
+  prep)
+- `app/Http/Controllers/CashierBotController.php` (catch + user
+  message)
+- `app/Actions/Cashier/RecordMixedCurrencySplitFromAdminAction.php`
+  (call the guard before `preparePayment`)
+- `tests/Feature/Cashier/StaleFxRateGuardTest.php` (new)
+
+**Tests required:**
+- `bot_session_refuses_to_open_when_latest_row_older_than_threshold`
+- `bot_session_opens_normally_when_row_is_fresh`
+- `staleness_threshold_uses_config_value_not_hardcoded`
+  (operator escape hatch: change env, re-clear config:cache, refused
+  thresholds shift accordingly)
+- `mixed_currency_admin_path_also_refuses_on_stale_row`
+  (parity with bot path)
+- `staleness_check_skips_for_rows_with_source_manual_AND_fetched_at_within_threshold`
+  (manual override is the operator's escape valve and must be honored
+  if recent enough)
+
+**Rollout:**
+- Branch: `feat/fx-staleness-guard`
+- Reviewer: code-reviewer DEEP mode (money path).
+- Deploy: separate from #2 and #3 so each can be reverted independently.
+
+**Estimated diff:** ~80–120 LOC + ~150 LOC of tests.
+
+---
+
+### Follow-up #2 — Alert ops on `fx:push-payment-options` cron failure
+
+**Problem:** `app/Console/Kernel.php:117` only logs `error` when the
+07:00 morning cron returns FAILURE. `OwnerAlertService` is NOT wired
+into `->onFailure`. Operations team finds out only when a cashier
+sees the wrong rate — too late. Per `ai-coding-safety-policy.md` §9,
+high-risk-tier failures must alert.
+
+**Desired behavior:**
+- When `fx:push-payment-options` exits with FAILURE (any source for
+  USD failed → all three fallbacks failed → command aborts), fire a
+  Telegram alert to the owner/ops group via `OwnerAlertService` with:
+  - Command name: `fx:push-payment-options`
+  - Timestamp (Asia/Tashkent)
+  - Environment: `production`
+  - Short error reason if available (last `Log::error`'s
+    structured `error_class` + `error_message` from the catch block)
+  - Action hint: "Check CBU connectivity, then re-run manually:
+    `php artisan fx:push-payment-options`"
+
+**Architecture (no code yet):**
+- The scheduler `->onFailure(fn () => …)` callback is the right hook
+  per Laravel's documented pattern.
+- `OwnerAlertService::sendOpsAlert` already exists (used by
+  `Beds24WebhookController::alertViolation`). Reuse — no new
+  service.
+- Capture the last error context via a small in-process file marker
+  (e.g. `storage/app/fx/last_failure.json`) the command writes on
+  abort. The `onFailure` callback reads it. Avoids needing the
+  scheduler to dig into Laravel log files. If the marker is missing
+  / stale, fall back to a generic message.
+- Alternative shape: emit a `FxPushPaymentOptionsFailed` event from
+  the command's failure path; subscribe via a listener that calls
+  `OwnerAlertService`. More moving parts but cleaner. Decide at
+  implementation time.
+
+**Scope (files likely touched):**
+- `app/Console/Commands/CalculateAndPushDailyPaymentOptions.php`
+  (write failure marker on abort paths)
+- `app/Console/Kernel.php` (`->onFailure` callback)
+- `app/Services/OwnerAlertService.php` (likely just reuse — no new
+  method needed)
+- `tests/Feature/Cashier/FxPushPaymentOptionsAlertTest.php` (new)
+
+**Tests required:**
+- `cron_failure_fires_owner_alert_with_command_name_and_timestamp`
+  (mock `OwnerAlertService`, assert `sendOpsAlert` called once with
+  expected payload shape)
+- `cron_success_does_not_fire_owner_alert`
+- `alert_includes_short_error_reason_when_marker_present`
+- `alert_uses_generic_message_when_marker_absent_or_corrupted`
+  (defensive)
+- `repeated_failures_in_one_day_each_fire_one_alert`
+  (no de-duplication unless explicitly designed — operators want
+  every retry attempt's failure to ping)
+
+**Rollout:**
+- Branch: `feat/fx-cron-failure-alert`
+- Reviewer: code-reviewer cheap mode (alert wiring only, no money
+  path touched).
+- Deploy: independently of #1 and #3.
+
+**Estimated diff:** ~40–60 LOC + ~100 LOC of tests.
+
+---
+
+### Follow-up #3 — Sanity-band validation for fallback FX rates
+
+**Problem:** `ExchangeRateService::getUsdToUzs()` accepts whatever the
+first non-null source returns — no ±X% bound vs yesterday's persisted
+row, no cross-source agreement check. If `open.er-api.com` /
+`floatrates.com` returns a glitched value (stale by weeks, swapped
+with another currency, response-shape change), the morning cron
+writes that bad rate to `daily_exchange_rates` and powers the cashier
+bot all day. The per-payment variance guard at
+`config/fx.php:22` (`manager_threshold_pct=10`) is a *per-payment*
+check against the day's row — it does NOT catch a day where the
+day's row itself is wrong. Most likely on a CBU-down day, since CBU
+is rarely wrong.
+
+**Desired behavior:**
+- After the 3-source fallback chain returns a non-null rate, compare
+  it against the most-recent persisted `daily_exchange_rates` row
+  (any source, any date — typically yesterday's).
+- If `|new_rate - last_rate| / last_rate > config('fx.fallback_sanity_band_pct')`
+  (default e.g. **5%**), REJECT the fetched rate and return null
+  (fall through to the next source).
+- If ALL three sources are rejected by the sanity band → command
+  exits FAILURE → triggers the alert path from follow-up #2.
+- Operator escape valve: Filament admin can write a `source='manual'`
+  row at any time. Manual rows are exempt from the sanity-band check
+  (operator chose to override).
+- For the very first run ever (no prior persisted row), skip the
+  sanity check and accept whatever was fetched.
+
+**Architecture (no code yet):**
+- Threshold lives in `config/fx.php` as
+  `'fallback_sanity_band_pct' => env('FX_FALLBACK_SANITY_BAND_PCT', 5.0)`.
+  Distinct from `tolerance_pct` (per-payment variance) and
+  `manager_threshold_pct` (per-payment block). Document the three
+  distinct purposes in the config docblock.
+- Sanity check goes in `ExchangeRateService` itself, between the
+  fallback chain and the cache-write. Not in the morning command —
+  the rule applies to ANY caller of `getUsdToUzs()` etc., including
+  ad-hoc `ExchangeRateService::refresh()` from the admin panel.
+- Cross-currency: each currency has its own threshold check against
+  the same currency's prior row.
+
+**Scope (files likely touched):**
+- `app/Services/ExchangeRateService.php` (sanity-check method,
+  rate-history lookup; or extract to `app/Services/Fx/FxSanityBand`
+  if the diff bloats the file beyond the existing arch-lint baseline
+  for it)
+- `config/fx.php` (new threshold)
+- `tests/Unit/Fx/ExchangeRateServiceFallbackTest.php` (new — replaces
+  the missing fallback-chain test gap noted in the review)
+- `tests/Unit/Fx/FxSanityBandTest.php` (new)
+
+**Tests required (this is the big test gap from the review):**
+- **Fallback chain** (long-overdue baseline):
+  - `cbu_success_returns_cbu_rate` (no fallback hit; assert source='cbu')
+  - `cbu_failure_falls_through_to_open_er_api`
+  - `cbu_and_open_er_api_failure_falls_through_to_floatrates`
+  - `all_three_sources_failure_returns_null`
+  - `cross_rate_math_correct_for_rub_via_open_er_api`
+    (regression guard for the "cross-derived RUB-via-USD" finding in
+    the review §1)
+- **Sanity band**:
+  - `fetched_rate_within_band_accepted` (e.g. 12100 vs prior 12000 → 0.83% < 5% → accepted)
+  - `fetched_rate_above_band_rejected` (e.g. 12700 vs prior 12000 → 5.83% > 5% → rejected, source returns null, chain continues)
+  - `all_sources_rejected_by_sanity_band_returns_null` (cron then
+    aborts, alert fires per #2)
+  - `manual_source_rows_exempt_from_sanity_band`
+    (operator override path stays open even if their value is far off)
+  - `first_ever_run_skips_sanity_check_returns_fetched_rate`
+    (cold-start case — no persisted row yet)
+- **Real CBU sample fixture**: at least one test loads a sanitized
+  real CBU JSON response (saved as `tests/Fixtures/Cbu/usd.json`) and
+  asserts the parser extracts the correct rate. Per
+  `ai-coding-safety-policy.md` §8 — protects against the GYG/Viator
+  pattern where regex/parser changes broke on real-world inputs the
+  synthetic tests didn't cover.
+
+**Rollout:**
+- Branch: `feat/fx-fallback-sanity-band`
+- Reviewer: code-reviewer DEEP mode (money path; introduces new
+  rejection logic).
+- Deploy AFTER #1 and #2 — the sanity-band rejection only becomes
+  observable to ops if both the staleness-guard (so the bot refuses
+  on rejection-induced stale data) AND the cron-failure alert (so
+  ops are paged when all sources reject) are already in place.
+- Day-1 monitoring: watch the
+  `Log::warning('ExchangeRateService: fallback rejected by sanity
+  band')` rate. If it fires in normal-day traffic, the threshold is
+  too tight; raise to 7% or 10% and re-deploy.
+
+**Estimated diff:** ~80–100 LOC of service code + ~250 LOC of tests
+(mostly fixtures + table-driven cases).
+
+---
+
+### Recommended sequencing
+
+| Order | Item | Branch | Why this order |
+|---|---|---|---|
+| 1 | Staleness guard | `feat/fx-staleness-guard` | Highest leverage; closes the entire silent-stale-rate failure class. |
+| 2 | Cron failure alert | `feat/fx-cron-failure-alert` | Independent + cheap; raises operational visibility before #3 lands. |
+| 3 | Sanity-band validation | `feat/fx-fallback-sanity-band` | Largest + needs #1 and #2 in place to be fully observable. Also the right time to land the `*Client.php` rename if scope allows. |
+
+Each branch is its own deploy with explicit user approval per
+`local-first-delivery-flow`. Squash-merge to main, deploy via
+`scripts/deploy-production.sh <sha>`. Convert each tracked entry above
+to a real "shipped fix" entry in this log (with deployed SHA + post-deploy
+verification notes) when it lands.
+
+**No code change in this entry — planning only.**
+
+---
+
 ## 2026-05-08 — Cashier split-payment broken end-to-end (two bugs)
 
 **Symptom:** Operator tried to record booking $65 USD as split
