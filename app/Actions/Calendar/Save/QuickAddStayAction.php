@@ -9,6 +9,7 @@ use App\Models\Accommodation;
 use App\Models\BookingInquiry;
 use App\Models\InquiryStay;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 /**
  * Add an accommodation stay from the calendar slide-over Quick-Assign panel.
@@ -18,7 +19,10 @@ use Illuminate\Support\Facades\DB;
  *   - guest count falls back to inquiry->people_adults
  *   - nights defaults to 1 (enforced minimum)
  *   - stay_date falls back to inquiry->travel_date
- *   - default meal_plan = "dinner + breakfast" (matches yurt-camp standard)
+ *   - default meal_plan = "dinner + breakfast" (yurt-camp standard),
+ *     extended to "+ lunch at Aydarkul" when the stay is at Aydarkul
+ *     Yurt Camp — guests are driven to the camp via the lake stop, so
+ *     lunch is part of the package the camp manager must prepare.
  *   - cost computed via InquiryStay::calculateCost() using the active rate
  *   - sort_order = next position in the inquiry's stays list
  *
@@ -50,6 +54,10 @@ final class QuickAddStayAction
             $nights = max(1, (int) ($data['nights'] ?? 1));
             $date   = $data['date'] ?: $inquiry->travel_date?->toDateString();
 
+            $mealPlan = Str::contains(Str::lower($accommodation->name), 'aydarkul')
+                ? 'dinner + breakfast + lunch at Aydarkul'
+                : 'dinner + breakfast';
+
             $stay = InquiryStay::create([
                 'booking_inquiry_id' => $inquiry->id,
                 'accommodation_id'   => $accommodation->id,
@@ -57,7 +65,7 @@ final class QuickAddStayAction
                 'stay_date'          => $date,
                 'nights'             => $nights,
                 'guest_count'        => $guests,
-                'meal_plan'          => 'dinner + breakfast',
+                'meal_plan'          => $mealPlan,
             ]);
 
             $stay->calculateCost();
