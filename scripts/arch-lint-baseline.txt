@@ -1,4 +1,4 @@
-# arch-lint baseline — regenerated 2026-05-10T14:04:41+05:00
+# arch-lint baseline — regenerated 2026-05-11T09:08:52+05:00
 # Format: file:line:rule-key (rule-key stable across runs)
 app/Console/Commands/SendDailyRecap.php:52:http-outside-adapter
 app/Console/Commands/TourSendReminders.php:397:http-outside-adapter
@@ -20,28 +20,28 @@ app/Filament/Resources/CashierShiftResource/Pages/StartShift.php:121:long-action
 app/Filament/Resources/CashTransactionResource/Pages/ListCashTransactions.php:218:long-action-closure
 app/Filament/Resources/CashTransactionResource/Pages/ListCashTransactions.php:370:long-action-closure
 app/Filament/Resources/ContractResource.php:122:long-action-closure
-app/Http/Controllers/Api/BookingInquiryController.php:34:fat-controller
+app/Http/Controllers/Api/BookingInquiryController.php:36:fat-controller
 app/Http/Controllers/Beds24WebhookController.php:48:fat-controller
 app/Http/Controllers/Beds24WebhookController.php:97:fat-controller
-app/Http/Controllers/CashierBotController.php:1086:fat-controller
-app/Http/Controllers/CashierBotController.php:1118:fat-controller
-app/Http/Controllers/CashierBotController.php:1147:fat-controller
-app/Http/Controllers/CashierBotController.php:1435:fat-controller
-app/Http/Controllers/CashierBotController.php:1760:fat-controller
-app/Http/Controllers/CashierBotController.php:1836:fat-controller
-app/Http/Controllers/CashierBotController.php:2050:fat-controller
-app/Http/Controllers/CashierBotController.php:2138:fat-controller
-app/Http/Controllers/CashierBotController.php:2212:fat-controller
-app/Http/Controllers/CashierBotController.php:2311:fat-controller
-app/Http/Controllers/CashierBotController.php:2454:fat-controller
-app/Http/Controllers/CashierBotController.php:2648:fat-controller
-app/Http/Controllers/CashierBotController.php:2873:fat-controller
+app/Http/Controllers/CashierBotController.php:1093:fat-controller
+app/Http/Controllers/CashierBotController.php:1125:fat-controller
+app/Http/Controllers/CashierBotController.php:1154:fat-controller
+app/Http/Controllers/CashierBotController.php:1442:fat-controller
+app/Http/Controllers/CashierBotController.php:1767:fat-controller
+app/Http/Controllers/CashierBotController.php:1843:fat-controller
+app/Http/Controllers/CashierBotController.php:2057:fat-controller
+app/Http/Controllers/CashierBotController.php:2145:fat-controller
+app/Http/Controllers/CashierBotController.php:2219:fat-controller
+app/Http/Controllers/CashierBotController.php:2318:fat-controller
+app/Http/Controllers/CashierBotController.php:2461:fat-controller
+app/Http/Controllers/CashierBotController.php:2655:fat-controller
+app/Http/Controllers/CashierBotController.php:2880:fat-controller
 app/Http/Controllers/CashierBotController.php:331:fat-controller
-app/Http/Controllers/CashierBotController.php:582:fat-controller
+app/Http/Controllers/CashierBotController.php:589:fat-controller
 app/Http/Controllers/CashierBotController.php:62:fat-controller
-app/Http/Controllers/CashierBotController.php:776:fat-controller
+app/Http/Controllers/CashierBotController.php:783:fat-controller
 app/Http/Controllers/CashierBotController.php:92:fat-controller
-app/Http/Controllers/CashierBotController.php:940:fat-controller
+app/Http/Controllers/CashierBotController.php:947:fat-controller
 app/Http/Controllers/HousekeepingBotController.php:1718:http-outside-adapter
 app/Http/Controllers/HousekeepingBotController.php:1756:http-outside-adapter
 app/Http/Controllers/OctoCallbackController.php:15:fat-controller
