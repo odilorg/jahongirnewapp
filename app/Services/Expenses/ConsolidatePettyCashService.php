@@ -6,42 +6,39 @@ namespace App\Services\Expenses;
 
 use App\Models\CashExpense;
 use App\Models\Expense;
-use App\Services\ExchangeRateService;
 use Carbon\Carbon;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Monthly petty-cash → main hotel-ops expenses consolidation.
+ * Monthly petty-cash → main hotel-ops expenses consolidation, and per-row
+ * reversal of mistakenly-posted rows.
  *
- * Operator-triggered (via Filament header action). Reads cash_expenses for a
- * given month, converts FX rows to UZS using ExchangeRateService, creates a
- * matching `expenses` row per cash_expense, and stamps consolidated_at on the
- * source row.
+ * v1 scope (locked):
+ *   - UZS rows only. USD/EUR/RUB rows are silently skipped and counted —
+ *     manual handling for FX moves to Phase 2 along with audit fields
+ *     (original_amount / fx_rate / fx_rate_date).
+ *   - All-or-nothing transaction per consolidation run.
+ *   - Idempotency via WHERE consolidated_at IS NULL gate.
+ *   - Per-row Unpost: soft-deletes the linked expense and clears the source
+ *     pointer. Re-consolidating after unpost creates a NEW expenses row;
+ *     the soft-deleted prior row stays as audit trail.
  *
- * Idempotency: WHERE consolidated_at IS NULL gate. A re-run posts 0 rows.
- *
- * All-or-nothing: the whole month runs inside a single transaction. Any failure
- * (missing FX rate, DB error) rolls back the entire batch — no half-posted month.
- * This is the simpler, safer choice for v1; per-row resilience comes later if
- * pain shows up.
- *
- * Rejected cash_expenses are skipped (rejected_at IS NOT NULL). These were
+ * Rejected cash_expenses (rejected_at IS NOT NULL) are skipped — these were
  * declined by the owner via the Telegram approval flow and must NOT post.
+ * Rows missing expense_category_id are skipped defensively.
  */
 class ConsolidatePettyCashService
 {
-    public function __construct(private readonly ExchangeRateService $exchangeRates) {}
-
     /**
-     * Consolidate one month's petty-cash rows into main expenses.
+     * Consolidate one month's UZS petty-cash rows into main expenses.
      *
      * @param  CarbonInterface|string  $month  Carbon date inside the target month, or 'YYYY-MM' string.
-     * @param  int  $hotelId  Required — expenses.hotel_id is NOT NULL.
+     * @param  int  $hotelId  Operator-selected. Required — expenses.hotel_id is NOT NULL.
      * @param  int  $actorUserId  Stamps expenses.created_by for audit attribution.
-     * @return int Number of cash_expenses rows posted to main expenses.
+     * @return array{posted: int, skipped_fx: int, skipped_invalid: int}
      */
-    public function consolidateMonth(CarbonInterface|string $month, int $hotelId, int $actorUserId): int
+    public function consolidateMonth(CarbonInterface|string $month, int $hotelId, int $actorUserId): array
     {
         $period = $month instanceof CarbonInterface
             ? $month->copy()->startOfMonth()
@@ -50,7 +47,7 @@ class ConsolidatePettyCashService
         $start = $period->copy()->startOfMonth();
         $end = $period->copy()->endOfMonth();
 
-        return DB::transaction(function () use ($start, $end, $hotelId, $actorUserId): int {
+        return DB::transaction(function () use ($start, $end, $hotelId, $actorUserId): array {
             $eligible = CashExpense::query()
                 ->whereNull('consolidated_at')
                 ->whereNull('rejected_at')
@@ -59,14 +56,33 @@ class ConsolidatePettyCashService
                 ->get();
 
             $posted = 0;
-            foreach ($eligible as $cash) {
-                $uzsAmount = $this->toUzs($cash);
+            $skippedFx = 0;
+            $skippedInvalid = 0;
 
-                Expense::create([
+            foreach ($eligible as $cash) {
+                $currency = strtoupper((string) ($cash->currency ?? 'UZS'));
+
+                if ($currency !== 'UZS') {
+                    // FX rows out of v1 scope. Operator will handle manually.
+                    // No consolidated_at stamp → these rows remain eligible next time.
+                    $skippedFx++;
+
+                    continue;
+                }
+
+                if ($cash->expense_category_id === null) {
+                    // Defensive: every cash_expense should have a category from the bot
+                    // (the schema requires it). Belt-and-suspenders skip if not.
+                    $skippedInvalid++;
+
+                    continue;
+                }
+
+                $expense = Expense::create([
                     'expense_category_id' => $cash->expense_category_id,
                     'name' => $this->buildName($cash),
                     'expense_date' => $cash->occurred_at->toDateString(),
-                    'amount' => $uzsAmount,
+                    'amount' => (float) $cash->amount,
                     'hotel_id' => $hotelId,
                     'payment_type' => 'naqd',
                     'created_by' => $actorUserId,
@@ -75,55 +91,88 @@ class ConsolidatePettyCashService
 
                 // Per feedback_no_mass_assign_for_system_state: never $model->update()
                 // for system-state writes. forceFill->save bypasses fillable silently-fail.
-                $cash->forceFill(['consolidated_at' => now()])->save();
+                $cash->forceFill([
+                    'consolidated_at' => now(),
+                    'consolidated_expense_id' => $expense->id,
+                    // Clear any prior unpost trail — if this row was unposted then
+                    // re-consolidated, the new posting is fresh state.
+                    'consolidation_unposted_at' => null,
+                    'consolidation_unposted_reason' => null,
+                ])->save();
 
                 $posted++;
             }
 
-            return $posted;
+            return [
+                'posted' => $posted,
+                'skipped_fx' => $skippedFx,
+                'skipped_invalid' => $skippedInvalid,
+            ];
         });
     }
 
     /**
-     * Convert cash_expense native amount to UZS for the main expenses ledger.
+     * Reverse a single consolidated petty-cash posting.
      *
-     * UZS rows pass through. FX rows (USD/EUR/RUB) use live cached rates from
-     * ExchangeRateService — Phase 2 may snapshot the rate on the consolidated
-     * row for audit; v1 trusts the rate-at-consolidation-time.
+     * Soft-deletes the linked Expense row, clears the source pointer on the
+     * cash_expense, and stamps when/why the unpost happened. The Expense row
+     * remains queryable via withTrashed() for audit; re-consolidating the same
+     * cash_expense produces a NEW Expense row, not a restore of the trashed one.
      *
-     * @throws \DomainException when an FX rate is unavailable (whole batch rolls back).
+     * @param  int  $expenseId  The consolidated expense to unpost.
+     * @param  string  $reason  Required ≥ 5 chars — written to cash_expenses.
+     *
+     * @throws \DomainException When the expense isn't a consolidated petty-cash row,
+     *                          or its source link is missing/broken.
      */
-    private function toUzs(CashExpense $cash): float
+    public function unpostExpense(int $expenseId, string $reason): void
     {
-        $currency = strtoupper($cash->currency ?? 'UZS');
-        $amount = (float) $cash->amount;
-
-        if ($currency === 'UZS') {
-            return $amount;
+        $reason = trim($reason);
+        if (mb_strlen($reason) < 5) {
+            throw new \DomainException('Unpost reason must be at least 5 characters.');
         }
 
-        $rate = match ($currency) {
-            'USD' => $this->exchangeRates->getUsdToUzs(),
-            'EUR' => $this->exchangeRates->getEurToUzs(),
-            'RUB' => $this->exchangeRates->getRubToUzs(),
-            default => null,
-        };
+        DB::transaction(function () use ($expenseId, $reason): void {
+            // Only allow unpost on consolidated petty-cash rows. Reject any direct
+            // ops/owner expenses that operator might try to unpost by mistake.
+            $expense = Expense::query()
+                ->whereNotNull('cash_expense_id')
+                ->lockForUpdate()
+                ->findOrFail($expenseId);
 
-        if ($rate === null || empty($rate['rate'])) {
-            throw new \DomainException(
-                "Cannot consolidate cash_expense #{$cash->id}: {$currency} rate unavailable. "
-                .'Retry when ExchangeRateService is reachable, or convert this row manually.'
-            );
-        }
+            $cash = CashExpense::query()
+                ->where('id', $expense->cash_expense_id)
+                ->lockForUpdate()
+                ->first();
 
-        // MoneyCast handles the canonical ×100 rounding on save; pre-rounding
-        // here would just create a second rounding boundary for no benefit.
-        return $amount * (float) $rate['rate'];
+            if ($cash === null) {
+                // FK ON DELETE SET NULL means this can happen if cash_expense was
+                // hard-deleted post-consolidation. Block unpost — operator needs to
+                // investigate via tinker.
+                throw new \DomainException(
+                    "Cannot unpost expense #{$expenseId}: linked cash_expense missing. "
+                    .'Investigate manually before retrying.'
+                );
+            }
+
+            // Clear the source pointer BEFORE soft-deleting the expense to avoid
+            // any transient state where both rows reference each other but the
+            // expense is trashed.
+            $cash->forceFill([
+                'consolidated_at' => null,
+                'consolidated_expense_id' => null,
+                'consolidation_unposted_at' => now(),
+                'consolidation_unposted_reason' => $reason,
+            ])->save();
+
+            $expense->delete(); // soft delete via SoftDeletes trait on Expense model
+        });
     }
 
     /**
      * Human-readable name on the consolidated expenses row.
-     * Truncated to fit expenses.name (VARCHAR — no explicit length on existing schema; Laravel default 255).
+     * Truncated to fit expenses.name (VARCHAR — no explicit length on existing
+     * schema; Laravel default 255).
      */
     private function buildName(CashExpense $cash): string
     {

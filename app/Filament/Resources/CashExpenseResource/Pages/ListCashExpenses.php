@@ -34,12 +34,13 @@ class ListCashExpenses extends ListRecords
                         ->label('Post to hotel')
                         ->options(Hotel::query()->orderBy('name')->pluck('name', 'id'))
                         ->required()
-                        ->helperText('All eligible petty-cash rows for the selected month will be posted to this hotel.'),
+                        ->helperText('All UZS rows in the selected month will be posted to this hotel. '
+                            .'If petty cash covers multiple hotels, consolidate separately — drawer→hotel mapping comes in Phase 2.'),
                 ])
                 ->modalDescription(
-                    'Eligible rows for the selected month will be posted into main expenses. '
+                    'UZS-only in v1. USD/EUR/RUB rows are skipped and reported in the result toast — handle those manually. '
                     .'Already-consolidated and rejected rows are skipped. '
-                    .'Any failure (e.g. missing FX rate) rolls back the entire batch.'
+                    .'Any DB failure rolls back the entire batch.'
                 )
                 ->requiresConfirmation()
                 ->modalSubmitActionLabel('Consolidate')
@@ -58,14 +59,23 @@ class ListCashExpenses extends ListRecords
         $service = app(ConsolidatePettyCashService::class);
 
         try {
-            $posted = $service->consolidateMonth(
+            $result = $service->consolidateMonth(
                 $data['period'],
                 (int) $data['hotel_id'],
                 (int) auth()->id(),
             );
 
+            $body = "Posted: {$result['posted']}";
+            if ($result['skipped_fx'] > 0) {
+                $body .= " · Skipped (FX, handle manually): {$result['skipped_fx']}";
+            }
+            if ($result['skipped_invalid'] > 0) {
+                $body .= " · Skipped (missing category): {$result['skipped_invalid']}";
+            }
+
             Notification::make()
-                ->title("Consolidated {$posted} petty-cash row(s) into main expenses.")
+                ->title('Consolidation complete')
+                ->body($body)
                 ->success()
                 ->send();
         } catch (\DomainException $e) {

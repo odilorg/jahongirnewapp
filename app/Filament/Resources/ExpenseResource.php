@@ -2,35 +2,35 @@
 
 namespace App\Filament\Resources;
 
-use Filament\Forms;
-use Filament\Tables;
-use App\Models\Expense;
-use Filament\Forms\Form;
-use Filament\Tables\Table;
-use Illuminate\Support\Carbon;
-use Filament\Resources\Resource;
-use Filament\Tables\Filters\Filter;
-use Filament\Tables\Grouping\Group;
-use Filament\Forms\Components\Select;
-use Filament\Tables\Filters\Indicator;
-use Illuminate\Support\Facades\Session;
-use Filament\Forms\Components\TextInput;
-use Filament\Forms\Components\DatePicker;
-use Filament\Tables\Filters\SelectFilter;
-use Illuminate\Database\Eloquent\Builder;
-use Filament\Tables\Columns\Summarizers\Sum;
 use App\Filament\Resources\ExpenseResource\Pages;
-use Illuminate\Database\Eloquent\SoftDeletingScope;
-use App\Filament\Resources\ExpenseResource\RelationManagers;
+use App\Models\Expense;
+use Filament\Forms;
+use Filament\Forms\Components\DatePicker;
+use Filament\Forms\Components\Select;
+use Filament\Forms\Components\TextInput;
+use Filament\Forms\Form;
+use Filament\Resources\Resource;
+use Filament\Tables;
+use Filament\Tables\Columns\Summarizers\Sum;
+use Filament\Tables\Filters\Filter;
+use Filament\Tables\Filters\Indicator;
+use Filament\Tables\Filters\SelectFilter;
+use Filament\Tables\Grouping\Group;
+use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Session;
 
 class ExpenseResource extends Resource
 {
     protected static ?string $model = Expense::class;
 
-    protected static ?string $navigationIcon  = 'heroicon-o-banknotes';
+    protected static ?string $navigationIcon = 'heroicon-o-banknotes';
+
     // Top-level (no group) directly below Dashboard, above Tour Calendar.
     protected static ?string $navigationGroup = null;
-    protected static ?int    $navigationSort  = 0;
+
+    protected static ?int $navigationSort = 0;
 
     public static function form(Form $form): Form
     {
@@ -96,7 +96,7 @@ class ExpenseResource extends Resource
                     ->options([
                         'naqd' => 'Naqd',
                         'karta' => 'Karta',
-                        'perech' => 'Perech'
+                        'perech' => 'Perech',
                     ])
                     ->after(function ($component) {
                         Session::put('last_selected_payment_type', $component->getState());
@@ -110,20 +110,15 @@ class ExpenseResource extends Resource
     public static function table(Table $table): Table
     {
         return $table
-            
+
             ->groups([
                 Group::make('expense_date')
-               
-                ->date(),
-                
-            
-                
-                                
-               // ->defaultSort('desc'),
+                    ->date(),
+
+                // ->defaultSort('desc'),
                 'hotel.name',
             ])
             ->defaultGroup('expense_date')
-
 
             ->columns([
                 Tables\Columns\TextColumn::make('created_at')
@@ -139,16 +134,16 @@ class ExpenseResource extends Resource
                     ->sortable()
                     ->searchable(),
                 Tables\Columns\TextColumn::make('expense_date')
-               
+
                     ->date(),
-                    //->sortable(),
+                // ->sortable(),
                 Tables\Columns\TextColumn::make('name')
                     ->searchable(),
                 Tables\Columns\TextColumn::make('amount')
                     ->summarize(
                         Sum::make()->money('UZS', divideBy: 100)
                     )
-                   // 
+                   //
 
                     ->numeric()
                     ->sortable(),
@@ -158,10 +153,8 @@ class ExpenseResource extends Resource
                     ->numeric()
                     ->sortable(),
 
-                            
-
             ])
-           
+
             ->filters([
                 SelectFilter::make('category')
                     ->relationship('category', 'name')
@@ -171,12 +164,12 @@ class ExpenseResource extends Resource
                     ->relationship('hotel', 'name')
                     ->searchable()
                     ->preload(),
-                    SelectFilter::make('payment_type')
-    ->options([
-        'naqd' => 'naqd',
-        'karta' => 'karta',
-       
-    ]),
+                SelectFilter::make('payment_type')
+                    ->options([
+                        'naqd' => 'naqd',
+                        'karta' => 'karta',
+
+                    ]),
                 Filter::make('expense_date')
                     ->form([
                         DatePicker::make('from'),
@@ -184,34 +177,56 @@ class ExpenseResource extends Resource
                     ])
                     ->indicateUsing(function (array $data): array {
                         $indicators = [];
-                 
+
                         if ($data['from'] ?? null) {
-                            $indicators[] = Indicator::make('Created from ' . Carbon::parse($data['from'])->toFormattedDateString())
+                            $indicators[] = Indicator::make('Created from '.Carbon::parse($data['from'])->toFormattedDateString())
                                 ->removeField('from');
                         }
-                 
+
                         if ($data['until'] ?? null) {
-                            $indicators[] = Indicator::make('Created until ' . Carbon::parse($data['until'])->toFormattedDateString())
+                            $indicators[] = Indicator::make('Created until '.Carbon::parse($data['until'])->toFormattedDateString())
                                 ->removeField('until');
                         }
-                 
+
                         return $indicators;
                     })
                     ->query(function (Builder $query, array $data): Builder {
                         return $query
                             ->when(
                                 $data['from'],
-                                fn(Builder $query, $date): Builder => $query->whereDate('expense_date', '>=', $date),
+                                fn (Builder $query, $date): Builder => $query->whereDate('expense_date', '>=', $date),
                             )
                             ->when(
                                 $data['until'],
-                                fn(Builder $query, $date): Builder => $query->whereDate('expense_date', '<=', $date),
+                                fn (Builder $query, $date): Builder => $query->whereDate('expense_date', '<=', $date),
                             );
-                    })
+                    }),
 
             ])
             ->actions([
-                Tables\Actions\EditAction::make(),
+                Tables\Actions\EditAction::make()
+                    // Consolidated petty-cash rows are locked. Mistakes are
+                    // fixed by Unpost (clears source pointer + soft-deletes
+                    // this row) rather than direct edit. Prevents the
+                    // expenses ↔ cash_expenses link from drifting.
+                    ->visible(fn (Expense $record) => $record->cash_expense_id === null),
+                Tables\Actions\Action::make('unpost')
+                    ->label('Unpost')
+                    ->icon('heroicon-o-arrow-uturn-left')
+                    ->color('danger')
+                    ->visible(fn (Expense $record) => $record->cash_expense_id !== null)
+                    ->form([
+                        Forms\Components\Textarea::make('reason')
+                            ->label('Reason for unposting')
+                            ->required()
+                            ->minLength(5)
+                            ->maxLength(500)
+                            ->helperText('Stored on the petty-cash row for audit.'),
+                    ])
+                    ->requiresConfirmation()
+                    ->modalDescription('This soft-deletes the expense row and clears the consolidated link on the source petty-cash row. The petty-cash row can then be re-consolidated.')
+                    ->action(fn (Expense $record, array $data) => app(\App\Services\Expenses\ConsolidatePettyCashService::class)
+                        ->unpostExpense($record->id, $data['reason'])),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([

@@ -16,7 +16,8 @@ class CashExpense extends Model
         'description', 'receipt_photo_path', 'requires_approval',
         'approved_by', 'approved_at', 'rejected_by', 'rejected_at',
         'rejection_reason', 'created_by', 'occurred_at',
-        'consolidated_at',
+        'consolidated_at', 'consolidated_expense_id',
+        'consolidation_unposted_at', 'consolidation_unposted_reason',
     ];
 
     protected $casts = [
@@ -26,6 +27,7 @@ class CashExpense extends Model
         'rejected_at' => 'datetime',
         'occurred_at' => 'datetime',
         'consolidated_at' => 'datetime',
+        'consolidation_unposted_at' => 'datetime',
     ];
 
     public function shift()

@@ -7,20 +7,24 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * Petty Cash → Main Expenses monthly consolidation links.
+ * Petty Cash → Main Expenses monthly consolidation links + unpost trail.
  *
- * Additive, nullable-only. Two columns:
- *   - cash_expenses.consolidated_at    — "this petty-cash row has been posted
- *                                         into the main expenses ledger"
- *   - expenses.cash_expense_id (FK)    — "this hotel-ops expense row originated
- *                                         from this petty-cash row"
+ * Additive, nullable-only. Columns:
+ *   On cash_expenses:
+ *     - consolidated_at                — "this row has been posted to main expenses"
+ *     - consolidated_expense_id (FK)   — "the expenses.id row it became"
+ *     - consolidation_unposted_at      — "operator reversed the posting at"
+ *     - consolidation_unposted_reason  — required text when unposting
+ *   On expenses:
+ *     - cash_expense_id (FK)           — "this expense originated from cash_expense #N"
  *
- * FK uses ON DELETE SET NULL so a hard-delete of a cash_expense (rare —
- * cash_expenses uses soft delete) doesn't orphan the consolidated expense row;
- * the link clears instead.
+ * Both FKs use ON DELETE SET NULL. Cash_expenses uses soft-delete in practice;
+ * a hard-delete (rare, tinker-only) would clear the link rather than orphan it.
  *
- * No backfill, no NOT NULL, no UNIQUE — kept intentionally small. Idempotency
- * is enforced at app level via "WHERE consolidated_at IS NULL" before posting.
+ * No UNIQUE on either FK — idempotency is enforced at app level via
+ * "WHERE consolidated_at IS NULL" before posting. Re-consolidation after
+ * unpost creates a NEW expenses row (the soft-deleted prior row stays as
+ * audit trail) and re-points consolidated_expense_id to the new id.
  */
 return new class extends Migration
 {
@@ -28,6 +32,13 @@ return new class extends Migration
     {
         Schema::table('cash_expenses', function (Blueprint $table) {
             $table->timestamp('consolidated_at')->nullable()->after('rejection_reason');
+            $table->foreignId('consolidated_expense_id')
+                ->nullable()
+                ->after('consolidated_at')
+                ->constrained('expenses')
+                ->nullOnDelete();
+            $table->timestamp('consolidation_unposted_at')->nullable()->after('consolidated_expense_id');
+            $table->text('consolidation_unposted_reason')->nullable()->after('consolidation_unposted_at');
         });
 
         Schema::table('expenses', function (Blueprint $table) {
@@ -47,7 +58,13 @@ return new class extends Migration
         });
 
         Schema::table('cash_expenses', function (Blueprint $table) {
-            $table->dropColumn('consolidated_at');
+            $table->dropForeign(['consolidated_expense_id']);
+            $table->dropColumn([
+                'consolidated_at',
+                'consolidated_expense_id',
+                'consolidation_unposted_at',
+                'consolidation_unposted_reason',
+            ]);
         });
     }
 };
