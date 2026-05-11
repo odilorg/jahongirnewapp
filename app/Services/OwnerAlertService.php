@@ -494,6 +494,71 @@ class OwnerAlertService
         $this->send(implode("\n", $lines));
     }
 
+    /**
+     * A Beds24-external cash payment arrived but no cashier shift is
+     * open — the cash has no shift to attach to (guard #4 of the
+     * drawer-truth chain in Beds24WebhookController). Row is still
+     * created for audit, just not counted in drawer balance. Manager
+     * should confirm with the front desk and flip the flag manually
+     * via the Filament reconciliation page.
+     *
+     * Phase 1, 2026-05-11. See config/cashier.php.
+     */
+    public function alertBeds24CashOutsideShift(
+        Beds24Booking $booking,
+        float $amount,
+    ): void {
+        $text = implode("\n", [
+            '⚠️ <b>Beds24 admin наличные — нет открытой смены</b>',
+            '',
+            "\xF0\x9F\x86\x94 <b>Бронирование:</b> #{$booking->beds24_booking_id}",
+            '👤 <b>Гость:</b> '.($booking->guest_name ?: '—'),
+            '🛏️ <b>Комната:</b> '.($booking->room_name ?: 'не указана'),
+            '💵 <b>Сумма:</b> $'.number_format($amount, 2),
+            '',
+            'Запись создана для аудита, но НЕ учтена в кассе.',
+            'Откройте Filament → Касса → Beds24 admin несверенные',
+            'и подтвердите вручную после сверки с админом.',
+            '',
+            '⏰ '.now('Asia/Tashkent')->format('d.m.Y H:i'),
+        ]);
+
+        $this->send($text);
+    }
+
+    /**
+     * A Beds24-external cash payment passed all five drawer-truth
+     * guards AND its amount exceeds the configured alert threshold
+     * (`cashier.beds24_admin_cash_alert_threshold_usd`, default $200).
+     * The row IS counted in drawer balance — this is visibility only
+     * to catch fat-finger entries like 5_000_000 UZS typed as
+     * 500_000 UZS in Beds24 admin. Owner can override via the
+     * Filament reconciliation page if the amount is wrong.
+     *
+     * Phase 1, 2026-05-11.
+     */
+    public function alertBeds24AdminCashAboveThreshold(
+        Beds24Booking $booking,
+        float $amount,
+        float $thresholdUsd,
+    ): void {
+        $text = implode("\n", [
+            '💰 <b>Крупная наличная оплата через Beds24</b>',
+            '',
+            "\xF0\x9F\x86\x94 <b>Бронирование:</b> #{$booking->beds24_booking_id}",
+            '👤 <b>Гость:</b> '.($booking->guest_name ?: '—'),
+            '🛏️ <b>Комната:</b> '.($booking->room_name ?: 'не указана'),
+            '💵 <b>Сумма:</b> $'.number_format($amount, 2),
+            '⚠️ <b>Порог оповещения:</b> $'.number_format($thresholdUsd, 0),
+            '',
+            'Запись учтена в кассе. Проверьте сумму на случай опечатки.',
+            '',
+            '⏰ '.now('Asia/Tashkent')->format('d.m.Y H:i'),
+        ]);
+
+        $this->send($text);
+    }
+
     // -------------------------------------------------------------------------
     // Telegram HTTP helper
     // -------------------------------------------------------------------------

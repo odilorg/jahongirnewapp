@@ -10,7 +10,6 @@ use App\Enums\TransactionType;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class CashTransaction extends Model
@@ -114,35 +113,56 @@ class CashTransaction extends Model
         'payment_group_type',
         'base_currency_for_split',
         'journal_status',
+
+        // Drawer-truth flag for beds24_external rows — Phase 1
+        // (2026-05-11). The flag is set ONLY by the webhook handler
+        // after evaluating five guards (see Beds24WebhookController
+        // ::createExternalBookkeepingRow). Default false preserves
+        // historical scopeDrawerTruth behaviour byte-for-byte. The
+        // reason column records which guard failed when the flag
+        // stayed false, so the Filament reconciliation page can
+        // explain to the manager why the row needs manual review.
+        // The flipped-by/at/note columns capture the audit trail
+        // when a manager manually overrides the flag.
+        'counts_as_drawer_truth',
+        'drawer_truth_excluded_reason',
+        'drawer_truth_flipped_by_user_id',
+        'drawer_truth_flipped_at',
+        'drawer_truth_flip_note',
     ];
 
     protected $casts = [
-        'type'                    => TransactionType::class,
-        'category'                => TransactionCategory::class,
-        'source_trigger'          => CashTransactionSource::class,
-        'override_tier'           => OverrideTier::class,
-        'amount'                  => 'decimal:2',
-        'related_amount'          => 'decimal:2',
-        'usd_equivalent_paid'     => 'decimal:2',
-        'amount_presented_eur'    => 'decimal:2',
-        'amount_presented_rub'    => 'decimal:2',
-        'amount_presented_usd'    => 'decimal:2',
+        'type' => TransactionType::class,
+        'category' => TransactionCategory::class,
+        'source_trigger' => CashTransactionSource::class,
+        'override_tier' => OverrideTier::class,
+        'amount' => 'decimal:2',
+        'related_amount' => 'decimal:2',
+        'usd_equivalent_paid' => 'decimal:2',
+        'amount_presented_eur' => 'decimal:2',
+        'amount_presented_rub' => 'decimal:2',
+        'amount_presented_usd' => 'decimal:2',
         'amount_presented_selected' => 'decimal:2',
-        'variance_pct'            => 'decimal:2',
-        'is_override'             => 'boolean',
-        'within_tolerance'        => 'boolean',
-        'is_group_payment'        => 'boolean',
-        'group_size_expected'     => 'integer',
-        'group_size_local'        => 'integer',
-        'occurred_at'             => 'datetime',
-        'presented_at'            => 'datetime',
-        'recorded_at'             => 'datetime',
-        'override_approved_at'    => 'datetime',
+        'variance_pct' => 'decimal:2',
+        'is_override' => 'boolean',
+        'within_tolerance' => 'boolean',
+        'is_group_payment' => 'boolean',
+        'group_size_expected' => 'integer',
+        'group_size_local' => 'integer',
+        'occurred_at' => 'datetime',
+        'presented_at' => 'datetime',
+        'recorded_at' => 'datetime',
+        'override_approved_at' => 'datetime',
         // Phase 1 simple-FX columns
-        'reference_rate'          => 'decimal:4',
-        'actual_rate'             => 'decimal:4',
-        'deviation_pct'           => 'decimal:4',
-        'was_overridden'          => 'boolean',
+        'reference_rate' => 'decimal:4',
+        'actual_rate' => 'decimal:4',
+        'deviation_pct' => 'decimal:4',
+        'was_overridden' => 'boolean',
+
+        // Drawer-truth flag for beds24_external rows (Phase 1).
+        'counts_as_drawer_truth' => 'boolean',
+        'drawer_truth_excluded_reason' => \App\Enums\DrawerTruthExcludedReason::class,
+        'drawer_truth_flipped_at' => 'datetime',
     ];
 
     // -----------------------------------------------------------------------
@@ -218,26 +238,60 @@ class CashTransaction extends Model
     /**
      * Only rows that count toward the physical drawer balance.
      *
+     * Two paths qualify:
+     *
+     * Path A — cashier_bot / manual_admin rows with cash-or-null
+     *   payment_method. This is the historical convention: the
+     *   cashier-bot/admin UI writes these rows and the operator
+     *   is held accountable for the physical drawer cash. NULL is
+     *   treated as cash for legacy rows + bot-path expenses written
+     *   before the `payment_method` column existed.
+     *
+     * Path B — beds24_external rows where `counts_as_drawer_truth=true`.
+     *   These come from the Beds24 webhook (admin entered the cash
+     *   payment in Beds24 admin instead of using the cashier-bot).
+     *   The flag is set ONLY at write-time after all five guards pass:
+     *
+     *     1. payment_method is in cash allow-list
+     *     2. occurred_at after the flag-day cutoff
+     *     3. no matching cashier_bot row in ±2-min window
+     *     4. an open cashier shift existed when the webhook arrived
+     *     5. beds24_booking_id is non-null
+     *
+     *   See `Beds24WebhookController::createExternalBookkeepingRow` for
+     *   the write-time guard chain. Because validation happened at
+     *   write-time the scope here does NOT re-check payment_method —
+     *   if the flag is true, the row is trusted as cash (the
+     *   classifier may include "naqd" / "нал" / etc. which would not
+     *   match Path A's literal `'cash'` filter).
+     *
      * Excludes:
-     *  - beds24_external rows (Beds24-originated duplicates).
-     *  - non-cash payment methods (card, transfer): money was collected but
-     *    never entered the physical drawer, so it must not inflate the
-     *    cashier's expected cash. NULL is treated as cash for backward
-     *    compatibility with legacy rows + expenses written before the
-     *    payment_method column existed on the bot path.
+     *  - beds24_external rows with `counts_as_drawer_truth=false` —
+     *    audit-only; manager can review and flip via Filament.
+     *  - card/transfer/karta payment methods on Path A.
+     *  - rows from any future source not in the two paths above.
      */
     public function scopeDrawerTruth($query)
     {
-        return $query
-            ->whereIn('source_trigger', [
-                CashTransactionSource::CashierBot->value,
-                CashTransactionSource::ManualAdmin->value,
-            ])
-            ->where(function ($q) {
-                $q->whereNull('payment_method')
-                  ->orWhere('payment_method', '')
-                  ->orWhere('payment_method', 'cash');
-            });
+        return $query->where(function ($q) {
+            // Path A: bot / manual-admin with cash-or-null method.
+            $q->where(function ($q2) {
+                $q2->whereIn('source_trigger', [
+                    CashTransactionSource::CashierBot->value,
+                    CashTransactionSource::ManualAdmin->value,
+                ])
+                    ->where(function ($q3) {
+                        $q3->whereNull('payment_method')
+                            ->orWhere('payment_method', '')
+                            ->orWhere('payment_method', 'cash');
+                    });
+            })
+            // Path B: beds24_external pre-validated at write-time.
+                ->orWhere(function ($q2) {
+                    $q2->where('source_trigger', CashTransactionSource::Beds24External->value)
+                        ->where('counts_as_drawer_truth', true);
+                });
+        });
     }
 
     // -----------------------------------------------------------------------
