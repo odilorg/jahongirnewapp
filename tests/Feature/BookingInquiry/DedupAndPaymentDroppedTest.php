@@ -37,6 +37,7 @@ class DedupAndPaymentDroppedTest extends TestCase
             'customer_name' => 'Test Guest',
             'customer_phone' => '+998901234567',
             'customer_email' => 'guest@example.com',
+            'tour_name_snapshot' => 'Test Tour',
             'people_adults' => 1,
             'people_children' => 0,
             'travel_date' => now()->addDays(10)->toDateString(),
