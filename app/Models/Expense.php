@@ -3,22 +3,24 @@
 namespace App\Models;
 
 use App\Casts\MoneyCast;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Expense extends Model
 {
     use HasFactory;
-    public ?string $start_date = null;
-    public ?string $end_date = null;
+    use SoftDeletes;
+
     protected $fillable = [
         'expense_category_id',
         'name',
         'expense_date',
         'amount',
         'hotel_id',
-        'payment_type'
+        'payment_type',
+        'created_by',
     ];
 
     protected $casts = [
@@ -35,5 +37,8 @@ class Expense extends Model
         return $this->belongsTo(ExpenseCategory::class, 'expense_category_id');
     }
 
-
+    public function creator(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'created_by');
+    }
 }

@@ -63,14 +63,35 @@ class ExpenseResource extends Resource
                         Session::put('last_selected_expense_date', $component->getState());
                     })
                     ->default(session('last_selected_expense_date'))
-                    
+                    // Bound the date to a sane window so typos like 2060 or
+                    // 1977 (real incident — 4 such rows pre-dated this guard)
+                    // are rejected at the form layer. Past 2y is generous
+                    // enough for legacy backfill; +1mo handles future-
+                    // scheduled expenses without allowing far-future typos.
+                    //
+                    // Closures on the rule() side recompute at submit time so
+                    // a form that sat open overnight cannot drift past the
+                    // intended bounds; minDate/maxDate are kept for UX only.
+                    ->minDate(now()->subYears(2))
+                    ->maxDate(now()->addMonths(1))
+                    ->rules([
+                        fn () => 'after_or_equal:'.now()->subYears(2)->toDateString(),
+                        fn () => 'before_or_equal:'.now()->addMonths(1)->toDateString(),
+                    ])
                     ->required(),
                 Forms\Components\TextInput::make('name')
                     ->required()
                     ->maxLength(255),
                 Forms\Components\TextInput::make('amount')
                     ->required()
-                    ->numeric(),
+                    ->numeric()
+                    // Block zero/negative amounts. MoneyCast stores value * 100
+                    // so user input is in major currency units (sums) — minValue(1)
+                    // here means "at least 1 sum", effectively rejecting zero-
+                    // amount rows. If a refund needs ledger representation,
+                    // enter it as a separate "refund" category, not as zero
+                    // or a negative entry.
+                    ->minValue(1),
                 Select::make('payment_type')
                     ->options([
                         'naqd' => 'Naqd',

@@ -13,11 +13,13 @@ use App\Services\Telegram\TelegramTransport;
 use Illuminate\Support\ServiceProvider;
 use App\Models\AiInstruction;
 use App\Models\Booking;
+use App\Models\Expense;
 use App\Models\TourPriceTier;
 use App\Models\TourProduct;
 use App\Models\TourProductDirection;
 use App\Observers\AiInstructionObserver;
 use App\Observers\BookingObserver;
+use App\Observers\ExpenseObserver;
 use App\Observers\TourPriceTierObserver;
 use App\Observers\TourProductDirectionObserver;
 use App\Observers\TourProductObserver;
@@ -61,6 +63,11 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         Booking::observe(BookingObserver::class);
+
+        // Hotel-ops Expense audit attribution — stamps created_by from the
+        // authenticated Filament user on insert. CLI / seeder writes leave
+        // it NULL (column is nullable).
+        Expense::observe(ExpenseObserver::class);
 
         // Phase 19.1 — fire supplier amendment notifications when a dispatched
         // booking's critical fields (date/time/pickup/pax) change. Also handles
