@@ -192,6 +192,31 @@ final class PublicJobApplicationTest extends TestCase
         Bus::assertNotDispatched(SendTelegramNotificationJob::class);
     }
 
+    /**
+     * Reviewer-pinned (2026-05-11): a bot that uploads a file AND
+     * fills the honeypot must not persist the file to disk. The
+     * controller intercepts before invoking the Action, so the
+     * uploaded file is discarded by garbage collection rather than
+     * landing in `storage/app/private/candidates/`.
+     *
+     * @test
+     */
+    public function honeypot_plus_cv_upload_does_not_persist_file(): void
+    {
+        $cv = UploadedFile::fake()->create('spam.pdf', 100, 'application/pdf');
+
+        $this->post(route('jobs.apply.store'), array_merge(
+            $this->validPayload(),
+            [
+                'website' => 'https://spammer.example.com',
+                'cv' => $cv,
+            ],
+        ))->assertRedirect(route('jobs.apply.success'));
+
+        $this->assertSame(0, JobCandidate::query()->count());
+        Storage::disk('local')->assertDirectoryEmpty('candidates/'.now()->format('Y/m'));
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // File uploads
     // ─────────────────────────────────────────────────────────────────────────

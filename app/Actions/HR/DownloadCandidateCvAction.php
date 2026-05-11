@@ -30,6 +30,15 @@ final class DownloadCandidateCvAction
      */
     public function execute(JobCandidate $candidate): BinaryFileResponse|StreamedResponse|null
     {
+        // Defensive role re-check (code-reviewer 2026-05-11). The
+        // Filament row-action `->visible()` predicate only controls
+        // BUTTON rendering; the Livewire action endpoint is still
+        // reachable by any authenticated panel user via crafted POST.
+        // For a CV containing PII, hard-block here too.
+        if (! (auth()->user()?->hasAnyRole(['super_admin', 'hr']) ?? false)) {
+            abort(403);
+        }
+
         if ($candidate->cv_path === null || ! Storage::disk('local')->exists($candidate->cv_path)) {
             Notification::make()
                 ->title('Файл не найден')
