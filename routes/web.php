@@ -1,19 +1,16 @@
 <?php
 
-use App\Models\Chat;
-use App\Jobs\TestJob;
-use Illuminate\Http\Request;
-use App\Models\ScheduledMessage;
-use Illuminate\Support\Facades\Log;
 use App\Filament\Pages\Availability;
+use App\Http\Controllers\OctoCallbackController;
 use App\Jobs\SendTelegramMessageJob;
+use App\Models\Chat;
+use App\Models\ScheduledMessage;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Storage;
-use App\Http\Controllers\OctoCallbackController;
-
-
 
 /*
 |--------------------------------------------------------------------------
@@ -49,8 +46,7 @@ use App\Http\Controllers\OctoCallbackController;
 //     $n8nUrl = $n8nBaseUrl . $any;
 
 // routes/api.php
-//Route::post('/availability', [Availability::class, 'checkAvailability'])->middleware('auth:sanctum');
-
+// Route::post('/availability', [Availability::class, 'checkAvailability'])->middleware('auth:sanctum');
 
 //     // Forward the request to n8n
 //     return Http::withHeaders(request()->header())
@@ -133,7 +129,17 @@ Route::middleware('throttle:30,1')
 
 Route::get('/payment/success', [OctoCallbackController::class, 'success'])->name('payment.success');
 
-
+// Public job application form (HR intake).
+// GET  /jobs/apply         — render
+// POST /jobs/apply         — submit (rate-limited 10/hr per IP; honeypot + dedup in controller/action)
+// GET  /jobs/apply/success — thank-you page (same for real + duplicate + honeypot hits)
+Route::get('/jobs/apply', [\App\Http\Controllers\JobApplicationController::class, 'show'])
+    ->name('jobs.apply.show');
+Route::post('/jobs/apply', [\App\Http\Controllers\JobApplicationController::class, 'store'])
+    ->middleware('throttle:10,60')
+    ->name('jobs.apply.store');
+Route::get('/jobs/apply/success', [\App\Http\Controllers\JobApplicationController::class, 'success'])
+    ->name('jobs.apply.success');
 
 // Route::get('/dispatch-job', function () {
 //     $message = \App\Models\ScheduledMessage::first(); // Adjust as needed
@@ -145,7 +151,7 @@ Route::get('/payment/success', [OctoCallbackController::class, 'success'])->name
 // Route::get('/dispatch-job', function () {
 //     // Fetch or create a message
 //     $message = ScheduledMessage::first(); // Adjust as needed
-    
+
 //     // Fetch or create a chat
 //     $chat = $message->chat->chat_id; // Adjust as needed
 //  //dd($chat);
@@ -161,10 +167,10 @@ Route::get('/payment/success', [OctoCallbackController::class, 'success'])->name
 
 // GYG API routes (also accessible without /api prefix for GYG compatibility)
 Route::prefix('1')->middleware('gyg.auth')->group(function () {
-    Route::get('/get-availabilities/',  [\App\Http\Controllers\GygController::class, 'getAvailabilities']);
-    Route::post('/reserve/',            [\App\Http\Controllers\GygController::class, 'reserve']);
+    Route::get('/get-availabilities/', [\App\Http\Controllers\GygController::class, 'getAvailabilities']);
+    Route::post('/reserve/', [\App\Http\Controllers\GygController::class, 'reserve']);
     Route::post('/cancel-reservation/', [\App\Http\Controllers\GygController::class, 'cancelReservation']);
-    Route::post('/book/',               [\App\Http\Controllers\GygController::class, 'book']);
-    Route::post('/cancel-booking/',     [\App\Http\Controllers\GygController::class, 'cancelBooking']);
-    Route::post('/notify/',             [\App\Http\Controllers\GygController::class, 'notify']);
+    Route::post('/book/', [\App\Http\Controllers\GygController::class, 'book']);
+    Route::post('/cancel-booking/', [\App\Http\Controllers\GygController::class, 'cancelBooking']);
+    Route::post('/notify/', [\App\Http\Controllers\GygController::class, 'notify']);
 });
