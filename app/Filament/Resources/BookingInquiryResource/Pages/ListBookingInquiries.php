@@ -7,6 +7,7 @@ namespace App\Filament\Resources\BookingInquiryResource\Pages;
 use App\Filament\Resources\BookingInquiryResource;
 use App\Models\BookingInquiry;
 use Filament\Actions;
+use Filament\Notifications\Notification;
 use Filament\Resources\Components\Tab;
 use Filament\Resources\Pages\ListRecords;
 use Illuminate\Database\Eloquent\Builder;
@@ -19,8 +20,57 @@ class ListBookingInquiries extends ListRecords
     {
         return [
             Actions\CreateAction::make()
-                ->label('+ New booking inquiry'),
+                ->label('+ New booking inquiry')
+                // Block silent duplicate creation when an in-flight inquiry
+                // already exists for the same phone/email. Reason:
+                // feedback_octo_cancel_duplicate_inquiry_risk (2026-05-11
+                // Imene incident — orphan #113 created instead of using
+                // markPaidOffline on #112). before() halts the save and
+                // surfaces the existing refs so operator can navigate to them.
+                ->before(fn (Actions\CreateAction $action, array $data) => $this->blockIfDuplicateExists($action, $data)),
         ];
+    }
+
+    /**
+     * Halt CreateAction with an informative notification when an in-flight
+     * inquiry already exists for the same normalized phone or email.
+     *
+     * Matching logic lives on the model (BookingInquiry::findInFlightDuplicates).
+     * "In-flight" = status new/contacted/awaiting_customer/awaiting_payment.
+     * Confirmed/cancelled/spam/completed don't block (returning customers
+     * legitimately need new inquiries).
+     */
+    private function blockIfDuplicateExists(Actions\CreateAction $action, array $data): void
+    {
+        $matches = BookingInquiry::findInFlightDuplicates(
+            $data['customer_phone'] ?? null,
+            $data['customer_email'] ?? null,
+        );
+
+        if ($matches->isEmpty()) {
+            return;
+        }
+
+        $lines = $matches->map(fn (BookingInquiry $b) => sprintf(
+            '#%d  %s  · status=%s  · %s',
+            $b->id,
+            $b->reference,
+            $b->status,
+            $b->customer_name ?: '(no name)',
+        ))->all();
+
+        Notification::make()
+            ->title('Possible duplicate — creation blocked')
+            ->body(
+                "An in-flight inquiry already exists for this contact:\n\n"
+                .implode("\n", $lines)
+                ."\n\nOpen the existing inquiry instead. If you need to record an offline payment, use the row's “Mark paid (cash / card)” action."
+            )
+            ->danger()
+            ->persistent()
+            ->send();
+
+        $action->halt();
     }
 
     /**
@@ -52,6 +102,24 @@ class ListBookingInquiries extends ListRecords
                 ->modifyQueryUsing(fn (Builder $query) => $query->where('status', BookingInquiry::STATUS_AWAITING_PAYMENT))
                 ->badge(fn () => BookingInquiry::where('status', BookingInquiry::STATUS_AWAITING_PAYMENT)->count())
                 ->badgeColor('warning'),
+
+            // Payment dropped: an Octo attempt happened but the payment never
+            // captured (cancelled/declined/expired) AND no offline payment has
+            // been recorded since. These rows are the highest-risk-of-orphan-
+            // duplicate state — surfacing them here is the operational
+            // counterpart to the CreateAction duplicate-block.
+            //
+            // Filter: paid_at IS NULL AND payment_link IS NULL AND
+            //         octo_transaction_id IS NOT NULL AND
+            //         status IN (contacted, awaiting_payment).
+            //
+            // octo_transaction_id is stamped by OctoCallbackController on both
+            // attempt-first (Phase 1+) and direct (pre-Phase-1) callback paths
+            // so a single column check covers both eras.
+            'payment_dropped' => Tab::make('Payment dropped')
+                ->modifyQueryUsing(fn (Builder $query) => $this->scopePaymentDroppedQuery($query))
+                ->badge(fn () => $this->scopePaymentDroppedQuery(BookingInquiry::query())->count())
+                ->badgeColor('danger'),
 
             'confirmed' => Tab::make('Confirmed')
                 ->modifyQueryUsing(fn (Builder $query) => $query->where('status', BookingInquiry::STATUS_CONFIRMED))
@@ -138,10 +206,30 @@ class ListBookingInquiries extends ListRecords
             ->where('booking_inquiries.status', BookingInquiry::STATUS_CONFIRMED)
             ->whereNull('booking_inquiries.cancelled_at')
             ->whereRaw(
-                "DATE_ADD(booking_inquiries.travel_date, INTERVAL (
+                'DATE_ADD(booking_inquiries.travel_date, INTERVAL (
                     COALESCE((SELECT duration_days FROM tour_products WHERE id = booking_inquiries.tour_product_id), 1) - 1
-                 ) DAY) = ?",
+                 ) DAY) = ?',
                 [$today]
             );
+    }
+
+    /**
+     * "Payment dropped" scope — Octo attempt happened but the payment never
+     * captured AND no offline payment has been recorded.
+     *
+     * Used by the Payment-dropped tab modifier and badge counter, both of
+     * which need the identical filter. See feedback_octo_cancel_duplicate_inquiry_risk
+     * for the operational rationale.
+     */
+    private function scopePaymentDroppedQuery(Builder $query): Builder
+    {
+        return $query
+            ->whereNull('paid_at')
+            ->whereNull('payment_link')
+            ->whereNotNull('octo_transaction_id')
+            ->whereIn('status', [
+                BookingInquiry::STATUS_CONTACTED,
+                BookingInquiry::STATUS_AWAITING_PAYMENT,
+            ]);
     }
 }

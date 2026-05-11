@@ -20,13 +20,19 @@ class BookingInquiry extends Model
 {
     use HasFactory;
 
-    public const STATUS_NEW               = 'new';
-    public const STATUS_CONTACTED         = 'contacted';
+    public const STATUS_NEW = 'new';
+
+    public const STATUS_CONTACTED = 'contacted';
+
     public const STATUS_AWAITING_CUSTOMER = 'awaiting_customer';
-    public const STATUS_AWAITING_PAYMENT  = 'awaiting_payment';
-    public const STATUS_CONFIRMED         = 'confirmed';
-    public const STATUS_CANCELLED         = 'cancelled';
-    public const STATUS_SPAM              = 'spam';
+
+    public const STATUS_AWAITING_PAYMENT = 'awaiting_payment';
+
+    public const STATUS_CONFIRMED = 'confirmed';
+
+    public const STATUS_CANCELLED = 'cancelled';
+
+    public const STATUS_SPAM = 'spam';
 
     public const STATUSES = [
         self::STATUS_NEW,
@@ -50,11 +56,14 @@ class BookingInquiry extends Model
         ], true);
     }
 
-    public const PAYMENT_ONLINE      = 'online';
-    public const PAYMENT_CASH        = 'cash';
+    public const PAYMENT_ONLINE = 'online';
+
+    public const PAYMENT_CASH = 'cash';
+
     public const PAYMENT_CARD_OFFICE = 'card_office';
 
-    public const PAYMENT_SPLIT_FULL    = 'full_online';
+    public const PAYMENT_SPLIT_FULL = 'full_online';
+
     public const PAYMENT_SPLIT_PARTIAL = 'partial';
 
     public const PAYMENT_SPLITS = [
@@ -71,7 +80,8 @@ class BookingInquiry extends Model
     // correct pricing tier even if the underlying tour product later
     // shifts its default type.
     public const TOUR_TYPE_PRIVATE = 'private';
-    public const TOUR_TYPE_GROUP   = 'group';
+
+    public const TOUR_TYPE_GROUP = 'group';
 
     public const TOUR_TYPES = [
         self::TOUR_TYPE_PRIVATE,
@@ -81,9 +91,12 @@ class BookingInquiry extends Model
     // Operational lifecycle — parallel to commercial `status`.
     // A confirmed sale moves through these prep states independently.
     public const PREP_NOT_PREPARED = 'not_prepared';
-    public const PREP_PREPARED     = 'prepared';
-    public const PREP_DISPATCHED   = 'dispatched';
-    public const PREP_COMPLETED    = 'completed';
+
+    public const PREP_PREPARED = 'prepared';
+
+    public const PREP_DISPATCHED = 'dispatched';
+
+    public const PREP_COMPLETED = 'completed';
 
     public const PREP_STATUSES = [
         self::PREP_NOT_PREPARED,
@@ -95,15 +108,23 @@ class BookingInquiry extends Model
     // Booking sources — centralized for StoreBookingInquiryRequest, Filament
     // form, and Filament list filter. OTA_SOURCES gates the "external ref"
     // field visibility.
-    public const SOURCE_WEBSITE  = 'website';
+    public const SOURCE_WEBSITE = 'website';
+
     public const SOURCE_WHATSAPP = 'whatsapp';
+
     public const SOURCE_TELEGRAM = 'telegram';
-    public const SOURCE_PHONE    = 'phone';
-    public const SOURCE_EMAIL    = 'email';
-    public const SOURCE_WALK_IN  = 'walk_in';
-    public const SOURCE_MANUAL   = 'manual';
-    public const SOURCE_GYG      = 'gyg';
-    public const SOURCE_VIATOR   = 'viator';
+
+    public const SOURCE_PHONE = 'phone';
+
+    public const SOURCE_EMAIL = 'email';
+
+    public const SOURCE_WALK_IN = 'walk_in';
+
+    public const SOURCE_MANUAL = 'manual';
+
+    public const SOURCE_GYG = 'gyg';
+
+    public const SOURCE_VIATOR = 'viator';
 
     public const SOURCES = [
         self::SOURCE_WEBSITE, self::SOURCE_WHATSAPP, self::SOURCE_TELEGRAM,
@@ -112,15 +133,15 @@ class BookingInquiry extends Model
     ];
 
     public const SOURCE_LABELS = [
-        self::SOURCE_WEBSITE  => 'Website form',
+        self::SOURCE_WEBSITE => 'Website form',
         self::SOURCE_WHATSAPP => 'WhatsApp',
         self::SOURCE_TELEGRAM => 'Telegram',
-        self::SOURCE_PHONE    => 'Phone',
-        self::SOURCE_EMAIL    => 'Email',
-        self::SOURCE_WALK_IN  => 'Walk-in',
-        self::SOURCE_MANUAL   => 'Manual',
-        self::SOURCE_GYG      => 'GetYourGuide',
-        self::SOURCE_VIATOR   => 'Viator',
+        self::SOURCE_PHONE => 'Phone',
+        self::SOURCE_EMAIL => 'Email',
+        self::SOURCE_WALK_IN => 'Walk-in',
+        self::SOURCE_MANUAL => 'Manual',
+        self::SOURCE_GYG => 'GetYourGuide',
+        self::SOURCE_VIATOR => 'Viator',
     ];
 
     /** Sources that represent OTA / third-party bookings with external IDs. */
@@ -206,39 +227,39 @@ class BookingInquiry extends Model
     ];
 
     protected $casts = [
-        'travel_date'          => 'date',
-        'flexible_dates'       => 'boolean',
-        'has_dietary_flag'      => 'boolean',
-        'has_accessibility_flag'=> 'boolean',
-        'has_language_flag'     => 'boolean',
-        'has_occasion_flag'     => 'boolean',
-        'price_quoted'         => 'decimal:2',
+        'travel_date' => 'date',
+        'flexible_dates' => 'boolean',
+        'has_dietary_flag' => 'boolean',
+        'has_accessibility_flag' => 'boolean',
+        'has_language_flag' => 'boolean',
+        'has_occasion_flag' => 'boolean',
+        'price_quoted' => 'decimal:2',
         'payment_link_sent_at' => 'datetime',
-        'paid_at'              => 'datetime',
-        'contacted_at'              => 'datetime',
-        'confirmed_at'              => 'datetime',
-        'cancelled_at'              => 'datetime',
-        'review_request_sent_at'    => 'datetime',
-        'feedback_request_sent_at'  => 'datetime',
-        'hotel_request_sent_at'     => 'datetime',
-        'payment_reminder_sent_at'  => 'datetime',
-        'guest_reminder_sent_at'    => 'datetime',
-        'staff_reminder_sent_at'    => 'datetime',
-        'driver_reminder_sent_at'   => 'datetime',
-        'driver_dispatched_at'      => 'datetime',
-        'guide_dispatched_at'       => 'datetime',
-        'submitted_at'              => 'datetime',
-        'receipt_sent_at'           => 'datetime',
-        'commission_rate'           => 'decimal:2',
-        'commission_amount'         => 'decimal:2',
-        'net_revenue'               => 'decimal:2',
-        'amount_online_usd'         => 'decimal:2',
-        'amount_cash_usd'           => 'decimal:2',
-        'driver_cost'               => 'decimal:2',
-        'driver_cost_override'      => 'boolean',
-        'guide_cost'                => 'decimal:2',
-        'guide_cost_override'       => 'boolean',
-        'other_costs'               => 'decimal:2',
+        'paid_at' => 'datetime',
+        'contacted_at' => 'datetime',
+        'confirmed_at' => 'datetime',
+        'cancelled_at' => 'datetime',
+        'review_request_sent_at' => 'datetime',
+        'feedback_request_sent_at' => 'datetime',
+        'hotel_request_sent_at' => 'datetime',
+        'payment_reminder_sent_at' => 'datetime',
+        'guest_reminder_sent_at' => 'datetime',
+        'staff_reminder_sent_at' => 'datetime',
+        'driver_reminder_sent_at' => 'datetime',
+        'driver_dispatched_at' => 'datetime',
+        'guide_dispatched_at' => 'datetime',
+        'submitted_at' => 'datetime',
+        'receipt_sent_at' => 'datetime',
+        'commission_rate' => 'decimal:2',
+        'commission_amount' => 'decimal:2',
+        'net_revenue' => 'decimal:2',
+        'amount_online_usd' => 'decimal:2',
+        'amount_cash_usd' => 'decimal:2',
+        'driver_cost' => 'decimal:2',
+        'driver_cost_override' => 'boolean',
+        'guide_cost' => 'decimal:2',
+        'guide_cost_override' => 'boolean',
+        'other_costs' => 'decimal:2',
     ];
 
     public function driver(): BelongsTo
@@ -334,7 +355,7 @@ class BookingInquiry extends Model
      */
     public function recomputePaymentStatus(): void
     {
-        $quoted   = (float) ($this->price_quoted ?? 0);
+        $quoted = (float) ($this->price_quoted ?? 0);
         $received = $this->totalReceived();
 
         // Fully paid and no paid_at yet → set it
@@ -349,6 +370,7 @@ class BookingInquiry extends Model
                     ?? $this->created_by_user_id;
             }
             $this->saveQuietly();
+
             return;
         }
 
@@ -429,7 +451,7 @@ class BookingInquiry extends Model
      */
     public static function generateReference(?\DateTimeInterface $at = null): string
     {
-        $at   = $at ?? now();
+        $at = $at ?? now();
         $year = (int) $at->format('Y');
 
         $lastRef = self::where('reference', 'like', "INQ-{$year}-%")
@@ -443,6 +465,7 @@ class BookingInquiry extends Model
 
         return sprintf('INQ-%d-%06d', $year, $next);
     }
+
     /**
      * Operational guest-context flag icon — single-character priority resolution
      * for the calendar list view. Returns null when no flags are set.
@@ -466,7 +489,91 @@ class BookingInquiry extends Model
         if ($this->has_occasion_flag) {
             return '🎉';
         }
+
         return null;
     }
 
+    /**
+     * In-flight statuses for duplicate detection — these are pre-closure states
+     * where creating a parallel inquiry for the same customer is almost always
+     * an operator error (incident: Imene INQ-2026-000107 + orphan INQ-2026-000108
+     * on 2026-05-11 after Octo cancel + cash payment).
+     *
+     * Excluded from the gate: confirmed (legitimately a second booking for a
+     * returning customer), cancelled / spam / completed (closed history).
+     */
+    public const IN_FLIGHT_STATUSES_FOR_DEDUP = [
+        self::STATUS_NEW,
+        self::STATUS_CONTACTED,
+        self::STATUS_AWAITING_CUSTOMER,
+        self::STATUS_AWAITING_PAYMENT,
+    ];
+
+    /**
+     * Find existing in-flight inquiries that match a contact by normalized
+     * phone (digits-only) or normalized email (lowercase + trim). Used by
+     * the Filament CreateAction to block silent duplicate creation.
+     *
+     * Match semantics: ANY field match counts as a duplicate. Both inputs
+     * are optional; null/empty inputs are skipped. If both are null/empty
+     * the result is an empty collection (we don't dragnet-match all rows).
+     *
+     * Pure query helper (Principle 2) — no side effects, returns a Collection
+     * so the caller can render context to the operator (refs, status, tour).
+     */
+    public static function findInFlightDuplicates(
+        ?string $phone,
+        ?string $email,
+    ): \Illuminate\Database\Eloquent\Collection {
+        $normalizedPhone = self::normalizePhone($phone);
+        $normalizedEmail = self::normalizeEmail($email);
+
+        if ($normalizedPhone === null && $normalizedEmail === null) {
+            return new \Illuminate\Database\Eloquent\Collection;
+        }
+
+        return self::query()
+            ->whereIn('status', self::IN_FLIGHT_STATUSES_FOR_DEDUP)
+            ->where(function ($q) use ($normalizedPhone, $normalizedEmail): void {
+                if ($normalizedPhone !== null) {
+                    // MySQL 8.0+: REGEXP_REPLACE strips non-digits on the stored
+                    // value so '+49 176 30720259' (stored) matches '4917630720259'
+                    // (lookup, already normalized by normalizePhone). The project
+                    // runs MySQL ≥ 8.0 in dev/staging/prod; if a SQLite test
+                    // harness is ever added it will need its own branch here.
+                    $q->orWhereRaw(
+                        "REGEXP_REPLACE(COALESCE(customer_phone, ''), '[^0-9]', '') = ?",
+                        [$normalizedPhone]
+                    );
+                }
+                if ($normalizedEmail !== null) {
+                    $q->orWhereRaw('LOWER(TRIM(COALESCE(customer_email, ?))) = ?', ['', $normalizedEmail]);
+                }
+            })
+            ->orderByDesc('id')
+            ->limit(5)
+            ->get();
+    }
+
+    /** Strip everything except digits. Returns null if the result is empty. */
+    public static function normalizePhone(?string $phone): ?string
+    {
+        if ($phone === null) {
+            return null;
+        }
+        $digits = preg_replace('/[^0-9]/', '', $phone) ?? '';
+
+        return $digits === '' ? null : $digits;
+    }
+
+    /** Lowercase + trim. Returns null if the result is empty. */
+    public static function normalizeEmail(?string $email): ?string
+    {
+        if ($email === null) {
+            return null;
+        }
+        $clean = strtolower(trim($email));
+
+        return $clean === '' ? null : $clean;
+    }
 }
