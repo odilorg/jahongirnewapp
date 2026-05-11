@@ -43,8 +43,14 @@ class StoreJobApplicationRequest extends FormRequest
     public function rules(): array
     {
         $rules = [
-            // Honeypot — must be empty. Bots fill all inputs.
-            'website' => ['nullable', 'string', 'max:0'],
+            // Honeypot — accept ANY value through validation. The
+            // controller's `!empty($request->input('website'))` check
+            // intercepts non-empty values and returns silent success
+            // without a DB write. Validating here as max:0 would
+            // surface as a normal validation error and reveal the
+            // honeypot's existence to spammers in the form-error
+            // bag.
+            'website' => ['nullable', 'string', 'max:255'],
 
             // Contact
             'full_name' => ['required', 'string', 'min:2', 'max:255'],
