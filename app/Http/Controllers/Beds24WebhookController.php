@@ -868,14 +868,19 @@ class Beds24WebhookController extends Controller
         // audit (2026-05-11) showed zero collisions historically — kept
         // as belt-and-suspenders.
         //
-        // Times are normalised to UTC explicitly so the comparison
-        // works regardless of app timezone (DB stores UTC datetimes;
-        // Carbon::now() respects `app.timezone`). Without the explicit
-        // ->utc() the bound times would drift 5h on Tashkent prod.
-        // Amount uses exact equality — the column is decimal(:,2) so
-        // there's no source of drift on a 2-decimal write/read cycle.
-        $windowStart = $occurredAt->copy()->utc()->subMinutes(2);
-        $windowEnd = $occurredAt->copy()->utc()->addMinutes(2);
+        // Both sides of the time comparison use Laravel's `now()` /
+        // Carbon native serialisation, which respects `app.timezone`.
+        // The cash_transactions.occurred_at column does NOT auto-convert
+        // to UTC (no DateTimeInterface cast on the column; `datetime`
+        // cast stores whatever string Carbon::toDateTimeString emits).
+        // So both stored values and bound bounds end up in the same
+        // app TZ — no explicit normalisation needed. Matches the
+        // existing dedup queries (lines 645-688) which use the same
+        // convention. Amount uses exact equality — the column is
+        // decimal(:,2) so there's no source of drift on a 2-decimal
+        // write/read cycle.
+        $windowStart = $occurredAt->copy()->subMinutes(2);
+        $windowEnd = $occurredAt->copy()->addMinutes(2);
         $matchingBotRow = CashTransaction::where('beds24_booking_id', $bookingId)
             ->where('source_trigger', CashTransactionSource::CashierBot->value)
             ->whereBetween('occurred_at', [$windowStart, $windowEnd])
