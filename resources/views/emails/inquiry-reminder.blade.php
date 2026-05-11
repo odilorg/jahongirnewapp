@@ -24,7 +24,7 @@
         </table>
 
         <p style="margin-top: 24px;">
-            <a href="{{ url('/admin/bookings/'.$inquiry->id.'/edit') }}"
+            <a href="{{ url('/admin/booking-inquiries/'.$inquiry->id.'/edit') }}"
                style="display: inline-block; background: #3b82f6; color: white; text-decoration: none; padding: 10px 16px; border-radius: 6px;">
                 Open booking
             </a>

@@ -132,7 +132,7 @@ class DailyRecapBuilder
             $lines[] = '🚨 <b>Needs Action (' . count($data['needs_action']) . ')</b>';
             foreach ($data['needs_action'] as $b) {
                 $time  = $b['pickup_time'] ? mb_substr($b['pickup_time'], 0, 5) : '—';
-                $url   = $adminBaseUrl ? " · {$adminBaseUrl}/admin/bookings/{$b['id']}/edit" : '';
+                $url   = $adminBaseUrl ? " · {$adminBaseUrl}/admin/booking-inquiries/{$b['id']}/edit" : '';
                 $reasons = implode(', ', $b['reasons']);
                 $lines[] = "• <b>{$b['customer']}</b> · {$time} · {$b['pax']}pax";
                 $lines[] = "   ⚠ {$reasons}";

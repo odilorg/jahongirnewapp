@@ -39,7 +39,7 @@
                 </div>
                 @if ($baseUrl)
                     <div style="margin-top: 8px;">
-                        <a href="{{ $baseUrl }}/admin/bookings/{{ $b['id'] }}/edit"
+                        <a href="{{ $baseUrl }}/admin/booking-inquiries/{{ $b['id'] }}/edit"
                            style="background: #dc2626; color: white; text-decoration: none; padding: 6px 12px; border-radius: 4px; font-size: 12px; font-weight: 500;">
                             Open booking →
                         </a>
