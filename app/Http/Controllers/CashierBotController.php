@@ -538,6 +538,13 @@ class CashierBotController extends Controller
                 'arrivalFrom' => $arrivalFrom,
                 'arrivalTo' => $arrivalTo,
                 'propertyId' => $propertyId,
+                // GuestListPriceFormatter computes outstanding USD as
+                // `price − Σ(negative invoiceItems)` so the listing
+                // shows the same number the payment-prep path will
+                // quote. Without invoiceItems Beds24 omits the array
+                // and the formatter falls back to total-as-outstanding
+                // (safe degrade, just less informative on partial-paid).
+                'includeInvoiceItems' => true,
             ]);
 
             $today = Carbon::today();
