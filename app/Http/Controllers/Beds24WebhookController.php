@@ -2,28 +2,28 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\CashTransactionSource;
+use App\Enums\TransactionCategory;
+use App\Enums\TransactionType;
 use App\Jobs\FxSyncJob;
 use App\Jobs\ProcessBeds24WebhookJob;
 use App\Jobs\SendTelegramNotificationJob;
 use App\Models\Beds24Booking;
 use App\Models\Beds24BookingChange;
 use App\Models\Beds24WebhookEvent;
+use App\Models\CashierShift;
 use App\Models\CashTransaction;
 use App\Models\IncomingWebhook;
 use App\Models\TelegramPosSession;
-use App\Enums\TransactionType;
-use App\Enums\TransactionCategory;
-use App\Models\CashierShift;
-use App\Enums\CashTransactionSource;
+use App\Services\Beds24BookingService;
 use App\Services\Beds24RoomMapService;
 use App\Services\Fx\WebhookReconciliationService;
 use App\Services\OwnerAlertService;
-use App\Services\Beds24BookingService;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
-use Carbon\Carbon;
 
 class Beds24WebhookController extends Controller
 {
@@ -31,9 +31,9 @@ class Beds24WebhookController extends Controller
         protected OwnerAlertService $alertService,
         protected Beds24BookingService $beds24Service,
         protected Beds24RoomMapService $roomMap,
+        protected \App\Services\CashierBot\Beds24ExternalPaymentMethodClassifier $methodClassifier,
         protected ?WebhookReconciliationService $reconciliation = null,
     ) {}
-
 
     /**
      * Handle incoming Beds24 webhook.
@@ -58,6 +58,7 @@ class Beds24WebhookController extends Controller
         $existing = Beds24WebhookEvent::where('event_hash', $eventHash)->first();
         if ($existing && $existing->status === 'processed') {
             Log::info('Beds24 Webhook: Duplicate event skipped', ['event_id' => $existing->id]);
+
             return response('OK', 200);
         }
 
@@ -69,10 +70,10 @@ class Beds24WebhookController extends Controller
         // worker is down. The incoming_webhook_id is passed to the job so it
         // can update the record's status throughout its lifecycle.
         $incomingWebhook = IncomingWebhook::create([
-            'source'   => 'beds24',
+            'source' => 'beds24',
             'event_id' => $bookingId ?: $eventHash,
-            'payload'  => $raw,
-            'status'   => IncomingWebhook::STATUS_PENDING,
+            'payload' => $raw,
+            'status' => IncomingWebhook::STATUS_PENDING,
         ]);
 
         // Store webhook event (never lose data)
@@ -80,8 +81,8 @@ class Beds24WebhookController extends Controller
             ['event_hash' => $eventHash],
             [
                 'booking_id' => $bookingId ?: null,
-                'payload'    => $raw,
-                'status'     => 'pending',
+                'payload' => $raw,
+                'status' => 'pending',
             ]
         );
 
@@ -100,14 +101,16 @@ class Beds24WebhookController extends Controller
 
         $data = $this->parsePayload($raw);
 
-        if (!$data) {
+        if (! $data) {
             Log::warning('Beds24 Webhook: Could not parse payload', ['raw' => $raw]);
+
             return;
         }
 
         $bookingId = (string) ($data['booking_id'] ?? '');
-        if (!$bookingId) {
+        if (! $bookingId) {
             Log::warning('Beds24 Webhook: No booking ID in payload');
+
             return;
         }
 
@@ -140,34 +143,34 @@ class Beds24WebhookController extends Controller
 
         $booking = Beds24Booking::create([
             'beds24_booking_id' => $bookingId,
-            'property_id'       => $data['property_id'] ?? '',
-            'room_id'           => $data['room_id'] ?? null,
-            'room_name'         => $data['room_name'] ?? null,
-            'guest_name'        => $this->buildGuestName($data),
-            'guest_email'       => $data['guest_email'] ?? null,
-            'guest_phone'       => $data['guest_phone'] ?? null,
-            'channel'           => $data['channel'] ?? null,
-            'arrival_date'      => $data['arrival_date'] ?? null,
-            'departure_date'    => $data['departure_date'] ?? null,
-            'num_adults'        => (int) ($data['num_adults'] ?? 1),
-            'num_children'      => (int) ($data['num_children'] ?? 0),
-            'total_amount'      => (float) ($data['total_amount'] ?? 0),
-            'currency'          => $data['currency'] ?? 'USD',
-            'payment_status'    => $this->derivePaymentStatus($data),
-            'booking_status'    => $this->deriveBookingStatus($data),
-            'original_status'   => $data['status'] ?? null,
-            'invoice_balance'   => (float) ($data['invoice_balance'] ?? 0),
-            'beds24_raw_data'   => $raw,
+            'property_id' => $data['property_id'] ?? '',
+            'room_id' => $data['room_id'] ?? null,
+            'room_name' => $data['room_name'] ?? null,
+            'guest_name' => $this->buildGuestName($data),
+            'guest_email' => $data['guest_email'] ?? null,
+            'guest_phone' => $data['guest_phone'] ?? null,
+            'channel' => $data['channel'] ?? null,
+            'arrival_date' => $data['arrival_date'] ?? null,
+            'departure_date' => $data['departure_date'] ?? null,
+            'num_adults' => (int) ($data['num_adults'] ?? 1),
+            'num_children' => (int) ($data['num_children'] ?? 0),
+            'total_amount' => (float) ($data['total_amount'] ?? 0),
+            'currency' => $data['currency'] ?? 'USD',
+            'payment_status' => $this->derivePaymentStatus($data),
+            'booking_status' => $this->deriveBookingStatus($data),
+            'original_status' => $data['status'] ?? null,
+            'invoice_balance' => (float) ($data['invoice_balance'] ?? 0),
+            'beds24_raw_data' => $raw,
             'master_booking_id' => $masterBookingId,
             'booking_group_size' => $groupSize,
         ]);
 
         $change = Beds24BookingChange::create([
             'beds24_booking_id' => $bookingId,
-            'change_type'       => 'created',
-            'old_data'          => null,
-            'new_data'          => $data,
-            'detected_at'       => now(),
+            'change_type' => 'created',
+            'old_data' => null,
+            'new_data' => $data,
+            'detected_at' => now(),
         ]);
 
         Log::info('Beds24 Webhook: New booking saved', ['booking_id' => $bookingId]);
@@ -193,21 +196,21 @@ class Beds24WebhookController extends Controller
             }
         }
 
-        if (!$isGenuinelyNew) {
+        if (! $isGenuinelyNew) {
             Log::info('Beds24 Webhook: Old booking first seen (sync), skipping new booking alert', [
                 'booking_id' => $bookingId,
                 'booking_time' => $bookingTime,
             ]);
 
             // Still process payment if it's paid
-            $balance = (float) ($data["invoice_balance"] ?? 0);
-            $total   = (float) ($data["total_amount"] ?? 0);
+            $balance = (float) ($data['invoice_balance'] ?? 0);
+            $total = (float) ($data['total_amount'] ?? 0);
             if ($total > 0 && $balance <= 0) {
                 $paymentLines = $this->extractNewPaymentLines($booking->beds24_booking_id, $raw);
-                if (!empty($paymentLines)) {
+                if (! empty($paymentLines)) {
                     foreach ($paymentLines as $line) {
                         $method = $line['status'] ?? '';
-                        $desc   = $line['description'] ?? '';
+                        $desc = $line['description'] ?? '';
                         $amount = (float) ($line['amount'] ?? 0);
                         $this->handleWebhookPayment($booking, $amount, $method, $desc, $line['_ref'] ?? null, $line['id'] ?? null);
                     }
@@ -217,27 +220,29 @@ class Beds24WebhookController extends Controller
                     $this->alertService->alertPaymentReceived($booking, $change, $paymentAmount, $total, $balance);
                 }
             }
+
             // If cancelled old booking — no alert needed (it's historical)
             return;
         }
 
         if ($booking->isCancelled()) {
             $this->alertService->alertCancellation($booking, $change);
+
             return;
         }
 
         // Check if booking arrives already paid (e.g. prepaid via OTA)
-        $balance = (float) ($data["invoice_balance"] ?? 0);
-        $total   = (float) ($data["total_amount"] ?? 0);
+        $balance = (float) ($data['invoice_balance'] ?? 0);
+        $total = (float) ($data['total_amount'] ?? 0);
         $isPrePaid = ($total > 0 && $balance <= 0);
 
         if ($isPrePaid) {
             // Send ONE combined message (new booking + payment) instead of two separate alerts
             $paymentLines = $this->extractNewPaymentLines($booking->beds24_booking_id, $raw);
-            if (!empty($paymentLines)) {
+            if (! empty($paymentLines)) {
                 foreach ($paymentLines as $line) {
                     $method = $line['status'] ?? '';
-                    $desc   = $line['description'] ?? '';
+                    $desc = $line['description'] ?? '';
                     $amount = (float) ($line['amount'] ?? 0);
                     $this->handleWebhookPayment($booking, $amount, $method, $desc, $line['_ref'] ?? null, $line['id'] ?? null);
                 }
@@ -269,11 +274,11 @@ class Beds24WebhookController extends Controller
 
         // Detect significant field changes
         $watchedFields = [
-            'arrival_date'   => ['label' => 'Дата заезда',  'new' => $data['arrival_date'] ?? null],
+            'arrival_date' => ['label' => 'Дата заезда',  'new' => $data['arrival_date'] ?? null],
             'departure_date' => ['label' => 'Дата выезда',  'new' => $data['departure_date'] ?? null],
-            'room_name'      => ['label' => 'Комната',      'new' => $data['room_name'] ?? null],
-            'num_adults'     => ['label' => 'Взрослых',     'new' => $data['num_adults'] ?? null],
-            'num_children'   => ['label' => 'Детей',        'new' => $data['num_children'] ?? null],
+            'room_name' => ['label' => 'Комната',      'new' => $data['room_name'] ?? null],
+            'num_adults' => ['label' => 'Взрослых',     'new' => $data['num_adults'] ?? null],
+            'num_children' => ['label' => 'Детей',        'new' => $data['num_children'] ?? null],
         ];
 
         foreach ($watchedFields as $field => $info) {
@@ -308,28 +313,28 @@ class Beds24WebhookController extends Controller
         }
 
         $updatePayload = [
-            'room_id'           => $data['room_id'] ?? $booking->room_id,
-            'room_name'         => $resolvedRoomName,
-            'guest_name'        => $this->buildGuestName($data) ?: $booking->guest_name,
-            'guest_email'       => $data['guest_email'] ?? $booking->guest_email,
-            'guest_phone'       => $data['guest_phone'] ?? $booking->guest_phone,
-            'channel'           => $data['channel'] ?? $booking->channel,
-            'arrival_date'      => $data['arrival_date'] ?? $booking->arrival_date,
-            'departure_date'    => $data['departure_date'] ?? $booking->departure_date,
-            'num_adults'        => (int) ($data['num_adults'] ?? $booking->num_adults),
-            'num_children'      => (int) ($data['num_children'] ?? $booking->num_children),
-            'booking_status'    => $newStatus,
-            'invoice_balance'   => (float) ($data['invoice_balance'] ?? $booking->invoice_balance),
-            'beds24_raw_data'   => $raw,
+            'room_id' => $data['room_id'] ?? $booking->room_id,
+            'room_name' => $resolvedRoomName,
+            'guest_name' => $this->buildGuestName($data) ?: $booking->guest_name,
+            'guest_email' => $data['guest_email'] ?? $booking->guest_email,
+            'guest_phone' => $data['guest_phone'] ?? $booking->guest_phone,
+            'channel' => $data['channel'] ?? $booking->channel,
+            'arrival_date' => $data['arrival_date'] ?? $booking->arrival_date,
+            'departure_date' => $data['departure_date'] ?? $booking->departure_date,
+            'num_adults' => (int) ($data['num_adults'] ?? $booking->num_adults),
+            'num_children' => (int) ($data['num_children'] ?? $booking->num_children),
+            'booking_status' => $newStatus,
+            'invoice_balance' => (float) ($data['invoice_balance'] ?? $booking->invoice_balance),
+            'beds24_raw_data' => $raw,
             // Group fields — update if payload carries group info; keep existing otherwise
-            'master_booking_id'  => $masterBookingId ?? $booking->master_booking_id,
+            'master_booking_id' => $masterBookingId ?? $booking->master_booking_id,
             'booking_group_size' => $groupSize ?? $booking->booking_group_size,
         ];
 
         if ($amountChanged) {
             $updatePayload['total_amount'] = $newAmount;
         }
-        
+
         // Always update payment_status when balance changes
         $newPaymentStatus = $this->derivePaymentStatus($data);
         if ($newPaymentStatus !== ($booking->payment_status ?? '')) {
@@ -337,7 +342,7 @@ class Beds24WebhookController extends Controller
         }
 
         // Set cancelled_at timestamp when booking goes to cancelled
-        if ($newStatus === 'cancelled' && !$booking->isCancelled()) {
+        if ($newStatus === 'cancelled' && ! $booking->isCancelled()) {
             $updatePayload['cancelled_at'] = now();
         }
 
@@ -350,22 +355,23 @@ class Beds24WebhookController extends Controller
         if ($changeType === null) {
             // Nothing meaningful changed — still log, but don't alert
             Log::info('Beds24 Webhook: No meaningful change detected', ['booking_id' => $booking->beds24_booking_id]);
+
             return;
         }
 
         $change = Beds24BookingChange::create([
             'beds24_booking_id' => $booking->beds24_booking_id,
-            'change_type'       => $changeType,
-            'old_data'          => $oldData,
-            'new_data'          => $data,
-            'detected_at'       => now(),
+            'change_type' => $changeType,
+            'old_data' => $oldData,
+            'new_data' => $data,
+            'detected_at' => now(),
         ]);
 
         // Fetch guest name from API if still empty
         $this->enrichGuestInfo($booking);
 
         Log::info('Beds24 Webhook: Booking updated', [
-            'booking_id'  => $booking->beds24_booking_id,
+            'booking_id' => $booking->beds24_booking_id,
             'change_type' => $changeType,
         ]);
 
@@ -379,7 +385,7 @@ class Beds24WebhookController extends Controller
             } catch (\Throwable $e) {
                 Log::warning('Beds24 Webhook: FxSync failed, proceeding with alert dispatch', [
                     'booking_id' => $booking->beds24_booking_id,
-                    'error'      => $e->getMessage(),
+                    'error' => $e->getMessage(),
                 ]);
             }
         }
@@ -410,7 +416,7 @@ class Beds24WebhookController extends Controller
         }
 
         $master = (string) $group['master'];
-        $size   = count((array) $group['ids']);
+        $size = count((array) $group['ids']);
 
         if ((int) $master === 0 || $size < 2) {
             return [null, null];
@@ -469,7 +475,7 @@ class Beds24WebhookController extends Controller
                 break;
 
             case 'modified':
-                if (!empty($changedFields)) {
+                if (! empty($changedFields)) {
                     $this->alertService->alertModification($booking, $change, $changedFields);
                 }
                 break;
@@ -477,7 +483,7 @@ class Beds24WebhookController extends Controller
             case 'payment_updated':
                 // When FX_BOT_PAYMENT_V2 is active the bot is the single source of truth
                 // for cash transactions — Beds24 webhooks must not create drawer records.
-                if (!config('features.fx_bot_payment_v2', false)) {
+                if (! config('features.fx_bot_payment_v2', false)) {
                     $this->handlePaymentSync($booking, $change, $oldData, $raw);
                 }
                 break;
@@ -491,7 +497,6 @@ class Beds24WebhookController extends Controller
                 break;
         }
     }
-
 
     // -------------------------------------------------------------------------
     // Payment auto-sync — Beds24 payment → CashTransaction + Owner alert
@@ -509,16 +514,17 @@ class Beds24WebhookController extends Controller
                 'old_balance' => $oldBalance,
                 'new_balance' => $newBalance,
             ]);
+
             return;
         }
 
         // Fetch payment line details from Beds24 API
         $paymentLines = $this->extractNewPaymentLines($booking->beds24_booking_id, $raw);
 
-        if (!empty($paymentLines)) {
+        if (! empty($paymentLines)) {
             foreach ($paymentLines as $line) {
                 $method = $line['status'] ?? '';
-                $desc   = $line['description'] ?? '';
+                $desc = $line['description'] ?? '';
                 $amount = (float) ($line['amount'] ?? 0);
                 $this->handleWebhookPayment($booking, $amount, $method, $desc, $line['_ref'] ?? null, $line['id'] ?? null);
             }
@@ -541,11 +547,12 @@ class Beds24WebhookController extends Controller
 
         if (empty($items)) {
             Log::info('Beds24 Payment: No invoiceItems in webhook payload', ['booking_id' => $bookingId]);
+
             return [];
         }
 
         // Filter only payment lines (type=payment)
-        $payments = array_values(array_filter($items, fn($i) => ($i['type'] ?? '') === 'payment'));
+        $payments = array_values(array_filter($items, fn ($i) => ($i['type'] ?? '') === 'payment'));
 
         // Get IDs of already-recorded payments to avoid duplicates
         $existingRefs = CashTransaction::where('beds24_booking_id', $bookingId)
@@ -557,7 +564,7 @@ class Beds24WebhookController extends Controller
         $newPayments = [];
         foreach ($payments as $p) {
             $ref = "Beds24 #{$bookingId} item#{$p['id']}";
-            if (!in_array($ref, $existingRefs)) {
+            if (! in_array($ref, $existingRefs)) {
                 $p['_ref'] = $ref;
                 $newPayments[] = $p;
             }
@@ -573,7 +580,6 @@ class Beds24WebhookController extends Controller
         return $newPayments;
     }
 
-
     /**
      * Final production webhook payment path.
      *
@@ -584,27 +590,28 @@ class Beds24WebhookController extends Controller
      */
     private function handleWebhookPayment(
         Beds24Booking $booking,
-        float         $amount,
-        string        $method,
-        string        $description,
-        ?string       $reference,
-        ?string       $beds24ItemId,
+        float $amount,
+        string $method,
+        string $description,
+        ?string $reference,
+        ?string $beds24ItemId,
     ): void {
         try {
             // Path A: bot-originated confirmation — never creates a new CashTransaction
             if (config('features.fx_webhook_reconciliation', false)
                 && $this->reconciliation !== null
                 && $this->reconciliation->reconcile($description, [
-                    'booking_id'  => $booking->beds24_booking_id,
-                    'amount'      => $amount,
-                    'method'      => $method,
+                    'booking_id' => $booking->beds24_booking_id,
+                    'amount' => $amount,
+                    'method' => $method,
                     'description' => $description,
                 ])
             ) {
                 Log::info('Beds24 Webhook: bot-originated payment confirmed, no drawer row created', [
                     'booking_id' => $booking->beds24_booking_id,
-                    'amount'     => $amount,
+                    'amount' => $amount,
                 ]);
+
                 return;
             }
 
@@ -614,7 +621,7 @@ class Beds24WebhookController extends Controller
         } catch (\Throwable $e) {
             Log::error('Beds24 Webhook: handleWebhookPayment failed', [
                 'booking_id' => $booking->beds24_booking_id,
-                'error'      => $e->getMessage(),
+                'error' => $e->getMessage(),
             ]);
         }
     }
@@ -633,14 +640,14 @@ class Beds24WebhookController extends Controller
      */
     private function createExternalBookkeepingRow(
         Beds24Booking $booking,
-        float         $amount,
-        string        $method,
-        string        $description,
-        ?string       $reference,
-        ?string       $beds24ItemId,
+        float $amount,
+        string $method,
+        string $description,
+        ?string $reference,
+        ?string $beds24ItemId,
     ): void {
-        $bookingId  = $booking->beds24_booking_id;
-        $notes      = $description . ($method ? " ({$method})" : '');
+        $bookingId = $booking->beds24_booking_id;
+        $notes = $description.($method ? " ({$method})" : '');
 
         // Dedup 1: stable Beds24 item ID stored in beds24_payment_ref
         if ($beds24ItemId !== null) {
@@ -651,9 +658,10 @@ class Beds24WebhookController extends Controller
                 ->exists()
             ) {
                 Log::info('Beds24 Webhook: duplicate external row skipped (by item ID)', [
-                    'booking_id'    => $bookingId,
+                    'booking_id' => $bookingId,
                     'beds24_item_id' => $beds24ItemId,
                 ]);
+
                 return;
             }
         }
@@ -666,8 +674,9 @@ class Beds24WebhookController extends Controller
             ) {
                 Log::info('Beds24 Webhook: duplicate external row skipped (by reference)', [
                     'booking_id' => $bookingId,
-                    'reference'  => $reference,
+                    'reference' => $reference,
                 ]);
+
                 return;
             }
         }
@@ -682,30 +691,63 @@ class Beds24WebhookController extends Controller
             ) {
                 Log::info('Beds24 Webhook: duplicate external row skipped (by content fallback)', [
                     'booking_id' => $bookingId,
-                    'amount'     => $amount,
+                    'amount' => $amount,
                 ]);
+
                 return;
             }
         }
 
         $activeShift = CashierShift::where('status', 'open')->latest('opened_at')->first();
+        $occurredAt = now();
 
-        CashTransaction::create([
-            'cashier_shift_id'   => $activeShift?->id,
-            'type'               => TransactionType::IN,
-            'amount'             => $amount,
-            'currency'           => 'USD',
-            'category'           => TransactionCategory::SALE,
-            'source_trigger'     => CashTransactionSource::Beds24External->value,
-            'notes'              => $notes,
-            'beds24_booking_id'  => $bookingId,
-            'payment_method'     => $method,
-            'guest_name'         => $booking->guest_name ?? '',
-            'room_number'        => $booking->room_name ?? '',
-            'reference'          => $reference,
+        // ── Drawer-truth guard chain (Phase 1, 2026-05-11) ──────────
+        // Decide whether this beds24_external row counts toward the
+        // cashier's drawer balance. Set ONLY if ALL five guards pass;
+        // otherwise we still create the row (audit trail preserved)
+        // but flag it as excluded with the specific reason so the
+        // Filament reconciliation page can surface it to the manager.
+        // See `config/cashier.php` ("beds24_external_cash_methods"
+        // + "beds24_admin_cash_drawer_truth_from") and
+        // App\Enums\DrawerTruthExcludedReason for the per-guard
+        // semantics.
+        [$countsAsDrawerTruth, $excludedReason] = $this->evaluateDrawerTruthGuards(
+            bookingId: $bookingId,
+            amount: $amount,
+            method: $method,
+            occurredAt: $occurredAt,
+            activeShift: $activeShift,
+        );
+
+        $row = CashTransaction::create([
+            'cashier_shift_id' => $activeShift?->id,
+            'type' => TransactionType::IN,
+            'amount' => $amount,
+            'currency' => 'USD',
+            'category' => TransactionCategory::SALE,
+            'source_trigger' => CashTransactionSource::Beds24External->value,
+            'counts_as_drawer_truth' => $countsAsDrawerTruth,
+            'drawer_truth_excluded_reason' => $excludedReason?->value,
+            'notes' => $notes,
+            'beds24_booking_id' => $bookingId,
+            'payment_method' => $method,
+            'guest_name' => $booking->guest_name ?? '',
+            'room_number' => $booking->room_name ?? '',
+            'reference' => $reference,
             'beds24_payment_ref' => $beds24ItemId !== null ? "b24_item_{$beds24ItemId}" : null,
-            'occurred_at'        => now(),
+            'occurred_at' => $occurredAt,
         ]);
+
+        // Side-effects driven by the guard outcome.
+        // - no-shift exclusion → tell the manager so they can reconcile
+        // - drawer-truth row over the alert threshold → owner visibility
+        //   on potentially-fat-finger entries (does NOT block the flag)
+        $this->dispatchGuardSideEffects(
+            booking: $booking,
+            amount: $amount,
+            countsAsDrawerTruth: $countsAsDrawerTruth,
+            excludedReason: $excludedReason,
+        );
 
         // L-006 shadow write — observer-only. Captures the same event in
         // ledger_entries alongside the legacy cash_transactions row above.
@@ -716,55 +758,206 @@ class Beds24WebhookController extends Controller
             $shadowStart = microtime(true);
             try {
                 app(\App\Actions\Ledger\Adapters\Beds24PaymentAdapter::class)->record(
-                    beds24BookingId:        $bookingId,
-                    beds24ItemId:           $beds24ItemId,
-                    amount:                 $amount,
-                    currency:               \App\Enums\Currency::USD,
-                    beds24PaymentMethod:    $method,
-                    guestName:              $booking->guest_name,
-                    roomNumber:             $booking->room_name,
-                    cashierShiftId:         $activeShift?->id,
+                    beds24BookingId: $bookingId,
+                    beds24ItemId: $beds24ItemId,
+                    amount: $amount,
+                    currency: \App\Enums\Currency::USD,
+                    beds24PaymentMethod: $method,
+                    guestName: $booking->guest_name,
+                    roomNumber: $booking->room_name,
+                    cashierShiftId: $activeShift?->id,
                     idempotencyKeyOverride: $beds24ItemId === null && $reference !== null
                                                 ? "b24_ref_{$reference}"
                                                 : null,
                 );
                 Log::info('ledger.shadow.write.beds24.success', [
-                    'booking_id'     => $bookingId,
+                    'booking_id' => $bookingId,
                     'beds24_item_id' => $beds24ItemId,
-                    'amount'         => $amount,
-                    'latency_ms'     => (int) ((microtime(true) - $shadowStart) * 1000),
+                    'amount' => $amount,
+                    'latency_ms' => (int) ((microtime(true) - $shadowStart) * 1000),
                 ]);
             } catch (\App\Exceptions\Ledger\LedgerIdempotencyConflictException $e) {
                 // Expected on retried webhooks — legacy dedup may have let
                 // the row through but ledger key recognised the replay.
                 Log::info('ledger.shadow.write.beds24.idempotent_replay', [
-                    'booking_id'     => $bookingId,
+                    'booking_id' => $bookingId,
                     'beds24_item_id' => $beds24ItemId,
-                    'latency_ms'     => (int) ((microtime(true) - $shadowStart) * 1000),
+                    'latency_ms' => (int) ((microtime(true) - $shadowStart) * 1000),
                 ]);
             } catch (\Throwable $e) {
                 Log::warning('ledger.shadow.write.beds24.failure', [
-                    'booking_id'     => $bookingId,
+                    'booking_id' => $bookingId,
                     'beds24_item_id' => $beds24ItemId,
-                    'amount'         => $amount,
-                    'error_class'    => $e::class,
-                    'error'          => $e->getMessage(),
-                    'latency_ms'     => (int) ((microtime(true) - $shadowStart) * 1000),
+                    'amount' => $amount,
+                    'error_class' => $e::class,
+                    'error' => $e->getMessage(),
+                    'latency_ms' => (int) ((microtime(true) - $shadowStart) * 1000),
                 ]);
             }
         }
 
         Log::info('Beds24 Webhook: external bookkeeping row created', [
             'booking_id' => $bookingId,
-            'amount'     => $amount,
-            'method'     => $method,
-            'source'     => 'beds24_external',
+            'amount' => $amount,
+            'method' => $method,
+            'source' => 'beds24_external',
+            'counts_as_drawer_truth' => $countsAsDrawerTruth,
+            'excluded_reason' => $excludedReason?->value,
         ]);
 
-        // Alert ops for cash-method entries — these are likely policy violations
-        $cashMethods = ['naqd', 'cash', 'наличные'];
-        if (in_array(mb_strtolower(trim($method)), $cashMethods)) {
-            $this->alertViolation($booking, $amount, $method);
+        // Legacy `alertViolation` removed (Phase 1, 2026-05-11). It used
+        // to fire on every beds24_external cash row treating them as
+        // policy violations. The two new alerts in
+        // `dispatchGuardSideEffects` cover the cases that actually need
+        // operator attention:
+        //   - NoOpenShift exclusion → alertBeds24CashOutsideShift
+        //   - drawer-truth row > threshold → alertBeds24AdminCashAboveThreshold
+        // Other exclusions (MatchingCashierBotRow, BeforeCutoff,
+        // MissingBookingId, NonCashMethod) are surfaced via the
+        // Filament reconciliation page — no Telegram noise needed.
+    }
+
+    /**
+     * Five-guard chain that decides whether a beds24_external row
+     * counts toward the cashier's drawer balance. Returns the boolean
+     * verdict + the specific reason when the verdict is "no" (null
+     * when the row passes all guards).
+     *
+     * Evaluation order is fail-fast — first failing guard wins so the
+     * manager sees the most actionable reason for the row appearing
+     * in the Filament reconciliation page. Order chosen to surface
+     * the cheapest / most-informative reason first; reason codes in
+     * `DrawerTruthExcludedReason` are listed in webhook docs in the
+     * SAME evaluation order so cross-references match.
+     *
+     * @return array{0: bool, 1: \App\Enums\DrawerTruthExcludedReason|null}
+     */
+    private function evaluateDrawerTruthGuards(
+        ?string $bookingId,
+        float $amount,
+        string $method,
+        \Carbon\Carbon $occurredAt,
+        ?CashierShift $activeShift,
+    ): array {
+        // beds24_booking_id IS NOT NULL.
+        // Webhook always sets this — a NULL indicates a manual/test
+        // insert that bypassed the webhook entirely.
+        if ($bookingId === null || $bookingId === '') {
+            return [false, \App\Enums\DrawerTruthExcludedReason::MissingBookingId];
+        }
+
+        // occurred_at >= cutoff.
+        // Prevents the deploy from retroactively reclassifying
+        // historical balances. Manager can still flip an older row
+        // manually via Filament.
+        $cutoff = $this->drawerTruthCutoff();
+        if ($occurredAt->lt($cutoff)) {
+            return [false, \App\Enums\DrawerTruthExcludedReason::BeforeCutoff];
+        }
+
+        // payment_method is in cash allow-list.
+        // Card/transfer/karta never enter the physical drawer.
+        if (! $this->methodClassifier->isCash($method)) {
+            return [false, \App\Enums\DrawerTruthExcludedReason::NonCashMethod];
+        }
+
+        // No matching cashier_bot row in the ±2-minute window for the
+        // same booking_id + exact amount. Defensive double-count
+        // protection against any future failure of the [ref:UUID]
+        // reconciliation in WebhookReconciliationService. 30-day prod
+        // audit (2026-05-11) showed zero collisions historically — kept
+        // as belt-and-suspenders.
+        //
+        // Both sides of the time comparison use Laravel's `now()` /
+        // Carbon native serialisation, which respects `app.timezone`.
+        // The cash_transactions.occurred_at column does NOT auto-convert
+        // to UTC (no DateTimeInterface cast on the column; `datetime`
+        // cast stores whatever string Carbon::toDateTimeString emits).
+        // So both stored values and bound bounds end up in the same
+        // app TZ — no explicit normalisation needed. Matches the
+        // existing dedup queries (lines 645-688) which use the same
+        // convention. Amount uses exact equality — the column is
+        // decimal(:,2) so there's no source of drift on a 2-decimal
+        // write/read cycle.
+        $windowStart = $occurredAt->copy()->subMinutes(2);
+        $windowEnd = $occurredAt->copy()->addMinutes(2);
+        $matchingBotRow = CashTransaction::where('beds24_booking_id', $bookingId)
+            ->where('source_trigger', CashTransactionSource::CashierBot->value)
+            ->whereBetween('occurred_at', [$windowStart, $windowEnd])
+            ->where('amount', $amount)
+            ->whereNull('deleted_at')
+            ->exists();
+        if ($matchingBotRow) {
+            return [false, \App\Enums\DrawerTruthExcludedReason::MatchingCashierBotRow];
+        }
+
+        // An open cashier shift exists at webhook arrival.
+        // Without one, the cash has no shift to attach to. Row is
+        // still created for audit; manager can flip via Filament
+        // after they confirm with the overnight admin who took the
+        // cash. (See `dispatchGuardSideEffects` — this exclusion
+        // fires `alertBeds24CashOutsideShift` so manager gets pinged.)
+        if ($activeShift === null) {
+            return [false, \App\Enums\DrawerTruthExcludedReason::NoOpenShift];
+        }
+
+        return [true, null];
+    }
+
+    /**
+     * Parse the config cutoff (default deploy date) into a Carbon
+     * instance. Wrapped so a malformed env value falls back to the
+     * config default rather than throwing in the webhook hot path.
+     */
+    private function drawerTruthCutoff(): \Carbon\Carbon
+    {
+        $raw = (string) config(
+            'cashier.beds24_admin_cash_drawer_truth_from',
+            '2026-05-11 00:00:00',
+        );
+
+        try {
+            return \Carbon\Carbon::parse($raw);
+        } catch (\Throwable $e) {
+            Log::warning('Beds24 drawer-truth cutoff config malformed; using default', [
+                'configured' => $raw,
+                'error' => $e->getMessage(),
+            ]);
+
+            return \Carbon\Carbon::parse('2026-05-11 00:00:00');
+        }
+    }
+
+    /**
+     * Fire alerts triggered by the guard outcome.
+     *
+     * - excluded with `no_open_shift` → tell the manager so they can
+     *   reconcile after confirming with the overnight admin who took
+     *   the cash. Other exclusion reasons are silent (Filament page
+     *   surfaces them for daily review).
+     *
+     * - included AND amount > threshold → owner visibility on
+     *   potentially fat-finger entries. Does NOT block the flag.
+     */
+    private function dispatchGuardSideEffects(
+        Beds24Booking $booking,
+        float $amount,
+        bool $countsAsDrawerTruth,
+        ?\App\Enums\DrawerTruthExcludedReason $excludedReason,
+    ): void {
+        if ($excludedReason === \App\Enums\DrawerTruthExcludedReason::NoOpenShift) {
+            $this->alertService->alertBeds24CashOutsideShift($booking, $amount);
+        }
+
+        if ($countsAsDrawerTruth) {
+            $threshold = (float) config('cashier.beds24_admin_cash_alert_threshold_usd', 200.0);
+            if ($threshold > 0 && $amount > $threshold) {
+                $this->alertService->alertBeds24AdminCashAboveThreshold(
+                    $booking,
+                    $amount,
+                    $threshold,
+                );
+            }
         }
     }
 
@@ -783,7 +976,7 @@ class Beds24WebhookController extends Controller
             'Оплата должна быть введена через Telegram-бот кассира.',
             '',
             "📋 Бронь: <code>{$booking->beds24_booking_id}</code>",
-            "👤 Гость: " . ($booking->guest_name ?? 'не указан'),
+            '👤 Гость: '.($booking->guest_name ?? 'не указан'),
             "💵 Сумма: \${$amount} USD",
             "💳 Метод: {$method}",
             "🕐 Время: {$time}",
@@ -796,7 +989,7 @@ class Beds24WebhookController extends Controller
         } catch (\Throwable $e) {
             Log::error('Beds24 Webhook: failed to send violation alert', [
                 'booking_id' => $booking->beds24_booking_id,
-                'error'      => $e->getMessage(),
+                'error' => $e->getMessage(),
             ]);
         }
     }
@@ -819,7 +1012,7 @@ class Beds24WebhookController extends Controller
             }
         }
 
-        if (!$hasCheckout) {
+        if (! $hasCheckout) {
             return false;
         }
 
@@ -834,7 +1027,7 @@ class Beds24WebhookController extends Controller
 
         Log::info('Beds24 Webhook: Checkout detected', [
             'booking_id' => $booking->beds24_booking_id,
-            'room_name'  => $booking->room_name,
+            'room_name' => $booking->room_name,
             'guest_name' => $booking->guest_name,
         ]);
 
@@ -857,7 +1050,7 @@ class Beds24WebhookController extends Controller
     {
         return match ($propertyId) {
             '172793' => (int) config('services.housekeeping_bot.premium_mgmt_group_id', 0),
-            default  => (int) config('services.housekeeping_bot.mgmt_group_id', 0),
+            default => (int) config('services.housekeeping_bot.mgmt_group_id', 0),
         };
     }
 
@@ -867,8 +1060,9 @@ class Beds24WebhookController extends Controller
     private function notifyCleanersCheckout(Beds24Booking $booking): void
     {
         $botToken = config('services.housekeeping_bot.token', '');
-        if (!$botToken) {
+        if (! $botToken) {
             Log::warning('Beds24 Checkout: No housekeeping bot token configured');
+
             return;
         }
 
@@ -876,7 +1070,7 @@ class Beds24WebhookController extends Controller
         // cache-first room map service (Redis → live API → null).
         $roomName = $booking->room_name;
         if (empty($roomName)) {
-            $raw    = $booking->beds24_raw_data ?? [];
+            $raw = $booking->beds24_raw_data ?? [];
             $roomId = (int) ($raw['booking']['roomId'] ?? 0);
             $unitId = (int) ($raw['booking']['unitId'] ?? 0);
             if ($roomId && $unitId) {
@@ -894,10 +1088,10 @@ class Beds24WebhookController extends Controller
         $propertyName = $booking->getPropertyName();
 
         $text = "🚪 <b>Checkout!</b>\n\n"
-            . "📍 <b>{$roomName}</b>-xona bo'shadi\n"
-            . ($guestName ? "👤 {$guestName}\n" : '')
-            . "🏨 {$propertyName}\n\n"
-            . "🧹 Tozalashni boshlash mumkin!";
+            ."📍 <b>{$roomName}</b>-xona bo'shadi\n"
+            .($guestName ? "👤 {$guestName}\n" : '')
+            ."🏨 {$propertyName}\n\n"
+            .'🧹 Tozalashni boshlash mumkin!';
 
         // Send to all authenticated housekeeping bot sessions (queued)
         // Exclude kitchen bot sessions (negative chat_id) and other non-HK states
@@ -908,8 +1102,8 @@ class Beds24WebhookController extends Controller
 
         foreach ($sessions as $session) {
             SendTelegramNotificationJob::dispatch('housekeeping', 'sendMessage', [
-                'chat_id'    => $session->chat_id,
-                'text'       => $text,
+                'chat_id' => $session->chat_id,
+                'text' => $text,
                 'parse_mode' => 'HTML',
             ]);
         }
@@ -918,8 +1112,8 @@ class Beds24WebhookController extends Controller
         $mgmtGroupId = self::resolveCheckoutMgmtGroupId((string) $booking->property_id);
         if ($mgmtGroupId) {
             SendTelegramNotificationJob::dispatch('housekeeping', 'sendMessage', [
-                'chat_id'    => $mgmtGroupId,
-                'text'       => $text,
+                'chat_id' => $mgmtGroupId,
+                'text' => $text,
                 'parse_mode' => 'HTML',
             ]);
         } else {
@@ -930,9 +1124,9 @@ class Beds24WebhookController extends Controller
             // group. Logged at WARNING so the daily cash:audit-daily anomaly
             // surface (or any log scrape) catches a re-occurrence.
             Log::warning('Beds24 Checkout: management group missing — group notification skipped', [
-                'booking_id'    => $booking->beds24_booking_id,
-                'property_id'   => $booking->property_id,
-                'env_key'       => $booking->property_id == '172793'
+                'booking_id' => $booking->beds24_booking_id,
+                'property_id' => $booking->property_id,
+                'env_key' => $booking->property_id == '172793'
                     ? 'HOUSEKEEPING_PREMIUM_MGMT_GROUP_ID'
                     : 'HOUSEKEEPING_MGMT_GROUP_ID',
                 'resolved_value' => $mgmtGroupId,
@@ -940,11 +1134,11 @@ class Beds24WebhookController extends Controller
         }
 
         Log::info('Beds24 Checkout: Cleaner notifications queued', [
-            'booking_id'  => $booking->beds24_booking_id,
-            'room_name'   => $roomName,
+            'booking_id' => $booking->beds24_booking_id,
+            'room_name' => $roomName,
             'property_id' => $booking->property_id,
-            'queued_for'  => $sessions->count(),
-            'mgmt_group'  => $mgmtGroupId,
+            'queued_for' => $sessions->count(),
+            'mgmt_group' => $mgmtGroupId,
         ]);
     }
 
@@ -980,14 +1174,14 @@ class Beds24WebhookController extends Controller
 
         // Last resort — try to detect any booking ID key
         foreach (['id', 'booking_id', 'bookingId', 'bookId', 'bookid'] as $key) {
-            if (!empty($raw[$key])) {
+            if (! empty($raw[$key])) {
                 // Generic extraction
                 return [
-                    'booking_id'   => (string) $raw[$key],
-                    'property_id'  => (string) ($raw['propertyId'] ?? $raw['propId'] ?? $raw['propid'] ?? $raw['property_id'] ?? ''),
-                    'status'       => $raw['status'] ?? 'confirmed',
+                    'booking_id' => (string) $raw[$key],
+                    'property_id' => (string) ($raw['propertyId'] ?? $raw['propId'] ?? $raw['propid'] ?? $raw['property_id'] ?? ''),
+                    'status' => $raw['status'] ?? 'confirmed',
                     'total_amount' => $raw['totalAmount'] ?? $raw['total'] ?? $raw['price'] ?? 0,
-                    'currency'     => $raw['currency'] ?? 'USD',
+                    'currency' => $raw['currency'] ?? 'USD',
                 ];
             }
         }
@@ -998,58 +1192,58 @@ class Beds24WebhookController extends Controller
     private function parseV2(array $raw): array
     {
         $guestFirst = $raw['guestFirstName'] ?? $raw['firstName'] ?? '';
-        $guestLast  = $raw['guestLastName']  ?? $raw['lastName']  ?? '';
-        $fullName   = $raw['guestFullName'] ?? $raw['fullname'] ?? null;
+        $guestLast = $raw['guestLastName'] ?? $raw['lastName'] ?? '';
+        $fullName = $raw['guestFullName'] ?? $raw['fullname'] ?? null;
         if ($fullName && empty($guestFirst) && empty($guestLast)) {
             $parts = explode(' ', $fullName, 2);
             $guestFirst = $parts[0] ?? '';
-            $guestLast  = $parts[1] ?? '';
+            $guestLast = $parts[1] ?? '';
         }
 
         return [
-            'booking_id'     => (string) ($raw['bookId'] ?? $raw['id'] ?? ''),
-            'property_id'    => (string) ($raw['propId'] ?? $raw['propertyId'] ?? ''),
-            'room_id'        => (string) ($raw['roomId'] ?? ''),
-            'room_name'      => $raw['roomName'] ?? $raw['unitName'] ?? $raw['room'] ?? null,
-            'first_name'     => $guestFirst,
-            'last_name'      => $guestLast,
-            'guest_email'    => $raw['email'] ?? $raw['guestEmail'] ?? null,
-            'guest_phone'    => $raw['mobile'] ?? $raw['phone'] ?? $raw['guestPhone'] ?? null,
-            'channel'        => $raw['referer'] ?? $raw['channel'] ?? $raw['source'] ?? null,
-            'arrival_date'   => $this->parseDate($raw['arrival'] ?? $raw['checkIn'] ?? null),
+            'booking_id' => (string) ($raw['bookId'] ?? $raw['id'] ?? ''),
+            'property_id' => (string) ($raw['propId'] ?? $raw['propertyId'] ?? ''),
+            'room_id' => (string) ($raw['roomId'] ?? ''),
+            'room_name' => $raw['roomName'] ?? $raw['unitName'] ?? $raw['room'] ?? null,
+            'first_name' => $guestFirst,
+            'last_name' => $guestLast,
+            'guest_email' => $raw['email'] ?? $raw['guestEmail'] ?? null,
+            'guest_phone' => $raw['mobile'] ?? $raw['phone'] ?? $raw['guestPhone'] ?? null,
+            'channel' => $raw['referer'] ?? $raw['channel'] ?? $raw['source'] ?? null,
+            'arrival_date' => $this->parseDate($raw['arrival'] ?? $raw['checkIn'] ?? null),
             'departure_date' => $this->parseDate($raw['departure'] ?? $raw['checkOut'] ?? null),
-            'num_adults'     => (int) ($raw['numAdult'] ?? $raw['adults'] ?? 1),
-            'num_children'   => (int) ($raw['numChild'] ?? $raw['children'] ?? 0),
-            'total_amount'   => (float) ($raw['price'] ?? $raw['totalAmount'] ?? $raw['invoiceTotal'] ?? 0),
-            'currency'       => $raw['currency'] ?? 'USD',
-            'status'         => $raw['status'] ?? 'confirmed',
-            'invoice_balance'=> (float) ($raw['invoiceBalance'] ?? $raw['balance'] ?? -999),
+            'num_adults' => (int) ($raw['numAdult'] ?? $raw['adults'] ?? 1),
+            'num_children' => (int) ($raw['numChild'] ?? $raw['children'] ?? 0),
+            'total_amount' => (float) ($raw['price'] ?? $raw['totalAmount'] ?? $raw['invoiceTotal'] ?? 0),
+            'currency' => $raw['currency'] ?? 'USD',
+            'status' => $raw['status'] ?? 'confirmed',
+            'invoice_balance' => (float) ($raw['invoiceBalance'] ?? $raw['balance'] ?? -999),
         ];
     }
 
     private function parseV1(array $raw): array
     {
         $guestFirst = $raw['firstname'] ?? $raw['guestfirstname'] ?? '';
-        $guestLast  = $raw['lastname']  ?? $raw['guestlastname']  ?? '';
+        $guestLast = $raw['lastname'] ?? $raw['guestlastname'] ?? '';
 
         return [
-            'booking_id'     => (string) ($raw['bookid'] ?? ''),
-            'property_id'    => (string) ($raw['propid'] ?? $raw['propertyid'] ?? ''),
-            'room_id'        => (string) ($raw['roomid'] ?? ''),
-            'room_name'      => $raw['roomname'] ?? $raw['room'] ?? null,
-            'first_name'     => $guestFirst,
-            'last_name'      => $guestLast,
-            'guest_email'    => $raw['email'] ?? null,
-            'guest_phone'    => $raw['mobile'] ?? $raw['phone'] ?? null,
-            'channel'        => $raw['referer'] ?? $raw['channel'] ?? null,
-            'arrival_date'   => $this->parseDate($raw['arrival'] ?? $raw['checkin'] ?? null),
+            'booking_id' => (string) ($raw['bookid'] ?? ''),
+            'property_id' => (string) ($raw['propid'] ?? $raw['propertyid'] ?? ''),
+            'room_id' => (string) ($raw['roomid'] ?? ''),
+            'room_name' => $raw['roomname'] ?? $raw['room'] ?? null,
+            'first_name' => $guestFirst,
+            'last_name' => $guestLast,
+            'guest_email' => $raw['email'] ?? null,
+            'guest_phone' => $raw['mobile'] ?? $raw['phone'] ?? null,
+            'channel' => $raw['referer'] ?? $raw['channel'] ?? null,
+            'arrival_date' => $this->parseDate($raw['arrival'] ?? $raw['checkin'] ?? null),
             'departure_date' => $this->parseDate($raw['departure'] ?? $raw['checkout'] ?? null),
-            'num_adults'     => (int) ($raw['numadult'] ?? $raw['adults'] ?? 1),
-            'num_children'   => (int) ($raw['numchild'] ?? $raw['children'] ?? 0),
-            'total_amount'   => (float) ($raw['price'] ?? $raw['total'] ?? 0),
-            'currency'       => $raw['currency'] ?? 'USD',
-            'status'         => $raw['status'] ?? 'confirmed',
-            'invoice_balance'=> (float) ($raw['balance'] ?? $raw['invoicebalance'] ?? 0),
+            'num_adults' => (int) ($raw['numadult'] ?? $raw['adults'] ?? 1),
+            'num_children' => (int) ($raw['numchild'] ?? $raw['children'] ?? 0),
+            'total_amount' => (float) ($raw['price'] ?? $raw['total'] ?? 0),
+            'currency' => $raw['currency'] ?? 'USD',
+            'status' => $raw['status'] ?? 'confirmed',
+            'invoice_balance' => (float) ($raw['balance'] ?? $raw['invoicebalance'] ?? 0),
         ];
     }
 
@@ -1062,7 +1256,7 @@ class Beds24WebhookController extends Controller
      */
     private function enrichGuestInfo(\App\Models\Beds24Booking $booking): void
     {
-        if (!empty($booking->guest_name)) {
+        if (! empty($booking->guest_name)) {
             return;
         }
 
@@ -1070,17 +1264,17 @@ class Beds24WebhookController extends Controller
             $info = $this->beds24Service->fetchGuestInfo($booking->beds24_booking_id);
 
             $updates = [];
-            if (!empty($info['guest_name'])) {
+            if (! empty($info['guest_name'])) {
                 $updates['guest_name'] = $info['guest_name'];
             }
-            if (!empty($info['guest_email']) && empty($booking->guest_email)) {
+            if (! empty($info['guest_email']) && empty($booking->guest_email)) {
                 $updates['guest_email'] = $info['guest_email'];
             }
-            if (!empty($info['guest_phone']) && empty($booking->guest_phone)) {
+            if (! empty($info['guest_phone']) && empty($booking->guest_phone)) {
                 $updates['guest_phone'] = $info['guest_phone'];
             }
 
-            if (!empty($updates)) {
+            if (! empty($updates)) {
                 $booking->update($updates);
                 $booking->refresh();
                 Log::info('Beds24 Webhook: Enriched guest info from API', [
@@ -1099,7 +1293,7 @@ class Beds24WebhookController extends Controller
     private function buildGuestName(array $data): string
     {
         $first = trim($data['first_name'] ?? '');
-        $last  = trim($data['last_name']  ?? '');
+        $last = trim($data['last_name'] ?? '');
 
         if ($first && $last) {
             return "{$first} {$last}";
@@ -1113,19 +1307,19 @@ class Beds24WebhookController extends Controller
         $raw = strtolower(trim($data['status'] ?? 'confirmed'));
 
         return match (true) {
-            str_contains($raw, 'cancel')   => 'cancelled',
+            str_contains($raw, 'cancel') => 'cancelled',
             str_contains($raw, 'no_show'),
-            str_contains($raw, 'noshow')   => 'no_show',
+            str_contains($raw, 'noshow') => 'no_show',
             str_contains($raw, 'await'),
-            str_contains($raw, 'request')  => 'awaiting_payment',
-            default                        => 'confirmed',
+            str_contains($raw, 'request') => 'awaiting_payment',
+            default => 'confirmed',
         };
     }
 
     private function derivePaymentStatus(array $data): string
     {
         $balance = $data['invoice_balance'] ?? null;
-        $total   = (float) ($data['total_amount'] ?? 0);
+        $total = (float) ($data['total_amount'] ?? 0);
 
         // If balance not provided in payload, default to pending
         if ($balance === null) {
@@ -1174,7 +1368,7 @@ class Beds24WebhookController extends Controller
         }
 
         // General modification
-        if (!empty($changedFields) || $amountChanged) {
+        if (! empty($changedFields) || $amountChanged) {
             return 'modified';
         }
 
@@ -1184,7 +1378,7 @@ class Beds24WebhookController extends Controller
         }
 
         // New charge items added (e.g. taxi, minibar, extra services)
-        if (!empty($newCharges)) {
+        if (! empty($newCharges)) {
             return 'charge_added';
         }
 
@@ -1205,7 +1399,7 @@ class Beds24WebhookController extends Controller
         // Get old invoice item IDs from stored raw data
         $oldRaw = $booking->beds24_raw_data ?? [];
         $oldItems = $oldRaw['invoiceItems'] ?? $oldRaw['booking']['invoiceItems'] ?? [];
-        $oldIds = array_map(fn($i) => $i['id'] ?? null, $oldItems);
+        $oldIds = array_map(fn ($i) => $i['id'] ?? null, $oldItems);
         $oldIds = array_filter($oldIds);
 
         // Find new charge items (type=charge) that weren't in previous webhook
@@ -1213,16 +1407,16 @@ class Beds24WebhookController extends Controller
         foreach ($newItems as $item) {
             $type = $item['type'] ?? '';
             $id = $item['id'] ?? null;
-            if ($type === 'charge' && $id && !in_array($id, $oldIds)) {
+            if ($type === 'charge' && $id && ! in_array($id, $oldIds)) {
                 $newCharges[] = $item;
             }
         }
 
-        if (!empty($newCharges)) {
+        if (! empty($newCharges)) {
             Log::info('Beds24 Webhook: New charges detected', [
                 'booking_id' => $booking->beds24_booking_id,
                 'new_charges' => count($newCharges),
-                'items' => array_map(fn($c) => [
+                'items' => array_map(fn ($c) => [
                     'description' => $c['description'] ?? '?',
                     'amount' => $c['lineTotal'] ?? 0,
                 ], $newCharges),
@@ -1255,7 +1449,7 @@ class Beds24WebhookController extends Controller
 
     private function parseDate(?string $value): ?string
     {
-        if (!$value) {
+        if (! $value) {
             return null;
         }
 
