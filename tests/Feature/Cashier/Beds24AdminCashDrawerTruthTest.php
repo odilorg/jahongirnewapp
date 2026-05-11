@@ -376,13 +376,17 @@ final class Beds24AdminCashDrawerTruthTest extends TestCase
 
     private function seedOpenShift(): CashierShift
     {
+        $drawer = \App\Models\CashDrawer::create([
+            'name' => 'Test Drawer',
+            'is_active' => true,
+        ]);
         $user = User::factory()->create();
 
         return CashierShift::create([
+            'cash_drawer_id' => $drawer->id,
             'user_id' => $user->id,
             'status' => 'open',
             'opened_at' => now()->subHours(2),
-            'cash_drawer_id' => 1,
         ]);
     }
 }
