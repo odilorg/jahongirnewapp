@@ -116,7 +116,7 @@ final class Beds24AdminCashDrawerTruthTest extends TestCase
 
         $row = CashTransaction::latest('id')->first();
         $this->assertSame('60.00', (string) $row->amount);
-        $this->assertSame('USD', $row->currency);
+        $this->assertSame('USD', (string) $row->currency?->value ?? $row->currency);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
