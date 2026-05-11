@@ -122,14 +122,16 @@ class DedupAndPaymentDroppedTest extends TestCase
 
     public function test_dedup_returns_all_in_flight_statuses(): void
     {
+        // Short references because booking_inquiries.reference is VARCHAR(32)
+        // and the default factory's INQ-TEST-<uniqid> already eats most of it.
         foreach ([
             BookingInquiry::STATUS_NEW,
             BookingInquiry::STATUS_CONTACTED,
             BookingInquiry::STATUS_AWAITING_CUSTOMER,
             BookingInquiry::STATUS_AWAITING_PAYMENT,
-        ] as $status) {
+        ] as $i => $status) {
             $this->makeInquiry([
-                'reference' => "INQ-TEST-{$status}-".uniqid(),
+                'reference' => 'IQT-S'.$i.'-'.uniqid(),
                 'customer_phone' => '+998903333333',
                 'status' => $status,
             ]);
