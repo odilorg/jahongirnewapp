@@ -559,6 +559,47 @@ class OwnerAlertService
         $this->send($text);
     }
 
+    /**
+     * Ping owner-bot when a candidate submits the public job
+     * application form (`/jobs/apply`). Short, actionable message
+     * with a direct Filament link to the new row.
+     *
+     * Phase 1, 2026-05-11. Subject to the deployed env-guard so
+     * test runs don't leak to operator Telegram.
+     */
+    public function alertNewJobApplication(\App\Models\JobCandidate $candidate): void
+    {
+        $positionLabel = $candidate->position?->label() ?? '—';
+        $experienceLabel = $candidate->experience_level?->label() ?? '—';
+        $salaryLabel = $candidate->expected_salary_uzs
+            ? number_format($candidate->expected_salary_uzs, 0, '.', ' ').' UZS'
+            : '—';
+
+        // Build the Filament admin URL with a defensive fallback so a
+        // missing app.url config never throws in the hot path.
+        $appUrl = rtrim((string) config('app.url', ''), '/');
+        $filamentUrl = $appUrl !== ''
+            ? $appUrl.'/admin/job-candidates/'.$candidate->id
+            : null;
+
+        $lines = [
+            '👤 <b>Новая заявка на работу</b>',
+            '',
+            "📛 <b>Имя:</b> {$candidate->full_name}",
+            "📞 <b>Телефон:</b> {$candidate->phone}",
+            "💼 <b>Должность:</b> {$positionLabel}",
+            "💵 <b>Зарплата:</b> {$salaryLabel}",
+            "📊 <b>Опыт:</b> {$experienceLabel}",
+        ];
+
+        if ($filamentUrl !== null) {
+            $lines[] = '';
+            $lines[] = "🔗 <a href=\"{$filamentUrl}\">Открыть в Filament</a>";
+        }
+
+        $this->send(implode("\n", $lines));
+    }
+
     // -------------------------------------------------------------------------
     // Telegram HTTP helper
     // -------------------------------------------------------------------------
