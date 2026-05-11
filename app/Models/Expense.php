@@ -21,10 +21,12 @@ class Expense extends Model
         'hotel_id',
         'payment_type',
         'created_by',
+        'cash_expense_id',
     ];
 
     protected $casts = [
         'amount' => MoneyCast::class,
+        'expense_date' => 'date',
     ];
 
     public function hotel(): BelongsTo

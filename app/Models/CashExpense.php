@@ -2,11 +2,13 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class CashExpense extends Model
 {
+    use HasFactory;
     use SoftDeletes;
 
     protected $fillable = [
@@ -14,6 +16,7 @@ class CashExpense extends Model
         'description', 'receipt_photo_path', 'requires_approval',
         'approved_by', 'approved_at', 'rejected_by', 'rejected_at',
         'rejection_reason', 'created_by', 'occurred_at',
+        'consolidated_at',
     ];
 
     protected $casts = [
@@ -22,12 +25,31 @@ class CashExpense extends Model
         'approved_at' => 'datetime',
         'rejected_at' => 'datetime',
         'occurred_at' => 'datetime',
+        'consolidated_at' => 'datetime',
     ];
 
-    public function shift() { return $this->belongsTo(CashierShift::class, 'cashier_shift_id'); }
-    public function category() { return $this->belongsTo(ExpenseCategory::class, 'expense_category_id'); }
-    public function creator() { return $this->belongsTo(User::class, 'created_by'); }
-    public function approver() { return $this->belongsTo(User::class, 'approved_by'); }
+    public function shift()
+    {
+        return $this->belongsTo(CashierShift::class, 'cashier_shift_id');
+    }
 
-    public function isPending(): bool { return !$this->approved_at && !$this->rejected_at && $this->requires_approval; }
+    public function category()
+    {
+        return $this->belongsTo(ExpenseCategory::class, 'expense_category_id');
+    }
+
+    public function creator()
+    {
+        return $this->belongsTo(User::class, 'created_by');
+    }
+
+    public function approver()
+    {
+        return $this->belongsTo(User::class, 'approved_by');
+    }
+
+    public function isPending(): bool
+    {
+        return ! $this->approved_at && ! $this->rejected_at && $this->requires_approval;
+    }
 }
