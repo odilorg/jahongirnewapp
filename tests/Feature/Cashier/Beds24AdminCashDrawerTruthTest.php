@@ -389,4 +389,104 @@ final class Beds24AdminCashDrawerTruthTest extends TestCase
             'opened_at' => now()->subHours(2),
         ]);
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Reviewer follow-ups (code-reviewer 2026-05-11)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Defence-in-depth for the scopeDrawerTruth Path B invariant:
+     * a row with counts_as_drawer_truth=true AND a non-cash
+     * payment_method (which the webhook handler should never create
+     * but a raw SQL backfill or a future writer could) must still
+     * be excluded from drawer truth by the scope's classifier-driven
+     * cash-method filter.
+     *
+     * @test
+     */
+    public function scope_excludes_drawer_truth_flag_with_non_cash_method(): void
+    {
+        $row = CashTransaction::create([
+            'type' => TransactionType::IN,
+            'amount' => 60.0,
+            'currency' => 'USD',
+            'category' => \App\Enums\TransactionCategory::SALE,
+            'source_trigger' => CashTransactionSource::Beds24External,
+            'counts_as_drawer_truth' => true,
+            'beds24_booking_id' => self::TEST_BOOKING_ID,
+            'payment_method' => 'karta',
+            'occurred_at' => now(),
+        ]);
+
+        $this->assertFalse(
+            CashTransaction::drawerTruth()->where('id', $row->id)->exists(),
+            'scopeDrawerTruth must reject the row despite the flag being true',
+        );
+    }
+
+    /** @test */
+    public function scope_includes_drawer_truth_flag_with_naqd_method(): void
+    {
+        $row = CashTransaction::create([
+            'type' => TransactionType::IN,
+            'amount' => 60.0,
+            'currency' => 'USD',
+            'category' => \App\Enums\TransactionCategory::SALE,
+            'source_trigger' => CashTransactionSource::Beds24External,
+            'counts_as_drawer_truth' => true,
+            'beds24_booking_id' => self::TEST_BOOKING_ID,
+            'payment_method' => 'naqd',
+            'occurred_at' => now(),
+        ]);
+
+        $this->assertTrue(
+            CashTransaction::drawerTruth()->where('id', $row->id)->exists(),
+            'scopeDrawerTruth must include naqd-method drawer-truth rows',
+        );
+    }
+
+    /**
+     * NoOpenShift exclusion must fire EXACTLY ONE alert. Previously
+     * the legacy `alertViolation` also fired for any cash-method
+     * excluded row, so a no-shift exclusion produced two alerts.
+     * The Phase 1 refactor removed `alertViolation` entirely.
+     *
+     * @test
+     */
+    public function no_open_shift_exclusion_fires_exactly_one_alert(): void
+    {
+        $booking = $this->seedBooking();
+
+        $this->invokeHandler($booking, amount: 60.0, method: 'naqd');
+
+        Bus::assertDispatchedTimes(SendTelegramNotificationJob::class, 1);
+    }
+
+    /**
+     * MatchingCashierBotRow exclusion is silent — no alert. Filament
+     * reconciliation surfaces it for daily review instead.
+     *
+     * @test
+     */
+    public function matching_cashier_bot_row_exclusion_fires_no_alert(): void
+    {
+        $booking = $this->seedBooking();
+        $shift = $this->seedOpenShift();
+
+        CashTransaction::create([
+            'cashier_shift_id' => $shift->id,
+            'type' => TransactionType::IN,
+            'amount' => 60.0,
+            'currency' => 'USD',
+            'category' => \App\Enums\TransactionCategory::SALE,
+            'source_trigger' => CashTransactionSource::CashierBot,
+            'beds24_booking_id' => self::TEST_BOOKING_ID,
+            'payment_method' => 'cash',
+            'occurred_at' => now()->subSeconds(30),
+        ]);
+
+        $this->invokeHandler($booking, amount: 60.0, method: 'naqd');
+
+        Bus::assertNotDispatched(SendTelegramNotificationJob::class);
+    }
 }

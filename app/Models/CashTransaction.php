@@ -259,15 +259,21 @@ class CashTransaction extends Model
      *     5. beds24_booking_id is non-null
      *
      *   See `Beds24WebhookController::createExternalBookkeepingRow` for
-     *   the write-time guard chain. Because validation happened at
-     *   write-time the scope here does NOT re-check payment_method —
-     *   if the flag is true, the row is trusted as cash (the
-     *   classifier may include "naqd" / "нал" / etc. which would not
-     *   match Path A's literal `'cash'` filter).
+     *   the write-time guard chain. The scope ALSO re-validates
+     *   `payment_method` against the configured cash allow-list as a
+     *   belt-and-suspenders defence — so a row with
+     *   `counts_as_drawer_truth=true` AND a non-cash `payment_method`
+     *   (which should be unreachable but could be created by a raw
+     *   SQL backfill, a future Action, or a Tinker session) stays
+     *   excluded. The classifier-driven list covers "naqd" / future
+     *   variants that Path A's literal `'cash'` filter would reject.
      *
      * Excludes:
      *  - beds24_external rows with `counts_as_drawer_truth=false` —
      *    audit-only; manager can review and flip via Filament.
+     *  - beds24_external rows with `counts_as_drawer_truth=true` AND
+     *    a payment_method NOT in the cash allow-list (defence-in-depth
+     *    against the invariant being broken outside the webhook handler).
      *  - card/transfer/karta payment methods on Path A.
      *  - rows from any future source not in the two paths above.
      */
@@ -286,10 +292,23 @@ class CashTransaction extends Model
                             ->orWhere('payment_method', 'cash');
                     });
             })
-            // Path B: beds24_external pre-validated at write-time.
+                // Path B: beds24_external pre-validated at write-time
+                // AND its payment_method is in the cash allow-list
+                // (belt-and-suspenders defence per code-reviewer 2026-05-11).
                 ->orWhere(function ($q2) {
+                    $cashMethods = array_map(
+                        fn ($m) => strtolower(trim((string) $m)),
+                        (array) config('cashier.beds24_external_cash_methods', ['cash', 'naqd']),
+                    );
+
                     $q2->where('source_trigger', CashTransactionSource::Beds24External->value)
-                        ->where('counts_as_drawer_truth', true);
+                        ->where('counts_as_drawer_truth', true)
+                        ->whereRaw(
+                            'LOWER(TRIM(payment_method)) IN ('
+                            .implode(',', array_fill(0, count($cashMethods), '?'))
+                            .')',
+                            $cashMethods,
+                        );
                 });
         });
     }

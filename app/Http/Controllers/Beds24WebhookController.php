@@ -805,17 +805,16 @@ class Beds24WebhookController extends Controller
             'excluded_reason' => $excludedReason?->value,
         ]);
 
-        // Legacy "cash entered via Beds24 instead of bot" policy alert.
-        // Pre-Phase-1 behavior was "any beds24_external cash row is a
-        // policy violation"; that's no longer strictly true now that
-        // drawer-truth flagging makes the Beds24 admin path a
-        // first-class flow. Keep the alert ONLY when the row was NOT
-        // promoted to drawer truth — that's where the operator still
-        // needs visibility (it means a guard failed, e.g. no open
-        // shift, so reconciliation is required).
-        if (! $countsAsDrawerTruth && $this->methodClassifier->isCash($method)) {
-            $this->alertViolation($booking, $amount, $method);
-        }
+        // Legacy `alertViolation` removed (Phase 1, 2026-05-11). It used
+        // to fire on every beds24_external cash row treating them as
+        // policy violations. The two new alerts in
+        // `dispatchGuardSideEffects` cover the cases that actually need
+        // operator attention:
+        //   - NoOpenShift exclusion → alertBeds24CashOutsideShift
+        //   - drawer-truth row > threshold → alertBeds24AdminCashAboveThreshold
+        // Other exclusions (MatchingCashierBotRow, BeforeCutoff,
+        // MissingBookingId, NonCashMethod) are surfaced via the
+        // Filament reconciliation page — no Telegram noise needed.
     }
 
     /**
@@ -824,11 +823,12 @@ class Beds24WebhookController extends Controller
      * verdict + the specific reason when the verdict is "no" (null
      * when the row passes all guards).
      *
-     * Guards in evaluation order — fail-fast, first failure wins so
-     * the manager sees the most actionable reason. Order is chosen
-     * to surface the cheapest/most-informative reason first:
-     *   missing_booking_id → before_cutoff → non_cash_method →
-     *   matching_cashier_bot_row → no_open_shift.
+     * Evaluation order is fail-fast — first failing guard wins so the
+     * manager sees the most actionable reason for the row appearing
+     * in the Filament reconciliation page. Order chosen to surface
+     * the cheapest / most-informative reason first; reason codes in
+     * `DrawerTruthExcludedReason` are listed in webhook docs in the
+     * SAME evaluation order so cross-references match.
      *
      * @return array{0: bool, 1: \App\Enums\DrawerTruthExcludedReason|null}
      */
@@ -839,14 +839,14 @@ class Beds24WebhookController extends Controller
         \Carbon\Carbon $occurredAt,
         ?CashierShift $activeShift,
     ): array {
-        // Guard 5: beds24_booking_id IS NOT NULL.
+        // beds24_booking_id IS NOT NULL.
         // Webhook always sets this — a NULL indicates a manual/test
         // insert that bypassed the webhook entirely.
         if ($bookingId === null || $bookingId === '') {
             return [false, \App\Enums\DrawerTruthExcludedReason::MissingBookingId];
         }
 
-        // Guard 2: occurred_at >= cutoff.
+        // occurred_at >= cutoff.
         // Prevents the deploy from retroactively reclassifying
         // historical balances. Manager can still flip an older row
         // manually via Filament.
@@ -855,34 +855,43 @@ class Beds24WebhookController extends Controller
             return [false, \App\Enums\DrawerTruthExcludedReason::BeforeCutoff];
         }
 
-        // Guard 1: payment_method is in cash allow-list.
+        // payment_method is in cash allow-list.
         // Card/transfer/karta never enter the physical drawer.
         if (! $this->methodClassifier->isCash($method)) {
             return [false, \App\Enums\DrawerTruthExcludedReason::NonCashMethod];
         }
 
-        // Guard 3: no matching cashier_bot row in the ±2-minute window.
-        // Defensive double-count protection against any future failure
-        // of the [ref:UUID] reconciliation in WebhookReconciliationService.
-        // 30-day prod audit (2026-05-11) showed zero collisions
-        // historically — guard is belt-and-suspenders.
-        $windowStart = $occurredAt->copy()->subMinutes(2);
-        $windowEnd = $occurredAt->copy()->addMinutes(2);
+        // No matching cashier_bot row in the ±2-minute window for the
+        // same booking_id + exact amount. Defensive double-count
+        // protection against any future failure of the [ref:UUID]
+        // reconciliation in WebhookReconciliationService. 30-day prod
+        // audit (2026-05-11) showed zero collisions historically — kept
+        // as belt-and-suspenders.
+        //
+        // Times are normalised to UTC explicitly so the comparison
+        // works regardless of app timezone (DB stores UTC datetimes;
+        // Carbon::now() respects `app.timezone`). Without the explicit
+        // ->utc() the bound times would drift 5h on Tashkent prod.
+        // Amount uses exact equality — the column is decimal(:,2) so
+        // there's no source of drift on a 2-decimal write/read cycle.
+        $windowStart = $occurredAt->copy()->utc()->subMinutes(2);
+        $windowEnd = $occurredAt->copy()->utc()->addMinutes(2);
         $matchingBotRow = CashTransaction::where('beds24_booking_id', $bookingId)
             ->where('source_trigger', CashTransactionSource::CashierBot->value)
             ->whereBetween('occurred_at', [$windowStart, $windowEnd])
-            ->whereBetween('amount', [$amount - 0.01, $amount + 0.01])
+            ->where('amount', $amount)
             ->whereNull('deleted_at')
             ->exists();
         if ($matchingBotRow) {
             return [false, \App\Enums\DrawerTruthExcludedReason::MatchingCashierBotRow];
         }
 
-        // Guard 4: an open cashier shift exists.
-        // Without one, the cash has no shift to attach to. Set the
-        // shift on the row to null and mark for manual reconciliation
-        // (manager can flip via Filament after they confirm with the
-        // overnight admin who took the cash).
+        // An open cashier shift exists at webhook arrival.
+        // Without one, the cash has no shift to attach to. Row is
+        // still created for audit; manager can flip via Filament
+        // after they confirm with the overnight admin who took the
+        // cash. (See `dispatchGuardSideEffects` — this exclusion
+        // fires `alertBeds24CashOutsideShift` so manager gets pinged.)
         if ($activeShift === null) {
             return [false, \App\Enums\DrawerTruthExcludedReason::NoOpenShift];
         }
