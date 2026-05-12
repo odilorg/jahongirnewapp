@@ -12,7 +12,7 @@ class Kernel extends ConsoleKernel
      */
     protected function commands(): void
     {
-        $this->load(__DIR__ . '/Commands');
+        $this->load(__DIR__.'/Commands');
         require base_path('routes/console.php');
     }
 
@@ -169,11 +169,18 @@ class Kernel extends ConsoleKernel
         //   - SendManualInternalFeedbackRequestAction   (internal Day-1)
         // Both stamp their respective *_sent_at column on success only.
 
-        // Hotel pickup requests at 09:00 Tashkent — email guests with bookings 3-30 days out, no hotel set
-        $schedule->command('tour:send-hotel-requests')
-            ->dailyAt('09:00')
-            ->timezone('Asia/Tashkent')
-            ->withoutOverlapping();
+        // DISABLED 2026-05-11 by operator request — stop all automated hotel-
+        // pickup email follow-ups, even for the private-tour-only filter
+        // shipped in 5d80da4. Cause: Matthew Sandoz (INQ-103) confusion on
+        // 2026-05-09 made operator decide that automated pickup emails are
+        // no longer trusted; pickup-location collection is now manual via WA
+        // or the Filament UI on the inquiry. The command itself stays in
+        // app/Console/Commands/TourSendHotelRequests.php for now so it can
+        // still be run by hand if needed. Re-enable by uncommenting.
+        // $schedule->command('tour:send-hotel-requests')
+        //     ->dailyAt('09:00')
+        //     ->timezone('Asia/Tashkent')
+        //     ->withoutOverlapping();
 
         // Viator inbound-email pipeline (V1):
         //   - fetch every 10 min  (booking@t1.viator.com via himalaya)
