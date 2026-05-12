@@ -7,6 +7,7 @@ use App\Contracts\Telegram\TelegramTransportInterface;
 use App\Models\KitchenMealCount;
 use App\Models\TelegramPosSession;
 use App\Models\User;
+use App\Services\Kitchen\CountryBreakdownFormatter;
 use App\Services\KitchenGuestService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -15,7 +16,9 @@ use Illuminate\Support\Facades\Log;
 class KitchenBotController extends Controller
 {
     protected KitchenGuestService $kitchen;
+
     protected BotResolverInterface $botResolver;
+
     protected TelegramTransportInterface $transport;
 
     public function __construct(
@@ -23,18 +26,18 @@ class KitchenBotController extends Controller
         BotResolverInterface $botResolver,
         TelegramTransportInterface $transport,
     ) {
-        $this->kitchen     = $kitchen;
+        $this->kitchen = $kitchen;
         $this->botResolver = $botResolver;
-        $this->transport   = $transport;
+        $this->transport = $transport;
     }
 
     // ── WEBHOOK ENTRY ────────────────────────────────────────────
 
     public function handleWebhook(Request $request)
     {
-        $data     = $request->all();
+        $data = $request->all();
         $updateId = $data['update_id'] ?? null;
-        $eventId  = $updateId ? "kitchen:{$updateId}" : null;
+        $eventId = $updateId ? "kitchen:{$updateId}" : null;
 
         // Idempotency guard: Telegram retries the same update_id on non-2xx responses.
         // firstOrCreate keyed by event_id prevents duplicate DB rows AND duplicate jobs.
@@ -42,9 +45,9 @@ class KitchenBotController extends Controller
         $webhook = \App\Models\IncomingWebhook::firstOrCreate(
             ['event_id' => $eventId],
             [
-                'source'      => 'telegram:kitchen',
-                'payload'     => $data,
-                'status'      => \App\Models\IncomingWebhook::STATUS_PENDING,
+                'source' => 'telegram:kitchen',
+                'payload' => $data,
+                'status' => \App\Models\IncomingWebhook::STATUS_PENDING,
                 'received_at' => now(),
             ]
         );
@@ -59,11 +62,19 @@ class KitchenBotController extends Controller
     public function processUpdate(array $data): void
     {
         try {
-            if ($cb = $data['callback_query'] ?? null) { $this->handleCallback($cb); return; }
-            if ($message = $data['message'] ?? null) { $this->handleMessage($message); return; }
+            if ($cb = $data['callback_query'] ?? null) {
+                $this->handleCallback($cb);
+
+                return;
+            }
+            if ($message = $data['message'] ?? null) {
+                $this->handleMessage($message);
+
+                return;
+            }
         } catch (\Throwable $e) {
             Log::error('KitchenBot unhandled error', [
-                'e'     => $e->getMessage(),
+                'e' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
             ]);
             // Do NOT alert here — the job retries up to 3 times before calling failed().
@@ -77,26 +88,33 @@ class KitchenBotController extends Controller
 
     protected function handleMessage(array $message)
     {
-        $chatId  = $message['chat']['id'] ?? null;
-        $text    = trim($message['text'] ?? '');
+        $chatId = $message['chat']['id'] ?? null;
+        $text = trim($message['text'] ?? '');
         $contact = $message['contact'] ?? null;
 
-        if (!$chatId) return response('OK');
+        if (! $chatId) {
+            return response('OK');
+        }
 
         // Phone auth only works in private chats — ignore group messages
-        if (($message['chat']['type'] ?? 'private') !== 'private') return response('OK');
+        if (($message['chat']['type'] ?? 'private') !== 'private') {
+            return response('OK');
+        }
 
         // Auth: phone contact
-        if ($contact) return $this->handleAuth($chatId, $contact);
+        if ($contact) {
+            return $this->handleAuth($chatId, $contact);
+        }
 
         $session = $this->getSession($chatId);
 
         // Not authenticated or session expired (8h inactivity)
-        if (!$session || !$session->user_id || $session->isExpired()) {
+        if (! $session || ! $session->user_id || $session->isExpired()) {
             if ($session?->isExpired()) {
                 $session->update(['user_id' => null, 'state' => 'idle', 'data' => null]);
             }
             $this->send($chatId, "👋 Oshxona botiga xush kelibsiz!\n\nTelefon raqamingizni yuboring.", $this->phoneKb());
+
             return response('OK');
         }
 
@@ -123,28 +141,52 @@ class KitchenBotController extends Controller
         }
 
         // Button handlers
-        if ($text === '/start' || $text === '🏠 Bosh sahifa') return $this->showWelcome($chatId, $session);
+        if ($text === '/start' || $text === '🏠 Bosh sahifa') {
+            return $this->showWelcome($chatId, $session);
+        }
 
-        if ($text === '➕ 1 mehmon' || $text === '/plus') return $this->incrementServed($chatId, $session, 1);
-        if ($text === '➕ 2') return $this->incrementServed($chatId, $session, 2);
-        if ($text === '➕ 3') return $this->incrementServed($chatId, $session, 3);
-        if ($text === '➖ Qaytarish' || $text === '/minus') return $this->decrementServed($chatId, $session, 1);
+        if ($text === '➕ 1 mehmon' || $text === '/plus') {
+            return $this->incrementServed($chatId, $session, 1);
+        }
+        if ($text === '➕ 2') {
+            return $this->incrementServed($chatId, $session, 2);
+        }
+        if ($text === '➕ 3') {
+            return $this->incrementServed($chatId, $session, 3);
+        }
+        if ($text === '➖ Qaytarish' || $text === '/minus') {
+            return $this->decrementServed($chatId, $session, 1);
+        }
 
-        if ($text === '📊 Qoldiq' || $text === '/remaining') return $this->showRemaining($chatId, $today);
-        if ($text === '🍳 Bugun jami' || $text === '/today') return $this->showTodayFull($chatId, $today);
-        if ($text === '📅 Ertaga' || $text === '/tomorrow') return $this->showTomorrow($chatId);
-        if ($text === '📊 Haftalik' || $text === '/week') return $this->showWeekly($chatId);
+        if ($text === '📊 Qoldiq' || $text === '/remaining') {
+            return $this->showRemaining($chatId, $today);
+        }
+        if ($text === '🍳 Bugun jami' || $text === '/today') {
+            return $this->showTodayFull($chatId, $today);
+        }
+        if ($text === '📅 Ertaga' || $text === '/tomorrow') {
+            return $this->showTomorrow($chatId);
+        }
+        if ($text === '📊 Haftalik' || $text === '/week') {
+            return $this->showWeekly($chatId);
+        }
         if ($text === '📅 Sana tanlash' || $text === '/date') {
             $session->update(['state' => 'kitchen_date_input', 'data' => null]);
             $this->send($chatId, "📅 Sanani kiriting:\n\nMasalan: <code>15.03</code> yoki <code>2026-03-15</code>", $this->mainKb());
+
             return response('OK');
         }
-        if ($text === '🔄 Yangilash' || $text === '/refresh') return $this->refreshCount($chatId, $today);
-        if ($text === '❓ Yordam' || $text === '/help') return $this->showHelp($chatId);
+        if ($text === '🔄 Yangilash' || $text === '/refresh') {
+            return $this->refreshCount($chatId, $today);
+        }
+        if ($text === '❓ Yordam' || $text === '/help') {
+            return $this->showHelp($chatId);
+        }
 
         if ($text === '🚪 Chiqish' || $text === '/logout') {
             $session->update(['user_id' => null, 'state' => 'idle', 'data' => null]);
-            $this->send($chatId, "Chiqildi. Qayta kirish uchun telefon raqamingizni yuboring.", $this->phoneKb());
+            $this->send($chatId, 'Chiqildi. Qayta kirish uchun telefon raqamingizni yuboring.', $this->phoneKb());
+
             return response('OK');
         }
 
@@ -157,7 +199,8 @@ class KitchenBotController extends Controller
         }
 
         // Unknown input
-        $this->send($chatId, "Tugmalardan birini tanlang yoki mehmon sonini yozing (masalan: <code>3</code>)", $this->mainKb());
+        $this->send($chatId, 'Tugmalardan birini tanlang yoki mehmon sonini yozing (masalan: <code>3</code>)', $this->mainKb());
+
         return response('OK');
     }
 
@@ -166,24 +209,40 @@ class KitchenBotController extends Controller
     protected function handleCallback(array $cb)
     {
         $chatId = $cb['message']['chat']['id'] ?? null;
-        $data   = $cb['data'] ?? '';
-        $cbId   = $cb['id'] ?? '';
+        $data = $cb['data'] ?? '';
+        $cbId = $cb['id'] ?? '';
 
-        if (!$chatId) return response('OK');
+        if (! $chatId) {
+            return response('OK');
+        }
 
         // Only allow callbacks from private chats with authenticated sessions
-        if (($cb['message']['chat']['type'] ?? 'private') !== 'private') return response('OK');
+        if (($cb['message']['chat']['type'] ?? 'private') !== 'private') {
+            return response('OK');
+        }
         $session = $this->getSession($chatId);
-        if (!$session || !$session->user_id) return response('OK');
+        if (! $session || ! $session->user_id) {
+            return response('OK');
+        }
 
         $this->aCb($cbId);
 
         // Inline callbacks for quick +1, +2, +3, -1
-        if ($data === 'k_plus_1') return $this->incrementServedInline($chatId, 1, $cb['message']['message_id'] ?? null);
-        if ($data === 'k_plus_2') return $this->incrementServedInline($chatId, 2, $cb['message']['message_id'] ?? null);
-        if ($data === 'k_plus_3') return $this->incrementServedInline($chatId, 3, $cb['message']['message_id'] ?? null);
-        if ($data === 'k_minus_1') return $this->decrementServedInline($chatId, 1, $cb['message']['message_id'] ?? null);
-        if ($data === 'k_refresh') return $this->refreshCountInline($chatId, $cb['message']['message_id'] ?? null);
+        if ($data === 'k_plus_1') {
+            return $this->incrementServedInline($chatId, 1, $cb['message']['message_id'] ?? null);
+        }
+        if ($data === 'k_plus_2') {
+            return $this->incrementServedInline($chatId, 2, $cb['message']['message_id'] ?? null);
+        }
+        if ($data === 'k_plus_3') {
+            return $this->incrementServedInline($chatId, 3, $cb['message']['message_id'] ?? null);
+        }
+        if ($data === 'k_minus_1') {
+            return $this->decrementServedInline($chatId, 1, $cb['message']['message_id'] ?? null);
+        }
+        if ($data === 'k_refresh') {
+            return $this->refreshCountInline($chatId, $cb['message']['message_id'] ?? null);
+        }
 
         return response('OK');
     }
@@ -193,16 +252,18 @@ class KitchenBotController extends Controller
     protected function handleAuth(int $chatId, array $contact)
     {
         $phone = preg_replace('/[^0-9]/', '', $contact['phone_number'] ?? '');
-        $user  = User::where('phone_number', 'LIKE', '%' . substr($phone, -9))->first();
+        $user = User::where('phone_number', 'LIKE', '%'.substr($phone, -9))->first();
 
-        if (!$user) {
-            $this->send($chatId, "❌ Raqam topilmadi. Rahbariyatga murojaat qiling.");
+        if (! $user) {
+            $this->send($chatId, '❌ Raqam topilmadi. Rahbariyatga murojaat qiling.');
+
             return response('OK');
         }
 
         // Only kitchen staff, managers, and admins can use this bot
-        if (!$user->hasAnyRole(['kitchen', 'admin', 'manager', 'owner', 'super_admin'])) {
+        if (! $user->hasAnyRole(['kitchen', 'admin', 'manager', 'owner', 'super_admin'])) {
             $this->send($chatId, "❌ Sizga oshxona botiga kirish ruxsati yo'q.\nRahbariyatga murojaat qiling.");
+
             return response('OK');
         }
 
@@ -215,6 +276,7 @@ class KitchenBotController extends Controller
         );
 
         $this->send($chatId, "✅ Xush kelibsiz, {$user->name}!");
+
         return $this->showWelcome($chatId, $this->getSession($chatId));
     }
 
@@ -251,19 +313,20 @@ class KitchenBotController extends Controller
         $meal = $this->kitchen->syncExpectedCount($today);
 
         $text = "🍳 <b>Jahongir Hotel — Oshxona Bot</b>\n\n"
-            . "Salom, <b>{$name}</b>! 👋\n\n"
-            . "📌 <b>Bugungi nonushta:</b>\n"
-            . "👥 Jami kutilmoqda: <b>{$meal->total_expected}</b>"
-            . ($meal->total_children > 0 ? " ({$meal->total_adults} katta + {$meal->total_children} bola)" : '') . "\n"
-            . "✅ Keldi: <b>{$meal->served_count}</b>\n"
-            . "⏳ Qoldi: <b>{$meal->remaining()}</b>\n\n"
-            . "📌 <b>Qanday ishlaydi:</b>\n"
-            . "• Mehmon kelganda <b>➕ 1 mehmon</b> bosing\n"
-            . "• Xato bo'lsa <b>➖ Qaytarish</b> bosing\n"
-            . "• Sonni yozish ham mumkin: <code>3</code> = 3 mehmon\n"
-            . "• <b>📊 Qoldiq</b> — qancha mehmon kelmagan";
+            ."Salom, <b>{$name}</b>! 👋\n\n"
+            ."📌 <b>Bugungi nonushta:</b>\n"
+            ."👥 Jami kutilmoqda: <b>{$meal->total_expected}</b>"
+            .($meal->total_children > 0 ? " ({$meal->total_adults} katta + {$meal->total_children} bola)" : '')."\n"
+            ."✅ Keldi: <b>{$meal->served_count}</b>\n"
+            ."⏳ Qoldi: <b>{$meal->remaining()}</b>\n\n"
+            ."📌 <b>Qanday ishlaydi:</b>\n"
+            ."• Mehmon kelganda <b>➕ 1 mehmon</b> bosing\n"
+            ."• Xato bo'lsa <b>➖ Qaytarish</b> bosing\n"
+            ."• Sonni yozish ham mumkin: <code>3</code> = 3 mehmon\n"
+            .'• <b>📊 Qoldiq</b> — qancha mehmon kelmagan';
 
         $this->send($chatId, $text, $this->mainKb());
+
         return response('OK');
     }
 
@@ -277,6 +340,7 @@ class KitchenBotController extends Controller
 
         $emoji = $count === 1 ? '✅' : "✅ +{$count}";
         $this->send($chatId, $this->counterText($meal, $emoji), $this->mainKb());
+
         return response('OK');
     }
 
@@ -287,6 +351,7 @@ class KitchenBotController extends Controller
         $meal->refresh();
 
         $this->replyCounter($chatId, $messageId, $this->counterText($meal));
+
         return response('OK');
     }
 
@@ -296,8 +361,9 @@ class KitchenBotController extends Controller
     {
         $meal = KitchenMealCount::forDate(now()->timezone('Asia/Tashkent')->format('Y-m-d'));
 
-        if (!$meal) {
+        if (! $meal) {
             $this->send($chatId, "Bugun hali ma'lumot yo'q. 🔄 Yangilash bosing.", $this->mainKb());
+
             return response('OK');
         }
 
@@ -305,18 +371,22 @@ class KitchenBotController extends Controller
         $meal->refresh();
 
         $this->send($chatId, $this->counterText($meal, '↩️ Qaytarildi.'), $this->mainKb());
+
         return response('OK');
     }
 
     protected function decrementServedInline(int $chatId, int $count, ?int $messageId)
     {
         $meal = KitchenMealCount::forDate(now()->timezone('Asia/Tashkent')->format('Y-m-d'));
-        if (!$meal) return response('OK');
+        if (! $meal) {
+            return response('OK');
+        }
 
         $meal->decrementServed($count);
         $meal->refresh();
 
         $this->replyCounter($chatId, $messageId, $this->counterText($meal, '↩️ Qaytarildi.'));
+
         return response('OK');
     }
 
@@ -332,7 +402,7 @@ class KitchenBotController extends Controller
     private function counterText(KitchenMealCount $meal, string $prefix = '✅'): string
     {
         return "{$prefix} Keldi: <b>{$meal->served_count}</b> / {$meal->total_expected}\n"
-            . "⏳ Qoldi: <b>{$meal->remaining()}</b>";
+            ."⏳ Qoldi: <b>{$meal->remaining()}</b>";
     }
 
     /** Send or edit a counter message — inline keyboard if messageId given, reply keyboard otherwise. */
@@ -351,7 +421,7 @@ class KitchenBotController extends Controller
     {
         $meal = KitchenMealCount::forDate($date);
 
-        if (!$meal) {
+        if (! $meal) {
             $meal = $this->kitchen->syncExpectedCount($date);
         }
 
@@ -361,21 +431,22 @@ class KitchenBotController extends Controller
 
         // Visual progress bar
         $filled = min(10, max(0, (int) round($pct / 10)));
-        $bar = str_repeat('▓', $filled) . str_repeat('░', 10 - $filled);
+        $bar = str_repeat('▓', $filled).str_repeat('░', 10 - $filled);
 
         $text = "📊 <b>Bugungi nonushta holati</b>\n\n"
-            . "👥 Jami kutilmoqda: <b>{$meal->total_expected}</b>\n";
+            ."👥 Jami kutilmoqda: <b>{$meal->total_expected}</b>\n";
 
         if ($meal->total_children > 0) {
             $text .= "   👨 Kattalar: {$meal->total_adults}\n"
-                . "   👶 Bolalar: {$meal->total_children}\n";
+                ."   👶 Bolalar: {$meal->total_children}\n";
         }
 
         $text .= "\n✅ Keldi: <b>{$meal->served_count}</b>\n"
-            . "⏳ Qoldi: <b>{$meal->remaining()}</b>\n\n"
-            . "[{$bar}] {$pct}%";
+            ."⏳ Qoldi: <b>{$meal->remaining()}</b>\n\n"
+            ."[{$bar}] {$pct}%";
 
         $this->sendWithInline($chatId, $text, $this->counterInlineKb());
+
         return response('OK');
     }
 
@@ -385,7 +456,7 @@ class KitchenBotController extends Controller
     {
         // syncExpectedCount already calls getGuestCountForDate internally — use its return
         // value for counts to avoid making the same 3 Beds24 calls twice.
-        $meal   = $this->kitchen->syncExpectedCount($date);
+        $meal = $this->kitchen->syncExpectedCount($date);
         $counts = $this->kitchen->getLastFetchedCounts() ?? $this->kitchen->getGuestCountForDate($date);
         $bd = $counts['breakdown'] ?? [];
 
@@ -393,28 +464,42 @@ class KitchenBotController extends Controller
         $dayLabel = $dateObj->isToday() ? 'Bugun' : $dateObj->format('d.m (D)');
 
         $text = "🍳 <b>{$dayLabel} — Nonushta hisobi</b>\n\n"
-            . "👥 Jami mehmonlar: <b>{$counts['total']}</b>\n";
+            ."👥 Jami mehmonlar: <b>{$counts['total']}</b>\n";
 
         if ($counts['children'] > 0) {
             $text .= "   👨 Kattalar: {$counts['adults']}\n"
-                . "   👶 Bolalar: {$counts['children']}\n";
+                ."   👶 Bolalar: {$counts['children']}\n";
         }
 
         $text .= "🏨 Jami bronlar: {$counts['bookings']}\n\n";
 
-        if (!empty($bd)) {
+        if (! empty($bd)) {
             $text .= "📋 <b>Nonushta tafsiloti:</b>\n";
-            if ($bd['stayovers'] > 0) $text .= "  🛏 Qolayotgan: {$bd['stayovers']} bron\n";
-            if ($bd['departures'] > 0) $text .= "  🚪 Ketayotgan: {$bd['departures']} bron\n";
-            if ($bd['arrivals'] > 0) $text .= "  🛬 Kelayotgan: {$bd['arrivals']} bron <i>(nonushtaga kirmaydi)</i>\n";
+            if ($bd['stayovers'] > 0) {
+                $text .= "  🛏 Qolayotgan: {$bd['stayovers']} bron\n";
+            }
+            if ($bd['departures'] > 0) {
+                $text .= "  🚪 Ketayotgan: {$bd['departures']} bron\n";
+            }
+            if ($bd['arrivals'] > 0) {
+                $text .= "  🛬 Kelayotgan: {$bd['arrivals']} bron <i>(nonushtaga kirmaydi)</i>\n";
+            }
             $text .= "\n";
         }
 
+        // Country breakdown — kitchen uses this to plan purchasing
+        // (e.g. more bread for European groups, more rice for Asian).
+        $countryBlock = app(CountryBreakdownFormatter::class)->format($counts['by_country'] ?? []);
+        if ($countryBlock !== '') {
+            $text .= $countryBlock."\n\n";
+        }
+
         $text .= "━━━━━━━━━━━━━━━━━━\n"
-            . "✅ Keldi: <b>{$meal->served_count}</b>\n"
-            . "⏳ Qoldi: <b>{$meal->remaining()}</b>";
+            ."✅ Keldi: <b>{$meal->served_count}</b>\n"
+            ."⏳ Qoldi: <b>{$meal->remaining()}</b>";
 
         $this->send($chatId, $text, $this->mainKb());
+
         return response('OK');
     }
 
@@ -427,24 +512,38 @@ class KitchenBotController extends Controller
         $dayLabel = Carbon::parse($tomorrow)->format('d.m.Y (l)');
 
         $text = "📅 <b>Ertaga — {$dayLabel}</b>\n\n"
-            . "👥 Nonushtaga kutilmoqda: <b>{$counts['total']}</b>\n";
+            ."👥 Nonushtaga kutilmoqda: <b>{$counts['total']}</b>\n";
 
         if ($counts['children'] > 0) {
             $text .= "   👨 Kattalar: {$counts['adults']}\n"
-                . "   👶 Bolalar: {$counts['children']}\n";
+                ."   👶 Bolalar: {$counts['children']}\n";
         }
 
         $text .= "🏨 Bronlar: {$counts['bookings']}\n";
 
         $bd = $counts['breakdown'] ?? [];
-        if (!empty($bd)) {
+        if (! empty($bd)) {
             $text .= "\n📋 Tafsilot:\n";
-            if ($bd['stayovers'] > 0) $text .= "  🛏 Qolayotgan: {$bd['stayovers']}\n";
-            if ($bd['departures'] > 0) $text .= "  🚪 Ketayotgan: {$bd['departures']}\n";
-            if ($bd['arrivals'] > 0) $text .= "  🛬 Kelayotgan: {$bd['arrivals']} <i>(nonushtaga kirmaydi)</i>\n";
+            if ($bd['stayovers'] > 0) {
+                $text .= "  🛏 Qolayotgan: {$bd['stayovers']}\n";
+            }
+            if ($bd['departures'] > 0) {
+                $text .= "  🚪 Ketayotgan: {$bd['departures']}\n";
+            }
+            if ($bd['arrivals'] > 0) {
+                $text .= "  🛬 Kelayotgan: {$bd['arrivals']} <i>(nonushtaga kirmaydi)</i>\n";
+            }
+        }
+
+        // Country breakdown — same rationale as showTodayFull, helps the
+        // kitchen forecast next-day purchases by nationality mix.
+        $countryBlock = app(CountryBreakdownFormatter::class)->format($counts['by_country'] ?? []);
+        if ($countryBlock !== '') {
+            $text .= "\n".$countryBlock;
         }
 
         $this->send($chatId, $text, $this->mainKb());
+
         return response('OK');
     }
 
@@ -452,7 +551,7 @@ class KitchenBotController extends Controller
 
     protected function showWeekly(int $chatId)
     {
-        $this->send($chatId, "⏳ Haftalik prognoz tayyorlanmoqda...");
+        $this->send($chatId, '⏳ Haftalik prognoz tayyorlanmoqda...');
 
         $forecast = $this->kitchen->getWeeklyForecast();
         $anyDegraded = collect($forecast)->contains('degraded', true);
@@ -468,7 +567,7 @@ class KitchenBotController extends Controller
         foreach ($forecast as $day) {
             $isToday = $day['date'] === $today;
             $prefix = $isToday ? '▶️' : '  ';
-            $label = $isToday ? '<b>Bugun</b>' : $day['day_label'] . ' ' . $day['day_name'];
+            $label = $isToday ? '<b>Bugun</b>' : $day['day_label'].' '.$day['day_name'];
 
             $childInfo = $day['children'] > 0 ? " ({$day['adults']}+{$day['children']}🧒)" : '';
 
@@ -478,6 +577,7 @@ class KitchenBotController extends Controller
         $lines[] = "\n💡 <i>Mahsulot harid qilish uchun foydalaning</i>";
 
         $this->send($chatId, implode("\n", $lines), $this->mainKb());
+
         return response('OK');
     }
 
@@ -487,15 +587,17 @@ class KitchenBotController extends Controller
     {
         if ($text === '/cancel' || $text === '❌ Bekor qilish') {
             $session->update(['state' => 'kitchen_main', 'data' => null]);
-            $this->send($chatId, "Bekor qilindi.", $this->mainKb());
+            $this->send($chatId, 'Bekor qilindi.', $this->mainKb());
+
             return response('OK');
         }
 
         // Parse various date formats
         $date = $this->parseDate($text);
 
-        if (!$date) {
+        if (! $date) {
             $this->send($chatId, "❌ Sana formatini tushunmadim.\n\nMasalan: <code>15.03</code> yoki <code>2026-03-15</code>");
+
             return response('OK');
         }
 
@@ -506,24 +608,31 @@ class KitchenBotController extends Controller
         $dayLabel = $dateObj->format('d.m.Y (D)');
 
         $text = "📅 <b>{$dayLabel}</b>\n\n"
-            . "👥 Kutilayotgan mehmonlar: <b>{$counts['total']}</b>\n";
+            ."👥 Kutilayotgan mehmonlar: <b>{$counts['total']}</b>\n";
 
         if ($counts['children'] > 0) {
             $text .= "   👨 Kattalar: {$counts['adults']}\n"
-                . "   👶 Bolalar: {$counts['children']}\n";
+                ."   👶 Bolalar: {$counts['children']}\n";
         }
 
         $text .= "🏨 Bronlar: {$counts['bookings']}\n";
 
         $bd = $counts['breakdown'] ?? [];
-        if (!empty($bd)) {
+        if (! empty($bd)) {
             $text .= "\n📋 Tafsilot:\n";
-            if ($bd['stayovers'] > 0) $text .= "  🛏 Qolayotgan: {$bd['stayovers']}\n";
-            if ($bd['departures'] > 0) $text .= "  🚪 Ketayotgan: {$bd['departures']}\n";
-            if ($bd['arrivals'] > 0) $text .= "  🛬 Kelayotgan: {$bd['arrivals']}\n";
+            if ($bd['stayovers'] > 0) {
+                $text .= "  🛏 Qolayotgan: {$bd['stayovers']}\n";
+            }
+            if ($bd['departures'] > 0) {
+                $text .= "  🚪 Ketayotgan: {$bd['departures']}\n";
+            }
+            if ($bd['arrivals'] > 0) {
+                $text .= "  🛬 Kelayotgan: {$bd['arrivals']}\n";
+            }
         }
 
         $this->send($chatId, $text, $this->mainKb());
+
         return response('OK');
     }
 
@@ -534,11 +643,12 @@ class KitchenBotController extends Controller
         $meal = $this->kitchen->syncExpectedCount($date);
 
         $text = "🔄 Yangilandi!\n\n"
-            . "👥 Jami kutilmoqda: <b>{$meal->total_expected}</b>\n"
-            . "✅ Keldi: <b>{$meal->served_count}</b>\n"
-            . "⏳ Qoldi: <b>{$meal->remaining()}</b>";
+            ."👥 Jami kutilmoqda: <b>{$meal->total_expected}</b>\n"
+            ."✅ Keldi: <b>{$meal->served_count}</b>\n"
+            ."⏳ Qoldi: <b>{$meal->remaining()}</b>";
 
         $this->send($chatId, $text, $this->mainKb());
+
         return response('OK');
     }
 
@@ -548,15 +658,16 @@ class KitchenBotController extends Controller
         $meal = $this->kitchen->syncExpectedCount($today);
 
         $text = "🔄 Yangilandi!\n\n"
-            . "👥 Jami: <b>{$meal->total_expected}</b>\n"
-            . "✅ Keldi: <b>{$meal->served_count}</b>\n"
-            . "⏳ Qoldi: <b>{$meal->remaining()}</b>";
+            ."👥 Jami: <b>{$meal->total_expected}</b>\n"
+            ."✅ Keldi: <b>{$meal->served_count}</b>\n"
+            ."⏳ Qoldi: <b>{$meal->remaining()}</b>";
 
         if ($messageId) {
             $this->editMessage($chatId, $messageId, $text, $this->counterInlineKb());
         } else {
             $this->send($chatId, $text, $this->mainKb());
         }
+
         return response('OK');
     }
 
@@ -565,23 +676,24 @@ class KitchenBotController extends Controller
     protected function showHelp(int $chatId)
     {
         $text = "❓ <b>Oshxona Bot — Yordam</b>\n\n"
-            . "🍳 Bu bot nonushta mehmonlarini hisoblash uchun.\n\n"
-            . "<b>Asosiy tugmalar:</b>\n"
-            . "• <b>➕ 1 mehmon</b> — mehmon kelganda bosing\n"
-            . "• <b>➕ 2 / ➕ 3</b> — bir nechta mehmon kelganda\n"
-            . "• <b>➖ Qaytarish</b> — xato bo'lsa, 1 ta qaytarish\n"
-            . "• <b>📊 Qoldiq</b> — qancha mehmon hali kelmagan\n"
-            . "• <b>🍳 Bugun jami</b> — to'liq hisobot\n"
-            . "• <b>📅 Ertaga</b> — ertangi nonushta prognozi\n"
-            . "• <b>📊 Haftalik</b> — 7 kunlik prognoz\n"
-            . "• <b>📅 Sana tanlash</b> — istalgan kunga prognoz\n"
-            . "• <b>🔄 Yangilash</b> — Beds24 dan yangi ma'lumot\n\n"
-            . "<b>Qo'shimcha:</b>\n"
-            . "• Raqam yozish = shu sondagi mehmon qo'shish\n"
-            . "  Masalan: <code>5</code> = 5 mehmon keldi\n\n"
-            . "💡 Har kuni ertalab bot avtomatik yangilanadi.";
+            ."🍳 Bu bot nonushta mehmonlarini hisoblash uchun.\n\n"
+            ."<b>Asosiy tugmalar:</b>\n"
+            ."• <b>➕ 1 mehmon</b> — mehmon kelganda bosing\n"
+            ."• <b>➕ 2 / ➕ 3</b> — bir nechta mehmon kelganda\n"
+            ."• <b>➖ Qaytarish</b> — xato bo'lsa, 1 ta qaytarish\n"
+            ."• <b>📊 Qoldiq</b> — qancha mehmon hali kelmagan\n"
+            ."• <b>🍳 Bugun jami</b> — to'liq hisobot\n"
+            ."• <b>📅 Ertaga</b> — ertangi nonushta prognozi\n"
+            ."• <b>📊 Haftalik</b> — 7 kunlik prognoz\n"
+            ."• <b>📅 Sana tanlash</b> — istalgan kunga prognoz\n"
+            ."• <b>🔄 Yangilash</b> — Beds24 dan yangi ma'lumot\n\n"
+            ."<b>Qo'shimcha:</b>\n"
+            ."• Raqam yozish = shu sondagi mehmon qo'shish\n"
+            ."  Masalan: <code>5</code> = 5 mehmon keldi\n\n"
+            .'💡 Har kuni ertalab bot avtomatik yangilanadi.';
 
         $this->send($chatId, $text, $this->mainKb());
+
         return response('OK');
     }
 
@@ -605,8 +717,8 @@ class KitchenBotController extends Controller
     protected function phoneKb(): array
     {
         return [
-            'keyboard'          => [[['text' => 'Telefon raqamni yuborish', 'request_contact' => true]]],
-            'resize_keyboard'   => true,
+            'keyboard' => [[['text' => 'Telefon raqamni yuborish', 'request_contact' => true]]],
+            'resize_keyboard' => true,
             'one_time_keyboard' => true,
         ];
     }
@@ -669,12 +781,14 @@ class KitchenBotController extends Controller
     protected function send(int $chatId, string $text, ?array $kb = null): void
     {
         $extra = ['parse_mode' => 'HTML'];
-        if ($kb) $extra['reply_markup'] = json_encode($kb);
+        if ($kb) {
+            $extra['reply_markup'] = json_encode($kb);
+        }
 
         try {
             $bot = $this->botResolver->resolve('kitchen');
             $result = $this->transport->sendMessage($bot, $chatId, $text, $extra);
-            if (!$result->succeeded()) {
+            if (! $result->succeeded()) {
                 Log::warning('KitchenBot send failed', ['chat' => $chatId, 'status' => $result->httpStatus]);
             }
         } catch (\Throwable $e) {
@@ -703,7 +817,9 @@ class KitchenBotController extends Controller
             'text' => $text,
             'parse_mode' => 'HTML',
         ];
-        if ($inlineKb) $p['reply_markup'] = json_encode($inlineKb);
+        if ($inlineKb) {
+            $p['reply_markup'] = json_encode($inlineKb);
+        }
 
         try {
             $bot = $this->botResolver->resolve('kitchen');
@@ -715,7 +831,9 @@ class KitchenBotController extends Controller
 
     protected function aCb(string $id): void
     {
-        if (!$id) return;
+        if (! $id) {
+            return;
+        }
         try {
             $bot = $this->botResolver->resolve('kitchen');
             $this->transport->call($bot, 'answerCallbackQuery', ['callback_query_id' => $id]);
@@ -723,5 +841,4 @@ class KitchenBotController extends Controller
             Log::warning('KitchenBot aCb failed', ['id' => $id, 'error' => $e->getMessage()]);
         }
     }
-
 }

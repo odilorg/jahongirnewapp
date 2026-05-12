@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Log;
 class KitchenGuestService
 {
     protected Beds24BookingService $beds24;
+
     protected const PROPERTY_ID = 41097;
 
     /**
@@ -71,11 +72,19 @@ class KitchenGuestService
                 ->values();
 
             // Stayovers for breakdown = those continuing past today
-            $stayovers = $breakfastGuests->filter(fn($b) => $b['departure'] > $dateStr)->values()->all();
+            $stayovers = $breakfastGuests->filter(fn ($b) => $b['departure'] > $dateStr)->values()->all();
 
-            $adults = $breakfastGuests->sum(fn($b) => (int) ($b['numAdult'] ?? 0));
-            $children = $breakfastGuests->sum(fn($b) => (int) ($b['numChild'] ?? 0));
+            $adults = $breakfastGuests->sum(fn ($b) => (int) ($b['numAdult'] ?? 0));
+            $children = $breakfastGuests->sum(fn ($b) => (int) ($b['numChild'] ?? 0));
             $total = $adults + $children;
+
+            // Country breakdown — bookings-per-country (NOT pax-per-country).
+            // Empty / missing country2 lands on '' so the formatter can roll
+            // those into the Noma'lum bottom row.
+            $byCountry = $breakfastGuests
+                ->groupBy(fn ($b) => (string) ($b['country2'] ?? ''))
+                ->map->count()
+                ->toArray();
 
             $this->lastFetchedCounts = [
                 'total' => $total,
@@ -87,15 +96,17 @@ class KitchenGuestService
                     'departures' => count($departures),
                     'arrivals' => count($arrivals), // info only, not in total
                 ],
+                'by_country' => $byCountry,
             ];
 
             return $this->lastFetchedCounts;
         } catch (\Throwable $e) {
             Log::error('KitchenGuestService: Beds24 fetch failed — returning zero counts', [
-                'date'  => $date,
+                'date' => $date,
                 'error' => $e->getMessage(),
             ]);
-            return ['total' => 0, 'adults' => 0, 'children' => 0, 'bookings' => 0, 'breakdown' => [], 'degraded' => true];
+
+            return ['total' => 0, 'adults' => 0, 'children' => 0, 'bookings' => 0, 'breakdown' => [], 'by_country' => [], 'degraded' => true];
         }
     }
 
@@ -136,14 +147,14 @@ class KitchenGuestService
     {
         // Always anchor to Asia/Tashkent so date boundaries are consistent
         // regardless of where the PHP process runs (UTC server vs local TZ).
-        $tz    = 'Asia/Tashkent';
+        $tz = 'Asia/Tashkent';
         $start = $startDate
             ? Carbon::parse($startDate, $tz)->startOfDay()
             : now($tz)->startOfDay();
 
-        $endDate  = $start->copy()->addDays(6);
+        $endDate = $start->copy()->addDays(6);
         $startStr = $start->format('Y-m-d');
-        $endStr   = $endDate->format('Y-m-d');
+        $endStr = $endDate->format('Y-m-d');
         $degraded = false;
 
         try {
@@ -151,10 +162,10 @@ class KitchenGuestService
             // A booking overlaps day D if: arrival <= D and departure >= D
             // So: arrival <= endDate AND departure >= startDate
             $resp = $this->beds24->getBookings([
-                'arrivalFrom'   => '2020-01-01',
-                'arrivalTo'     => $endStr,
+                'arrivalFrom' => '2020-01-01',
+                'arrivalTo' => $endStr,
                 'departureFrom' => $startStr,
-                'propertyId'    => [(string) self::PROPERTY_ID],
+                'propertyId' => [(string) self::PROPERTY_ID],
             ]);
 
             $allBookings = collect($this->filterActive($resp['data'] ?? []));
@@ -163,8 +174,8 @@ class KitchenGuestService
             // One extra call covers all arrivals in the window.
             $arrivalsResp = $this->beds24->getBookings([
                 'arrivalFrom' => $startStr,
-                'arrivalTo'   => $endStr,
-                'propertyId'  => [(string) self::PROPERTY_ID],
+                'arrivalTo' => $endStr,
+                'propertyId' => [(string) self::PROPERTY_ID],
             ]);
             $allArrivals = collect($this->filterActive($arrivalsResp['data'] ?? []));
 
@@ -179,42 +190,42 @@ class KitchenGuestService
             ]);
             $allBookings = collect();
             $allArrivals = collect();
-            $degraded    = true;
+            $degraded = true;
         }
 
         $forecast = [];
         for ($i = 0; $i < 7; $i++) {
-            $date    = $start->copy()->addDays($i);
+            $date = $start->copy()->addDays($i);
             $dateStr = $date->format('Y-m-d');
             $prevDay = $date->copy()->subDay()->format('Y-m-d');
 
             // Breakfast guests = arrived on or before yesterday, depart on or after today
             $breakfastGuests = $allBookings
-                ->filter(fn($b) => ($b['arrival'] ?? '') <= $prevDay && ($b['departure'] ?? '') >= $dateStr)
+                ->filter(fn ($b) => ($b['arrival'] ?? '') <= $prevDay && ($b['departure'] ?? '') >= $dateStr)
                 ->unique('id')
                 ->values();
 
-            $stayovers  = $breakfastGuests->filter(fn($b) => ($b['departure'] ?? '') > $dateStr)->count();
-            $departures = $breakfastGuests->filter(fn($b) => ($b['departure'] ?? '') === $dateStr)->count();
-            $arrivals   = $allArrivals->filter(fn($b) => ($b['arrival'] ?? '') === $dateStr)->count();
+            $stayovers = $breakfastGuests->filter(fn ($b) => ($b['departure'] ?? '') > $dateStr)->count();
+            $departures = $breakfastGuests->filter(fn ($b) => ($b['departure'] ?? '') === $dateStr)->count();
+            $arrivals = $allArrivals->filter(fn ($b) => ($b['arrival'] ?? '') === $dateStr)->count();
 
-            $adults   = $breakfastGuests->sum(fn($b) => (int) ($b['numAdult'] ?? 0));
-            $children = $breakfastGuests->sum(fn($b) => (int) ($b['numChild'] ?? 0));
+            $adults = $breakfastGuests->sum(fn ($b) => (int) ($b['numAdult'] ?? 0));
+            $children = $breakfastGuests->sum(fn ($b) => (int) ($b['numChild'] ?? 0));
 
             $forecast[] = [
-                'date'      => $dateStr,
-                'total'     => $adults + $children,
-                'adults'    => $adults,
-                'children'  => $children,
-                'bookings'  => $breakfastGuests->count(),
+                'date' => $dateStr,
+                'total' => $adults + $children,
+                'adults' => $adults,
+                'children' => $children,
+                'bookings' => $breakfastGuests->count(),
                 'breakdown' => [
-                    'stayovers'  => $stayovers,
+                    'stayovers' => $stayovers,
                     'departures' => $departures,
-                    'arrivals'   => $arrivals,
+                    'arrivals' => $arrivals,
                 ],
-                'day_name'  => $date->translatedFormat('D'),
+                'day_name' => $date->translatedFormat('D'),
                 'day_label' => $date->format('d.m'),
-                'degraded'  => $degraded, // true if Beds24 was unreachable — caller should warn user
+                'degraded' => $degraded, // true if Beds24 was unreachable — caller should warn user
             ];
         }
 
@@ -228,7 +239,7 @@ class KitchenGuestService
     {
         return array_values(
             collect($bookings)
-                ->filter(fn($b) => !in_array($b['status'] ?? '', ['cancelled', 'declined']))
+                ->filter(fn ($b) => ! in_array($b['status'] ?? '', ['cancelled', 'declined']))
                 ->unique('id')
                 ->all()
         );
