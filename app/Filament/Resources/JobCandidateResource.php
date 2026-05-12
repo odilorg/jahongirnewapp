@@ -5,8 +5,6 @@ declare(strict_types=1);
 namespace App\Filament\Resources;
 
 use App\Enums\HR\ApplicationStatus;
-use App\Enums\HR\ExperienceLevel;
-use App\Enums\HR\LanguageLevel;
 use App\Enums\HR\Position;
 use App\Filament\Resources\JobCandidateResource\Pages;
 use App\Models\JobCandidate;
@@ -82,63 +80,86 @@ class JobCandidateResource extends Resource
     public static function form(Form $form): Form
     {
         return $form->schema([
+            // All candidate-self-reported fields are read-only here —
+            // they came in via the public form and are NOT editable
+            // by HR. Use Placeholder components which give us a free
+            // ->content() callback receiving the model record, so we
+            // can render Russian enum labels / formatted values / "—"
+            // for nulls without fighting Filament's form-input lifecycle
+            // (TextInput->formatStateUsing receives the raw column
+            // value on hydration, not the enum cast, so the previous
+            // `$state instanceof Position` check was always falsy and
+            // raw values leaked through).
             Forms\Components\Section::make('Контакт')
                 ->columns(2)
                 ->schema([
-                    Forms\Components\TextInput::make('full_name')->label('Имя')->disabled(),
-                    Forms\Components\TextInput::make('phone')->label('Телефон')->disabled(),
-                    Forms\Components\TextInput::make('whatsapp_phone')->label('WhatsApp')->disabled(),
-                    Forms\Components\TextInput::make('age')->label('Возраст')->disabled(),
-                    Forms\Components\TextInput::make('city')->label('Город')->disabled(),
+                    Forms\Components\Placeholder::make('full_name_display')
+                        ->label('Имя')
+                        ->content(fn ($record) => $record?->full_name ?? '—'),
+                    Forms\Components\Placeholder::make('phone_display')
+                        ->label('Телефон')
+                        ->content(fn ($record) => $record?->phone ?? '—'),
+                    Forms\Components\Placeholder::make('whatsapp_display')
+                        ->label('WhatsApp')
+                        ->content(fn ($record) => $record?->whatsapp_phone ?? '—'),
+                    Forms\Components\Placeholder::make('age_display')
+                        ->label('Возраст')
+                        ->content(fn ($record) => $record?->age ?? '—'),
+                    Forms\Components\Placeholder::make('city_display')
+                        ->label('Город')
+                        ->content(fn ($record) => $record?->city ?? '—'),
                 ]),
 
             Forms\Components\Section::make('Должность')
                 ->columns(2)
                 ->schema([
-                    Forms\Components\TextInput::make('position')
+                    Forms\Components\Placeholder::make('position_display')
                         ->label('Должность')
-                        ->formatStateUsing(fn ($state) => $state instanceof Position ? $state->label() : $state)
-                        ->disabled(),
-                    Forms\Components\TextInput::make('source')->label('Источник')->disabled(),
-                    Forms\Components\TextInput::make('source_reference')->label('Источник (доп.)')->disabled(),
-                    Forms\Components\TextInput::make('expected_salary_uzs')
+                        ->content(fn ($record) => $record?->position?->label() ?? '—'),
+                    Forms\Components\Placeholder::make('source_display')
+                        ->label('Источник')
+                        ->content(fn ($record) => $record?->sourceLabel() ?? '—'),
+                    Forms\Components\Placeholder::make('source_reference_display')
+                        ->label('Источник (доп.)')
+                        ->content(fn ($record) => $record?->source_reference ?? '—'),
+                    Forms\Components\Placeholder::make('salary_display')
                         ->label('Ожидаемая зарплата')
-                        ->formatStateUsing(fn ($state) => $state ? number_format((int) $state, 0, '.', ' ').' UZS' : '—')
-                        ->disabled(),
-                    Forms\Components\DatePicker::make('available_from')->label('Доступен с')->disabled(),
-                    Forms\Components\TextInput::make('can_work_weekends')
+                        ->content(fn ($record) => $record?->expected_salary_uzs
+                            ? number_format((int) $record->expected_salary_uzs, 0, '.', ' ').' UZS'
+                            : '—'),
+                    Forms\Components\Placeholder::make('available_from_display')
+                        ->label('Доступен с')
+                        ->content(fn ($record) => $record?->available_from?->format('d.m.Y') ?? '—'),
+                    Forms\Components\Placeholder::make('weekends_display')
                         ->label('Выходные')
-                        ->formatStateUsing(fn ($state) => $state ? 'Да' : 'Нет')
-                        ->disabled(),
-                    Forms\Components\TextInput::make('can_work_nights')
+                        ->content(fn ($record) => $record?->can_work_weekends ? 'Да' : 'Нет'),
+                    Forms\Components\Placeholder::make('nights_display')
                         ->label('Ночные смены')
-                        ->formatStateUsing(fn ($state) => $state ? 'Да' : 'Нет')
-                        ->disabled(),
+                        ->content(fn ($record) => $record?->can_work_nights ? 'Да' : 'Нет'),
                 ]),
 
             Forms\Components\Section::make('Опыт и языки')
                 ->columns(2)
                 ->schema([
-                    Forms\Components\TextInput::make('experience_level')
+                    Forms\Components\Placeholder::make('experience_display')
                         ->label('Опыт')
-                        ->formatStateUsing(fn ($state) => $state instanceof ExperienceLevel ? $state->label() : $state)
-                        ->disabled(),
-                    Forms\Components\Textarea::make('previous_workplace_text')->label('Последнее место работы')->disabled()->columnSpanFull(),
-                    Forms\Components\TextInput::make('uzbek_level')
+                        ->content(fn ($record) => $record?->experience_level?->label() ?? '—'),
+                    Forms\Components\Placeholder::make('previous_workplace_display')
+                        ->label('Последнее место работы')
+                        ->content(fn ($record) => $record?->previous_workplace_text ?: '—')
+                        ->columnSpanFull(),
+                    Forms\Components\Placeholder::make('uzbek_display')
                         ->label('Узбекский')
-                        ->formatStateUsing(fn ($state) => $state instanceof LanguageLevel ? $state->label() : $state)
-                        ->disabled(),
-                    Forms\Components\TextInput::make('russian_level')
+                        ->content(fn ($record) => $record?->uzbek_level?->label() ?? '—'),
+                    Forms\Components\Placeholder::make('russian_display')
                         ->label('Русский')
-                        ->formatStateUsing(fn ($state) => $state instanceof LanguageLevel ? $state->label() : $state)
-                        ->disabled(),
-                    Forms\Components\TextInput::make('english_level')
+                        ->content(fn ($record) => $record?->russian_level?->label() ?? '—'),
+                    Forms\Components\Placeholder::make('english_display')
                         ->label('Английский')
-                        ->formatStateUsing(fn ($state) => $state instanceof LanguageLevel ? $state->label() : $state)
-                        ->disabled(),
-                    Forms\Components\KeyValue::make('position_answers')
+                        ->content(fn ($record) => $record?->english_level?->label() ?? '—'),
+                    Forms\Components\Placeholder::make('position_answer_display')
                         ->label('Доп. ответ для должности')
-                        ->disabled()
+                        ->content(fn ($record) => $record?->positionAnswerLabel() ?? '—')
                         ->columnSpanFull(),
                 ]),
 

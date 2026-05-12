@@ -141,4 +141,71 @@ class JobCandidate extends Model
             ApplicationStatus::Withdrew->value,
         ]);
     }
+
+    // -----------------------------------------------------------------------
+    // Display helpers — Russian labels for raw string columns that aren't
+    // backed by an enum (source vocabulary is a varchar so operators can
+    // extend it via config). Centralised here so Filament resource, reports,
+    // and any future export share one mapping.
+    // -----------------------------------------------------------------------
+
+    /**
+     * @var array<string, string>
+     */
+    private const SOURCE_LABELS = [
+        'olx' => 'OLX',
+        'telegram' => 'Telegram',
+        'referral' => 'Реферал',
+        'walk_in' => 'Зашёл сам',
+        'direct' => 'Прямой',
+        'other' => 'Другое',
+    ];
+
+    public function sourceLabel(): string
+    {
+        return self::SOURCE_LABELS[$this->source] ?? $this->source ?? '—';
+    }
+
+    /**
+     * The single position-specific answer formatted for display.
+     * Knows how to translate yes/no/select values back to Russian
+     * labels (e.g. raw 'cook' → 'Повар' for kitchen role).
+     */
+    public function positionAnswerLabel(): string
+    {
+        $answers = $this->position_answers;
+        if (! is_array($answers) || $answers === []) {
+            return '—';
+        }
+
+        // Single key per Phase 1 design (one question per position).
+        $rawValue = (string) reset($answers);
+
+        if ($rawValue === '') {
+            return '—';
+        }
+
+        // Yes/no answers — most positions
+        if ($rawValue === 'yes') {
+            return 'Да';
+        }
+        if ($rawValue === 'no') {
+            return 'Нет';
+        }
+
+        // Kitchen-role select widget vocabulary
+        $kitchenRoles = [
+            'cook' => 'Повар',
+            'assistant_cook' => 'Помощник повара',
+            'dishwasher' => 'Посудомойщик',
+            'prep' => 'Заготовщик',
+            'other' => 'Другое',
+        ];
+        if (isset($kitchenRoles[$rawValue])) {
+            return $kitchenRoles[$rawValue];
+        }
+
+        // Free-text answer (Position::Other) — return verbatim.
+        return $rawValue;
+    }
 }
