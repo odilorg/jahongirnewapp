@@ -148,6 +148,23 @@ class JobCandidateResource extends Resource
                         ->label('Последнее место работы')
                         ->content(fn ($record) => $record?->previous_workplace_text ?: '—')
                         ->columnSpanFull(),
+
+                    // Current occupation (new — 2026-05-11 follow-up).
+                    Forms\Components\Placeholder::make('currently_working_display')
+                        ->label('Сейчас работает')
+                        ->content(fn ($record) => $record?->is_currently_working ? 'Да' : 'Нет'),
+                    Forms\Components\Placeholder::make('currently_studying_display')
+                        ->label('Сейчас учится')
+                        ->content(fn ($record) => $record?->is_currently_studying ? 'Да' : 'Нет'),
+
+                    // Time-of-day availability (new — 2026-05-11 follow-up).
+                    // Spans full width because the comma-separated list
+                    // can be long if all 4 slots are selected.
+                    Forms\Components\Placeholder::make('availability_slots_display')
+                        ->label('Доступное время')
+                        ->content(fn ($record) => $record?->availabilitySlotsLabel() ?? '—')
+                        ->columnSpanFull(),
+
                     Forms\Components\Placeholder::make('uzbek_display')
                         ->label('Узбекский')
                         ->content(fn ($record) => $record?->uzbek_level?->label() ?? '—'),

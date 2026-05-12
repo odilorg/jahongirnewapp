@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Models;
 
 use App\Enums\HR\ApplicationStatus;
+use App\Enums\HR\AvailabilitySlot;
 use App\Enums\HR\ExperienceLevel;
 use App\Enums\HR\LanguageLevel;
 use App\Enums\HR\Position;
@@ -50,6 +51,9 @@ class JobCandidate extends Model
         // Background
         'experience_level',
         'previous_workplace_text',
+        'is_currently_working',
+        'is_currently_studying',
+        'availability_slots',
         'uzbek_level',
         'russian_level',
         'english_level',
@@ -88,8 +92,11 @@ class JobCandidate extends Model
         'internal_rating' => 'integer',
         'can_work_weekends' => 'boolean',
         'can_work_nights' => 'boolean',
+        'is_currently_working' => 'boolean',
+        'is_currently_studying' => 'boolean',
 
         'position_answers' => 'array',
+        'availability_slots' => 'array',
 
         'available_from' => 'date',
         'interview_scheduled_at' => 'datetime',
@@ -164,6 +171,28 @@ class JobCandidate extends Model
     public function sourceLabel(): string
     {
         return self::SOURCE_LABELS[$this->source] ?? $this->source ?? '—';
+    }
+
+    /**
+     * Comma-separated Russian labels for the candidate's
+     * `availability_slots` array. "—" when none.
+     */
+    public function availabilitySlotsLabel(): string
+    {
+        $slots = $this->availability_slots;
+        if (! is_array($slots) || $slots === []) {
+            return '—';
+        }
+
+        $labels = [];
+        foreach ($slots as $value) {
+            $enum = AvailabilitySlot::tryFrom((string) $value);
+            if ($enum !== null) {
+                $labels[] = $enum->shortLabel();
+            }
+        }
+
+        return $labels === [] ? '—' : implode(', ', $labels);
     }
 
     /**
