@@ -73,8 +73,8 @@ class DriverDispatchNotifier
 
         return [
             'driver' => $inquiry->driver_id ? $this->dispatchDriver($inquiry) : null,
-            'guide'  => $inquiry->guide_id  ? $this->dispatchGuide($inquiry)  : null,
-            'stays'  => $stayResults,
+            'guide' => $inquiry->guide_id ? $this->dispatchGuide($inquiry) : null,
+            'stays' => $stayResults,
         ];
     }
 
@@ -100,15 +100,15 @@ class DriverDispatchNotifier
         }
 
         $message = $this->buildStayMessage($inquiry, $stay);
-        $result  = $this->tgDirect->send($phone, $message, $accommodation->name);
+        $result = $this->tgDirect->send($phone, $message, $accommodation->name);
 
         if (! ($result['ok'] ?? false)) {
             Log::warning('DriverDispatchNotifier: stay dispatch failed', [
-                'reference'        => $inquiry->reference,
-                'stay_id'          => $stay->id,
+                'reference' => $inquiry->reference,
+                'stay_id' => $stay->id,
                 'accommodation_id' => $accommodation->id,
-                'phone'            => $phone,
-                'result'           => $result,
+                'phone' => $phone,
+                'result' => $result,
             ]);
 
             return ['ok' => false, 'reason' => $result['error'] ?? 'send_failed'];
@@ -120,10 +120,10 @@ class DriverDispatchNotifier
         // semantically meaning "operator changed something after dispatch",
         // not "some other dispatch happened".
         $stamp = now()->format('Y-m-d H:i');
-        $name  = $accommodation->name ?? 'stay';
-        $note  = "[{$stamp}] TG dispatch → stay {$name} ok (msg_id={$result['msg_id']})";
+        $name = $accommodation->name ?? 'stay';
+        $note = "[{$stamp}] TG dispatch → stay {$name} ok (msg_id={$result['msg_id']})";
         $existingNotes = (string) $inquiry->internal_notes;
-        $newNotes = $existingNotes === '' ? $note : $existingNotes . "\n" . $note;
+        $newNotes = $existingNotes === '' ? $note : $existingNotes."\n".$note;
 
         \App\Models\InquiryStay::query()
             ->whereKey($stay->id)
@@ -139,10 +139,10 @@ class DriverDispatchNotifier
         $inquiry->syncOriginalAttribute('internal_notes');
 
         Log::info('DriverDispatchNotifier: stay dispatch sent', [
-            'reference'        => $inquiry->reference,
-            'stay_id'          => $stay->id,
+            'reference' => $inquiry->reference,
+            'stay_id' => $stay->id,
             'accommodation_id' => $accommodation->id,
-            'msg_id'           => $result['msg_id'] ?? null,
+            'msg_id' => $result['msg_id'] ?? null,
         ]);
 
         return ['ok' => true, 'msg_id' => (int) ($result['msg_id'] ?? 0)];
@@ -178,15 +178,15 @@ class DriverDispatchNotifier
 
         $inquiry->loadMissing(['driver', 'guide', 'tourProductDirection']);
         $message = $this->buildMessage($inquiry, $role);
-        $result  = $this->tgDirect->send($destination, $message, $supplier->full_name ?? null);
+        $result = $this->tgDirect->send($destination, $message, $supplier->full_name ?? null);
 
         if (! ($result['ok'] ?? false)) {
             Log::warning('DriverDispatchNotifier: send failed', [
-                'reference'   => $inquiry->reference,
-                'role'        => $role,
+                'reference' => $inquiry->reference,
+                'role' => $role,
                 'supplier_id' => $supplier->id,
                 'destination' => $destination,
-                'result'      => $result,
+                'result' => $result,
             ]);
 
             return ['ok' => false, 'reason' => $result['error'] ?? 'send_failed'];
@@ -199,28 +199,28 @@ class DriverDispatchNotifier
         // would immediately appear stale. Query-builder update keeps
         // updated_at reflecting business edits only.
         $stamp = now()->format('Y-m-d H:i');
-        $name  = $supplier->full_name ?? ucfirst($role);
-        $note  = "[{$stamp}] TG dispatch → {$role} {$name} ok (msg_id={$result['msg_id']})";
+        $name = $supplier->full_name ?? ucfirst($role);
+        $note = "[{$stamp}] TG dispatch → {$role} {$name} ok (msg_id={$result['msg_id']})";
         $existingNotes = (string) $inquiry->internal_notes;
-        $newNotes = $existingNotes === '' ? $note : $existingNotes . "\n" . $note;
+        $newNotes = $existingNotes === '' ? $note : $existingNotes."\n".$note;
 
         \App\Models\BookingInquiry::query()
             ->whereKey($inquiry->id)
             ->update([
-                $role . '_dispatched_at' => now(),
-                'internal_notes'         => $newNotes,
+                $role.'_dispatched_at' => now(),
+                'internal_notes' => $newNotes,
             ]);
 
         // Refresh the in-memory model so callers see the new state without re-querying.
-        $inquiry->{$role . '_dispatched_at'} = now();
-        $inquiry->internal_notes             = $newNotes;
-        $inquiry->syncOriginalAttributes([$role . '_dispatched_at', 'internal_notes']);
+        $inquiry->{$role.'_dispatched_at'} = now();
+        $inquiry->internal_notes = $newNotes;
+        $inquiry->syncOriginalAttributes([$role.'_dispatched_at', 'internal_notes']);
 
         Log::info('DriverDispatchNotifier: dispatch sent', [
-            'reference'   => $inquiry->reference,
-            'role'        => $role,
+            'reference' => $inquiry->reference,
+            'role' => $role,
             'supplier_id' => $supplier->id,
-            'msg_id'      => $result['msg_id'] ?? null,
+            'msg_id' => $result['msg_id'] ?? null,
         ]);
 
         // Phase 1.7.2 — best-effort QR review-card image dispatch.
@@ -231,7 +231,7 @@ class DriverDispatchNotifier
         $this->sendReviewCardPhotoBestEffort($inquiry, $role, $destination, $supplier);
 
         return [
-            'ok'     => true,
+            'ok' => true,
             'msg_id' => (int) ($result['msg_id'] ?? 0),
         ];
     }
@@ -274,21 +274,21 @@ class DriverDispatchNotifier
             if ($photoResult['ok'] ?? false) {
                 Log::info('DriverDispatchNotifier: review card photo sent', [
                     'reference' => $inquiry->reference,
-                    'role'      => $role,
-                    'msg_id'    => $photoResult['msg_id'] ?? null,
+                    'role' => $role,
+                    'msg_id' => $photoResult['msg_id'] ?? null,
                 ]);
             } else {
                 Log::warning('DriverDispatchNotifier: review card photo failed (text already sent)', [
                     'reference' => $inquiry->reference,
-                    'role'      => $role,
-                    'error'     => $photoResult['error'] ?? 'unknown',
+                    'role' => $role,
+                    'error' => $photoResult['error'] ?? 'unknown',
                 ]);
             }
         } catch (\Throwable $e) {
             Log::warning('DriverDispatchNotifier: review card photo exception (swallowed)', [
                 'reference' => $inquiry->reference,
-                'role'      => $role,
-                'error'     => $e->getMessage(),
+                'role' => $role,
+                'error' => $e->getMessage(),
             ]);
         }
     }
@@ -298,7 +298,7 @@ class DriverDispatchNotifier
      * Only called when the accommodation was previously dispatched. Message
      * consolidates ALL changed fields into a single short alert.
      *
-     * @param array<string, array{old: string, new: string, label: string}> $changes
+     * @param  array<string, array{old: string, new: string, label: string}>  $changes
      */
     public function notifyStayAmendment(BookingInquiry $inquiry, InquiryStay $stay, array $changes): array
     {
@@ -317,15 +317,15 @@ class DriverDispatchNotifier
         }
 
         $message = $this->buildStayAmendmentMessage($inquiry, $changes);
-        $result  = $this->tgDirect->send($phone, $message, $accommodation->name);
+        $result = $this->tgDirect->send($phone, $message, $accommodation->name);
 
         Log::info('DriverDispatchNotifier: stay amendment sent', [
-            'reference'        => $inquiry->reference,
-            'stay_id'          => $stay->id,
+            'reference' => $inquiry->reference,
+            'stay_id' => $stay->id,
             'accommodation_id' => $accommodation->id,
-            'changes'          => array_keys($changes),
-            'ok'               => $result['ok'] ?? false,
-            'msg_id'           => $result['msg_id'] ?? null,
+            'changes' => array_keys($changes),
+            'ok' => $result['ok'] ?? false,
+            'msg_id' => $result['msg_id'] ?? null,
         ]);
 
         return $result['ok'] ?? false
@@ -353,17 +353,17 @@ class DriverDispatchNotifier
             : '—';
 
         $message = "❌ Bron bekor qilindi / olib tashlandi\n\n"
-            . "📅 Sana: {$stayDate}\n"
-            . "👤 Mehmon: {$inquiry->customer_name}\n"
-            . "📋 Ref: {$inquiry->reference}";
+            ."📅 Sana: {$stayDate}\n"
+            ."👤 Mehmon: {$inquiry->customer_name}\n"
+            ."📋 Ref: {$inquiry->reference}";
 
         $result = $this->tgDirect->send($phone, $message, $accommodation->name ?? null);
 
         Log::info('DriverDispatchNotifier: stay removal notice', [
-            'reference'        => $inquiry->reference,
-            'stay_id'          => $stay->id,
+            'reference' => $inquiry->reference,
+            'stay_id' => $stay->id,
             'accommodation_id' => $accommodation->id ?? null,
-            'ok'               => $result['ok'] ?? false,
+            'ok' => $result['ok'] ?? false,
         ]);
 
         return $result['ok'] ?? false
@@ -396,7 +396,7 @@ class DriverDispatchNotifier
      * Only called when the supplier was previously dispatched. Message
      * consolidates ALL changed fields into a single short alert.
      *
-     * @param array<string, array{old: string, new: string, label: string}> $changes
+     * @param  array<string, array{old: string, new: string, label: string}>  $changes
      */
     public function notifyAmendment(BookingInquiry $inquiry, string $role, array $changes): array
     {
@@ -418,22 +418,23 @@ class DriverDispatchNotifier
         }
 
         $message = $this->buildAmendmentMessage($inquiry, $changes);
-        $result  = $this->tgDirect->send($destination, $message, $supplier->full_name ?? null);
+        $result = $this->tgDirect->send($destination, $message, $supplier->full_name ?? null);
 
         if (! ($result['ok'] ?? false)) {
             Log::warning('DriverDispatchNotifier: amendment send failed', [
                 'reference' => $inquiry->reference,
-                'role'      => $role,
-                'result'    => $result,
+                'role' => $role,
+                'result' => $result,
             ]);
+
             return ['ok' => false, 'reason' => $result['error'] ?? 'send_failed'];
         }
 
         Log::info('DriverDispatchNotifier: amendment sent', [
             'reference' => $inquiry->reference,
-            'role'      => $role,
-            'changes'   => array_keys($changes),
-            'msg_id'    => $result['msg_id'] ?? null,
+            'role' => $role,
+            'changes' => array_keys($changes),
+            'msg_id' => $result['msg_id'] ?? null,
         ]);
 
         return ['ok' => true, 'msg_id' => (int) ($result['msg_id'] ?? 0)];
@@ -464,17 +465,17 @@ class DriverDispatchNotifier
             : '—';
 
         $message = "❌ Tur jadvalingizdan olib tashlandi\n\n"
-            . "📅 Sana: {$travelDate}\n"
-            . "👤 Mehmon: {$inquiry->customer_name}\n"
-            . "📋 Ref: {$inquiry->reference}";
+            ."📅 Sana: {$travelDate}\n"
+            ."👤 Mehmon: {$inquiry->customer_name}\n"
+            ."📋 Ref: {$inquiry->reference}";
 
         $result = $this->tgDirect->send($destination, $message, $supplier->full_name ?? null);
 
         Log::info('DriverDispatchNotifier: supplier removal notice', [
             'reference' => $inquiry->reference,
-            'role'      => $role,
-            'supplier'  => $supplier->id,
-            'ok'        => $result['ok'] ?? false,
+            'role' => $role,
+            'supplier' => $supplier->id,
+            'ok' => $result['ok'] ?? false,
         ]);
 
         return $result['ok'] ?? false
@@ -530,24 +531,24 @@ class DriverDispatchNotifier
             return ['ok' => false, 'reason' => "{$role}_no_telegram_or_phone"];
         }
 
-        $pickupTime  = $inquiry->pickup_time ? substr((string) $inquiry->pickup_time, 0, 5) : '—';
+        $pickupTime = $inquiry->pickup_time ? substr((string) $inquiry->pickup_time, 0, 5) : '—';
         $pickupPlace = $inquiry->pickup_point ?: '—';
 
         $message = "⏰ Tur 1 soat ichida boshlanadi\n\n"
-            . "📋 {$inquiry->reference}\n"
-            . "👤 {$inquiry->customer_name}\n"
-            . "🕐 {$pickupTime}\n"
-            . "📍 {$pickupPlace}\n\n"
-            . "Iltimos tayyor bo'ling.";
+            ."📋 {$inquiry->reference}\n"
+            ."👤 {$inquiry->customer_name}\n"
+            ."🕐 {$pickupTime}\n"
+            ."📍 {$pickupPlace}\n\n"
+            ."Iltimos tayyor bo'ling.";
 
         $result = $this->tgDirect->send($destination, $message, $supplier->full_name ?? null);
 
         Log::info('DriverDispatchNotifier: T-1h imminent ping', [
             'reference' => $inquiry->reference,
-            'role'      => $role,
-            'supplier'  => $supplier->id,
-            'ok'        => $result['ok'] ?? false,
-            'msg_id'    => $result['msg_id'] ?? null,
+            'role' => $role,
+            'supplier' => $supplier->id,
+            'ok' => $result['ok'] ?? false,
+            'msg_id' => $result['msg_id'] ?? null,
         ]);
 
         return ($result['ok'] ?? false)
@@ -578,20 +579,20 @@ class DriverDispatchNotifier
         $stayDate = $stay->stay_date ? $stay->stay_date->format('Y-m-d') : '—';
 
         $message = "⏰ Mehmonlar tez orada yetib boradi\n\n"
-            . "📋 {$inquiry->reference}\n"
-            . "👤 {$inquiry->customer_name}\n"
-            . "🏕 {$accommodation->name}\n"
-            . "📅 {$stayDate}\n\n"
-            . "Iltimos tayyor bo'ling.";
+            ."📋 {$inquiry->reference}\n"
+            ."👤 {$inquiry->customer_name}\n"
+            ."🏕 {$accommodation->name}\n"
+            ."📅 {$stayDate}\n\n"
+            ."Iltimos tayyor bo'ling.";
 
         $result = $this->tgDirect->send($phone, $message, $accommodation->name);
 
         Log::info('DriverDispatchNotifier: T-1h stay imminent ping', [
-            'reference'        => $inquiry->reference,
-            'stay_id'          => $stay->id,
+            'reference' => $inquiry->reference,
+            'stay_id' => $stay->id,
             'accommodation_id' => $accommodation->id,
-            'ok'               => $result['ok'] ?? false,
-            'msg_id'           => $result['msg_id'] ?? null,
+            'ok' => $result['ok'] ?? false,
+            'msg_id' => $result['msg_id'] ?? null,
         ]);
 
         return ($result['ok'] ?? false)
@@ -619,24 +620,24 @@ class DriverDispatchNotifier
         }
 
         $message = $this->buildCancellationMessage($inquiry);
-        $result  = $this->tgDirect->send($destination, $message, $supplier->full_name ?? null);
+        $result = $this->tgDirect->send($destination, $message, $supplier->full_name ?? null);
 
         if (! ($result['ok'] ?? false)) {
             Log::warning('DriverDispatchNotifier: cancellation send failed', [
-                'reference'   => $inquiry->reference,
-                'role'        => $role,
+                'reference' => $inquiry->reference,
+                'role' => $role,
                 'supplier_id' => $supplier->id,
-                'result'      => $result,
+                'result' => $result,
             ]);
 
             return ['ok' => false, 'reason' => $result['error'] ?? 'send_failed'];
         }
 
         Log::info('DriverDispatchNotifier: cancellation sent', [
-            'reference'   => $inquiry->reference,
-            'role'        => $role,
+            'reference' => $inquiry->reference,
+            'role' => $role,
             'supplier_id' => $supplier->id,
-            'msg_id'      => $result['msg_id'] ?? null,
+            'msg_id' => $result['msg_id'] ?? null,
         ]);
 
         return ['ok' => true, 'msg_id' => (int) ($result['msg_id'] ?? 0)];
@@ -716,34 +717,37 @@ class DriverDispatchNotifier
         // operational_notes: entirely omit the placeholder when empty
         // so the signature doesn't float with a gap above it.
         $notes = filled($inquiry->operational_notes)
-            ? "\u{1F7E1} Guest notes: " . $inquiry->operational_notes
+            ? "\u{1F7E1} Guest notes: ".$inquiry->operational_notes
             : '';
 
         $replacements = [
-            '{reference}'                  => (string) $inquiry->reference,
-            '{tour}'                       => (string) $inquiry->tour_name_snapshot,
-            '{travel_date}'                => $travelDate,
-            '{pickup_time}'                => $pickupTime,
-            '{pickup_point}'               => $pickupPoint,
-            '{dropoff_point}'              => $dropoffPoint,
-            '{pax}'                        => $pax,
-            '{customer_name}'              => (string) $inquiry->customer_name,
+            '{reference}' => (string) $inquiry->reference,
+            '{tour}' => (string) $inquiry->tour_name_snapshot,
+            '{travel_date}' => $travelDate,
+            '{pickup_time}' => $pickupTime,
+            '{pickup_point}' => $pickupPoint,
+            '{dropoff_point}' => $dropoffPoint,
+            '{pax}' => $pax,
+            '{customer_name}' => (string) $inquiry->customer_name,
             '{customer_name_with_country}' => $customerWithCountry,
-            // Deliberately NOT exposing {customer_phone} here — drivers
-            // /guides should contact the operator, not the guest.
-            '{direction}'                  => $inquiry->tourProductDirection?->name ?? '—',
-            '{tour_type}'                  => $inquiry->tour_type ? ucfirst($inquiry->tour_type) : '—',
-            '{driver_name}'                => $inquiry->driver?->full_name ?? '—',
-            '{driver_phone}'               => $inquiry->driver?->phone01 ?? '—',
-            '{guide_name}'                 => $inquiry->guide?->full_name ?? '—',
-            '{guide_phone}'                => $inquiry->guide?->phone01 ?? '—',
-            '{notes}'                      => $notes,
+            // Operator policy reversed 2026-05-12: drivers/guides now receive
+            // the guest's phone so on-the-day "where are you?" coordination
+            // doesn't bottleneck through the operator. Falls back to '—' when
+            // phone is missing (manual/walk-in inquiries).
+            '{customer_phone}' => filled($inquiry->customer_phone) ? (string) $inquiry->customer_phone : '—',
+            '{direction}' => $inquiry->tourProductDirection?->name ?? '—',
+            '{tour_type}' => $inquiry->tour_type ? ucfirst($inquiry->tour_type) : '—',
+            '{driver_name}' => $inquiry->driver?->full_name ?? '—',
+            '{driver_phone}' => $inquiry->driver?->phone01 ?? '—',
+            '{guide_name}' => $inquiry->guide?->full_name ?? '—',
+            '{guide_phone}' => $inquiry->guide?->phone01 ?? '—',
+            '{notes}' => $notes,
             // Phase 1.7.2 — TripAdvisor QR review card URL appended to
             // driver/guide dispatch so they have something concrete to
             // show happy guests at the end of the tour. URL lives in
             // config/services.tripadvisor.review_card_url; the static
             // image must be uploaded to public/images/review/.
-            '{review_card_url}'            => $this->reviewCardUrl(),
+            '{review_card_url}' => $this->reviewCardUrl(),
         ];
 
         $rendered = str_replace(array_keys($replacements), array_values($replacements), $template);
@@ -782,25 +786,25 @@ class DriverDispatchNotifier
             : (string) $inquiry->customer_name;
 
         $mealPlan = filled($stay->meal_plan) ? $stay->meal_plan : '—';
-        $notes    = filled($stay->notes)     ? $stay->notes     : '—';
+        $notes = filled($stay->notes) ? $stay->notes : '—';
 
         $inquiry->loadMissing(['driver', 'guide']);
 
         $replacements = [
-            '{accommodation}'              => $accommodation?->full_name ?? '—',
+            '{accommodation}' => $accommodation?->full_name ?? '—',
             '{customer_name_with_country}' => $customerWithCountry,
-            '{customer_name}'              => (string) $inquiry->customer_name,
-            '{customer_phone}'             => (string) $inquiry->customer_phone,
-            '{stay_date}'                  => $stayDate,
-            '{nights}'                     => (string) $nights,
-            '{guest_count}'                => (string) $guestCount,
-            '{driver_name}'                => $inquiry->driver?->full_name ?? '—',
-            '{driver_phone}'               => $inquiry->driver?->phone01 ?? '—',
-            '{guide_name}'                 => $inquiry->guide?->full_name ?? '—',
-            '{guide_phone}'                => $inquiry->guide?->phone01 ?? '—',
-            '{meal_plan}'                  => $mealPlan,
-            '{notes}'                      => $notes,
-            '{reference}'                  => (string) $inquiry->reference,
+            '{customer_name}' => (string) $inquiry->customer_name,
+            '{customer_phone}' => (string) $inquiry->customer_phone,
+            '{stay_date}' => $stayDate,
+            '{nights}' => (string) $nights,
+            '{guest_count}' => (string) $guestCount,
+            '{driver_name}' => $inquiry->driver?->full_name ?? '—',
+            '{driver_phone}' => $inquiry->driver?->phone01 ?? '—',
+            '{guide_name}' => $inquiry->guide?->full_name ?? '—',
+            '{guide_phone}' => $inquiry->guide?->phone01 ?? '—',
+            '{meal_plan}' => $mealPlan,
+            '{notes}' => $notes,
+            '{reference}' => (string) $inquiry->reference,
         ];
 
         $rendered = str_replace(array_keys($replacements), array_values($replacements), $template);
@@ -821,7 +825,7 @@ class DriverDispatchNotifier
     {
         $month = self::RU_MONTHS[(int) $date->format('n')] ?? $date->format('M');
 
-        return (int) $date->format('j') . ' ' . $month . ' ' . $date->format('Y');
+        return (int) $date->format('j').' '.$month.' '.$date->format('Y');
     }
 
     /**
@@ -842,7 +846,8 @@ class DriverDispatchNotifier
         }
 
         $base = rtrim((string) config('app.url', ''), '/');
-        return $base !== '' ? $base . $relative : $relative;
+
+        return $base !== '' ? $base.$relative : $relative;
     }
 
     private function formatPax(int $adults, int $children): string
@@ -850,11 +855,11 @@ class DriverDispatchNotifier
         $parts = [];
 
         if ($adults > 0) {
-            $parts[] = $adults . ' ' . ($adults === 1 ? 'katta yosh' : 'katta yoshli');
+            $parts[] = $adults.' '.($adults === 1 ? 'katta yosh' : 'katta yoshli');
         }
 
         if ($children > 0) {
-            $parts[] = $children . ' bola';
+            $parts[] = $children.' bola';
         }
 
         return $parts === [] ? '—' : implode(', ', $parts);
@@ -873,6 +878,6 @@ class DriverDispatchNotifier
     {
         $month = self::UZ_MONTHS[(int) $date->format('n')] ?? $date->format('M');
 
-        return $month . ' ' . (int) $date->format('j') . ', ' . $date->format('Y');
+        return $month.' '.(int) $date->format('j').', '.$date->format('Y');
     }
 }

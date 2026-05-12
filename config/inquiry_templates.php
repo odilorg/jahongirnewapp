@@ -23,7 +23,7 @@ declare(strict_types=1);
  */
 return [
 
-    'wa_initial' => <<<TXT
+    'wa_initial' => <<<'TXT'
 Hi {name} 😊
 Thank you for your request for {tour}.
 
@@ -37,7 +37,7 @@ Just to confirm:
 Once confirmed, I will send you the final details and payment options.
 TXT,
 
-    'wa_offer_payment' => <<<TXT
+    'wa_offer_payment' => <<<'TXT'
 Perfect 👍 thank you for confirming.
 
 Here are your tour details:
@@ -55,7 +55,7 @@ You can confirm your booking with one of the following options:
 Please let me know which option works best for you 🙂
 TXT,
 
-    'wa_payment_link' => <<<TXT
+    'wa_payment_link' => <<<'TXT'
 Great 👍
 
 Here is your secure payment link:
@@ -66,7 +66,7 @@ Once payment is completed, your booking will be fully confirmed.
 Please let me know after payment 🙂
 TXT,
 
-    'wa_generate_and_send' => <<<TXT
+    'wa_generate_and_send' => <<<'TXT'
 Perfect 👍
 
 Here is your secure payment link for {price}:
@@ -85,7 +85,7 @@ TXT,
      *
      * Extras expected: {total}, {online}, {cash}, {link}
      */
-    'wa_generate_and_send_partial' => <<<TXT
+    'wa_generate_and_send_partial' => <<<'TXT'
 Perfect 👍
 
 Total price: {total}
@@ -132,7 +132,7 @@ TXT,
      * {guest_count} reference THIS leg of the tour, not the whole
      * inquiry.
      */
-    'accommodation_dispatch_ru' => <<<TXT
+    'accommodation_dispatch_ru' => <<<'TXT'
 🏕 Размещение: {accommodation}
 👤 Гость: {customer_name_with_country}
 📅 Дата заселения: {stay_date}
@@ -147,10 +147,11 @@ TXT,
 🤝 Jahongir Travel — {reference}
 TXT,
 
-    'driver_dispatch_uz' => <<<TXT
+    'driver_dispatch_uz' => <<<'TXT'
 🏕 Саёҳат тури: {tour}
 🗺 Йўналиш: {direction} ({tour_type})
 👤 Меҳмон: {customer_name_with_country}
+📞 Тел: {customer_phone}
 🕐 Вақти: {pickup_time}
 📅 Сана: {travel_date}
 👥 Одам сони: {pax}
@@ -168,10 +169,11 @@ TXT,
 🤝 Jahongir Travel — {reference}
 TXT,
 
-    'guide_dispatch_uz' => <<<TXT
+    'guide_dispatch_uz' => <<<'TXT'
 🏕 Саёҳат тури: {tour}
 🗺 Йўналиш: {direction} ({tour_type})
 👤 Меҳмон: {customer_name_with_country}
+📞 Тел: {customer_phone}
 🕐 Вақти: {pickup_time}
 📅 Сана: {travel_date}
 👥 Одам сони: {pax}
@@ -191,7 +193,7 @@ TXT,
 
     // Supplier (driver/guide) cancellation notice. Short + unmistakable.
     // Phase 17: sent when a GYG cancellation email cancels the inquiry.
-    'supplier_cancellation_uz' => <<<TXT
+    'supplier_cancellation_uz' => <<<'TXT'
 ❌ Тур бекор қилинди
 
 📅 Сана: {travel_date}
