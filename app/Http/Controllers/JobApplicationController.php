@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers;
 
 use App\Actions\HR\StoreJobApplicationAction;
+use App\Enums\HR\AvailabilitySlot;
 use App\Enums\HR\ExperienceLevel;
 use App\Enums\HR\LanguageLevel;
 use App\Enums\HR\Position;
@@ -38,6 +39,7 @@ class JobApplicationController extends Controller
             'positions' => Position::publicOptions(),
             'experienceLevels' => ExperienceLevel::publicOptions(),
             'languageLevels' => LanguageLevel::publicOptions(),
+            'availabilitySlots' => AvailabilitySlot::publicOptions(),
             'preselected' => [
                 'position' => $position?->value,
                 'source' => is_string($request->query('source')) ? $request->query('source') : null,

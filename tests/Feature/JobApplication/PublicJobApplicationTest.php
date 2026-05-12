@@ -346,8 +346,13 @@ final class PublicJobApplicationTest extends TestCase
             'position' => Position::HotelAdmin->value,
             'source' => 'olx',
             'expected_salary_uzs' => 3_000_000,
+            // Checkbox semantics: present=checked, absent=unchecked.
+            // Default fixture checks both for backward-compat with
+            // existing test assertions.
             'can_work_weekends' => '1',
-            'can_work_nights' => '0',
+            'can_work_nights' => '1',
+            // Required ≥1 slot post 2026-05-11 follow-up.
+            'availability_slots' => ['morning', 'afternoon'],
             'experience_level' => ExperienceLevel::OneToThree->value,
             'uzbek_level' => LanguageLevel::Fluent->value,
             'russian_level' => LanguageLevel::Good->value,
@@ -356,5 +361,83 @@ final class PublicJobApplicationTest extends TestCase
         ];
 
         return array_merge($base, $overrides);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 2026-05-11 follow-up tests — new checkbox fields
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /** @test */
+    public function unchecked_weekends_and_nights_default_to_false(): void
+    {
+        $payload = $this->validPayload();
+        // Simulate user leaving both checkboxes unchecked — absent from POST.
+        unset($payload['can_work_weekends'], $payload['can_work_nights']);
+
+        $this->post(route('jobs.apply.store'), $payload)->assertRedirect();
+
+        $row = JobCandidate::query()->latest('id')->first();
+        $this->assertFalse((bool) $row->can_work_weekends);
+        $this->assertFalse((bool) $row->can_work_nights);
+    }
+
+    /** @test */
+    public function availability_slots_required_at_least_one(): void
+    {
+        $payload = $this->validPayload();
+        unset($payload['availability_slots']);
+
+        $this->post(route('jobs.apply.store'), $payload)
+            ->assertSessionHasErrors('availability_slots');
+
+        $this->assertSame(0, JobCandidate::query()->count());
+    }
+
+    /** @test */
+    public function availability_slots_stored_as_array_with_known_values(): void
+    {
+        $this->post(route('jobs.apply.store'), $this->validPayload([
+            'availability_slots' => ['morning', 'evening', 'night'],
+        ]))->assertRedirect();
+
+        $row = JobCandidate::query()->latest('id')->first();
+        $this->assertEqualsCanonicalizing(
+            ['morning', 'evening', 'night'],
+            $row->availability_slots,
+        );
+    }
+
+    /** @test */
+    public function availability_slots_rejects_unknown_value(): void
+    {
+        $this->post(route('jobs.apply.store'), $this->validPayload([
+            'availability_slots' => ['breakfast'],
+        ]))->assertSessionHasErrors('availability_slots.0');
+    }
+
+    /** @test */
+    public function currently_working_and_studying_default_false_when_unchecked(): void
+    {
+        $payload = $this->validPayload();
+        unset($payload['is_currently_working'], $payload['is_currently_studying']);
+
+        $this->post(route('jobs.apply.store'), $payload)->assertRedirect();
+
+        $row = JobCandidate::query()->latest('id')->first();
+        $this->assertFalse((bool) $row->is_currently_working);
+        $this->assertFalse((bool) $row->is_currently_studying);
+    }
+
+    /** @test */
+    public function currently_working_and_studying_persist_when_checked(): void
+    {
+        $this->post(route('jobs.apply.store'), $this->validPayload([
+            'is_currently_working' => '1',
+            'is_currently_studying' => '1',
+        ]))->assertRedirect();
+
+        $row = JobCandidate::query()->latest('id')->first();
+        $this->assertTrue((bool) $row->is_currently_working);
+        $this->assertTrue((bool) $row->is_currently_studying);
     }
 }

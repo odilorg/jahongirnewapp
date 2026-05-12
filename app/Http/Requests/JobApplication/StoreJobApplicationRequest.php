@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Requests\JobApplication;
 
+use App\Enums\HR\AvailabilitySlot;
 use App\Enums\HR\ExperienceLevel;
 use App\Enums\HR\LanguageLevel;
 use App\Enums\HR\Position;
@@ -67,8 +68,23 @@ class StoreJobApplicationRequest extends FormRequest
             // Compensation & availability
             'expected_salary_uzs' => ['required', 'integer', 'min:500000', 'max:50000000'],
             'available_from' => ['nullable', 'date', 'after_or_equal:today'],
-            'can_work_weekends' => ['required', 'boolean'],
-            'can_work_nights' => ['required', 'boolean'],
+            // Checkbox semantics (2026-05-11 follow-up): unchecked =
+            // field absent from POST. `nullable|boolean` accepts
+            // "1"/"0"/true/false/null and the Action defaults to false
+            // when the key is missing.
+            'can_work_weekends' => ['nullable', 'boolean'],
+            'can_work_nights' => ['nullable', 'boolean'],
+
+            // Time-of-day availability — required ≥1 so HR knows when
+            // the candidate can actually work / be called outside class
+            // hours (many candidates attend 8–13 and are only free
+            // afternoon/evening).
+            'availability_slots' => ['required', 'array', 'min:1'],
+            'availability_slots.*' => ['string', Rule::enum(AvailabilitySlot::class)],
+
+            // Current occupation (optional checkboxes; default false).
+            'is_currently_working' => ['nullable', 'boolean'],
+            'is_currently_studying' => ['nullable', 'boolean'],
 
             // Background
             'experience_level' => ['required', 'string', Rule::enum(ExperienceLevel::class)],
@@ -112,8 +128,8 @@ class StoreJobApplicationRequest extends FormRequest
             'expected_salary_uzs.integer' => 'Пожалуйста, укажите ожидаемую зарплату как число в сумах. Детали можно обсудить на собеседовании.',
             'expected_salary_uzs.min' => 'Пожалуйста, укажите реалистичную сумму (минимум 500 000 сум).',
             'available_from.after_or_equal' => 'Дата начала работы не может быть в прошлом.',
-            'can_work_weekends.required' => 'Пожалуйста, ответьте на вопрос о выходных.',
-            'can_work_nights.required' => 'Пожалуйста, ответьте на вопрос о ночных сменах.',
+            'availability_slots.required' => 'Пожалуйста, отметьте хотя бы одно время суток, когда вы можете работать.',
+            'availability_slots.min' => 'Пожалуйста, отметьте хотя бы одно время суток, когда вы можете работать.',
             'experience_level.required' => 'Пожалуйста, выберите уровень опыта.',
             'uzbek_level.required' => 'Пожалуйста, укажите уровень узбекского.',
             'russian_level.required' => 'Пожалуйста, укажите уровень русского.',

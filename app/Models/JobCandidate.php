@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Models;
 
 use App\Enums\HR\ApplicationStatus;
+use App\Enums\HR\AvailabilitySlot;
 use App\Enums\HR\ExperienceLevel;
 use App\Enums\HR\LanguageLevel;
 use App\Enums\HR\Position;
@@ -50,6 +51,9 @@ class JobCandidate extends Model
         // Background
         'experience_level',
         'previous_workplace_text',
+        'is_currently_working',
+        'is_currently_studying',
+        'availability_slots',
         'uzbek_level',
         'russian_level',
         'english_level',
@@ -88,8 +92,11 @@ class JobCandidate extends Model
         'internal_rating' => 'integer',
         'can_work_weekends' => 'boolean',
         'can_work_nights' => 'boolean',
+        'is_currently_working' => 'boolean',
+        'is_currently_studying' => 'boolean',
 
         'position_answers' => 'array',
+        'availability_slots' => 'array',
 
         'available_from' => 'date',
         'interview_scheduled_at' => 'datetime',
@@ -140,5 +147,94 @@ class JobCandidate extends Model
             ApplicationStatus::Rejected->value,
             ApplicationStatus::Withdrew->value,
         ]);
+    }
+
+    // -----------------------------------------------------------------------
+    // Display helpers — Russian labels for raw string columns that aren't
+    // backed by an enum (source vocabulary is a varchar so operators can
+    // extend it via config). Centralised here so Filament resource, reports,
+    // and any future export share one mapping.
+    // -----------------------------------------------------------------------
+
+    /**
+     * @var array<string, string>
+     */
+    private const SOURCE_LABELS = [
+        'olx' => 'OLX',
+        'telegram' => 'Telegram',
+        'referral' => 'Реферал',
+        'walk_in' => 'Зашёл сам',
+        'direct' => 'Прямой',
+        'other' => 'Другое',
+    ];
+
+    public function sourceLabel(): string
+    {
+        return self::SOURCE_LABELS[$this->source] ?? $this->source ?? '—';
+    }
+
+    /**
+     * Comma-separated Russian labels for the candidate's
+     * `availability_slots` array. "—" when none.
+     */
+    public function availabilitySlotsLabel(): string
+    {
+        $slots = $this->availability_slots;
+        if (! is_array($slots) || $slots === []) {
+            return '—';
+        }
+
+        $labels = [];
+        foreach ($slots as $value) {
+            $enum = AvailabilitySlot::tryFrom((string) $value);
+            if ($enum !== null) {
+                $labels[] = $enum->shortLabel();
+            }
+        }
+
+        return $labels === [] ? '—' : implode(', ', $labels);
+    }
+
+    /**
+     * The single position-specific answer formatted for display.
+     * Knows how to translate yes/no/select values back to Russian
+     * labels (e.g. raw 'cook' → 'Повар' for kitchen role).
+     */
+    public function positionAnswerLabel(): string
+    {
+        $answers = $this->position_answers;
+        if (! is_array($answers) || $answers === []) {
+            return '—';
+        }
+
+        // Single key per Phase 1 design (one question per position).
+        $rawValue = (string) reset($answers);
+
+        if ($rawValue === '') {
+            return '—';
+        }
+
+        // Yes/no answers — most positions
+        if ($rawValue === 'yes') {
+            return 'Да';
+        }
+        if ($rawValue === 'no') {
+            return 'Нет';
+        }
+
+        // Kitchen-role select widget vocabulary
+        $kitchenRoles = [
+            'cook' => 'Повар',
+            'assistant_cook' => 'Помощник повара',
+            'dishwasher' => 'Посудомойщик',
+            'prep' => 'Заготовщик',
+            'other' => 'Другое',
+        ];
+        if (isset($kitchenRoles[$rawValue])) {
+            return $kitchenRoles[$rawValue];
+        }
+
+        // Free-text answer (Position::Other) — return verbatim.
+        return $rawValue;
     }
 }

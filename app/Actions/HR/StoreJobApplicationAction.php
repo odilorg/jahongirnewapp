@@ -85,8 +85,13 @@ final class StoreJobApplicationAction
 
             'expected_salary_uzs' => (int) $data['expected_salary_uzs'],
             'available_from' => $data['available_from'] ?? null,
-            'can_work_weekends' => (bool) $data['can_work_weekends'],
-            'can_work_nights' => (bool) $data['can_work_nights'],
+            // Checkbox defaults — unchecked = key absent from POST.
+            'can_work_weekends' => (bool) ($data['can_work_weekends'] ?? false),
+            'can_work_nights' => (bool) ($data['can_work_nights'] ?? false),
+
+            'availability_slots' => array_values((array) ($data['availability_slots'] ?? [])),
+            'is_currently_working' => (bool) ($data['is_currently_working'] ?? false),
+            'is_currently_studying' => (bool) ($data['is_currently_studying'] ?? false),
 
             'experience_level' => $data['experience_level'],
             'previous_workplace_text' => $data['previous_workplace_text'] ?? null,

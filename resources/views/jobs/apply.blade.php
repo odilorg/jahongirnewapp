@@ -145,24 +145,57 @@
             >
         </div>
 
-        {{-- 8 + 9: weekends + nights --}}
-        <fieldset class="grid grid-cols-2 gap-3">
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Работа в выходные? <span class="text-red-500">*</span></label>
-                <select name="can_work_weekends" required class="w-full rounded-lg border-gray-300">
-                    <option value="">—</option>
-                    <option value="1" @selected(old('can_work_weekends') === '1')>Да</option>
-                    <option value="0" @selected(old('can_work_weekends') === '0')>Нет</option>
-                </select>
-            </div>
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Ночные смены? <span class="text-red-500">*</span></label>
-                <select name="can_work_nights" required class="w-full rounded-lg border-gray-300">
-                    <option value="">—</option>
-                    <option value="1" @selected(old('can_work_nights') === '1')>Да</option>
-                    <option value="0" @selected(old('can_work_nights') === '0')>Нет</option>
-                </select>
-            </div>
+        {{-- 8 + 9: weekends + nights — checkboxes (unchecked = Нет) --}}
+        <fieldset class="space-y-2">
+            <legend class="text-sm font-medium text-gray-700 mb-1">Готовность к графику</legend>
+            <label class="flex items-center gap-2 text-sm text-gray-700">
+                <input type="checkbox" name="can_work_weekends" value="1"
+                       @checked(old('can_work_weekends') === '1')
+                       class="rounded border-gray-300 text-blue-600 focus:ring-blue-500 h-5 w-5">
+                Готов работать в выходные
+            </label>
+            <label class="flex items-center gap-2 text-sm text-gray-700">
+                <input type="checkbox" name="can_work_nights" value="1"
+                       @checked(old('can_work_nights') === '1')
+                       class="rounded border-gray-300 text-blue-600 focus:ring-blue-500 h-5 w-5">
+                Готов работать в ночные смены
+            </label>
+        </fieldset>
+
+        {{-- Time-of-day availability — required ≥1.
+             Many young candidates attend classes 8-13 and are only
+             free afternoon/evening; HR needs to know which slots so
+             they can schedule shifts and time the call. --}}
+        <fieldset class="space-y-2">
+            <legend class="text-sm font-medium text-gray-700 mb-1">
+                В какое время дня вы можете работать? <span class="text-red-500">*</span>
+            </legend>
+            @php $oldSlots = old('availability_slots', []); @endphp
+            @foreach ($availabilitySlots as $value => $label)
+                <label class="flex items-center gap-2 text-sm text-gray-700">
+                    <input type="checkbox" name="availability_slots[]" value="{{ $value }}"
+                           @checked(in_array($value, (array) $oldSlots, true))
+                           class="rounded border-gray-300 text-blue-600 focus:ring-blue-500 h-5 w-5">
+                    {{ $label }}
+                </label>
+            @endforeach
+        </fieldset>
+
+        {{-- Current occupation — both optional checkboxes. --}}
+        <fieldset class="space-y-2">
+            <legend class="text-sm font-medium text-gray-700 mb-1">Сейчас</legend>
+            <label class="flex items-center gap-2 text-sm text-gray-700">
+                <input type="checkbox" name="is_currently_working" value="1"
+                       @checked(old('is_currently_working') === '1')
+                       class="rounded border-gray-300 text-blue-600 focus:ring-blue-500 h-5 w-5">
+                Сейчас работаю
+            </label>
+            <label class="flex items-center gap-2 text-sm text-gray-700">
+                <input type="checkbox" name="is_currently_studying" value="1"
+                       @checked(old('is_currently_studying') === '1')
+                       class="rounded border-gray-300 text-blue-600 focus:ring-blue-500 h-5 w-5">
+                Сейчас учусь
+            </label>
         </fieldset>
 
         {{-- 10. Experience level --}}
@@ -208,13 +241,20 @@
         <div x-show="position && currentSchema()" x-cloak>
             <label class="block text-sm font-medium text-gray-700 mb-1" x-text="currentSchema()?.question"></label>
 
-            {{-- yes/no widget --}}
+            {{-- yes/no widget — single checkbox. Unchecked = "no",
+                 checked = "yes". A hidden "no" input ahead of the
+                 checkbox guarantees the field is always submitted
+                 (otherwise unchecked checkbox = key absent from POST,
+                 which the FormRequest's `required` rule would reject). --}}
             <template x-if="currentSchema()?.schema?.type === 'yes_no'">
-                <select name="position_answer" class="w-full rounded-lg border-gray-300" x-bind:required="!!position">
-                    <option value="">—</option>
-                    <option value="yes">Да</option>
-                    <option value="no">Нет</option>
-                </select>
+                <div>
+                    <input type="hidden" name="position_answer" value="no">
+                    <label class="flex items-center gap-2 text-sm text-gray-700">
+                        <input type="checkbox" name="position_answer" value="yes"
+                               class="rounded border-gray-300 text-blue-600 focus:ring-blue-500 h-5 w-5">
+                        <span>Да</span>
+                    </label>
+                </div>
             </template>
 
             {{-- select-options widget (kitchen role) --}}
