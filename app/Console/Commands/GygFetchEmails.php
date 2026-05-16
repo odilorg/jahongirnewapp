@@ -3,9 +3,9 @@
 namespace App\Console\Commands;
 
 use App\Models\GygInboundEmail;
+use App\Services\HimalayaMailClient;
 use Carbon\Carbon;
 use Illuminate\Console\Command;
-use Illuminate\Process\Exceptions\ProcessTimedOutException;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Process;
 
@@ -25,9 +25,14 @@ class GygFetchEmails extends Command
 
     private const HIMALAYA_BIN = 'himalaya';
 
+    public function __construct(private HimalayaMailClient $mail)
+    {
+        parent::__construct();
+    }
+
     public function handle(): int
     {
-        $limit  = (int) $this->option('limit');
+        $limit = (int) $this->option('limit');
         $dryRun = $this->option('dry-run');
 
         $this->info('[gyg:fetch-emails] Starting email fetch...');
@@ -38,17 +43,19 @@ class GygFetchEmails extends Command
         if ($envelopes === null) {
             $this->error('[gyg:fetch-emails] Failed to fetch envelopes from Gmail');
             Log::error('gyg:fetch-emails: envelope fetch failed');
+
             return self::FAILURE;
         }
 
-        $this->info("[gyg:fetch-emails] Fetched " . count($envelopes) . " envelopes");
+        $this->info('[gyg:fetch-emails] Fetched '.count($envelopes).' envelopes');
 
         // Step 2: Filter to GYG-related emails only
         $gygEnvelopes = $this->filterGygEmails($envelopes);
-        $this->info("[gyg:fetch-emails] Found " . count($gygEnvelopes) . " GYG-related emails");
+        $this->info('[gyg:fetch-emails] Found '.count($gygEnvelopes).' GYG-related emails');
 
         if (empty($gygEnvelopes)) {
             Log::info('gyg:fetch-emails: no new GYG emails found');
+
             return self::SUCCESS;
         }
 
@@ -65,23 +72,26 @@ class GygFetchEmails extends Command
             $messageId = $fetched['message_id'] ?? $this->syntheticMessageId($envelope, $fetched['body']);
 
             if (! $messageId) {
-                $this->warn("[gyg:fetch-emails] Skipping email without any usable ID: " . ($envelope['subject'] ?? 'no subject'));
+                $this->warn('[gyg:fetch-emails] Skipping email without any usable ID: '.($envelope['subject'] ?? 'no subject'));
                 Log::warning('gyg:fetch-emails: no usable message ID', ['subject' => $envelope['subject'] ?? null]);
                 $timedOut ? $stats['timeout']++ : $stats['error']++;
+
                 continue;
             }
 
             // Idempotency: skip if already stored (in-memory check, no DB query)
             if ($knownIds->has($messageId)) {
-                $this->line("  ⏭ Already stored: " . $this->truncate($envelope['subject'] ?? '', 60));
+                $this->line('  ⏭ Already stored: '.$this->truncate($envelope['subject'] ?? '', 60));
                 $stats['duplicate']++;
+
                 continue;
             }
 
             if ($dryRun) {
                 $label = $timedOut ? '[DRY-RUN, TIMEOUT]' : '[DRY-RUN]';
-                $this->line("  🆕 {$label} Would store: " . $this->truncate($envelope['subject'] ?? '', 60));
+                $this->line("  🆕 {$label} Would store: ".$this->truncate($envelope['subject'] ?? '', 60));
                 $timedOut ? $stats['timeout']++ : $stats['new']++;
+
                 continue;
             }
 
@@ -89,13 +99,13 @@ class GygFetchEmails extends Command
 
             try {
                 GygInboundEmail::create([
-                    'email_message_id'  => $messageId,
-                    'email_from'        => $this->extractAddress($envelope['from'] ?? []),
-                    'email_to'          => $this->extractAddress($envelope['to'] ?? []),
-                    'email_subject'     => $this->truncate($envelope['subject'] ?? '', 1000),
-                    'email_date'        => $this->parseDate($envelope['date'] ?? null),
-                    'body_text'         => $body,
-                    'body_html'         => null, // himalaya returns plain text; HTML deferred
+                    'email_message_id' => $messageId,
+                    'email_from' => $this->extractAddress($envelope['from'] ?? []),
+                    'email_to' => $this->extractAddress($envelope['to'] ?? []),
+                    'email_subject' => $this->truncate($envelope['subject'] ?? '', 1000),
+                    'email_date' => $this->parseDate($envelope['date'] ?? null),
+                    'body_text' => $body,
+                    'body_html' => null, // himalaya returns plain text; HTML deferred
                     // Always 'fetched' — the classifier inspects the subject only,
                     // so even a body-fetch timeout must still go through process-emails.
                     // If the subject is a real booking/cancellation/amendment but the
@@ -108,23 +118,23 @@ class GygFetchEmails extends Command
 
                 $knownIds[$messageId] = true; // track within this run
                 $icon = $timedOut ? '⏱' : '✅';
-                $this->line("  {$icon} Stored: " . $this->truncate($envelope['subject'] ?? '', 60));
+                $this->line("  {$icon} Stored: ".$this->truncate($envelope['subject'] ?? '', 60));
                 Log::info('gyg:fetch-emails: email stored', [
-                    'message_id'   => $messageId,
-                    'subject'      => $this->truncate($envelope['subject'] ?? '', 100),
-                    'timed_out'    => $timedOut,
-                    'has_body'     => $body !== null,
+                    'message_id' => $messageId,
+                    'subject' => $this->truncate($envelope['subject'] ?? '', 100),
+                    'timed_out' => $timedOut,
+                    'has_body' => $body !== null,
                 ]);
                 $timedOut ? $stats['timeout']++ : $stats['new']++;
             } catch (\Illuminate\Database\UniqueConstraintViolationException $e) {
                 // Race condition: another process stored it between our check and insert
-                $this->line("  ⏭ Duplicate (race): " . $this->truncate($envelope['subject'] ?? '', 60));
+                $this->line('  ⏭ Duplicate (race): '.$this->truncate($envelope['subject'] ?? '', 60));
                 $stats['duplicate']++;
             } catch (\Throwable $e) {
-                $this->error("  ❌ Failed to store: " . $e->getMessage());
+                $this->error('  ❌ Failed to store: '.$e->getMessage());
                 Log::error('gyg:fetch-emails: store failed', [
                     'message_id' => $messageId,
-                    'error'      => $e->getMessage(),
+                    'error' => $e->getMessage(),
                 ]);
                 $stats['error']++;
             }
@@ -155,8 +165,9 @@ class GygFetchEmails extends Command
         if (! $result->successful()) {
             Log::error('gyg:fetch-emails: himalaya envelope list failed', [
                 'stderr' => $result->errorOutput(),
-                'code'   => $result->exitCode(),
+                'code' => $result->exitCode(),
             ]);
+
             return null;
         }
 
@@ -170,6 +181,7 @@ class GygFetchEmails extends Command
             Log::error('gyg:fetch-emails: invalid JSON from himalaya', [
                 'output' => $this->truncate($output, 200),
             ]);
+
             return null;
         }
 
@@ -188,38 +200,45 @@ class GygFetchEmails extends Command
      */
     private function fetchMessageWithId(string $envelopeId, array $envelope = []): array
     {
-        try {
-            // Bumped 15s → 45s 2026-04-28. Same IMAP latency issue that caused the
-            // envelope list to be bumped 30s → 60s on 2026-04-18: large HTML emails
-            // from GYG/SendGrid routinely exceed 15s. ProcessTimedOutException was
-            // previously uncaught here, crashing the entire scheduled run.
-            $result = Process::timeout(45)->run([
-                self::HIMALAYA_BIN, 'message', 'read',
-                '--preview',
-                '--header', 'Message-ID',
-                $envelopeId,
-            ]);
-        } catch (ProcessTimedOutException $e) {
-            Log::warning('gyg:fetch-emails: message read timed out — stored as skipped', [
-                'id'      => $envelopeId,
-                'subject' => $envelope['subject'] ?? 'unknown',
-                'sender'  => $this->extractAddress($envelope['from'] ?? []),
-            ]);
-            return ['message_id' => null, 'body' => null, 'timed_out' => true];
-        }
+        // Read via the shared retry-net client (incident 2026-05-16):
+        // himalaya `message read` intermittently hangs; the client times
+        // out at 60s, kills, retries the SAME envelope ONCE, and returns
+        // a structured result instead of throwing. GYG's deliberate
+        // body-fail contract is preserved EXACTLY: on final failure we
+        // still return timed_out=true so the caller stores the row as
+        // 'fetched' and gyg:process-emails alerts on the empty body
+        // (incidents GYG48YVRXWBH 2026-04-27, 2026-05-05 audit) — never
+        // a silent drop. Only change vs before: one retry first, and the
+        // per-attempt ceiling is 60s (was 45s) per the approved plan.
+        $read = $this->mail->readMessage(
+            $envelopeId,
+            null, // GYG relies on the himalaya default account
+            ['--preview', '--header', 'Message-ID'],
+        );
 
-        if (! $result->successful()) {
-            Log::warning('gyg:fetch-emails: message read failed', [
-                'id'      => $envelopeId,
+        if (! $read['ok']) {
+            if ($read['timed_out']) {
+                Log::warning('gyg:fetch-emails: message read timed out after retry — stored as skipped', [
+                    'id' => $envelopeId,
+                    'subject' => $envelope['subject'] ?? 'unknown',
+                    'sender' => $this->extractAddress($envelope['from'] ?? []),
+                    'attempts' => $read['attempts'],
+                ]);
+
+                return ['message_id' => null, 'body' => null, 'timed_out' => true];
+            }
+            Log::warning('gyg:fetch-emails: message read failed after retry', [
+                'id' => $envelopeId,
                 'subject' => $envelope['subject'] ?? 'unknown',
-                'sender'  => $this->extractAddress($envelope['from'] ?? []),
-                'folder'  => 'INBOX',
-                'stderr'  => $result->errorOutput(),
+                'sender' => $this->extractAddress($envelope['from'] ?? []),
+                'folder' => 'INBOX',
+                'attempts' => $read['attempts'],
             ]);
+
             return ['message_id' => null, 'body' => null, 'timed_out' => false];
         }
 
-        $output = $result->output();
+        $output = $read['output'];
         if (empty($output)) {
             return ['message_id' => null, 'body' => null];
         }
@@ -253,6 +272,7 @@ class GygFetchEmails extends Command
                     return true;
                 }
             }
+
             return false;
         }));
     }
@@ -269,9 +289,9 @@ class GygFetchEmails extends Command
      */
     private function syntheticMessageId(array $envelope, ?string $body = null): ?string
     {
-        $sender  = strtolower(trim($this->extractAddress($envelope['from'] ?? [])));
+        $sender = strtolower(trim($this->extractAddress($envelope['from'] ?? [])));
         $subject = strtolower(trim($envelope['subject'] ?? ''));
-        $date    = trim($envelope['date'] ?? '');
+        $date = trim($envelope['date'] ?? '');
 
         if (empty($subject) && empty($date)) {
             return null;
@@ -279,7 +299,7 @@ class GygFetchEmails extends Command
 
         $preview = $body ? substr(trim($body), 0, 500) : '';
 
-        return 'synthetic:' . hash('sha256', $sender . '|' . $subject . '|' . $date . '|' . $preview);
+        return 'synthetic:'.hash('sha256', $sender.'|'.$subject.'|'.$date.'|'.$preview);
     }
 
     private function extractAddress(array|string|null $from): string
@@ -290,6 +310,7 @@ class GygFetchEmails extends Command
         if (is_array($from)) {
             return $from['addr'] ?? $from['address'] ?? $from['name'] ?? '';
         }
+
         return '';
     }
 
