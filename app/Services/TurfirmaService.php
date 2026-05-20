@@ -5,8 +5,10 @@ namespace App\Services;
 use App\Models\Turfirma;
 use App\Models\Bank;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Filament\Notifications\Notification;
 use Illuminate\Validation\ValidationException;
+use Throwable;
 
 class TurfirmaService
 {
@@ -94,7 +96,20 @@ class TurfirmaService
         ];
 
         foreach ($urls as $url) {
-            $response = Http::get($url);
+            // Upstream tax-info APIs are sometimes unreachable from UZ-hosted servers
+            // (didox/soliqservis time out). Catch network failures so the loop can
+            // try the next provider and the form falls back to the manual-entry path
+            // instead of returning a 500.
+            try {
+                $response = Http::timeout(5)->connectTimeout(3)->get($url);
+            } catch (Throwable $e) {
+                Log::warning('TurfirmaService API request failed', [
+                    'url' => $url,
+                    'tin' => $tin,
+                    'error' => $e->getMessage(),
+                ]);
+                continue;
+            }
 
             if ($response->successful() && !empty($response->json('shortName')) && !empty($response->json('name'))) {
                 return $response->json();
