@@ -87,32 +87,81 @@ class TurfirmaService
         return $turfirma->id;
     }
 
+    /**
+     * Returns the upstream tax-info payload normalized to didox shape:
+     *   shortName, name, address, tin, account, mfo|bankCode, director (string).
+     *
+     * Calls go through the local loopback relay (autossh tunnel → Airnet UZ
+     * VPS nginx → upstream). The relay holds the provider API keys; this app
+     * never sees them. Direct outbound calls to gnk-api.didox.uz / soliq.uz
+     * are blocked by Contabo egress, so no public-internet fallback here.
+     */
     private static function fetchDataFromApis(string $tin): ?array
     {
-        $urls = [
-            "https://gnk-api.didox.uz/api/v1/utils/info/{$tin}",
-            "https://new.soliqservis.uz/api/np1/bytin/factura?tinOrPinfl={$tin}",
-            "https://stage.goodsign.biz/v1/utils/info/{$tin}",
+        $relayUrl = config('services.tin_lookup.relay_url');
+        if (! $relayUrl) {
+            Log::warning('TurfirmaService: TIN_LOOKUP_RELAY_URL not configured; skipping auto-fetch', ['tin' => $tin]);
+            return null;
+        }
+
+        // Order matters: didox first (richer payload — includes bank info +
+        // director name as a string). Soliq is the fallback if didox is down.
+        $endpoints = [
+            'didox'  => rtrim($relayUrl, '/') . "/didox/info/{$tin}",
+            'soliq'  => rtrim($relayUrl, '/') . "/company/info/{$tin}",
         ];
 
-        foreach ($urls as $url) {
-            // Upstream tax-info APIs are sometimes unreachable from UZ-hosted servers
-            // (didox/soliqservis time out). Catch network failures so the loop can
-            // try the next provider and the form falls back to the manual-entry path
-            // instead of returning a 500.
+        foreach ($endpoints as $source => $url) {
             try {
-                $response = Http::timeout(5)->connectTimeout(3)->get($url);
+                $response = Http::timeout(15)->connectTimeout(3)->get($url);
             } catch (Throwable $e) {
-                Log::warning('TurfirmaService API request failed', [
-                    'url' => $url,
+                Log::warning('TurfirmaService relay request failed', [
+                    'source' => $source,
                     'tin' => $tin,
                     'error' => $e->getMessage(),
                 ]);
                 continue;
             }
 
-            if ($response->successful() && !empty($response->json('shortName')) && !empty($response->json('name'))) {
-                return $response->json();
+            if (! $response->successful()) {
+                Log::info('TurfirmaService relay non-2xx', [
+                    'source' => $source,
+                    'tin' => $tin,
+                    'status' => $response->status(),
+                ]);
+                continue;
+            }
+
+            $data = $response->json();
+            if (! is_array($data)) {
+                continue;
+            }
+
+            // didox: flat structure with shortName + name at top level.
+            if (! empty($data['shortName']) && ! empty($data['name'])) {
+                return $data;
+            }
+
+            // soliq: data wrapped under "company"; director is an object.
+            // Normalize to didox-shape so the caller mapping stays uniform.
+            if (! empty($data['company']['shortName']) && ! empty($data['company']['name'])) {
+                $c = $data['company'];
+                $dir = $data['director'] ?? null;
+                return [
+                    'tin'       => $c['tin'] ?? $tin,
+                    'shortName' => $c['shortName'] ?? null,
+                    'name'      => $c['name'] ?? null,
+                    'address'   => $c['streetName'] ?? null,
+                    'mfo'       => null,    // soliq endpoint does not return bank info
+                    'account'   => null,
+                    'director'  => is_array($dir)
+                        ? trim(implode(' ', array_filter([
+                            $dir['lastName'] ?? null,
+                            $dir['firstName'] ?? null,
+                            $dir['middleName'] ?? null,
+                        ])))
+                        : null,
+                ];
             }
         }
 

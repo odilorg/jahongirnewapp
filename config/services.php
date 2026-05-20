@@ -210,4 +210,11 @@ return [
         'send_review_card_image' => env('TRIPADVISOR_SEND_REVIEW_CARD_IMAGE', false),
     ],
 
+    // TIN-lookup relay (loopback-only nginx on Airnet via autossh tunnel).
+    // Provider API keys (didox `user-key`, soliq `X-API-KEY`) live on the
+    // relay, never in this app's env. See docs/architecture/ADRs if added.
+    'tin_lookup' => [
+        'relay_url' => env('TIN_LOOKUP_RELAY_URL'),
+    ],
+
 ];
