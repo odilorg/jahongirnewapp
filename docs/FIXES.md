@@ -14,6 +14,56 @@ Newest entries at top.
 
 ---
 
+## 2026-05-20 — Contract TIN auto-fetch restored via Airnet UZ relay
+
+**Symptom:** Even with the 500 stopped (entry above), the contract form's
+"Create new Turfirma" inline action always fell through to the "add
+manually" toast — auto-fetch had been silently dead because all three
+upstream APIs required auth that the code didn't send, and didox/soliq
+hosts are unreachable from this VPS over TCP.
+
+**Root cause:**
+1. Upstream tax-info providers added `X-API-KEY`/`user-key` auth that
+   `TurfirmaService::fetchDataFromApis()` never set → 401 from anywhere.
+2. From this VPS, TCP egress to UZ networks (`*.didox.uz`, `*.soliq.uz`,
+   even Airnet UZ VPS on arbitrary ports) is blocked. ICMP works; only
+   ports 80/443 and `:2222` to vps-main are open outbound.
+
+**Fix:**
+- Built a loopback-only nginx relay on Airnet UZ VPS (`46.8.194.59`).
+  Two locations: `/didox/info/{tin}` (primary, richer payload including
+  bank account + mfo + director-string) and `/company/info/{tin}` (soliq
+  fallback). Provider API keys live in `/etc/nginx/soliq-key.conf`
+  (root:600); never appear in this app's env or git.
+- Relay listens on `127.0.0.1:18443` only — zero public attack surface.
+- Reachability path: this VPS → vps-main:2222 (SSH jump) → Airnet:22
+  (SSH tunnel forwarding `127.0.0.1:18443`). Both hops use dedicated
+  ed25519 keys with `permitopen=` restricted to a single destination
+  and `from=` pinned to the calling IP. Jump user runs `/usr/sbin/nologin`.
+- Tunnel held open by `soliq-tunnel.service` (autossh on this VPS) with
+  systemd hardening (`NoNewPrivileges`, `ProtectSystem=strict`, etc.).
+- `TurfirmaService::fetchDataFromApis()` rewritten to call the relay via
+  `config('services.tin_lookup.relay_url')` (env: `TIN_LOOKUP_RELAY_URL=
+  http://127.0.0.1:18443`). Soliq response normalized to didox shape so
+  the existing `Turfirma::create()` mapping stays uniform. Manual-entry
+  fallback preserved when both providers fail.
+- Unit tests cover: missing config, didox happy path, soliq fallback +
+  director-object flattening, both-providers-fail.
+
+**Verification on deploy:**
+- `php artisan tinker` against the prod-loaded service returned the
+  expected fields for TIN `300965341`: shortName, name, address, mfo
+  (00083), account (20208…), director string (JAXANGIROV ODILJON
+  SHAKIROVICH).
+
+**Backup:** N/A — no schema or data change.
+
+**Commit:** `fbf85c3`
+
+**Health on deploy:** 5/5 checks passed.
+
+---
+
 ## 2026-05-20 — Contract create 500 when TIN-lookup APIs unreachable
 
 **Symptom:** `https://jahongir-app.uz/admin/contracts/create` → opening the
