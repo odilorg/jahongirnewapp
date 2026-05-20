@@ -14,6 +14,42 @@ Newest entries at top.
 
 ---
 
+## 2026-05-20 — Contract create 500 when TIN-lookup APIs unreachable
+
+**Symptom:** `https://jahongir-app.uz/admin/contracts/create` → opening the
+"Create new Turfirma" inline form and entering a TIN returned a 500 Server
+Error. Livewire stack trace pointed to `App\Services\TurfirmaService` line 97.
+
+**Root cause:** `TurfirmaService::fetchDataFromApis()` called three external
+tax-info endpoints (`gnk-api.didox.uz`, `new.soliqservis.uz`,
+`stage.goodsign.biz`) sequentially with `Http::get($url)` — no timeout and
+no exception handling. From this VPS the didox + soliqservis hosts are
+network-blocked (connect timeout, same egress class as the QUIC incident).
+Guzzle raised `ConnectException` on the first iteration; it bubbled out of
+the `foreach`, killing the entire Filament "Create option" closure and
+producing a 500 — instead of the intended "All APIs down → add manually"
+notification.
+
+Diagnosis also surfaced a second, latent issue: all three upstream APIs
+now respond 401 to anonymous requests, so even without the crash the loop
+returned `null` and auto-fetch was silently dead. That part is restored
+in a follow-up (Airnet UZ relay + `X-API-KEY`) and is **not** part of
+this commit.
+
+**Fix:** Per-call `Http::timeout(5)->connectTimeout(3)` plus a `try/catch
+(Throwable)` around each request. On network failure: log a warning with
+the URL/TIN/error and `continue` to the next provider. When all three fail
+the existing fallback (`ValidationException` + danger toast asking the
+operator to enter details manually) fires as designed.
+
+**Backup:** N/A — no schema or data change.
+
+**Commit:** `f8390c7`
+
+**Health on deploy:** 5/5 checks passed.
+
+---
+
 ## 2026-05-10 — FX staleness guard v2 (calendar-day + max-fetched_at-age hybrid)
 
 **Type:** Re-shipped fix. Supersedes the rolled-back v1 attempt
