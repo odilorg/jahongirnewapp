@@ -43,6 +43,8 @@ class TurfirmaService
                 ]);
             }
 
+            $mfo = $apiData['bankCode'] ?? $apiData['mfo'] ?? null;
+
             // Create a new Turfirma
             $turfirma = Turfirma::create([
                 'name' => $apiData['shortName'] ?? null,
@@ -50,8 +52,8 @@ class TurfirmaService
                 'address_street' => $apiData['address'] ?? null,
                 'inn' => $apiData['tin'] ?? $data['tin'],
                 'account_number' => $apiData['account'] ?? null,
-                'bank_mfo' => $apiData['bankCode'] ?? $apiData['mfo'] ?? null,
-                'bank_name' => Bank::where('mfo', $apiData['bankCode'] ?? $apiData['mfo'] ?? null)->value('bankName'),
+                'bank_mfo' => $mfo,
+                'bank_name' => self::resolveBankName($mfo),
                 'director_name' => $apiData['director'] ?? null,
                 'phone' => $data['phone'],
                 'email' => $data['email'],
@@ -85,6 +87,27 @@ class TurfirmaService
             ->send();
 
         return $turfirma->id;
+    }
+
+    /**
+     * Look up human-readable bank name by MFO. The `banks` table is optional
+     * in this DB — when it's missing, return null rather than crashing the
+     * whole Turfirma-create flow. Operator can fill bank name manually.
+     */
+    private static function resolveBankName(?string $mfo): ?string
+    {
+        if (! $mfo) {
+            return null;
+        }
+        try {
+            return Bank::where('mfo', $mfo)->value('bankName');
+        } catch (Throwable $e) {
+            Log::warning('TurfirmaService: bank name lookup skipped', [
+                'mfo' => $mfo,
+                'error' => $e->getMessage(),
+            ]);
+            return null;
+        }
     }
 
     /**
