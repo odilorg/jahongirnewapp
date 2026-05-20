@@ -14,6 +14,40 @@ Newest entries at top.
 
 ---
 
+## 2026-05-20 — Turfirma create rejected for upstream records without bank info
+
+**Symptom:** With the auto-fetch relay live, creating a contract for TIN
+`203360154` ("C.A.T.I.A" MCHJ) crashed with
+`SQLSTATE[23000] 1048 Column 'account_number' cannot be null`.
+
+**Root cause:** Upstream tax-info APIs return partial records — some
+companies have name + address + director but no published bank account
+or MFO. The `turfirmas` table enforced `NOT NULL` on `account_number`,
+`bank_mfo`, `bank_name`, and `address_street`. The mismatch only stayed
+hidden while auto-fetch was broken (the `if (!$apiData)` branch returned
+before reaching the insert). The first real partial record triggered it.
+
+**Fix:** Migration `2026_05_20_120000_make_turfirmas_bank_columns_nullable`
+drops `NOT NULL` on the four columns. `down()` reverts to `NOT NULL` with
+empty-string default for safe rollback.
+
+**Backup:** `/var/backups/databases/daily/jahongirnewapp_pre-turfirmas-nullable_20260520_144221.sql.gz`
+(7.1 MB, verified).
+
+**Verification on deploy:**
+```
+account_number: nullable=YES
+bank_mfo:       nullable=YES
+bank_name:      nullable=YES
+address_street: nullable=YES
+```
+
+**Commit:** `1e761ec`
+
+**Health on deploy:** 5/5 checks passed.
+
+---
+
 ## 2026-05-20 — Contract TIN auto-fetch restored via Airnet UZ relay
 
 **Symptom:** Even with the 500 stopped (entry above), the contract form's
