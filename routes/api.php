@@ -57,7 +57,7 @@ Route::post('/bookings/website', [WebsiteBookingController::class, 'store'])
 // Called by jahongir-travel.uz mailer-tours.php. Throttle = 10/min per IP.
 Route::prefix('v1')->group(function () {
     Route::post('/inquiries', [BookingInquiryController::class, 'store'])
-        ->middleware('throttle:10,1')
+        ->middleware(['website.api_key', 'throttle:10,1'])
         ->name('inquiries.store');
 });
 
