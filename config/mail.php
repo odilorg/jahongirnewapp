@@ -46,6 +46,17 @@ return [
             'local_domain' => env('MAIL_EHLO_DOMAIN'),
         ],
 
+        // Resend SMTP — used as fallback by the 'failover' mailer below.
+        'resend' => [
+            'transport' => 'smtp',
+            'host' => env('MAIL_FALLBACK_HOST', 'smtp.resend.com'),
+            'port' => env('MAIL_FALLBACK_PORT', 465),
+            'encryption' => env('MAIL_FALLBACK_ENCRYPTION', 'ssl'),
+            'username' => env('MAIL_FALLBACK_USERNAME', 'resend'),
+            'password' => env('MAIL_FALLBACK_PASSWORD'),
+            'timeout' => 10,
+        ],
+
         'ses' => [
             'transport' => 'ses',
         ],
@@ -82,8 +93,8 @@ return [
         'failover' => [
             'transport' => 'failover',
             'mailers' => [
-                'smtp',
-                'log',
+                'smtp',     // Zoho primary
+                'resend',   // Resend fallback if Zoho fails
             ],
         ],
 
