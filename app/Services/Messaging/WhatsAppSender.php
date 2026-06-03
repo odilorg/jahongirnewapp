@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Log;
 class WhatsAppSender
 {
     private const MIN_PHONE_LENGTH = 7;
+
     private const MAX_PHONE_LENGTH = 15;
 
     /**
@@ -42,18 +43,19 @@ class WhatsAppSender
         // log 'blocked' rather than retry forever.
         if (! (bool) config('app.send_guest_messages', true)) {
             \Illuminate\Support\Facades\Log::info('WhatsAppSender: send blocked by kill switch', [
-                'to'      => $normalizedPhone,
+                'to' => $normalizedPhone,
                 'preview' => mb_substr($message, 0, 80),
             ]);
+
             return SendResult::fail('whatsapp', 'send_guest_messages=false (global kill switch)', retryable: false);
         }
 
         $url = config('services.gyg.wa_api_url', 'http://127.0.0.1:8080/api/send');
 
         try {
-            $response = Http::timeout(15)->post($url, [
+            $response = Http::timeout(60)->post($url, [
                 'recipient' => $normalizedPhone,
-                'message'   => $message,
+                'message' => $message,
             ]);
 
             $body = $response->json();

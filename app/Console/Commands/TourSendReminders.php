@@ -24,11 +24,14 @@ use Illuminate\Support\Facades\Log;
  */
 class TourSendReminders extends Command
 {
-    protected $signature   = 'tour:send-reminders {--dry-run : Print output without sending}';
+    protected $signature = 'tour:send-reminders {--dry-run : Print output without sending}';
+
     protected $description = 'Send daily tour reminders — Telegram staff + WhatsApp guest + Telegram driver/guide';
 
     private int $ownerChatId;
+
     private string $ownerBotToken;
+
     private string $driverGuideBotToken;
 
     public function __construct(
@@ -36,16 +39,16 @@ class TourSendReminders extends Command
         private \App\Services\TourReminderDispatcher $reminderDispatcher,
     ) {
         parent::__construct();
-        $this->ownerChatId        = (int) config('services.owner_alert_bot.owner_chat_id', env('OWNER_TELEGRAM_ID', '0'));
-        $this->ownerBotToken      = (string) config('services.ops_bot.token', '');
+        $this->ownerChatId = (int) config('services.owner_alert_bot.owner_chat_id', env('OWNER_TELEGRAM_ID', '0'));
+        $this->ownerBotToken = (string) config('services.ops_bot.token', '');
         $this->driverGuideBotToken = (string) env('TELEGRAM_BOT_TOKEN_DRIVER_GUIDE', '');
     }
 
     public function handle(): int
     {
-        $dryRun    = $this->option('dry-run');
-        $tz        = 'Asia/Tashkent';
-        $tomorrow  = Carbon::now($tz)->addDay()->toDateString();
+        $dryRun = $this->option('dry-run');
+        $tz = 'Asia/Tashkent';
+        $tomorrow = Carbon::now($tz)->addDay()->toDateString();
         $dateLabel = Carbon::now($tz)->addDay()->format('D, d M Y');
 
         if ($dryRun) {
@@ -57,6 +60,9 @@ class TourSendReminders extends Command
         $inquiries = BookingInquiry::query()
             ->where('status', BookingInquiry::STATUS_CONFIRMED)
             ->where('travel_date', $tomorrow)
+            ->whereNull('guest_reminder_sent_at')
+            ->where('guest_reminder_status', '!=', BookingInquiry::REMINDER_STATUS_SENT)
+            ->where('guest_reminder_status', '!=', BookingInquiry::REMINDER_STATUS_SUPPRESSED)
             ->with(['driver', 'guide', 'tourProduct'])
             ->orderBy('tour_slug')
             ->orderBy('customer_name')
@@ -101,11 +107,11 @@ class TourSendReminders extends Command
             $lines[] = "🗺 <b>{$tourClean}</b> ({$group->count()} bookings)";
 
             foreach ($group as $inquiry) {
-                $pax     = $inquiry->people_adults + $inquiry->people_children;
-                $name    = htmlspecialchars($inquiry->customer_name, ENT_QUOTES, 'UTF-8');
-                $phone   = htmlspecialchars($inquiry->customer_phone, ENT_QUOTES, 'UTF-8');
-                $pickup  = $inquiry->pickup_time ?? '09:00';
-                $source  = strtoupper($inquiry->source);
+                $pax = $inquiry->people_adults + $inquiry->people_children;
+                $name = htmlspecialchars($inquiry->customer_name, ENT_QUOTES, 'UTF-8');
+                $phone = htmlspecialchars($inquiry->customer_phone, ENT_QUOTES, 'UTF-8');
+                $pickup = $inquiry->pickup_time ?? '09:00';
+                $source = strtoupper($inquiry->source);
 
                 // Driver TG status
                 $driverLabel = '—';
@@ -159,13 +165,17 @@ class TourSendReminders extends Command
             if ($phone !== null && isset($phonesThisRun[$phone])) {
                 $this->warn("  ⚠ Skipping {$inquiry->customer_name} — duplicate phone.");
                 $skipped++;
+
                 continue;
             }
 
             if ($dryRun) {
                 $this->info("  [DRY] {$inquiry->reference} · {$inquiry->customer_name}");
                 $sent++;
-                if ($phone !== null) $phonesThisRun[$phone] = true;
+                if ($phone !== null) {
+                    $phonesThisRun[$phone] = true;
+                }
+
                 continue;
             }
 
@@ -177,13 +187,15 @@ class TourSendReminders extends Command
 
             if ($result['ok']) {
                 $sent++;
-                if ($phone !== null) $phonesThisRun[$phone] = true;
+                if ($phone !== null) {
+                    $phonesThisRun[$phone] = true;
+                }
                 $this->info("  ✅ {$inquiry->reference} (lead={$result['lead_time_minutes']}m)");
             } elseif (in_array($result['reason'] ?? '', ['already_sent', 'out_of_window'], true)) {
                 $skipped++;
             } else {
                 $failed++;
-                $this->error("  ❌ {$inquiry->reference} · " . ($result['reason'] ?? 'unknown'));
+                $this->error("  ❌ {$inquiry->reference} · ".($result['reason'] ?? 'unknown'));
             }
         }
 
@@ -216,10 +228,10 @@ class TourSendReminders extends Command
         $tourTitle = $inquiry->tourProduct?->title
             ?? preg_replace('/\s*\|\s*Jahongir\s+Travel\s*$/iu', '', (string) $inquiry->tour_name_snapshot);
         $direction = $inquiry->tourProductDirection?->name;
-        $headline  = $direction ? "*{$tourTitle}* ({$direction})" : "*{$tourTitle}*";
+        $headline = $direction ? "*{$tourTitle}* ({$direction})" : "*{$tourTitle}*";
 
-        $pickupTime  = $inquiry->pickup_time ? substr((string) $inquiry->pickup_time, 0, 5) : '09:00';
-        $hoursUntil  = $this->hoursUntilPickup($inquiry, $pickupTime);
+        $pickupTime = $inquiry->pickup_time ? substr((string) $inquiry->pickup_time, 0, 5) : '09:00';
+        $hoursUntil = $this->hoursUntilPickup($inquiry, $pickupTime);
 
         $lines = [
             "Hi {$firstName}! 👋",
@@ -229,7 +241,7 @@ class TourSendReminders extends Command
             'Everything is arranged and ready for you 👍',
             '',
             "📅 {$dateLabel}",
-            "⏰ Pickup: {$pickupTime}" . ($hoursUntil ? " (in ~{$hoursUntil}h)" : ''),
+            "⏰ Pickup: {$pickupTime}".($hoursUntil ? " (in ~{$hoursUntil}h)" : ''),
         ];
 
         // Pickup block — context-aware
@@ -259,7 +271,9 @@ class TourSendReminders extends Command
         $weatherBlock = $this->buildWeatherBlock($inquiry);
         if ($weatherBlock) {
             $lines[] = '';
-            foreach ($weatherBlock as $l) $lines[] = $l;
+            foreach ($weatherBlock as $l) {
+                $lines[] = $l;
+            }
         }
 
         // Meals
@@ -298,7 +312,7 @@ class TourSendReminders extends Command
             $lines[] = 'You will be met downstairs next to the entrance portal';
         } elseif (filled($pickup)) {
             $lines[] = "🏨 {$pickup}";
-            $lines[] = '📍 https://maps.google.com/?q=' . rawurlencode($pickup);
+            $lines[] = '📍 https://maps.google.com/?q='.rawurlencode($pickup);
             $lines[] = 'You will be met at the reception';
         }
 
@@ -310,7 +324,7 @@ class TourSendReminders extends Command
 
         if (filled($dropoff)) {
             $lines[] = "📍 Drop-off: {$dropoff}";
-            $lines[] = '📍 https://maps.google.com/?q=' . rawurlencode($dropoff);
+            $lines[] = '📍 https://maps.google.com/?q='.rawurlencode($dropoff);
         } elseif (str_contains($directionName, 'bukhara') && stripos($directionName, '→ samarkand') === false) {
             $lines[] = '📍 Drop-off: Lyabi Hauz area, Bukhara';
         }
@@ -328,21 +342,28 @@ class TourSendReminders extends Command
         $lines = [];
 
         if ($inquiry->guide && $inquiry->guide->full_name) {
-            $name  = $inquiry->guide->full_name;
+            $name = $inquiry->guide->full_name;
             $phone = $inquiry->guide->phone01;
             $lines[] = "🧭 Your guide: {$name}";
-            if ($phone) $lines[] = "📱 {$phone}";
+            if ($phone) {
+                $lines[] = "📱 {$phone}";
+            }
+
             return $lines;
         }
 
         if ($inquiry->driver && $inquiry->driver->full_name) {
-            $name  = $inquiry->driver->full_name;
+            $name = $inquiry->driver->full_name;
             $phone = $inquiry->driver->phone01;
             $lines[] = "🚗 Your driver: {$name}";
-            if ($phone) $lines[] = "📱 {$phone}";
+            if ($phone) {
+                $lines[] = "📱 {$phone}";
+            }
 
             $carLine = $this->buildCarLine($inquiry->driver);
-            if ($carLine) $lines[] = "🚐 {$carLine}";
+            if ($carLine) {
+                $lines[] = "🚐 {$carLine}";
+            }
         }
 
         return $lines;
@@ -351,17 +372,29 @@ class TourSendReminders extends Command
     private function buildCarLine(\App\Models\Driver $driver): ?string
     {
         $car = $driver->cars()->first();
-        if (! $car) return null;
+        if (! $car) {
+            return null;
+        }
 
         $parts = [];
-        if (filled($car->color)) $parts[] = ucfirst((string) $car->color);
-        if (filled($car->brand_name)) $parts[] = $car->brand_name;
+        if (filled($car->color)) {
+            $parts[] = ucfirst((string) $car->color);
+        }
+        if (filled($car->brand_name)) {
+            $parts[] = $car->brand_name;
+        }
 
         $left = trim(implode(' ', $parts));
-        if ($left === '' && blank($car->plate_number)) return null;
+        if ($left === '' && blank($car->plate_number)) {
+            return null;
+        }
 
-        if ($left === '') return (string) $car->plate_number;
-        if (blank($car->plate_number)) return $left;
+        if ($left === '') {
+            return (string) $car->plate_number;
+        }
+        if (blank($car->plate_number)) {
+            return $left;
+        }
 
         return "{$left} · {$car->plate_number}";
     }
@@ -370,9 +403,12 @@ class TourSendReminders extends Command
     {
         try {
             $date = $inquiry->travel_date ? $inquiry->travel_date->format('Y-m-d') : null;
-            if (! $date) return null;
+            if (! $date) {
+                return null;
+            }
             $dt = \Carbon\Carbon::parse("{$date} {$pickupTime}", 'Asia/Tashkent');
             $hours = (int) round(now('Asia/Tashkent')->diffInMinutes($dt, false) / 60);
+
             return $hours > 0 ? $hours : null;
         } catch (\Throwable $e) {
             return null;
@@ -389,21 +425,28 @@ class TourSendReminders extends Command
         $slug = $inquiry->tourProduct?->slug ?? 'default';
         $location = config("tour_experience.weather_locations.{$slug}")
             ?? config('tour_experience.weather_locations.default');
-        if (! $location) return [];
+        if (! $location) {
+            return [];
+        }
 
         try {
             $cacheKey = "wttr:tomorrow:{$location}";
             $data = \Illuminate\Support\Facades\Cache::remember($cacheKey, 3600, function () use ($location) {
                 $response = \Illuminate\Support\Facades\Http::timeout(3)
-                    ->get("https://wttr.in/" . rawurlencode($location), ['format' => 'j1']);
+                    ->get('https://wttr.in/'.rawurlencode($location), ['format' => 'j1']);
+
                 return $response->successful() ? $response->json() : null;
             });
 
-            if (! $data || empty($data['weather'][1])) return [];
+            if (! $data || empty($data['weather'][1])) {
+                return [];
+            }
             $tomorrow = $data['weather'][1];
             $maxC = $tomorrow['maxtempC'] ?? null;
             $minC = $tomorrow['mintempC'] ?? null;
-            if (! $maxC || ! $minC) return [];
+            if (! $maxC || ! $minC) {
+                return [];
+            }
 
             return [
                 "🌤 Expected around {$location}:",
@@ -413,8 +456,9 @@ class TourSendReminders extends Command
         } catch (\Throwable $e) {
             \Illuminate\Support\Facades\Log::info('Weather fetch failed — omitting', [
                 'location' => $location,
-                'error'    => $e->getMessage(),
+                'error' => $e->getMessage(),
             ]);
+
             return [];
         }
     }
@@ -435,7 +479,7 @@ class TourSendReminders extends Command
 
         // Collect unique assigned drivers/guides
         $driverIds = $inquiries->pluck('driver_id')->filter()->unique();
-        $guideIds  = $inquiries->pluck('guide_id')->filter()->unique();
+        $guideIds = $inquiries->pluck('guide_id')->filter()->unique();
 
         if ($driverIds->isEmpty() && $guideIds->isEmpty()) {
             $this->info('No drivers or guides assigned to tomorrow\'s bookings.');
@@ -445,11 +489,11 @@ class TourSendReminders extends Command
 
         // Fetch ALL assigned drivers/guides (including those without TG)
         $allDrivers = DB::table('drivers')->whereIn('id', $driverIds)->get()->keyBy('id');
-        $allGuides  = DB::table('guides')->whereIn('id', $guideIds)->get()->keyBy('id');
+        $allGuides = DB::table('guides')->whereIn('id', $guideIds)->get()->keyBy('id');
 
         // Only those with telegram_chat_id get DMs
         $drivers = $allDrivers->filter(fn ($d) => filled($d->telegram_chat_id));
-        $guides  = $allGuides->filter(fn ($g) => filled($g->telegram_chat_id));
+        $guides = $allGuides->filter(fn ($g) => filled($g->telegram_chat_id));
 
         // Track who was NOT notifiable — report to operator
         $failures = [];
@@ -473,7 +517,7 @@ class TourSendReminders extends Command
                 continue;
             }
             $driver = $drivers[$driverId];
-            $key    = "driver_{$driverId}";
+            $key = "driver_{$driverId}";
 
             if (isset($notified[$key])) {
                 continue;
@@ -493,7 +537,7 @@ class TourSendReminders extends Command
             }
 
             $assigned = $inquiries->where('driver_id', $driverId);
-            $message  = $this->buildDriverMessage($assigned, $dateLabel, $driver);
+            $message = $this->buildDriverMessage($assigned, $dateLabel, $driver);
 
             $this->info("  🚗 Telegram → Driver: {$driver->first_name} {$driver->last_name}");
 
@@ -501,13 +545,13 @@ class TourSendReminders extends Command
                 $ok = $this->sendTelegram($message, $this->driverGuideBotToken, (int) $driver->telegram_chat_id);
 
                 DB::table('tour_reminder_logs')->insert([
-                    'channel'            => 'telegram_driver',
-                    'guest_id'           => $driverId,
-                    'status'             => $ok ? 'sent' : 'failed',
+                    'channel' => 'telegram_driver',
+                    'guest_id' => $driverId,
+                    'status' => $ok ? 'sent' : 'failed',
                     'scheduled_for_date' => $tomorrow,
-                    'reminded_at'        => now(),
-                    'created_at'         => now(),
-                    'updated_at'         => now(),
+                    'reminded_at' => now(),
+                    'created_at' => now(),
+                    'updated_at' => now(),
                 ]);
 
                 if ($ok) {
@@ -527,7 +571,7 @@ class TourSendReminders extends Command
                 continue;
             }
             $guide = $guides[$guideId];
-            $key   = "guide_{$guideId}";
+            $key = "guide_{$guideId}";
 
             if (isset($notified[$key])) {
                 continue;
@@ -546,7 +590,7 @@ class TourSendReminders extends Command
             }
 
             $assigned = $inquiries->where('guide_id', $guideId);
-            $message  = $this->buildGuideMessage($assigned, $dateLabel, $guide);
+            $message = $this->buildGuideMessage($assigned, $dateLabel, $guide);
 
             $this->info("  🧭 Telegram → Guide: {$guide->first_name} {$guide->last_name}");
 
@@ -554,13 +598,13 @@ class TourSendReminders extends Command
                 $ok = $this->sendTelegram($message, $this->driverGuideBotToken, (int) $guide->telegram_chat_id);
 
                 DB::table('tour_reminder_logs')->insert([
-                    'channel'            => 'telegram_guide',
-                    'guest_id'           => $guideId,
-                    'status'             => $ok ? 'sent' : 'failed',
+                    'channel' => 'telegram_guide',
+                    'guest_id' => $guideId,
+                    'status' => $ok ? 'sent' : 'failed',
                     'scheduled_for_date' => $tomorrow,
-                    'reminded_at'        => now(),
-                    'created_at'         => now(),
-                    'updated_at'         => now(),
+                    'reminded_at' => now(),
+                    'created_at' => now(),
+                    'updated_at' => now(),
                 ]);
 
                 if ($ok) {
@@ -577,7 +621,7 @@ class TourSendReminders extends Command
         // Alert operator about any driver/guide who could NOT be notified
         if (! empty($failures) && ! $dryRun) {
             $alertLines = [
-                '⚠️ <b>Driver/Guide notification issues — ' . $dateLabel . '</b>',
+                '⚠️ <b>Driver/Guide notification issues — '.$dateLabel.'</b>',
                 '',
                 'The following people were NOT reached via Telegram.',
                 '<b>Please notify them manually:</b>',
@@ -588,7 +632,7 @@ class TourSendReminders extends Command
             }
 
             $this->sendTelegram(implode("\n", $alertLines), $this->ownerBotToken, $this->ownerChatId);
-            $this->warn('⚠ Sent failure alert to operator for ' . count($failures) . ' unnotified driver/guide(s).');
+            $this->warn('⚠ Sent failure alert to operator for '.count($failures).' unnotified driver/guide(s).');
         }
     }
 
@@ -600,11 +644,11 @@ class TourSendReminders extends Command
         ];
 
         foreach ($inquiries as $inquiry) {
-            $pax     = $inquiry->people_adults + $inquiry->people_children;
-            $tour    = $inquiry->tourProduct?->title ?? $inquiry->tour_name_snapshot;
-            $pickup  = $inquiry->pickup_point ?? 'belgilanmagan';
-            $time    = $inquiry->pickup_time ?? '09:00';
-            $phone   = $inquiry->customer_phone;
+            $pax = $inquiry->people_adults + $inquiry->people_children;
+            $tour = $inquiry->tourProduct?->title ?? $inquiry->tour_name_snapshot;
+            $pickup = $inquiry->pickup_point ?? 'belgilanmagan';
+            $time = $inquiry->pickup_time ?? '09:00';
+            $phone = $inquiry->customer_phone;
 
             $lines[] = "👤 <b>{$inquiry->customer_name}</b> ({$pax} kishi)";
             $lines[] = "🗺 {$tour}";
@@ -630,10 +674,10 @@ class TourSendReminders extends Command
         ];
 
         foreach ($inquiries as $inquiry) {
-            $pax     = $inquiry->people_adults + $inquiry->people_children;
-            $tour    = $inquiry->tourProduct?->title ?? $inquiry->tour_name_snapshot;
-            $pickup  = $inquiry->pickup_point ?? '—';
-            $time    = $inquiry->pickup_time ?? '09:00';
+            $pax = $inquiry->people_adults + $inquiry->people_children;
+            $tour = $inquiry->tourProduct?->title ?? $inquiry->tour_name_snapshot;
+            $pickup = $inquiry->pickup_point ?? '—';
+            $time = $inquiry->pickup_time ?? '09:00';
 
             $lines[] = "👤 <b>{$inquiry->customer_name}</b> ({$pax} pax)";
             $lines[] = "🗺 {$tour}";
@@ -665,9 +709,9 @@ class TourSendReminders extends Command
             $response = Http::timeout(5)->post(
                 "https://api.telegram.org/bot{$token}/sendMessage",
                 [
-                    'chat_id'                  => $chatId,
-                    'text'                     => $message,
-                    'parse_mode'               => 'HTML',
+                    'chat_id' => $chatId,
+                    'text' => $message,
+                    'parse_mode' => 'HTML',
                     'disable_web_page_preview' => true,
                 ]
             );

@@ -88,6 +88,49 @@ class BookingInquiry extends Model
         self::TOUR_TYPE_GROUP,
     ];
 
+    // ── Guest Reminder State Machine ──────────────────────────────────────
+    // null → sending → sent | unknown | failed
+    // unknown | failed → suppressed (after max attempts)
+
+    public const REMINDER_STATUS_PENDING = 'pending';
+
+    public const REMINDER_STATUS_SENDING = 'sending';
+
+    public const REMINDER_STATUS_SENT = 'sent';
+
+    public const REMINDER_STATUS_FAILED = 'failed';
+
+    public const REMINDER_STATUS_UNKNOWN = 'unknown';
+
+    public const REMINDER_STATUS_SUPPRESSED = 'suppressed';
+
+    public const REMINDER_STATUSES = [
+        self::REMINDER_STATUS_PENDING,
+        self::REMINDER_STATUS_SENDING,
+        self::REMINDER_STATUS_SENT,
+        self::REMINDER_STATUS_FAILED,
+        self::REMINDER_STATUS_UNKNOWN,
+        self::REMINDER_STATUS_SUPPRESSED,
+    ];
+
+    /** Max automatic send attempts before suppressing (requires manual review). */
+    public const REMINDER_MAX_ATTEMPTS = 2;
+
+    /** Minutes to wait before retrying after an unknown delivery outcome. */
+    public const REMINDER_THROTTLE_MINUTES = 240; // 4 hours
+
+    /** Minutes after which a stuck "sending" status is considered stale. */
+    public const REMINDER_SENDING_STALE_MINUTES = 30;
+
+    /**
+     * Deterministic idempotency key for guest reminder sends.
+     * Stable across retries — survives PHP crashes mid-HTTP.
+     */
+    public function reminderIdempotencyKey(): string
+    {
+        return 'guest-reminder:'.$this->id.':'.($this->external_reference ?? $this->reference);
+    }
+
     // Operational lifecycle — parallel to commercial `status`.
     // A confirmed sale moves through these prep states independently.
     public const PREP_NOT_PREPARED = 'not_prepared';
@@ -214,6 +257,11 @@ class BookingInquiry extends Model
         'status',
         'confirmation_source',
         'guest_reminder_sent_at',
+        'guest_reminder_last_attempted_at',
+        'guest_reminder_attempt_count',
+        'guest_reminder_status',
+        'guest_reminder_idempotency_key',
+        'guest_reminder_last_error',
         'staff_reminder_sent_at',
         'driver_reminder_sent_at',
         'internal_notes',
@@ -244,6 +292,8 @@ class BookingInquiry extends Model
         'hotel_request_sent_at' => 'datetime',
         'payment_reminder_sent_at' => 'datetime',
         'guest_reminder_sent_at' => 'datetime',
+        'guest_reminder_last_attempted_at' => 'datetime',
+        'guest_reminder_attempt_count' => 'integer',
         'staff_reminder_sent_at' => 'datetime',
         'driver_reminder_sent_at' => 'datetime',
         'driver_dispatched_at' => 'datetime',

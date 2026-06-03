@@ -31,7 +31,8 @@ use Illuminate\Support\Facades\Log;
  */
 class TourSendLateGuestReminders extends Command
 {
-    protected $signature   = 'tour:send-late-guest-reminders {--dry-run : Print without sending}';
+    protected $signature = 'tour:send-late-guest-reminders {--dry-run : Print without sending}';
+
     protected $description = 'Hourly catch-up — send guest WA reminder for confirmed bookings within the next 24h that the daily batch missed';
 
     public function __construct(
@@ -43,17 +44,25 @@ class TourSendLateGuestReminders extends Command
     public function handle(): int
     {
         $dryRun = (bool) $this->option('dry-run');
-        $now    = Carbon::now('Asia/Tashkent');
-        $today  = $now->copy()->toDateString();
+        $now = Carbon::now('Asia/Tashkent');
+        $today = $now->copy()->toDateString();
         $tomorrow = $now->copy()->addDay()->toDateString();
 
         // Wide travel_date window (today + tomorrow). The dispatcher does
         // the precise pickup-time-in-24h check per inquiry, so we only
         // need a roughly-right SQL filter here.
+        // Broad candidate query — the dispatcher guard is the final
+        // authority for all throttle / suppression / sending-stale
+        // checks.  We intentionally include rows where the status is
+        // "sending" (stale), "failed" (retry after throttle), or
+        // "unknown" (retry after throttle) so the dispatcher can
+        // re-evaluate them under its row lock.
         $candidates = BookingInquiry::query()
             ->where('status', BookingInquiry::STATUS_CONFIRMED)
             ->whereIn('travel_date', [$today, $tomorrow])
             ->whereNull('guest_reminder_sent_at')
+            ->where('guest_reminder_status', '!=', BookingInquiry::REMINDER_STATUS_SENT)
+            ->where('guest_reminder_status', '!=', BookingInquiry::REMINDER_STATUS_SUPPRESSED)
             ->whereNotNull('customer_phone')
             ->orderBy('travel_date')
             ->orderBy('pickup_time')
@@ -61,6 +70,7 @@ class TourSendLateGuestReminders extends Command
 
         if ($candidates->isEmpty()) {
             $this->info('[tour:send-late-guest-reminders] No late candidates.');
+
             return self::SUCCESS;
         }
 
@@ -73,6 +83,7 @@ class TourSendLateGuestReminders extends Command
                 $departure = $this->dispatcher->departureAt($inquiry);
                 $hours = $departure ? (int) round($now->diffInMinutes($departure, false) / 60) : null;
                 $this->info("  [DRY] {$inquiry->reference} · {$inquiry->customer_name} · pickup in {$hours}h");
+
                 continue;
             }
 

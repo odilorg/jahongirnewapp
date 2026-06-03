@@ -39,8 +39,8 @@ class ConfirmBookingAction
     /**
      * @param  string|null  $reason  Free-text operator note (e.g. "paid via Booking.com").
      *                               Required by the Filament wire-up; defended here too.
-     * @param  string       $source  One of: manual | ota | offline | system.
-     *                               Defaults to 'manual' for the operator-driven button.
+     * @param  string  $source  One of: manual | ota | offline | system.
+     *                          Defaults to 'manual' for the operator-driven button.
      */
     public function execute(BookingInquiry $inquiry, ?string $reason, string $source = 'manual'): BookingInquiry
     {
@@ -49,9 +49,9 @@ class ConfirmBookingAction
         $this->guardSource($source);
         $this->guardReason($reason);
 
-        $operator   = Auth::user()?->name ?? 'system';
+        $operator = Auth::user()?->name ?? 'system';
         $reasonNote = trim((string) $reason);
-        $stamp      = now()->format('Y-m-d H:i');
+        $stamp = now()->format('Y-m-d H:i');
 
         $note = sprintf(
             '[%s] Confirmed without payment by %s — source=%s, reason=%s',
@@ -61,17 +61,17 @@ class ConfirmBookingAction
             $reasonNote === '' ? '—' : $reasonNote,
         );
 
-        $existing  = (string) $inquiry->internal_notes;
-        $newNotes  = $existing === '' ? $note : $existing . "\n" . $note;
+        $existing = (string) $inquiry->internal_notes;
+        $newNotes = $existing === '' ? $note : $existing."\n".$note;
 
         // forceFill bypasses $fillable so a future fillable drift cannot
         // silently strip status/confirmed_at writes. Lesson from incident
         // 2026-04-26 (payment_reminder_sent_at).
         $inquiry->forceFill([
-            'status'              => BookingInquiry::STATUS_CONFIRMED,
-            'confirmed_at'        => now(),
+            'status' => BookingInquiry::STATUS_CONFIRMED,
+            'confirmed_at' => now(),
             'confirmation_source' => $source,
-            'internal_notes'      => $newNotes,
+            'internal_notes' => $newNotes,
         ])->save();
 
         $inquiry->refresh();
@@ -94,7 +94,15 @@ class ConfirmBookingAction
      */
     private function maybeDispatchFastPathReminder(BookingInquiry $inquiry): void
     {
+        // Fast-reject: already sent (the dispatcher is the real guard,
+        // but this avoids queueing a job that will immediately no-op).
         if ($inquiry->guest_reminder_sent_at !== null) {
+            return;
+        }
+        if (in_array($inquiry->guest_reminder_status, [
+            BookingInquiry::REMINDER_STATUS_SENT,
+            BookingInquiry::REMINDER_STATUS_SUPPRESSED,
+        ], true)) {
             return;
         }
 
@@ -122,7 +130,7 @@ class ConfirmBookingAction
             // The hourly cron will pick this up within ~1 hour.
             Log::warning('ConfirmBookingAction: fast-path dispatch failed; cron will catch up', [
                 'inquiry_id' => $inquiry->id,
-                'error'      => $e->getMessage(),
+                'error' => $e->getMessage(),
             ]);
         }
     }

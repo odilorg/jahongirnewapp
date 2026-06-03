@@ -46,43 +46,12 @@ class SendTourReminderJob implements ShouldQueue
 
         if (! $inquiry) {
             Log::info('SendTourReminderJob: inquiry vanished', ['inquiry_id' => $this->inquiryId]);
+
             return;
         }
 
-        if ($inquiry->status !== BookingInquiry::STATUS_CONFIRMED) {
-            Log::info('SendTourReminderJob: inquiry not confirmed (status changed)', [
-                'inquiry_id' => $inquiry->id,
-                'status'     => $inquiry->status,
-            ]);
-            return;
-        }
-
-        if ($inquiry->guest_reminder_sent_at !== null) {
-            Log::info('SendTourReminderJob: already sent, skipping', [
-                'inquiry_id' => $inquiry->id,
-                'sent_at'    => (string) $inquiry->guest_reminder_sent_at,
-            ]);
-            return;
-        }
-
-        // Re-validate the 24h window — the job may have queued for a while.
-        $departureAt = $dispatcher->departureAt($inquiry);
-        if ($departureAt === null) {
-            Log::warning('SendTourReminderJob: cannot compute departure_at, skipping', [
-                'inquiry_id' => $inquiry->id,
-            ]);
-            return;
-        }
-
-        $hoursUntil = now('Asia/Tashkent')->diffInHours($departureAt, false);
-        if ($hoursUntil > 24 || $hoursUntil < 0) {
-            Log::info('SendTourReminderJob: outside 24h window, skipping', [
-                'inquiry_id'  => $inquiry->id,
-                'hours_until' => $hoursUntil,
-            ]);
-            return;
-        }
-
+        // All guards (sent_at, status, window, throttle, suppression)
+        // live inside the dispatcher — the single source of truth.
         $dispatcher->sendGuestReminder($inquiry, source: 'on_confirm_fast_path');
     }
 }
