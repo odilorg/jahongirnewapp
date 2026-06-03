@@ -57,12 +57,19 @@ class TourSendLateGuestReminders extends Command
         // "sending" (stale), "failed" (retry after throttle), or
         // "unknown" (retry after throttle) so the dispatcher can
         // re-evaluate them under its row lock.
+        // SQL NOTE: `column != 'value'` excludes NULL rows (tri-value logic).
+        // We MUST include NULL statuses (new inquiries) via orWhereNull.
         $candidates = BookingInquiry::query()
             ->where('status', BookingInquiry::STATUS_CONFIRMED)
             ->whereIn('travel_date', [$today, $tomorrow])
             ->whereNull('guest_reminder_sent_at')
-            ->where('guest_reminder_status', '!=', BookingInquiry::REMINDER_STATUS_SENT)
-            ->where('guest_reminder_status', '!=', BookingInquiry::REMINDER_STATUS_SUPPRESSED)
+            ->where(function ($q) {
+                $q->whereNull('guest_reminder_status')
+                  ->orWhereNotIn('guest_reminder_status', [
+                      BookingInquiry::REMINDER_STATUS_SENT,
+                      BookingInquiry::REMINDER_STATUS_SUPPRESSED,
+                  ]);
+            })
             ->whereNotNull('customer_phone')
             ->orderBy('travel_date')
             ->orderBy('pickup_time')

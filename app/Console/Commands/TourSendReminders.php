@@ -57,12 +57,19 @@ class TourSendReminders extends Command
 
         $this->info("Fetching confirmed inquiries for tomorrow: {$tomorrow}");
 
+        // SQL NOTE: `column != 'value'` excludes NULL rows (tri-value logic).
+        // We MUST include NULL statuses (new inquiries) via orWhereNull.
         $inquiries = BookingInquiry::query()
             ->where('status', BookingInquiry::STATUS_CONFIRMED)
             ->where('travel_date', $tomorrow)
             ->whereNull('guest_reminder_sent_at')
-            ->where('guest_reminder_status', '!=', BookingInquiry::REMINDER_STATUS_SENT)
-            ->where('guest_reminder_status', '!=', BookingInquiry::REMINDER_STATUS_SUPPRESSED)
+            ->where(function ($q) {
+                $q->whereNull('guest_reminder_status')
+                  ->orWhereNotIn('guest_reminder_status', [
+                      BookingInquiry::REMINDER_STATUS_SENT,
+                      BookingInquiry::REMINDER_STATUS_SUPPRESSED,
+                  ]);
+            })
             ->with(['driver', 'guide', 'tourProduct'])
             ->orderBy('tour_slug')
             ->orderBy('customer_name')
