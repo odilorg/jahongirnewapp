@@ -3,23 +3,31 @@
 namespace App\Services;
 
 use App\Support\BookingBot\LogSanitizer;
-use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 
 class Beds24BookingService
 {
     protected string $apiUrl = 'https://api.beds24.com/v2';
+
     protected ?string $token = null;
+
     protected string $refreshToken;
 
     private const CACHE_KEY = 'beds24_access_token';
+
     private const CACHE_KEY_FALLBACK = 'beds24_access_token_fallback';
+
     private const CACHE_KEY_LAST_REFRESH = 'beds24_last_refresh_time';
+
     private const CACHE_KEY_LAST_ERROR = 'beds24_last_refresh_error';
+
     private const CACHE_KEY_REFRESH_TOKEN = 'beds24_rotated_refresh_token';
+
     private const MAX_RETRY_ATTEMPTS = 3;
+
     private const RETRY_DELAYS_MS = [200, 1000, 3000]; // Exponential backoff
 
     public function __construct()
@@ -27,8 +35,23 @@ class Beds24BookingService
         // Prefer cached rotated refresh token (Beds24 rotates on each use).
         // Cast to string: config() returns null when the env var is absent
         // (key exists but is null), which cannot be assigned to a typed string.
-        $this->refreshToken = (string)(Cache::get(self::CACHE_KEY_REFRESH_TOKEN)
+        $this->refreshToken = (string) (Cache::get(self::CACHE_KEY_REFRESH_TOKEN)
             ?: config('services.beds24.api_v2_refresh_token', ''));
+    }
+
+    /**
+     * Assert that the Beds24 integration is enabled. Call this from bot
+     * handlers and admin actions BEFORE attempting any Beds24 operation.
+     *
+     * @throws Beds24IntegrationDisabledException if the kill switch is active
+     */
+    public static function assertEnabled(): void
+    {
+        if (! config('services.beds24.enabled', true)) {
+            throw new \App\Exceptions\Beds24IntegrationDisabledException(
+                'Beds24 integration is temporarily disabled while PMS/channel-manager issue is under investigation.'
+            );
+        }
     }
 
     /**
@@ -39,6 +62,7 @@ class Beds24BookingService
         if ($this->token === null) {
             $this->token = $this->getValidToken();
         }
+
         return $this->token;
     }
 
@@ -61,11 +85,12 @@ class Beds24BookingService
                 if ($token) {
                     // Clear any previous error state
                     Cache::forget(self::CACHE_KEY_LAST_ERROR);
+
                     return $token;
                 }
             } catch (\Throwable $e) {
                 $lastException = $e;
-                Log::warning("Beds24 token refresh attempt {$attempt}/" . self::MAX_RETRY_ATTEMPTS . " failed", [
+                Log::warning("Beds24 token refresh attempt {$attempt}/".self::MAX_RETRY_ATTEMPTS.' failed', [
                     'error' => $e->getMessage(),
                 ]);
                 if ($attempt < self::MAX_RETRY_ATTEMPTS) {
@@ -78,6 +103,7 @@ class Beds24BookingService
         $fallback = Cache::get(self::CACHE_KEY_FALLBACK);
         if ($fallback) {
             Log::warning('Beds24: Using fallback token after all refresh attempts failed');
+
             return $fallback;
         }
 
@@ -96,7 +122,7 @@ class Beds24BookingService
             'attempts' => self::MAX_RETRY_ATTEMPTS,
         ]);
 
-        throw new \RuntimeException('Beds24 token refresh failed after ' . self::MAX_RETRY_ATTEMPTS . ' attempts: ' . $errorMsg);
+        throw new \RuntimeException('Beds24 token refresh failed after '.self::MAX_RETRY_ATTEMPTS.' attempts: '.$errorMsg);
     }
 
     /**
@@ -115,8 +141,8 @@ class Beds24BookingService
 
         $result = $response->json();
 
-        if (!$response->successful()) {
-            throw new \RuntimeException('HTTP ' . $response->status() . ': ' . json_encode($result));
+        if (! $response->successful()) {
+            throw new \RuntimeException('HTTP '.$response->status().': '.json_encode($result));
         }
 
         if (isset($result['token'])) {
@@ -151,7 +177,7 @@ class Beds24BookingService
             return $token;
         }
 
-        throw new \RuntimeException('No token in response: ' . json_encode($result));
+        throw new \RuntimeException('No token in response: '.json_encode($result));
     }
 
     /**
@@ -164,6 +190,7 @@ class Beds24BookingService
 
         try {
             $token = $this->getValidToken();
+
             return [
                 'success' => true,
                 'message' => 'Token refreshed successfully',
@@ -204,9 +231,9 @@ class Beds24BookingService
             'last_refresh' => $lastRefresh,
             'last_error' => $lastError,
             'has_rotated_refresh_token' => Cache::has(self::CACHE_KEY_REFRESH_TOKEN),
-            'refresh_token_configured' => !empty($this->refreshToken),
-            'refresh_token_preview' => !empty($this->refreshToken)
-                ? substr($this->refreshToken, 0, 6) . '...' . substr($this->refreshToken, -4)
+            'refresh_token_configured' => ! empty($this->refreshToken),
+            'refresh_token_preview' => ! empty($this->refreshToken)
+                ? substr($this->refreshToken, 0, 6).'...'.substr($this->refreshToken, -4)
                 : 'NOT SET',
         ];
     }
@@ -224,16 +251,16 @@ class Beds24BookingService
 
         try {
             $chatId = config('services.owner_alert_bot.owner_chat_id');
-            if (!$chatId) {
+            if (! $chatId) {
                 return;
             }
 
             $message = "🚨 *Beds24 Token Error*\n\n"
-                . "Token refresh failed after " . self::MAX_RETRY_ATTEMPTS . " attempts.\n\n"
-                . "*Error:* `" . substr($error, 0, 200) . "`\n\n"
-                . "⚠️ *Impact:* Booking creation, availability checks, and guest info enrichment are DOWN.\n\n"
-                . "🔧 *Fix:* Go to Beds24 dashboard → API → copy valid refresh token → update `.env` `BEDS24_API_V2_REFRESH_TOKEN`\n\n"
-                . "Then run: `php artisan beds24:refresh-token`";
+                .'Token refresh failed after '.self::MAX_RETRY_ATTEMPTS." attempts.\n\n"
+                .'*Error:* `'.substr($error, 0, 200)."`\n\n"
+                ."⚠️ *Impact:* Booking creation, availability checks, and guest info enrichment are DOWN.\n\n"
+                ."🔧 *Fix:* Go to Beds24 dashboard → API → copy valid refresh token → update `.env` `BEDS24_API_V2_REFRESH_TOKEN`\n\n"
+                .'Then run: `php artisan beds24:refresh-token`';
 
             $resolver = app(\App\Contracts\Telegram\BotResolverInterface::class);
             $transport = app(\App\Contracts\Telegram\TelegramTransportInterface::class);
@@ -251,6 +278,17 @@ class Beds24BookingService
      */
     public function apiCall(string $method, string $endpoint, array $data = [], array $query = []): \Illuminate\Http\Client\Response
     {
+        // ── Global kill switch — blocks ALL outbound Beds24 HTTP ──────
+        if (! config('services.beds24.enabled', true)) {
+            Log::warning('Beds24 integration disabled — skipping API call', [
+                'method' => $method,
+                'endpoint' => $endpoint,
+            ]);
+            throw new \App\Exceptions\Beds24IntegrationDisabledException(
+                "Beds24 integration is disabled. Skipping {$method} {$endpoint}."
+            );
+        }
+
         $request = Http::withHeaders([
             'token' => $this->getToken(),
             'Content-Type' => 'application/json',
@@ -258,8 +296,8 @@ class Beds24BookingService
         ])->timeout(30);
 
         $response = match (strtoupper($method)) {
-            'GET' => $request->get($this->apiUrl . $endpoint, $query ?: $data),
-            'POST' => $request->post($this->apiUrl . $endpoint, $data),
+            'GET' => $request->get($this->apiUrl.$endpoint, $query ?: $data),
+            'POST' => $request->post($this->apiUrl.$endpoint, $data),
             default => throw new \InvalidArgumentException("Unsupported method: $method"),
         };
 
@@ -276,8 +314,8 @@ class Beds24BookingService
             ])->timeout(30);
 
             $response = match (strtoupper($method)) {
-                'GET' => $request->get($this->apiUrl . $endpoint, $query ?: $data),
-                'POST' => $request->post($this->apiUrl . $endpoint, $data),
+                'GET' => $request->get($this->apiUrl.$endpoint, $query ?: $data),
+                'POST' => $request->post($this->apiUrl.$endpoint, $data),
             };
         }
 
@@ -333,8 +371,8 @@ class Beds24BookingService
 
             Log::info('Beds24 Create Booking Response', LogSanitizer::context(['response' => $result]));
 
-            if (!$response->successful()) {
-                throw new \Exception('Beds24 API HTTP error: ' . $response->status());
+            if (! $response->successful()) {
+                throw new \Exception('Beds24 API HTTP error: '.$response->status());
             }
 
             // Response is an array of booking results
@@ -356,11 +394,11 @@ class Beds24BookingService
 
                 // Check for errors
                 if (isset($firstResult['errors'])) {
-                    throw new \Exception('Beds24 API errors: ' . json_encode($firstResult['errors']));
+                    throw new \Exception('Beds24 API errors: '.json_encode($firstResult['errors']));
                 }
             }
 
-            throw new \Exception('Unexpected API response: ' . json_encode($result));
+            throw new \Exception('Unexpected API response: '.json_encode($result));
         } catch (\Exception $e) {
             Log::error('Beds24 Booking Error', ['error' => $e->getMessage()]);
             throw $e;
@@ -398,9 +436,9 @@ class Beds24BookingService
         }
 
         Log::info('Beds24 Create Group Booking Request', LogSanitizer::context([
-            'count'     => count($payloads),
+            'count' => count($payloads),
             'makeGroup' => $makeGroup,
-            'payload'   => $payloads,
+            'payload' => $payloads,
         ]));
 
         $response = $this->apiCall('POST', '/bookings', $payloads);
@@ -409,12 +447,12 @@ class Beds24BookingService
 
         Log::info('Beds24 Create Group Booking Response', LogSanitizer::context(['response' => $result]));
 
-        if (!$response->successful()) {
-            throw new \Exception('Beds24 API HTTP error: ' . $response->status());
+        if (! $response->successful()) {
+            throw new \Exception('Beds24 API HTTP error: '.$response->status());
         }
 
-        if (!is_array($result)) {
-            throw new \Exception('Unexpected Beds24 response: ' . json_encode($result));
+        if (! is_array($result)) {
+            throw new \Exception('Unexpected Beds24 response: '.json_encode($result));
         }
 
         return $result;
@@ -438,7 +476,7 @@ class Beds24BookingService
         $payload = [[
             'id' => (int) $bookingId,
             'status' => 'cancelled',
-            'comment' => $reason ? 'Cancelled: ' . $reason : 'Cancelled via Telegram Bot',
+            'comment' => $reason ? 'Cancelled: '.$reason : 'Cancelled via Telegram Bot',
         ]];
 
         Log::info('Beds24 Cancel Booking Request', LogSanitizer::context(['payload' => $payload]));
@@ -446,7 +484,7 @@ class Beds24BookingService
         $response = $this->apiCall('POST', '/bookings', $payload);
 
         $result = $response->json();
-        
+
         Log::info('Beds24 Cancel Booking Response', LogSanitizer::context(['response' => $result]));
 
         return $result;
@@ -474,9 +512,10 @@ class Beds24BookingService
      * Beds24 API v2: POST /bookings with infoItems merges by code — existing
      * values for the same code are overwritten.
      *
-     * @param  int   $bookingId Beds24 booking ID
-     * @param  array $items     Associative array: code → value string
-     *                          e.g. ['UZS_AMOUNT' => '490 000', 'EUR_RATE' => '13 400 (CBU 13 600 - 200)']
+     * @param  int  $bookingId  Beds24 booking ID
+     * @param  array  $items  Associative array: code → value string
+     *                        e.g. ['UZS_AMOUNT' => '490 000', 'EUR_RATE' => '13 400 (CBU 13 600 - 200)']
+     *
      * @throws \RuntimeException on API failure
      */
     public function writePaymentOptionsToInfoItems(int $bookingId, array $items): void
@@ -484,19 +523,19 @@ class Beds24BookingService
         $infoItems = [];
         foreach ($items as $code => $value) {
             $infoItems[] = [
-                'code'  => $code,
-                'text'  => (string) $value,
+                'code' => $code,
+                'text' => (string) $value,
             ];
         }
 
         $payload = [[
-            'id'        => $bookingId,
+            'id' => $bookingId,
             'infoItems' => $infoItems,
         ]];
 
         Log::info("Beds24: writing {$bookingId} infoItems", [
             'booking_id' => $bookingId,
-            'codes'      => array_keys($items),
+            'codes' => array_keys($items),
         ]);
 
         $response = $this->apiCall('POST', '/bookings', $payload);
@@ -507,7 +546,7 @@ class Beds24BookingService
             );
         }
 
-        if (!$response->successful()) {
+        if (! $response->successful()) {
             throw new \RuntimeException(
                 "Beds24 writePaymentOptionsToInfoItems failed for booking {$bookingId}: HTTP {$response->status()}"
             );
@@ -519,7 +558,7 @@ class Beds24BookingService
         $first = $result[0] ?? [];
         if (isset($first['errors']) && count($first['errors']) > 0) {
             throw new \RuntimeException(
-                "Beds24 infoItems write returned errors for booking {$bookingId}: " . json_encode($first['errors'])
+                "Beds24 infoItems write returned errors for booking {$bookingId}: ".json_encode($first['errors'])
             );
         }
 
@@ -529,14 +568,13 @@ class Beds24BookingService
     /**
      * Get bookings list with filters
      *
-     * @param array $filters Available filters:
-     *   - filter: 'arrivals', 'departures', 'current', 'new'
-     *   - propertyId: array or string
-     *   - arrival: YYYY-MM-DD
-     *   - arrivalFrom/To, departureFrom/To
-     *   - status: array of statuses
-     *   - searchString: search in guest name, email
-     * @return array
+     * @param  array  $filters  Available filters:
+     *                          - filter: 'arrivals', 'departures', 'current', 'new'
+     *                          - propertyId: array or string
+     *                          - arrival: YYYY-MM-DD
+     *                          - arrivalFrom/To, departureFrom/To
+     *                          - status: array of statuses
+     *                          - searchString: search in guest name, email
      */
     public function getBookings(array $filters = []): array
     {
@@ -562,14 +600,14 @@ class Beds24BookingService
                 return [
                     'success' => false,
                     'error' => 'No properties specified',
-                    'data' => []
+                    'data' => [],
                 ];
             }
 
             // Query each property separately and merge results
             $allBookings = [];
             foreach ($propertyIds as $propertyId) {
-                $propertyFilters = array_merge($filters, ['propertyId' => (int)$propertyId]);
+                $propertyFilters = array_merge($filters, ['propertyId' => (int) $propertyId]);
 
                 Log::info('Beds24 Get Bookings Request', LogSanitizer::context([
                     'propertyId' => $propertyId,
@@ -596,35 +634,35 @@ class Beds24BookingService
             }
 
             // Return merged results
-            if (!empty($allBookings)) {
+            if (! empty($allBookings)) {
                 return [
                     'success' => true,
                     'data' => $allBookings,
-                    'count' => count($allBookings)
+                    'count' => count($allBookings),
                 ];
             }
 
             return [
                 'success' => false,
                 'error' => 'No bookings found',
-                'data' => []
+                'data' => [],
             ];
 
         } catch (\Exception $e) {
             Log::error('Beds24 Get Bookings Error', [
                 'error' => $e->getMessage(),
-                'filters' => $filters
+                'filters' => $filters,
             ]);
 
             return [
                 'success' => false,
                 'error' => $e->getMessage(),
-                'data' => []
+                'data' => [],
             ];
         }
     }
 
-        /**
+    /**
      * Check availability using calendar endpoint
      * Implements the exact algorithm specified:
      * 1. Get calendar data for each property
@@ -645,7 +683,7 @@ class Beds24BookingService
             if ($checkIn > $checkOut) {
                 Log::warning('checkAvailability: from > to, swapping dates', [
                     'original_checkIn' => $checkIn,
-                    'original_checkOut' => $checkOut
+                    'original_checkOut' => $checkOut,
                 ]);
                 [$checkIn, $checkOut] = [$checkOut, $checkIn];
             }
@@ -675,11 +713,12 @@ class Beds24BookingService
 
                 Log::info('Beds24 Inventory Calendar Response', [
                     'property_id' => $propertyId,
-                    'response' => $result
+                    'response' => $result,
                 ]);
 
-                if (!$response->successful() || (isset($result['success']) && !$result['success'])) {
-                    Log::warning('Beds24 API error for property ' . $propertyId, ['error' => $result]);
+                if (! $response->successful() || (isset($result['success']) && ! $result['success'])) {
+                    Log::warning('Beds24 API error for property '.$propertyId, ['error' => $result]);
+
                     continue; // Skip this property but continue with others
                 }
 
@@ -701,7 +740,7 @@ class Beds24BookingService
 
             // Process each room
             $availableRooms = [];
-            
+
             foreach ($allRoomsData as $room) {
                 $roomId = (string) $room['roomId'];
                 $roomName = $room['name'];
@@ -719,7 +758,7 @@ class Beds24BookingService
                         $start = new \DateTimeImmutable($from);
                         $end = new \DateTimeImmutable($to);
                         $current = $start;
-                        
+
                         while ($current <= $end) {
                             $dateKey = $current->format('Y-m-d');
                             $byDate[$dateKey] = $numAvail; // Later ranges override earlier ones
@@ -752,7 +791,7 @@ class Beds24BookingService
             }
 
             // Step 5: Sort by room name (stable sort)
-            usort($availableRooms, function($a, $b) {
+            usort($availableRooms, function ($a, $b) {
                 return strcmp($a['roomName'], $b['roomName']);
             });
 
@@ -768,17 +807,16 @@ class Beds24BookingService
             Log::error('Beds24 Availability Check Error', [
                 'error' => $e->getMessage(),
                 'check_in' => $checkIn,
-                'check_out' => $checkOut
+                'check_out' => $checkOut,
             ]);
 
             return [
                 'success' => false,
                 'availableRooms' => [],
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ];
         }
     }
-
 
     /**
      * Create multiple bookings (e.g., for group reservations)
@@ -787,7 +825,7 @@ class Beds24BookingService
     public function createMultipleBookings(array $bookingsData, bool $makeGroup = false): array
     {
         $payload = [];
-        
+
         foreach ($bookingsData as $data) {
             $booking = [
                 'propertyId' => (int) $data['property_id'],
@@ -803,12 +841,12 @@ class Beds24BookingService
                 'status' => 'confirmed',
                 'notes' => $data['notes'] ?? 'Created via Telegram Bot',
             ];
-            
+
             // Add group action if requested
             if ($makeGroup) {
                 $booking['actions'] = ['makeGroup' => true];
             }
-            
+
             $payload[] = $booking;
         }
 
@@ -825,8 +863,8 @@ class Beds24BookingService
 
             Log::info('Beds24 Create Multiple Bookings Response', LogSanitizer::context(['response' => $result]));
 
-            if (!$response->successful() || (isset($result['success']) && !$result['success'])) {
-                throw new \Exception('Beds24 API error: ' . json_encode($result));
+            if (! $response->successful() || (isset($result['success']) && ! $result['success'])) {
+                throw new \Exception('Beds24 API error: '.json_encode($result));
             }
 
             return $result;
@@ -835,12 +873,14 @@ class Beds24BookingService
             throw $e;
         }
     }
+
     /**
      * Extract first name from full name
      */
     protected function extractFirstName(string $fullName): string
     {
         $parts = explode(' ', trim($fullName), 2);
+
         return $parts[0] ?? $fullName;
     }
 
@@ -850,6 +890,7 @@ class Beds24BookingService
     protected function extractLastName(string $fullName): string
     {
         $parts = explode(' ', trim($fullName), 2);
+
         return $parts[1] ?? $parts[0];
     }
 
@@ -865,8 +906,9 @@ class Beds24BookingService
             $result = $response->json();
             $bookingData = $result['data'][0] ?? $result[0] ?? null;
 
-            if (!$bookingData) {
+            if (! $bookingData) {
                 Log::info('Beds24 fetchGuestInfo: No data', ['booking_id' => $bookingId]);
+
                 return ['guest_name' => '', 'guest_email' => null, 'guest_phone' => null];
             }
 
@@ -890,12 +932,12 @@ class Beds24BookingService
             }
 
             // Fallback: check top-level fields
-            if (!$firstName && !$lastName) {
+            if (! $firstName && ! $lastName) {
                 $firstName = $bookingData['guestFirstName'] ?? $bookingData['firstName'] ?? '';
                 $lastName = $bookingData['guestLastName'] ?? $bookingData['lastName'] ?? '';
             }
 
-            $guestName = trim($firstName . ' ' . $lastName);
+            $guestName = trim($firstName.' '.$lastName);
 
             Log::info('Beds24 fetchGuestInfo: Result', LogSanitizer::context([
                 'booking_id' => $bookingId,
@@ -913,6 +955,7 @@ class Beds24BookingService
                 'booking_id' => $bookingId,
                 'error' => $e->getMessage(),
             ]);
+
             return ['guest_name' => '', 'guest_email' => null, 'guest_phone' => null];
         }
     }
@@ -933,8 +976,9 @@ class Beds24BookingService
             $result = $response->json();
             $property = $result['data'][0] ?? null;
 
-            if (!$property) {
+            if (! $property) {
                 Log::warning('Beds24 getRoomStatuses: no property data', ['propertyId' => $propertyId]);
+
                 return [];
             }
 
@@ -942,23 +986,24 @@ class Beds24BookingService
             foreach ($property['roomTypes'] ?? [] as $rt) {
                 foreach ($rt['units'] ?? [] as $unit) {
                     $rooms[] = [
-                        'room_number'  => $unit['name'] ?? '',
-                        'status'       => $unit['statusText'] ?? 'unknown',
-                        'color'        => $unit['statusColor'] ?? '',
-                        'note'         => $unit['note'] ?? $unit['notes'] ?? '',
-                        'room_type'    => $rt['name'] ?? '',
+                        'room_number' => $unit['name'] ?? '',
+                        'status' => $unit['statusText'] ?? 'unknown',
+                        'color' => $unit['statusColor'] ?? '',
+                        'note' => $unit['note'] ?? $unit['notes'] ?? '',
+                        'room_type' => $rt['name'] ?? '',
                         'room_type_id' => $rt['id'],
-                        'unit_id'      => $unit['id'],
+                        'unit_id' => $unit['id'],
                     ];
                 }
             }
 
             // Sort by room number (numeric)
-            usort($rooms, fn($a, $b) => (int) $a['room_number'] <=> (int) $b['room_number']);
+            usort($rooms, fn ($a, $b) => (int) $a['room_number'] <=> (int) $b['room_number']);
 
             return $rooms;
         } catch (\Throwable $e) {
             Log::error('Beds24 getRoomStatuses error', ['error' => $e->getMessage()]);
+
             return [];
         }
     }
@@ -980,11 +1025,11 @@ class Beds24BookingService
                                 [
                                     'id' => $unitId,
                                     'statusText' => $statusText,
-                                ]
-                            ]
-                        ]
-                    ]
-                ]
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
             ]);
 
             $result = $response->json();
@@ -1001,6 +1046,7 @@ class Beds24BookingService
             return $success;
         } catch (\Throwable $e) {
             Log::error('Beds24 updateRoomStatus error', ['error' => $e->getMessage()]);
+
             return false;
         }
     }
@@ -1034,7 +1080,7 @@ class Beds24BookingService
                 [
                     'id' => $propertyId,
                     'roomTypes' => $roomTypes,
-                ]
+                ],
             ]);
 
             $result = $response->json();
@@ -1050,6 +1096,7 @@ class Beds24BookingService
             return $success;
         } catch (\Throwable $e) {
             Log::error('Beds24 updateRoomStatusBatch error', ['error' => $e->getMessage()]);
+
             return false;
         }
     }
@@ -1067,25 +1114,25 @@ class Beds24BookingService
 
         if (! File::exists($envPath) || ! File::isWritable($envPath)) {
             Log::warning('Beds24: .env not writable — rotated refresh token NOT persisted to disk');
+
             return;
         }
 
         $current = File::get($envPath);
-        $key     = 'BEDS24_API_V2_REFRESH_TOKEN';
+        $key = 'BEDS24_API_V2_REFRESH_TOKEN';
 
-        if (str_contains($current, $key . '=')) {
+        if (str_contains($current, $key.'=')) {
             $updated = preg_replace(
-                '/^' . preg_quote($key, '/') . '=.*/m',
-                $key . '=' . $token,
+                '/^'.preg_quote($key, '/').'=.*/m',
+                $key.'='.$token,
                 $current
             );
         } else {
-            $updated = $current . PHP_EOL . $key . '=' . $token . PHP_EOL;
+            $updated = $current.PHP_EOL.$key.'='.$token.PHP_EOL;
         }
 
         File::put($envPath, $updated);
 
         Log::info('Beds24 rotated refresh token persisted to .env');
     }
-
 }

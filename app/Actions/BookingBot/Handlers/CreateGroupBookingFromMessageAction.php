@@ -7,10 +7,10 @@ namespace App\Actions\BookingBot\Handlers;
 use App\Actions\BookingBot\BuildBeds24BookingPayloadAction;
 use App\Actions\BookingBot\FormatGuestConfirmationAction;
 use App\Actions\BookingBot\ResolveBotBookingChargeAction;
-use App\Jobs\ProcessBookingMessage;
 use App\DTO\BotBookingRequestData;
 use App\DTO\ResolvedBotBookingChargeData;
 use App\Exceptions\BookingBot\BotBookingChargeResolutionException;
+use App\Jobs\ProcessBookingMessage;
 use App\Models\RoomUnitMapping;
 use App\Models\User;
 use App\Services\Beds24BookingService;
@@ -19,6 +19,7 @@ use Throwable;
 
 /**
  * Group ("create_booking" intent with $parsed['rooms']) handler for
+ *
  * @j_booking_hotel_bot.
  *
  * Locked v1 rules (see memory project_hotel_bot_charges):
@@ -44,19 +45,21 @@ final class CreateGroupBookingFromMessageAction
 
     public function execute(array $parsed, User $staff): string
     {
+        \App\Services\Beds24BookingService::assertEnabled();
+
         $rooms = $parsed['rooms'] ?? [];
         $guest = $parsed['guest'] ?? null;
         $dates = $parsed['dates'] ?? null;
 
-        if (empty($rooms) || !is_array($rooms)) {
+        if (empty($rooms) || ! is_array($rooms)) {
             return 'Please specify at least two rooms. Example: book rooms 12 and 14 under John Walker july 5-7 tel +998...';
         }
 
-        if (!$guest || empty($guest['name'])) {
+        if (! $guest || empty($guest['name'])) {
             return 'Please provide guest name. Example: ...under John Walker...';
         }
 
-        if (!$dates || empty($dates['check_in']) || empty($dates['check_out'])) {
+        if (! $dates || empty($dates['check_in']) || empty($dates['check_out'])) {
             return 'Please provide check-in and check-out dates.';
         }
 
@@ -71,8 +74,8 @@ final class CreateGroupBookingFromMessageAction
         }
 
         $duplicates = array_keys(array_filter(array_count_values($units), static fn ($n) => $n > 1));
-        if (!empty($duplicates)) {
-            return 'Duplicate rooms detected: ' . implode(', ', $duplicates) . '. Please specify each room once.';
+        if (! empty($duplicates)) {
+            return 'Duplicate rooms detected: '.implode(', ', $duplicates).'. Please specify each room once.';
         }
 
         $resolvedRooms = [];
@@ -110,10 +113,10 @@ final class CreateGroupBookingFromMessageAction
         }
 
         $guestName = (string) $guest['name'];
-        $phone     = (string) ($guest['phone'] ?? '');
-        $email     = (string) ($guest['email'] ?? '');
-        $checkIn   = (string) $dates['check_in'];
-        $checkOut  = (string) $dates['check_out'];
+        $phone = (string) ($guest['phone'] ?? '');
+        $email = (string) ($guest['email'] ?? '');
+        $checkIn = (string) $dates['check_in'];
+        $checkOut = (string) $dates['check_out'];
 
         $chargeInput = $parsed['charge'] ?? [];
         $inputPricePerNight = isset($chargeInput['price_per_night']) && $chargeInput['price_per_night'] !== ''
@@ -123,33 +126,33 @@ final class CreateGroupBookingFromMessageAction
             ? strtoupper((string) $chargeInput['currency'])
             : null;
 
-        $notes = 'Created by ' . $staff->name . ' via Telegram Bot (group)';
+        $notes = 'Created by '.$staff->name.' via Telegram Bot (group)';
 
-        $payloads    = [];
-        $resolveds   = [];
+        $payloads = [];
+        $resolveds = [];
         $perRoomList = [];
 
         try {
             foreach ($resolvedRooms as $mapping) {
                 $data = new BotBookingRequestData(
-                    propertyId:         $mapping->property_id,
-                    roomId:             $mapping->room_id,
-                    arrival:            $checkIn,
-                    departure:          $checkOut,
-                    firstName:          $this->firstName($guestName),
-                    lastName:           $this->lastName($guestName),
-                    email:              $email === '' ? null : $email,
-                    mobile:             $phone === '' ? null : $phone,
-                    numAdult:           2,
-                    numChild:           0,
-                    notes:              $notes,
+                    propertyId: $mapping->property_id,
+                    roomId: $mapping->room_id,
+                    arrival: $checkIn,
+                    departure: $checkOut,
+                    firstName: $this->firstName($guestName),
+                    lastName: $this->lastName($guestName),
+                    email: $email === '' ? null : $email,
+                    mobile: $phone === '' ? null : $phone,
+                    numAdult: 2,
+                    numChild: 0,
+                    notes: $notes,
                     inputPricePerNight: $inputPricePerNight,
-                    inputCurrency:      $inputCurrency,
+                    inputCurrency: $inputCurrency,
                 );
 
-                $resolved  = $this->chargeResolver->execute($data);
-                $payloads[]    = $this->payloadBuilder->execute($data, $resolved, $notes);
-                $resolveds[]   = $resolved;
+                $resolved = $this->chargeResolver->execute($data);
+                $payloads[] = $this->payloadBuilder->execute($data, $resolved, $notes);
+                $resolveds[] = $resolved;
                 $perRoomList[] = $mapping;
             }
         } catch (BotBookingChargeResolutionException $e) {
@@ -165,6 +168,7 @@ final class CreateGroupBookingFromMessageAction
             $result = $this->beds24->createMultipleBookingsFromPayloads($payloads, true);
         } catch (Throwable $e) {
             Log::error('Group booking creation failed', ['error' => $e->getMessage()]);
+
             return $this->failureMessage($perRoomList, $checkIn, $checkOut, $e->getMessage());
         }
 
@@ -174,7 +178,7 @@ final class CreateGroupBookingFromMessageAction
             $this->rollback($createdIds);
             Log::warning('Booking bot: group partial failure rolled back', [
                 'created_ids' => $createdIds,
-                'failure'     => $firstFailure,
+                'failure' => $firstFailure,
             ]);
 
             return "Group booking failed: {$firstFailure}. All rooms released.";
@@ -183,43 +187,44 @@ final class CreateGroupBookingFromMessageAction
         if (count($createdIds) !== count($payloads)) {
             // Defensive: shape not as expected. Roll back whatever we got.
             $this->rollback($createdIds);
+
             return 'Group booking failed: unexpected Beds24 response. All rooms released.';
         }
 
         $masterId = $createdIds[0];
         $siblings = array_slice($createdIds, 1);
         $firstCharge = $resolveds[0] ?? ResolvedBotBookingChargeData::none(1);
-        $firstData   = null;
+        $firstData = null;
 
         $operatorReceipt = $this->successMessage(
-            masterId:   $masterId,
+            masterId: $masterId,
             siblingIds: $siblings,
-            rooms:      $perRoomList,
-            guestName:  $guestName,
-            phone:      $phone,
-            email:      $email,
-            checkIn:    $checkIn,
-            checkOut:   $checkOut,
-            charge:     $firstCharge,
+            rooms: $perRoomList,
+            guestName: $guestName,
+            phone: $phone,
+            email: $email,
+            checkIn: $checkIn,
+            checkOut: $checkOut,
+            charge: $firstCharge,
         );
 
         // Build a DTO that represents the group's shared guest + stay.
         // Room/property are taken from the master booking; resolver has
         // already confirmed same-property via Rule 6 so either works.
         $firstData = new BotBookingRequestData(
-            propertyId:         $perRoomList[0]->property_id,
-            roomId:             $perRoomList[0]->room_id,
-            arrival:            $checkIn,
-            departure:          $checkOut,
-            firstName:          $this->firstName($guestName),
-            lastName:           $this->lastName($guestName),
-            email:              $email === '' ? null : $email,
-            mobile:             $phone === '' ? null : $phone,
-            numAdult:           2,
-            numChild:           0,
-            notes:              null,
+            propertyId: $perRoomList[0]->property_id,
+            roomId: $perRoomList[0]->room_id,
+            arrival: $checkIn,
+            departure: $checkOut,
+            firstName: $this->firstName($guestName),
+            lastName: $this->lastName($guestName),
+            email: $email === '' ? null : $email,
+            mobile: $phone === '' ? null : $phone,
+            numAdult: 2,
+            numChild: 0,
+            notes: null,
             inputPricePerNight: null,
-            inputCurrency:      null,
+            inputCurrency: null,
         );
 
         $guestText = $this->guestConfirmation->execute(
@@ -231,7 +236,7 @@ final class CreateGroupBookingFromMessageAction
 
         return $guestText === ''
             ? $operatorReceipt
-            : $operatorReceipt . ProcessBookingMessage::GUEST_FORWARD_MARKER . $guestText;
+            : $operatorReceipt.ProcessBookingMessage::GUEST_FORWARD_MARKER.$guestText;
     }
 
     /**
@@ -239,7 +244,7 @@ final class CreateGroupBookingFromMessageAction
      */
     private function walkResult(array $result): array
     {
-        $createdIds   = [];
+        $createdIds = [];
         $firstFailure = null;
 
         foreach ($result as $r) {
@@ -249,6 +254,7 @@ final class CreateGroupBookingFromMessageAction
                 if ($id !== null) {
                     $createdIds[] = $id;
                 }
+
                 continue;
             }
 
@@ -271,7 +277,7 @@ final class CreateGroupBookingFromMessageAction
                 // a partially-created group in production.
                 Log::error('Group rollback: cancel failed — manual cleanup required', [
                     'booking_id' => $id,
-                    'error'      => $e->getMessage(),
+                    'error' => $e->getMessage(),
                 ]);
             }
         }
@@ -282,10 +288,10 @@ final class CreateGroupBookingFromMessageAction
     {
         $units = implode(', ', array_map(static fn (RoomUnitMapping $m) => $m->unit_name, $rooms));
 
-        return "Group Booking Failed\n" .
-               "Rooms: {$units}\n" .
-               "Dates: {$checkIn} to {$checkOut}\n\n" .
-               "Error: {$error}\n\n" .
+        return "Group Booking Failed\n".
+               "Rooms: {$units}\n".
+               "Dates: {$checkIn} to {$checkOut}\n\n".
+               "Error: {$error}\n\n".
                'Please check the details and try again or create manually in Beds24.';
     }
 
@@ -302,53 +308,55 @@ final class CreateGroupBookingFromMessageAction
         ResolvedBotBookingChargeData $charge,
     ): string {
         $unitList = implode(', ', array_map(
-            static fn (RoomUnitMapping $m) => $m->unit_name . ' (' . $m->room_name . ')',
+            static fn (RoomUnitMapping $m) => $m->unit_name.' ('.$m->room_name.')',
             $rooms,
         ));
-        $allIds  = array_merge([$masterId], $siblingIds);
-        $idsText = implode(', ', array_map(static fn ($i) => '#' . $i, $allIds));
+        $allIds = array_merge([$masterId], $siblingIds);
+        $idsText = implode(', ', array_map(static fn ($i) => '#'.$i, $allIds));
 
         $totalsLine = $this->groupChargeLine($charge, count($rooms));
 
-        return "Group Booking Created Successfully!\n" .
-               "Master: #{$masterId}\n" .
-               'Bookings: ' . $idsText . "\n" .
-               "Rooms: {$unitList}\n" .
-               "Guest: {$guestName}\n" .
-               "Phone: {$phone}\n" .
-               "Email: {$email}\n" .
-               "Check-in: {$checkIn}\n" .
-               "Check-out: {$checkOut}\n" .
-               $totalsLine . "\n\n" .
+        return "Group Booking Created Successfully!\n".
+               "Master: #{$masterId}\n".
+               'Bookings: '.$idsText."\n".
+               "Rooms: {$unitList}\n".
+               "Guest: {$guestName}\n".
+               "Phone: {$phone}\n".
+               "Email: {$email}\n".
+               "Check-in: {$checkIn}\n".
+               "Check-out: {$checkOut}\n".
+               $totalsLine."\n\n".
                'All bookings confirmed in Beds24 as one group.';
     }
 
     private function groupChargeLine(ResolvedBotBookingChargeData $charge, int $roomsCount): string
     {
-        if (!$charge->hasCharge) {
+        if (! $charge->hasCharge) {
             return 'Charge: not added';
         }
 
-        $price      = number_format((float) $charge->pricePerNight, 2, '.', ' ');
-        $perRoom    = number_format((float) $charge->totalAmount, 2, '.', ' ');
+        $price = number_format((float) $charge->pricePerNight, 2, '.', ' ');
+        $perRoom = number_format((float) $charge->totalAmount, 2, '.', ' ');
         $groupTotal = number_format((float) $charge->totalAmount * $roomsCount, 2, '.', ' ');
-        $cur        = (string) $charge->currency;
-        $source     = $charge->source === 'auto' ? 'auto (room base price)' : 'manual';
+        $cur = (string) $charge->currency;
+        $source = $charge->source === 'auto' ? 'auto (room base price)' : 'manual';
 
-        return "Charge: {$price} {$cur}/night × {$charge->nights} nights × {$roomsCount} rooms\n" .
-               "Per room: {$perRoom} {$cur}   Group total: {$groupTotal} {$cur}\n" .
+        return "Charge: {$price} {$cur}/night × {$charge->nights} nights × {$roomsCount} rooms\n".
+               "Per room: {$perRoom} {$cur}   Group total: {$groupTotal} {$cur}\n".
                "Source: {$source}";
     }
 
     private function firstName(string $fullName): string
     {
         $parts = explode(' ', trim($fullName), 2);
+
         return $parts[0] ?? $fullName;
     }
 
     private function lastName(string $fullName): string
     {
         $parts = explode(' ', trim($fullName), 2);
+
         return $parts[1] ?? ($parts[0] ?? '');
     }
 }

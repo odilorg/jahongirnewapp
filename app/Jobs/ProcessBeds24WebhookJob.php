@@ -2,9 +2,9 @@
 
 namespace App\Jobs;
 
+use App\Http\Controllers\Beds24WebhookController;
 use App\Models\Beds24WebhookEvent;
 use App\Models\IncomingWebhook;
-use App\Http\Controllers\Beds24WebhookController;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -17,6 +17,7 @@ class ProcessBeds24WebhookJob implements ShouldQueue
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public int $tries = 5;
+
     public int $timeout = 120;
 
     public function __construct(
@@ -33,14 +34,24 @@ class ProcessBeds24WebhookJob implements ShouldQueue
 
     public function handle(): void
     {
-        $event           = Beds24WebhookEvent::find($this->webhookEventId);
+        // ── Global kill switch — drop queued webhook jobs when disabled ──
+        if (! config('services.beds24.enabled', true)) {
+            Log::info('ProcessBeds24WebhookJob: integration disabled — dropping queued webhook', [
+                'webhook_event_id' => $this->webhookEventId,
+            ]);
+
+            return;
+        }
+
+        $event = Beds24WebhookEvent::find($this->webhookEventId);
         $incomingWebhook = $this->incomingWebhookId
             ? IncomingWebhook::find($this->incomingWebhookId)
             : null;
 
-        if (!$event || $event->status === 'processed') {
+        if (! $event || $event->status === 'processed') {
             // Also mark durable inbox as processed if it exists
             $incomingWebhook?->markProcessed();
+
             return;
         }
 
@@ -55,16 +66,16 @@ class ProcessBeds24WebhookJob implements ShouldQueue
             $incomingWebhook?->markProcessed();
 
             Log::info('Beds24 webhook processed via queue', [
-                'event_id'            => $event->id,
-                'booking_id'          => $event->booking_id,
+                'event_id' => $event->id,
+                'booking_id' => $event->booking_id,
                 'incoming_webhook_id' => $incomingWebhook?->id,
             ]);
         } catch (\Throwable $e) {
             Log::error('Beds24 webhook job failed', [
-                'event_id'            => $event->id,
-                'booking_id'          => $event->booking_id,
-                'error'               => $e->getMessage(),
-                'attempt'             => $this->attempts(),
+                'event_id' => $event->id,
+                'booking_id' => $event->booking_id,
+                'error' => $e->getMessage(),
+                'attempt' => $this->attempts(),
                 'incoming_webhook_id' => $incomingWebhook?->id,
             ]);
 
@@ -79,18 +90,18 @@ class ProcessBeds24WebhookJob implements ShouldQueue
     {
         $event = Beds24WebhookEvent::find($this->webhookEventId);
         if ($event) {
-            $event->markFailed('All retries exhausted: ' . $e->getMessage());
+            $event->markFailed('All retries exhausted: '.$e->getMessage());
         }
 
         $incomingWebhook = $this->incomingWebhookId
             ? IncomingWebhook::find($this->incomingWebhookId)
             : null;
-        $incomingWebhook?->markFailed('All retries exhausted: ' . $e->getMessage());
+        $incomingWebhook?->markFailed('All retries exhausted: '.$e->getMessage());
 
         Log::critical('Beds24 webhook job permanently failed', [
-            'event_id'            => $this->webhookEventId,
+            'event_id' => $this->webhookEventId,
             'incoming_webhook_id' => $this->incomingWebhookId,
-            'error'               => $e->getMessage(),
+            'error' => $e->getMessage(),
         ]);
     }
 }

@@ -24,19 +24,21 @@ final class CancelBookingFromMessageAction
 
     public function execute(array $parsed, User $staff): string
     {
+        \App\Services\Beds24BookingService::assertEnabled();
+
         $bookingId = $parsed['booking_id'] ?? null;
 
         // Fallback: some intent parses lose the ID; re-scan the raw message.
-        if (!$bookingId && isset($parsed['_raw_message'])) {
+        if (! $bookingId && isset($parsed['_raw_message'])) {
             if (preg_match('/#?(\d+)/', $parsed['_raw_message'], $matches)) {
                 $bookingId = $matches[1];
             }
         }
 
-        if (!$bookingId) {
-            return "Please provide a booking ID to cancel.\n\n" .
-                   "Example: cancel booking #123456\n" .
-                   "Or: cancel booking 123456";
+        if (! $bookingId) {
+            return "Please provide a booking ID to cancel.\n\n".
+                   "Example: cancel booking #123456\n".
+                   'Or: cancel booking 123456';
         }
 
         try {
@@ -47,7 +49,7 @@ final class CancelBookingFromMessageAction
             $bookingDetails = null;
             try {
                 $getResult = $this->beds24->getBooking($bookingId);
-                if (isset($getResult['data']) && !empty($getResult['data'])) {
+                if (isset($getResult['data']) && ! empty($getResult['data'])) {
                     $bookingDetails = $getResult['data'][0] ?? $getResult['data'];
                 }
             } catch (\Exception $e) {
@@ -59,7 +61,7 @@ final class CancelBookingFromMessageAction
                 'staff' => $staff->name,
             ]);
 
-            $reason = 'Cancelled by ' . $staff->name . ' via Telegram Bot';
+            $reason = 'Cancelled by '.$staff->name.' via Telegram Bot';
             $result = $this->beds24->cancelBooking($bookingId, $reason);
 
             Log::info('Cancel booking API response', LogSanitizer::context(['result' => $result]));
@@ -72,7 +74,7 @@ final class CancelBookingFromMessageAction
                     $success = true;
                 } elseif (isset($result[0]['success']) && $result[0]['success']) {
                     $success = true;
-                } elseif (isset($result[0]) && !isset($result[0]['error'])) {
+                } elseif (isset($result[0]) && ! isset($result[0]['error'])) {
                     $success = true;
                 }
             }
@@ -106,7 +108,6 @@ final class CancelBookingFromMessageAction
             }
 
             throw new \Exception($errorMsg);
-
         } catch (\Exception $e) {
             Log::error('Booking cancellation failed', [
                 'booking_id' => $bookingId,
@@ -114,10 +115,10 @@ final class CancelBookingFromMessageAction
                 'trace' => $e->getTraceAsString(),
             ]);
 
-            return "❌ Booking Cancellation Failed\n\n" .
-                   "Booking ID: #{$bookingId}\n" .
-                   "Error: {$e->getMessage()}\n\n" .
-                   "Please check the booking ID and try again, or cancel manually in Beds24.";
+            return "❌ Booking Cancellation Failed\n\n".
+                   "Booking ID: #{$bookingId}\n".
+                   "Error: {$e->getMessage()}\n\n".
+                   'Please check the booking ID and try again, or cancel manually in Beds24.';
         }
     }
 }

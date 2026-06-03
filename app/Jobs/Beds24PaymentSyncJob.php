@@ -2,7 +2,6 @@
 
 namespace App\Jobs;
 
-use App\Enums\Beds24SyncStatus;
 use App\Models\Beds24PaymentSync;
 use App\Services\Beds24BookingService;
 use App\Services\Fx\Beds24PaymentSyncService;
@@ -27,7 +26,8 @@ class Beds24PaymentSyncJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public int $tries   = 3;
+    public int $tries = 3;
+
     public int $backoff = 60; // seconds
 
     public function __construct(
@@ -36,10 +36,20 @@ class Beds24PaymentSyncJob implements ShouldQueue
 
     public function handle(Beds24PaymentSyncService $syncService, Beds24BookingService $beds24): void
     {
+        // ── Global kill switch — do NOT retry when intentionally disabled ──
+        if (! config('services.beds24.enabled', true)) {
+            Log::info('Beds24PaymentSyncJob: integration disabled — skipping', [
+                'sync_id' => $this->syncId,
+            ]);
+
+            return;
+        }
+
         $sync = Beds24PaymentSync::find($this->syncId);
 
         if (! $sync) {
             Log::warning("Beds24PaymentSyncJob: sync row #{$this->syncId} not found, skipping.");
+
             return;
         }
 
@@ -61,9 +71,9 @@ class Beds24PaymentSyncJob implements ShouldQueue
             $syncService->markFailed($sync->fresh(), $e->getMessage(), $exhausted);
 
             Log::error("Beds24PaymentSyncJob failed for sync #{$this->syncId}", [
-                'attempt'   => $this->attempts(),
+                'attempt' => $this->attempts(),
                 'exhausted' => $exhausted,
-                'error'     => $e->getMessage(),
+                'error' => $e->getMessage(),
             ]);
 
             if (! $exhausted) {
@@ -110,10 +120,10 @@ class Beds24PaymentSyncJob implements ShouldQueue
         $description = "[ref:{$sync->local_reference}] Bot payment";
 
         $payload = [[
-            'id'           => (int) $sync->beds24_booking_id,
+            'id' => (int) $sync->beds24_booking_id,
             'invoiceItems' => [[
-                'type'        => 'payment',
-                'amount'      => (float) $sync->amount_usd,
+                'type' => 'payment',
+                'amount' => (float) $sync->amount_usd,
                 'description' => $description,
             ]],
         ]];
@@ -138,7 +148,7 @@ class Beds24PaymentSyncJob implements ShouldQueue
         if (($first['success'] ?? false) !== true) {
             $errors = $first['errors'] ?? [];
             throw new \RuntimeException(
-                "Beds24 v2 rejected payment write: " . json_encode($errors ?: $first)
+                'Beds24 v2 rejected payment write: '.json_encode($errors ?: $first)
             );
         }
 
@@ -148,7 +158,7 @@ class Beds24PaymentSyncJob implements ShouldQueue
         // shape — keep the bot push consistent.
         if (! empty($first['errors'])) {
             throw new \RuntimeException(
-                "Beds24 v2 partial success with errors: " . json_encode($first['errors'])
+                'Beds24 v2 partial success with errors: '.json_encode($first['errors'])
             );
         }
 

@@ -39,13 +39,15 @@ final class ModifyBookingFromMessageAction
 
     public function execute(array $parsed, User $staff): string
     {
+        \App\Services\Beds24BookingService::assertEnabled();
+
         $bookingId = $parsed['booking_id'] ?? null;
 
-        if (!$bookingId) {
-            return "Please provide a booking ID to modify.\n\n" .
-                   "Example: change booking #123456 to jan 5-7\n" .
-                   "Or: modify booking #123456 guest name to Jane Smith\n" .
-                   "Or: update booking #123456 phone to +998123456789";
+        if (! $bookingId) {
+            return "Please provide a booking ID to modify.\n\n".
+                   "Example: change booking #123456 to jan 5-7\n".
+                   "Or: modify booking #123456 guest name to Jane Smith\n".
+                   'Or: update booking #123456 phone to +998123456789';
         }
 
         try {
@@ -53,10 +55,10 @@ final class ModifyBookingFromMessageAction
 
             $getResult = $this->beds24->getBooking($bookingId);
 
-            if (!isset($getResult['data']) || empty($getResult['data'])) {
-                return "❌ Booking Not Found\n\n" .
-                       "Booking ID: #{$bookingId}\n" .
-                       "Could not find this booking. Please check the ID and try again.";
+            if (! isset($getResult['data']) || empty($getResult['data'])) {
+                return "❌ Booking Not Found\n\n".
+                       "Booking ID: #{$bookingId}\n".
+                       'Could not find this booking. Please check the ID and try again.';
             }
 
             $currentBooking = $getResult['data'][0] ?? $getResult['data'];
@@ -81,11 +83,11 @@ final class ModifyBookingFromMessageAction
             $changesSummary = array_merge($changesSummary, $roomChange['summary']);
 
             if (empty($changes)) {
-                return "No changes detected.\n\n" .
-                       "Please specify what you want to modify:\n" .
-                       "- Dates: change booking #{$bookingId} to jan 5-7\n" .
-                       "- Guest name: modify booking #{$bookingId} guest name to Jane Smith\n" .
-                       "- Phone: update booking #{$bookingId} phone to +998123456789\n" .
+                return "No changes detected.\n\n".
+                       "Please specify what you want to modify:\n".
+                       "- Dates: change booking #{$bookingId} to jan 5-7\n".
+                       "- Guest name: modify booking #{$bookingId} guest name to Jane Smith\n".
+                       "- Phone: update booking #{$bookingId} phone to +998123456789\n".
                        "- Room: change booking #{$bookingId} to room 14";
             }
 
@@ -113,7 +115,7 @@ final class ModifyBookingFromMessageAction
                     $success = true;
                 } elseif (isset($result[0]['success']) && $result[0]['success']) {
                     $success = true;
-                } elseif (isset($result[0]) && !isset($result[0]['error'])) {
+                } elseif (isset($result[0]) && ! isset($result[0]['error'])) {
                     $success = true;
                 }
             }
@@ -130,7 +132,6 @@ final class ModifyBookingFromMessageAction
             }
 
             throw new \Exception($errorMsg);
-
         } catch (\Exception $e) {
             Log::error('Booking modification failed', [
                 'booking_id' => $bookingId,
@@ -138,10 +139,10 @@ final class ModifyBookingFromMessageAction
                 'trace' => $e->getTraceAsString(),
             ]);
 
-            return "❌ Booking Modification Failed\n\n" .
-                   "Booking ID: #{$bookingId}\n" .
-                   "Error: {$e->getMessage()}\n\n" .
-                   "Please check the details and try again, or modify manually in Beds24.";
+            return "❌ Booking Modification Failed\n\n".
+                   "Booking ID: #{$bookingId}\n".
+                   "Error: {$e->getMessage()}\n\n".
+                   'Please check the details and try again, or modify manually in Beds24.';
         }
     }
 
@@ -155,13 +156,13 @@ final class ModifyBookingFromMessageAction
 
         $dates = $parsed['dates'] ?? null;
         if ($dates) {
-            if (!empty($dates['check_in'])) {
+            if (! empty($dates['check_in'])) {
                 $changes['arrival'] = $dates['check_in'];
-                $summary[] = "Check-in: " . ($currentBooking['arrival'] ?? 'N/A') . " → " . $dates['check_in'];
+                $summary[] = 'Check-in: '.($currentBooking['arrival'] ?? 'N/A').' → '.$dates['check_in'];
             }
-            if (!empty($dates['check_out'])) {
+            if (! empty($dates['check_out'])) {
                 $changes['departure'] = $dates['check_out'];
-                $summary[] = "Check-out: " . ($currentBooking['departure'] ?? 'N/A') . " → " . $dates['check_out'];
+                $summary[] = 'Check-out: '.($currentBooking['departure'] ?? 'N/A').' → '.$dates['check_out'];
             }
         }
 
@@ -178,22 +179,22 @@ final class ModifyBookingFromMessageAction
 
         $guest = $parsed['guest'] ?? null;
         if ($guest) {
-            if (!empty($guest['name'])) {
+            if (! empty($guest['name'])) {
                 // Beds24 stores first/last separately; the parser gives us a single string.
                 $nameParts = explode(' ', $guest['name'], 2);
                 $changes['firstName'] = $nameParts[0];
                 if (isset($nameParts[1])) {
                     $changes['lastName'] = $nameParts[1];
                 }
-                $summary[] = "Guest: " . $this->currentGuestName($currentBooking) . " → " . $guest['name'];
+                $summary[] = 'Guest: '.$this->currentGuestName($currentBooking).' → '.$guest['name'];
             }
-            if (!empty($guest['phone'])) {
+            if (! empty($guest['phone'])) {
                 $changes['mobile'] = $guest['phone'];
-                $summary[] = "Phone: " . ($currentBooking['mobile'] ?? 'N/A') . " → " . $guest['phone'];
+                $summary[] = 'Phone: '.($currentBooking['mobile'] ?? 'N/A').' → '.$guest['phone'];
             }
-            if (!empty($guest['email'])) {
+            if (! empty($guest['email'])) {
                 $changes['email'] = $guest['email'];
-                $summary[] = "Email: " . ($currentBooking['email'] ?? 'N/A') . " → " . $guest['email'];
+                $summary[] = 'Email: '.($currentBooking['email'] ?? 'N/A').' → '.$guest['email'];
             }
         }
 
@@ -213,7 +214,7 @@ final class ModifyBookingFromMessageAction
         $summary = [];
 
         $room = $parsed['room'] ?? null;
-        if (!$room || empty($room['unit_name'])) {
+        if (! $room || empty($room['unit_name'])) {
             return ['changes' => $changes, 'summary' => $summary];
         }
 
@@ -226,24 +227,24 @@ final class ModifyBookingFromMessageAction
             ->get();
 
         if ($matchingRooms->isEmpty()) {
-            return "❌ Modification Failed\n\n" .
+            return "❌ Modification Failed\n\n".
                    "Room {$unitName} not found. Please check the room number.";
         }
 
         if ($matchingRooms->count() > 1) {
             $propertyList = $matchingRooms->map(function ($r) {
-                return $r->property_name . ' (Unit ' . $r->unit_name . ')';
+                return $r->property_name.' (Unit '.$r->unit_name.')';
             })->join("\n");
 
-            return "Multiple rooms found with unit {$unitName}:\n\n" .
-                   $propertyList . "\n\n" .
-                   "Please specify the property.\n" .
+            return "Multiple rooms found with unit {$unitName}:\n\n".
+                   $propertyList."\n\n".
+                   "Please specify the property.\n".
                    "Example: change booking #{$bookingId} to room {$unitName} at Premium";
         }
 
         $roomMapping = $matchingRooms->first();
         $changes['roomId'] = (int) $roomMapping->room_id;
-        $summary[] = "Room: " . ($currentBooking['roomName'] ?? 'N/A') . " → Unit {$unitName} ({$roomMapping->room_name})";
+        $summary[] = 'Room: '.($currentBooking['roomName'] ?? 'N/A')." → Unit {$unitName} ({$roomMapping->room_name})";
 
         return ['changes' => $changes, 'summary' => $summary];
     }
@@ -263,7 +264,7 @@ final class ModifyBookingFromMessageAction
     private function guardDateAvailability(array $changes, array $currentBooking, string $bookingId): ?string
     {
         // No date changes → nothing to validate, nothing to check with Beds24.
-        if (!isset($changes['arrival']) && !isset($changes['departure'])) {
+        if (! isset($changes['arrival']) && ! isset($changes['departure'])) {
             return null;
         }
 
@@ -271,8 +272,8 @@ final class ModifyBookingFromMessageAction
         $newDeparture = $changes['departure'] ?? $currentBooking['departure'];
 
         if ($newArrival >= $newDeparture) {
-            return "❌ Invalid Dates\n\n" .
-                   "Check-in date must be before check-out date.\n" .
+            return "❌ Invalid Dates\n\n".
+                   "Check-in date must be before check-out date.\n".
                    "Requested: {$newArrival} to {$newDeparture}";
         }
 
@@ -280,14 +281,14 @@ final class ModifyBookingFromMessageAction
         $currentDeparture = $currentBooking['departure'];
         $datesChanged = ($newArrival != $currentArrival) || ($newDeparture != $currentDeparture);
 
-        if (!$datesChanged) {
+        if (! $datesChanged) {
             return null;
         }
 
         $roomId = $currentBooking['roomId'] ?? null;
         $propertyId = $currentBooking['propertyId'] ?? null;
 
-        if (!$roomId || !$propertyId) {
+        if (! $roomId || ! $propertyId) {
             return null;
         }
 
@@ -312,20 +313,21 @@ final class ModifyBookingFromMessageAction
                     }
                 }
 
-                if (!$roomAvailable) {
+                if (! $roomAvailable) {
                     $roomName = $currentBooking['roomName'] ?? 'Room';
-                    return "Room Not Available\n\n" .
-                           "Cannot extend/modify booking #{$bookingId}\n" .
-                           "Room: {$roomName}\n" .
-                           "Requested: {$newArrival} to {$newDeparture}\n\n" .
-                           "This room is booked by another guest during the new period.\n" .
-                           "Please choose different dates or cancel and rebook.";
+
+                    return "Room Not Available\n\n".
+                           "Cannot extend/modify booking #{$bookingId}\n".
+                           "Room: {$roomName}\n".
+                           "Requested: {$newArrival} to {$newDeparture}\n\n".
+                           "This room is booked by another guest during the new period.\n".
+                           'Please choose different dates or cancel and rebook.';
                 }
 
                 Log::info('Room available - proceeding with modification');
             }
         } catch (\Exception $e) {
-            Log::warning('Availability check failed: ' . $e->getMessage());
+            Log::warning('Availability check failed: '.$e->getMessage());
         }
 
         return null;
@@ -342,14 +344,14 @@ final class ModifyBookingFromMessageAction
         $response .= "\n";
 
         if (isset($changes['arrival']) || isset($changes['departure'])) {
-            $response .= "New Dates: " . ($changes['arrival'] ?? $currentBooking['arrival']) .
-                         " to " . ($changes['departure'] ?? $currentBooking['departure']) . "\n";
+            $response .= 'New Dates: '.($changes['arrival'] ?? $currentBooking['arrival']).
+                         ' to '.($changes['departure'] ?? $currentBooking['departure'])."\n";
         }
-        if (!isset($changes['firstName'])) {
-            $response .= "Guest: " . $this->currentGuestName($currentBooking) . "\n";
+        if (! isset($changes['firstName'])) {
+            $response .= 'Guest: '.$this->currentGuestName($currentBooking)."\n";
         }
-        if (isset($currentBooking['roomName']) && !isset($changes['roomId'])) {
-            $response .= "Room: " . $currentBooking['roomName'] . "\n";
+        if (isset($currentBooking['roomName']) && ! isset($changes['roomId'])) {
+            $response .= 'Room: '.$currentBooking['roomName']."\n";
         }
 
         $response .= "\nThe booking has been updated in Beds24.";
@@ -364,7 +366,7 @@ final class ModifyBookingFromMessageAction
      */
     private function currentGuestName(array $currentBooking): string
     {
-        $name = trim(($currentBooking['firstName'] ?? '') . ' ' . ($currentBooking['lastName'] ?? ''));
+        $name = trim(($currentBooking['firstName'] ?? '').' '.($currentBooking['lastName'] ?? ''));
 
         return $name !== '' ? $name : 'N/A';
     }

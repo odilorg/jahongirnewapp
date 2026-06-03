@@ -31,6 +31,7 @@ class FxSyncJob implements ShouldQueue
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public int $tries = 5;
+
     public int $maxExceptions = 3;
 
     public function __construct(
@@ -46,14 +47,25 @@ class FxSyncJob implements ShouldQueue
 
     public function handle(FxSyncService $fxSyncService): void
     {
+        // ── Global kill switch — do NOT retry when intentionally disabled ──
+        if (! config('services.beds24.enabled', true)) {
+            Log::info('FxSyncJob: integration disabled — skipping', [
+                'beds24_booking_id' => $this->beds24BookingId,
+                'trigger' => $this->sourceTrigger,
+            ]);
+
+            return;
+        }
+
         // Query by beds24_booking_id (external ID), not by local model PK
         $booking = Beds24Booking::where('beds24_booking_id', $this->beds24BookingId)->first();
 
         if (! $booking) {
             Log::warning('FxSyncJob: booking not found in local DB', [
                 'beds24_booking_id' => $this->beds24BookingId,
-                'trigger'           => $this->sourceTrigger,
+                'trigger' => $this->sourceTrigger,
             ]);
+
             return; // booking may not be synced yet — not an error
         }
 
@@ -64,8 +76,8 @@ class FxSyncJob implements ShouldQueue
     {
         Log::error('FxSyncJob permanently failed', [
             'beds24_booking_id' => $this->beds24BookingId,
-            'trigger'           => $this->sourceTrigger,
-            'error'             => $e->getMessage(),
+            'trigger' => $this->sourceTrigger,
+            'error' => $e->getMessage(),
         ]);
 
         // Mark sync record as failed so repair job / isStale() can retry

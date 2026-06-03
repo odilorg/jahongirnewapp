@@ -73,6 +73,12 @@ return [
     ],
 
     'beds24' => [
+        // Global kill switch — when false, ALL Beds24 outbound HTTP calls,
+        // webhook processing, scheduled syncs, and bot booking actions are
+        // blocked. Used to isolate Booking.com / PMS / channel-manager issues.
+        // Set BEDS24_INTEGRATION_ENABLED=false in .env to disable.
+        'enabled' => (bool) env('BEDS24_INTEGRATION_ENABLED', true),
+
         'api_token' => env('BEDS24_API_TOKEN'),
         'api_v2_token' => env('BEDS24_API_V2_TOKEN'),
         'api_v2_refresh_token' => env('BEDS24_API_V2_REFRESH_TOKEN'),

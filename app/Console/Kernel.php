@@ -57,22 +57,24 @@ class Kernel extends ConsoleKernel
         // Removed 2026-04-15: app:send-scheduled-messages scheduler disabled
         // (scheduled_messages table unused; feature deprecated)
 
+        // ── BEDS24_DISABLED 2026-06-03 — Booking.com cancellation investigation ──
         // Beds24 token refresh - every 20 hours (well before 24h expiry)
-        $schedule->command('beds24:refresh-token')
-            ->cron('0 */20 * * *') // Every 20 hours
-            ->withoutOverlapping()
-            ->onFailure(function () {
-                \Illuminate\Support\Facades\Log::critical('Scheduled beds24:refresh-token FAILED');
-            });
+        // $schedule->command('beds24:refresh-token')
+        //     ->cron('0 */20 * * *') // Every 20 hours
+        //     ->withoutOverlapping()
+        //     ->onFailure(function () {
+        //         \Illuminate\Support\Facades\Log::critical('Scheduled beds24:refresh-token FAILED');
+        //     });
 
+        // ── BEDS24_DISABLED 2026-06-03 — Booking.com cancellation investigation ──
         // Daily owner report at 22:00 Tashkent time
-        $schedule->command('beds24:daily-report')
-            ->dailyAt('22:00')
-            ->timezone('Asia/Tashkent')
-            ->withoutOverlapping()
-            ->onFailure(function () {
-                \Illuminate\Support\Facades\Log::error('beds24:daily-report failed to run');
-            });
+        // $schedule->command('beds24:daily-report')
+        //     ->dailyAt('22:00')
+        //     ->timezone('Asia/Tashkent')
+        //     ->withoutOverlapping()
+        //     ->onFailure(function () {
+        //         \Illuminate\Support\Facades\Log::error('beds24:daily-report failed to run');
+        //     });
 
         // Daily cash flow report at 23:00 Tashkent
         $schedule->command('cash:daily-report')
@@ -107,23 +109,24 @@ class Kernel extends ConsoleKernel
             ->timezone('Asia/Tashkent')
             ->withoutOverlapping();
 
+        // ── BEDS24_DISABLED 2026-06-03 — Booking.com cancellation investigation ──
         // FX rate push: fetch CBU rates, then repair any near-term bookings whose sync is missing/failed.
         // Webhooks handle new/modified bookings in real-time; this catches any that slipped through.
-        $schedule->command('fx:push-payment-options')   // fetches today's CBU rate, no bulk push
-            ->dailyAt('07:00')
-            ->timezone('Asia/Tashkent')
-            ->withoutOverlapping()
-            ->onFailure(function () {
-                \Illuminate\Support\Facades\Log::error('fx:push-payment-options failed to run');
-            });
+        // $schedule->command('fx:push-payment-options')   // fetches today's CBU rate, no bulk push
+        //     ->dailyAt('07:00')
+        //     ->timezone('Asia/Tashkent')
+        //     ->withoutOverlapping()
+        //     ->onFailure(function () {
+        //         \Illuminate\Support\Facades\Log::error('fx:push-payment-options failed to run');
+        //     });
 
-        $schedule->command('fx:repair-missing --days=30')
-            ->dailyAt('07:15')
-            ->timezone('Asia/Tashkent')
-            ->withoutOverlapping()
-            ->onFailure(function () {
-                \Illuminate\Support\Facades\Log::error('fx:repair-missing failed to run');
-            });
+        // $schedule->command('fx:repair-missing --days=30')
+        //     ->dailyAt('07:15')
+        //     ->timezone('Asia/Tashkent')
+        //     ->withoutOverlapping()
+        //     ->onFailure(function () {
+        //         \Illuminate\Support\Facades\Log::error('fx:repair-missing failed to run');
+        //     });
 
         // Daily tour reminders at 20:00 Tashkent — staff Telegram + guest WhatsApp + driver/guide DM
         $schedule->command('tour:send-reminders')
@@ -264,38 +267,39 @@ class Kernel extends ConsoleKernel
             ->withoutOverlapping()
             ->runInBackground();
 
+        // ── BEDS24_DISABLED 2026-06-03 — Booking.com cancellation investigation ──
         // FX: repair Beds24 sync rows stuck in pending/pushing state
         // Handles the case where DB::afterCommit() fired but the queue worker
         // was down, or a job was killed mid-run (server restart, OOM, etc.)
-        $schedule->command('fx:repair-stuck-syncs')
-            ->everyThirtyMinutes()
-            ->withoutOverlapping()
-            ->runInBackground()
-            ->onFailure(function () {
-                \Illuminate\Support\Facades\Log::error('fx:repair-stuck-syncs scheduled run FAILED');
-            });
+        // $schedule->command('fx:repair-stuck-syncs')
+        //     ->everyThirtyMinutes()
+        //     ->withoutOverlapping()
+        //     ->runInBackground()
+        //     ->onFailure(function () {
+        //         \Illuminate\Support\Facades\Log::error('fx:repair-stuck-syncs scheduled run FAILED');
+        //     });
 
         // Retry permanently-failed Beds24 payment syncs within the push-attempt budget.
         // Nightly cadence is intentional — failed syncs need cooling off, not spam-retry.
-        $schedule->command('beds24:repair-failed-syncs')
-            ->dailyAt('07:45')
-            ->timezone('Asia/Tashkent')
-            ->withoutOverlapping()
-            ->runInBackground()
-            ->onFailure(function () {
-                \Illuminate\Support\Facades\Log::error('beds24:repair-failed-syncs scheduled run FAILED');
-            });
+        // $schedule->command('beds24:repair-failed-syncs')
+        //     ->dailyAt('07:45')
+        //     ->timezone('Asia/Tashkent')
+        //     ->withoutOverlapping()
+        //     ->runInBackground()
+        //     ->onFailure(function () {
+        //         \Illuminate\Support\Facades\Log::error('beds24:repair-failed-syncs scheduled run FAILED');
+        //     });
 
         // Defensive: detect cash transactions with no sync row and create/dispatch them.
         // Runs daily alongside repair-failed so the two commands cover the full gap space.
-        $schedule->command('beds24:repair-missing-syncs')
-            ->dailyAt('07:50')
-            ->timezone('Asia/Tashkent')
-            ->withoutOverlapping()
-            ->runInBackground()
-            ->onFailure(function () {
-                \Illuminate\Support\Facades\Log::error('beds24:repair-missing-syncs scheduled run FAILED');
-            });
+        // $schedule->command('beds24:repair-missing-syncs')
+        //     ->dailyAt('07:50')
+        //     ->timezone('Asia/Tashkent')
+        //     ->withoutOverlapping()
+        //     ->runInBackground()
+        //     ->onFailure(function () {
+        //         \Illuminate\Support\Facades\Log::error('beds24:repair-missing-syncs scheduled run FAILED');
+        //     });
 
         // FX: nightly exception report — violations, unconfirmed syncs, failed syncs
         $schedule->command('fx:nightly-report')

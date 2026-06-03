@@ -47,6 +47,15 @@ class Beds24WebhookController extends Controller
      */
     public function handle(Request $request): Response
     {
+        // ── Global kill switch — reject all webhooks when disabled ────
+        if (! config('services.beds24.enabled', true)) {
+            Log::warning('Beds24 integration disabled — webhook rejected', [
+                'payload_keys' => array_keys($request->all()),
+            ]);
+
+            return response('Beds24 integration temporarily disabled', 410);
+        }
+
         $raw = $request->all();
 
         Log::info('Beds24 Webhook received', ['payload_keys' => array_keys($raw)]);
