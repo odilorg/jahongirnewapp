@@ -7,6 +7,48 @@ declare(strict_types=1);
  * Keep this file dumb: arrays of strings keyed by tour_product slug.
  * Fallback to 'default' when slug unknown.
  */
+
+// Phase 29 — shared guest experience copy for the 2-day Aydarkul / yurt
+// camp tours (both catalogue slugs are the same physical experience).
+// {name} is replaced with the guest's first name at send time. Plain text
+// + emoji renders fine on WhatsApp; no *bold* markup used here.
+$yurtExperienceMessages = [
+    'post_pickup_welcome' => "Hi {name}! 👋\n\n"
+        ."We hope you're enjoying the start of your journey.\n\n"
+        ."Today's highlights include:\n\n"
+        ."🏜 Aydarkul Lake\n"
+        ."🐪 Camel riding\n"
+        ."🏕 Traditional yurt camp\n"
+        ."🌅 Desert sunset\n"
+        ."🌌 Stargazing\n\n"
+        ."If you need anything during the trip, simply reply to this message and our team will be happy to help.\n\n"
+        ."Have a wonderful day!\n\n"
+        .'— Jahongir Travel',
+
+    'evening_sunset_tip' => "🌅 Sunset Alert\n\n"
+        ."The desert sunset should begin soon and is often one of the most memorable moments of the trip.\n\n"
+        ."📸 For the best photos:\n"
+        ."• Include a camel, yurt, or person in the foreground\n"
+        ."• Avoid zooming\n"
+        ."• Take a few moments to simply enjoy the view\n\n"
+        ."🌌 Tonight you may also see an incredible star-filled sky.\n\n"
+        ."Enjoy your evening in the desert!\n\n"
+        .'— Jahongir Travel',
+
+    'next_morning_feedback' => "Good morning {name}! ☀️\n\n"
+        ."We hope you enjoyed your evening at the yurt camp.\n\n"
+        ."We'd love to know:\n\n"
+        ."What has been your favorite part of the experience so far?\n\n"
+        ."🐪 Camel ride\n"
+        ."🌅 Sunset\n"
+        ."🌌 Stargazing\n"
+        ."🏕 Yurt camp\n"
+        ."🌊 Aydarkul Lake\n\n"
+        ."Or something else?\n\n"
+        ."Your feedback helps us improve future tours.\n\n"
+        .'— Jahongir Travel',
+];
+
 return [
     'packing_lists' => [
         'yurt-camp-tour' => [
@@ -77,19 +119,11 @@ return [
         // the same physical experience).
         'yurt-camp-tour' => [
             'day_count' => 2,
-            'messages' => [
-                'post_pickup_welcome' => "Hi {name}! 👋 Welcome aboard — your desert adventure has begun 🐪\n\nToday: Aydarkul Lake, camel ride, and a night under the stars at the yurt camp. Sit back and enjoy the drive 🚙",
-                'evening_sunset_tip'  => "Hi {name}! 🌅 Tonight, don't miss the sunset over Aydarkul — the colors are unreal. After dinner, walk a little away from the camp lights and look up: the stargazing here is some of the best in Uzbekistan ✨",
-                'next_morning_feedback' => "Good morning {name}! ☀️ Hope you slept well under the desert sky.\n\nWhat's been your favorite part so far? We'd love to hear 😊",
-            ],
+            'messages' => $yurtExperienceMessages,
         ],
         'bukhara-yurt-camp-samarkand' => [
             'day_count' => 2,
-            'messages' => [
-                'post_pickup_welcome' => "Hi {name}! 👋 Welcome aboard — your desert adventure has begun 🐪\n\nToday: Aydarkul Lake, camel ride, and a night under the stars at the yurt camp. Sit back and enjoy the drive 🚙",
-                'evening_sunset_tip'  => "Hi {name}! 🌅 Tonight, don't miss the sunset over Aydarkul — the colors are unreal. After dinner, walk a little away from the camp lights and look up: the stargazing here is some of the best in Uzbekistan ✨",
-                'next_morning_feedback' => "Good morning {name}! ☀️ Hope you slept well under the desert sky.\n\nWhat's been your favorite part so far? We'd love to hear 😊",
-            ],
+            'messages' => $yurtExperienceMessages,
         ],
     ],
 ];
