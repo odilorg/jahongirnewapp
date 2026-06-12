@@ -312,6 +312,13 @@ class BookingInquiryResource extends Resource
             Forms\Components\Section::make('Operations')
                 ->description('Tour dispatch — driver, guide, pickup details. Separate from the commercial status above.')
                 ->schema([
+                    // Phase 29 — per-booking master disable for the guest
+                    // experience touchpoints (welcome / sunset tip / feedback).
+                    Forms\Components\Toggle::make('experience_messages_opted_out')
+                        ->label('Disable guest experience messages')
+                        ->helperText('When on, the automated welcome / sunset / feedback WhatsApp messages will not be sent for this booking.')
+                        ->inline(false),
+
                     // Driver / Guide pull from the normalised drivers/guides
                     // catalog tables. createOptionForm lets operators add a
                     // new supplier inline without leaving the inquiry detail.
@@ -2296,6 +2303,7 @@ class BookingInquiryResource extends Resource
     {
         return [
             BookingInquiryResource\RelationManagers\GuestPaymentsRelationManager::class,
+            BookingInquiryResource\RelationManagers\ExperienceMessagesRelationManager::class,
         ];
     }
 }

@@ -60,4 +60,36 @@ return [
     // without a redeploy if an OTA compliance concern surfaces; the WhatsApp
     // path and the no-contact operator alert are unaffected.
     'email_fallback_enabled' => (bool) env('TOUR_REMINDER_EMAIL_FALLBACK', true),
+
+    // Phase 29 — guest experience message catalog.
+    //
+    // A tour_slug present here is OPTED IN to timed guest-care touchpoints.
+    // Tours absent here receive none — this is the applicability gate (we do
+    // NOT rely on tour_products.duration_days, which is mis-tagged for several
+    // multi-day tours). Each slug declares its own day count so day-2+
+    // messages are timed correctly regardless of the catalog column.
+    //
+    // 'messages' bodies are WhatsApp markup (*bold*, emoji, bare URLs); they
+    // are sent verbatim over WhatsApp and converted to HTML if ever emailed.
+    // {name} is replaced with the guest's first name at send time.
+    'experience_messages' => [
+        // 2-day overnight desert/yurt tours (both catalogue entries map to
+        // the same physical experience).
+        'yurt-camp-tour' => [
+            'day_count' => 2,
+            'messages' => [
+                'post_pickup_welcome' => "Hi {name}! 👋 Welcome aboard — your desert adventure has begun 🐪\n\nToday: Aydarkul Lake, camel ride, and a night under the stars at the yurt camp. Sit back and enjoy the drive 🚙",
+                'evening_sunset_tip'  => "Hi {name}! 🌅 Tonight, don't miss the sunset over Aydarkul — the colors are unreal. After dinner, walk a little away from the camp lights and look up: the stargazing here is some of the best in Uzbekistan ✨",
+                'next_morning_feedback' => "Good morning {name}! ☀️ Hope you slept well under the desert sky.\n\nWhat's been your favorite part so far? We'd love to hear 😊",
+            ],
+        ],
+        'bukhara-yurt-camp-samarkand' => [
+            'day_count' => 2,
+            'messages' => [
+                'post_pickup_welcome' => "Hi {name}! 👋 Welcome aboard — your desert adventure has begun 🐪\n\nToday: Aydarkul Lake, camel ride, and a night under the stars at the yurt camp. Sit back and enjoy the drive 🚙",
+                'evening_sunset_tip'  => "Hi {name}! 🌅 Tonight, don't miss the sunset over Aydarkul — the colors are unreal. After dinner, walk a little away from the camp lights and look up: the stargazing here is some of the best in Uzbekistan ✨",
+                'next_morning_feedback' => "Good morning {name}! ☀️ Hope you slept well under the desert sky.\n\nWhat's been your favorite part so far? We'd love to hear 😊",
+            ],
+        ],
+    ],
 ];

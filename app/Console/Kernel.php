@@ -144,6 +144,15 @@ class Kernel extends ConsoleKernel
             ->withoutOverlapping()
             ->runInBackground();
 
+        // Phase 29 — guest experience touchpoints (welcome / sunset tip /
+        // feedback). Every 5 min; the dispatcher's compare-and-swap makes
+        // re-runs safe. No-op until config('guest_experience.enabled').
+        $schedule->command('guest-experience:send-due')
+            ->everyFiveMinutes()
+            ->timezone('Asia/Tashkent')
+            ->withoutOverlapping(10)
+            ->runInBackground();
+
         // BOTH post-tour review systems are now MANUAL-ONLY (2026-05-07).
         //
         // Phase 1.7.0 / 2026-05-05 made the public TripAdvisor reminder
