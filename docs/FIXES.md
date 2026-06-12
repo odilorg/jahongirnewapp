@@ -37,7 +37,7 @@ suppress, invalid-email) + 4 unit (markup→HTML). All green.
 **Migration:** `2026_06_11_120000_widen_tour_reminder_logs_phone_for_email`
 (additive, reversible). DB backup before deploy.
 
-**Commit:** _(pending deploy)_
+**Commit:** `75915a7` (deployed 2026-06-12, 5/5 health). Verified live on INQ-2026-000021 — email sent, channel=email, idempotent.
 
 ---
 
