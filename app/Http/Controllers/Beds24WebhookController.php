@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Enums\CashTransactionSource;
 use App\Enums\TransactionCategory;
 use App\Enums\TransactionType;
+use App\Jobs\ForwardBeds24WebhookToHotelMgmtJob;
 use App\Jobs\FxSyncJob;
 use App\Jobs\ProcessBeds24WebhookJob;
 use App\Jobs\SendTelegramNotificationJob;
@@ -98,7 +99,30 @@ class Beds24WebhookController extends Controller
         // Dispatch async processing, passing the durable inbox record ID
         ProcessBeds24WebhookJob::dispatch($event->id, $incomingWebhook->id);
 
+        // Confirmed duplicates already returned 200 above and are not
+        // re-forwarded (hotel-mgmt dedups anyway).
+        $this->dispatchHotelMgmtFanout($incomingWebhook->id);
+
         return response('OK', 200);
+    }
+
+    /**
+     * Fan out a copy of the webhook to hotel-mgmt (PMS discovery) — best-effort,
+     * async, on its own 'fanout' queue. Wrapped in try/catch so a queue-driver
+     * failure (or QUEUE_CONNECTION=sync) can never break the 200 ack or the
+     * critical Beds24 pipeline.
+     */
+    private function dispatchHotelMgmtFanout(int $incomingWebhookId): void
+    {
+        if (! config('services.hotel_mgmt.fanout_enabled', false)) {
+            return;
+        }
+
+        try {
+            ForwardBeds24WebhookToHotelMgmtJob::dispatch($incomingWebhookId);
+        } catch (\Throwable $e) {
+            Log::warning('Beds24 hotel-mgmt fan-out dispatch failed', ['error' => $e->getMessage()]);
+        }
     }
 
     /**
