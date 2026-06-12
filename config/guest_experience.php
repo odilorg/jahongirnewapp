@@ -28,4 +28,17 @@ return [
     // A pending message more than this many minutes past its due_at is skipped
     // rather than sent late (a "welcome" a day after pickup is worse than none).
     'max_lateness_minutes' => (int) env('GUEST_EXPERIENCE_MAX_LATENESS_MINUTES', 720),
+
+    // Sunset-tip timing. Desert sunset at Aydarkul swings ~17:15 (Dec) to
+    // ~20:00 (Jun), so a fixed clock time would be wrong half the year. The
+    // sunset_tip message fires `minutes_before` minutes ahead of the real
+    // sunset for these coordinates on the tour's day-1 date (computed via
+    // PHP date_sun_info — no external API). `fallback_time` is used only if
+    // the sun calculation fails.
+    'sunset' => [
+        'lat' => (float) env('GUEST_EXPERIENCE_SUNSET_LAT', 40.70),   // Aydarkul yurt camps
+        'lng' => (float) env('GUEST_EXPERIENCE_SUNSET_LNG', 65.60),
+        'minutes_before' => (int) env('GUEST_EXPERIENCE_SUNSET_MINUTES_BEFORE', 40),
+        'fallback_time' => env('GUEST_EXPERIENCE_SUNSET_FALLBACK', '18:30'),
+    ],
 ];

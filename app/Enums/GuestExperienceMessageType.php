@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Enums;
 
+use Carbon\Carbon;
 use Carbon\CarbonInterface;
 
 /**
@@ -33,9 +34,37 @@ enum GuestExperienceMessageType: string
     {
         return match ($this) {
             self::PostPickupWelcome => $departure->copy()->addHour(),
-            self::EveningSunsetTip => self::localTimeOnDay($departure, dayIndex: 1, hour: 18, minute: 30),
+            self::EveningSunsetTip => self::sunsetTipTime($departure),
             self::NextMorningFeedback => self::localTimeOnDay($departure, dayIndex: 2, hour: 8, minute: 30),
         };
+    }
+
+    /**
+     * Day-1 sunset minus the configured lead time, computed from the real
+     * sunset for the tour's coordinates on that date (PHP date_sun_info,
+     * no external API). Falls back to a fixed clock time only if the sun
+     * calculation is unavailable for the location/date.
+     */
+    private static function sunsetTipTime(CarbonInterface $departure): CarbonInterface
+    {
+        $cfg = config('guest_experience.sunset');
+        $day1 = $departure->copy()->startOfDay();
+
+        // date_sun_info wants any timestamp on the target day. Use local noon.
+        $noon = $day1->copy()->setTime(12, 0);
+        $info = date_sun_info($noon->getTimestamp(), (float) $cfg['lat'], (float) $cfg['lng']);
+
+        // sunset is a UTC unix timestamp, or false/bool for polar edge cases
+        // (never in Uzbekistan, but guard anyway).
+        if (is_array($info) && is_int($info['sunset'] ?? null)) {
+            return Carbon::createFromTimestampUTC($info['sunset'])
+                ->setTimezone($departure->getTimezone())
+                ->subMinutes((int) $cfg['minutes_before']);
+        }
+
+        [$h, $m] = array_map('intval', explode(':', (string) $cfg['fallback_time']));
+
+        return $day1->copy()->setTime($h, $m);
     }
 
     /**

@@ -6,7 +6,7 @@ namespace Tests\Unit;
 
 use App\Enums\GuestExperienceMessageType;
 use Carbon\Carbon;
-use PHPUnit\Framework\TestCase;
+use Tests\TestCase;
 
 /**
  * The due-time computation is the riskiest logic in the engine — these
@@ -40,11 +40,45 @@ class GuestExperienceTimingTest extends TestCase
     }
 
     /** @test */
-    public function sunset_tip_is_day_one_at_1830_regardless_of_pickup(): void
+    public function sunset_tip_fires_a_fixed_lead_before_real_sunset(): void
     {
-        $due = GuestExperienceMessageType::EveningSunsetTip->dueAt($this->departure('2026-07-01 07:30'));
+        config(['guest_experience.sunset' => [
+            'lat' => 40.70, 'lng' => 65.60, 'minutes_before' => 40, 'fallback_time' => '18:30',
+        ]]);
 
-        $this->assertSame('2026-07-01 18:30', $due->format('Y-m-d H:i'));
+        $departure = $this->departure('2026-07-01 07:30');
+        $due = GuestExperienceMessageType::EveningSunsetTip->dueAt($departure);
+
+        // Independently compute the expected: real sunset for these coords on
+        // day 1, minus 40 min, in Tashkent.
+        $noon = $departure->copy()->startOfDay()->setTime(12, 0);
+        $info = date_sun_info($noon->getTimestamp(), 40.70, 65.60);
+        $expected = Carbon::createFromTimestampUTC($info['sunset'])
+            ->setTimezone('Asia/Tashkent')
+            ->subMinutes(40);
+
+        $this->assertSame($expected->format('Y-m-d H:i'), $due->format('Y-m-d H:i'));
+        // Sanity: a July Aydarkul sunset-minus-40 lands in the evening.
+        $this->assertSame('2026-07-01', $due->format('Y-m-d'));
+        $this->assertGreaterThanOrEqual(18, (int) $due->format('H'));
+    }
+
+    /** @test */
+    public function sunset_tip_shifts_earlier_in_winter_than_summer(): void
+    {
+        config(['guest_experience.sunset' => [
+            'lat' => 40.70, 'lng' => 65.60, 'minutes_before' => 40, 'fallback_time' => '18:30',
+        ]]);
+
+        $summer = GuestExperienceMessageType::EveningSunsetTip->dueAt($this->departure('2026-06-21 09:00'));
+        $winter = GuestExperienceMessageType::EveningSunsetTip->dueAt($this->departure('2026-12-21 09:00'));
+
+        // Winter sunset is materially earlier than summer — proves it tracks
+        // the date rather than a fixed clock time.
+        $this->assertTrue(
+            (int) $winter->format('Hi') < (int) $summer->format('Hi') - 100,
+            "winter ({$winter->format('H:i')}) should be well before summer ({$summer->format('H:i')})",
+        );
     }
 
     /** @test */
