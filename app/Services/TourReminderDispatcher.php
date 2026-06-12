@@ -5,11 +5,14 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Console\Commands\TourSendReminders;
+use App\Mail\TourGuestReminderMail;
 use App\Models\BookingInquiry;
 use App\Services\Messaging\WhatsAppSender;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
+use Throwable;
 
 /**
  * Dispatcher for per-inquiry guest tour reminders.
@@ -25,6 +28,18 @@ use Illuminate\Support\Facades\Log;
  *     3. On-confirm fast path  (SendTourReminderJob, dispatched
  *        afterCommit by ConfirmBookingAction when travel is within 24h)
  *
+ * Channels (Phase 28)
+ *   - WhatsApp when the booking has a usable phone (default for direct /
+ *     website / WA bookings).
+ *   - Email fallback when there is no phone but a valid email — typical
+ *     for OTA bookings (GYG / Viator) whose guest phone is never shared.
+ *     Gated by config('tour_experience.email_fallback_enabled').
+ *   - Neither → a one-shot operator Telegram alert, then the booking is
+ *     marked SUPPRESSED so it does not re-alert every run.
+ *   Channel selection happens ONCE, before the row lock; the booking-level
+ *   idempotency guard below is channel-agnostic, so a booking receives at
+ *   most one reminder total — never both WhatsApp and email.
+ *
  * Idempotency contract (Phase 27 — robust anti-duplicate)
  *   - `guest_reminder_sent_at` is the primary audit field for "sent".
  *   - `guest_reminder_status` tracks the state machine:
@@ -34,8 +49,8 @@ use Illuminate\Support\Facades\Log;
  *     send attempts — whichever wins the lock stamps "sending" first;
  *     the loser sees the stamp and no-ops.
  *   - An idempotency key (deterministic, not random) is stamped before
- *     the HTTP call so a PHP crash mid-HTTP does not lose the fact that
- *     a send was attempted.
+ *     the send so a PHP crash mid-send does not lose the fact that a
+ *     send was attempted.
  *   - Timeout / connection errors mark status "unknown" (not "failed").
  *     "unknown" blocks automatic retry for 4 hours. After 2 unknown/failed
  *     attempts the system suppresses further automatic sends and logs a
@@ -52,6 +67,7 @@ class TourReminderDispatcher
 {
     public function __construct(
         private readonly WhatsAppSender $whatsApp,
+        private readonly OwnerAlertService $ownerAlert,
     ) {}
 
     /**
@@ -75,16 +91,20 @@ class TourReminderDispatcher
     }
 
     /**
-     * Send the WhatsApp guest reminder for one inquiry.
+     * Send the guest tour reminder for one inquiry (WhatsApp or email).
      *
      * This is the SINGLE entry point for all three reminder paths
      * (daily batch, hourly catch-up, on-confirm fast path). Every
      * path must go through this guard — no caller is allowed to
-     * contact WhatsAppSender directly for guest reminders.
+     * contact WhatsAppSender / Mail directly for guest reminders.
      *
      * Returns:
-     *   ['ok' => true,  'msg_id' => …, 'lead_time_minutes' => N]
-     *   ['ok' => false, 'reason' => 'already_sent'|'currently_sending'|'throttled'|'suppressed'|'not_confirmed'|'out_of_window'|'no_phone'|'no_departure_at'|'wa_failed'|'wa_timeout'|…]
+     *   ['ok' => true,  'channel' => 'whatsapp'|'email', 'lead_time_minutes' => N]
+     *   ['ok' => false, 'reason' => 'already_sent'|'currently_sending'|'throttled'
+     *                              |'suppressed'|'not_confirmed'|'out_of_window'
+     *                              |'no_contact'|'no_departure_at'
+     *                              |'wa_failed'|'wa_timeout'
+     *                              |'email_failed'|'email_unknown'|…]
      *
      * Never throws — failures are returned + logged so callers can
      * branch on outcome.
@@ -130,17 +150,22 @@ class TourReminderDispatcher
             return ['ok' => false, 'reason' => 'out_of_window'];
         }
 
-        // ── Fast-reject: no valid phone ─────────────────────────────────
-        $phone = $this->whatsApp->normalizePhone($inquiry->customer_phone);
-        if (! $phone) {
-            return ['ok' => false, 'reason' => 'no_phone'];
+        // ── Channel resolution (pure read, BEFORE the lock) ─────────────
+        // Phone wins; else valid email; else no_contact. Choosing the
+        // channel before the transaction keeps the lock body channel-
+        // agnostic and guarantees exactly one channel per booking.
+        [$channel, $recipient] = $this->resolveChannel($inquiry);
+        if ($channel === null) {
+            // Neither phone nor email — alert the operator once, then
+            // suppress so subsequent runs do not re-alert.
+            return $this->handleNoContact($inquiry, $source, $now);
         }
 
         // ═══════════════════════════════════════════════════════════════
         // Row-locked guard — serialises concurrent attempts
         // ═══════════════════════════════════════════════════════════════
 
-        $guardResult = DB::transaction(function () use ($inquiry, $source, $now) {
+        $guardResult = DB::transaction(function () use ($inquiry, $source, $now, $channel, $recipient, $minutesUntil) {
             // Lock the row for update — any concurrent dispatcher for
             // the same inquiry blocks here until we commit/rollback.
             $fresh = BookingInquiry::query()
@@ -231,7 +256,7 @@ class TourReminderDispatcher
                 return ['ok' => false, 'reason' => 'suppressed'];
             }
 
-            // ── Mark "sending" BEFORE the HTTP call ──────────────────
+            // ── Mark "sending" BEFORE the send ───────────────────────
             $idempotencyKey = $fresh->reminderIdempotencyKey();
 
             $fresh->forceFill([
@@ -246,17 +271,20 @@ class TourReminderDispatcher
                 'inquiry_id' => $fresh->id,
                 'reference' => $fresh->reference,
                 'source' => $source,
+                'channel' => $channel,
                 'attempt_number' => $attemptCount + 1,
                 'idempotency_key' => $idempotencyKey,
             ]);
 
-            // Return the phone and message data needed for the HTTP call
-            // (outside the transaction, so we don't hold the lock).
+            // Return the channel + recipient needed for the send
+            // (performed outside the transaction so we don't hold the lock).
             return [
                 'ok' => true,
                 'reason' => 'proceed',
-                'phone' => $phone,
+                'channel' => $channel,
+                'recipient' => $recipient,
                 'minutes_until' => $minutesUntil,
+                'attempt_number' => $attemptCount + 1,
             ];
         });
 
@@ -266,23 +294,26 @@ class TourReminderDispatcher
         }
 
         // ═══════════════════════════════════════════════════════════════
-        // HTTP call — OUTSIDE the transaction
+        // Send — OUTSIDE the transaction
         // ═══════════════════════════════════════════════════════════════
 
         // Build the rich guest message (packing list, weather, pickup,
-        // contact block) by delegating to the Console command's builder.
-        $command = app(TourSendReminders::class);
-        $message = $this->buildMessageViaCommand($command, $inquiry, $departure);
+        // contact block) once — shared verbatim by both channels.
+        $message = $this->buildMessageViaCommand(app(TourSendReminders::class), $inquiry, $departure);
 
-        $result = $this->whatsApp->send($phone, $message);
+        // [bool $success, ?string $error, bool $isTransient]
+        [$success, $errorMsg, $isTransient] = match ($channel) {
+            'email'  => $this->sendViaEmail($recipient, $inquiry, $message),
+            default  => $this->sendViaWhatsApp($recipient, $message),
+        };
 
         // Always log to tour_reminder_logs for audit trail.
         DB::table('tour_reminder_logs')->insert([
             'booking_inquiry_id' => $inquiry->id,
-            'channel' => 'whatsapp',
-            'phone' => $phone,
-            'status' => $result->success ? 'sent' : 'failed',
-            'error_message' => $result->success ? null : $result->error,
+            'channel' => $channel,
+            'phone' => $recipient, // holds phone OR email (col widened in Phase 28)
+            'status' => $success ? 'sent' : 'failed',
+            'error_message' => $success ? null : $errorMsg,
             'scheduled_for_date' => $inquiry->travel_date?->format('Y-m-d'),
             'reminded_at' => now(),
             'created_at' => now(),
@@ -293,8 +324,8 @@ class TourReminderDispatcher
         // Post-send state update (no lock needed — sent_at/stamp wins)
         // ═══════════════════════════════════════════════════════════════
 
-        if ($result->success) {
-            // ── Confirmed success ────────────────────────────────────
+        if ($success) {
+            // ── Confirmed success — the single exactly-once close ────
             $inquiry->forceFill([
                 'guest_reminder_status' => BookingInquiry::REMINDER_STATUS_SENT,
                 'guest_reminder_sent_at' => now(),
@@ -305,60 +336,183 @@ class TourReminderDispatcher
                 'inquiry_id' => $inquiry->id,
                 'reference' => $inquiry->reference,
                 'source' => $source,
+                'channel' => $channel,
                 'lead_time_minutes' => $minutesUntil,
                 'attempt_number' => $guardResult['attempt_number'] ?? null,
             ]);
 
             return [
                 'ok' => true,
-                'msg_id' => null,
+                'channel' => $channel,
                 'lead_time_minutes' => $minutesUntil,
             ];
         }
 
-        // ── Failure: classify timeout vs clear failure ────────────────
-        $errorMsg = $result->error ?? 'unknown error';
-        $isTimeout = str_contains(strtolower($errorMsg), 'timeout')
-            || str_contains(strtolower($errorMsg), 'timed out')
-            || str_contains(strtolower($errorMsg), 'connection');
+        $errorMsg ??= 'unknown error';
 
-        if ($isTimeout) {
-            // Timeout → "unknown": the wa-api may or may not have
-            // delivered the message. We MUST NOT keep retrying.
+        if ($isTransient) {
+            // Transient (timeout / connection / both mailers down) →
+            // "unknown": the message may or may not have been delivered.
+            // We MUST NOT keep retrying.
             $inquiry->forceFill([
                 'guest_reminder_status' => BookingInquiry::REMINDER_STATUS_UNKNOWN,
                 'guest_reminder_last_error' => $errorMsg,
                 // DO NOT clear last_attempted_at — it is the throttle anchor.
             ])->save();
 
-            Log::warning('TourReminderDispatcher: WhatsApp timeout — status set to UNKNOWN, MANUAL REVIEW REQUIRED', [
+            Log::warning('TourReminderDispatcher: transient send error — status UNKNOWN, MANUAL REVIEW REQUIRED', [
                 'inquiry_id' => $inquiry->id,
                 'reference' => $inquiry->reference,
                 'source' => $source,
+                'channel' => $channel,
                 'error' => $errorMsg,
                 'attempt_number' => $guardResult['attempt_number'] ?? null,
                 'guest_name' => $inquiry->customer_name,
-                'customer_phone' => $inquiry->customer_phone,
             ]);
 
-            return ['ok' => false, 'reason' => 'wa_timeout', 'error' => $errorMsg];
+            return ['ok' => false, 'reason' => $channel === 'email' ? 'email_unknown' : 'wa_timeout', 'error' => $errorMsg];
         }
 
-        // Clear failure — not a timeout, wa-api definitely rejected.
+        // Clear failure — the channel definitively rejected the send.
         $inquiry->forceFill([
             'guest_reminder_status' => BookingInquiry::REMINDER_STATUS_FAILED,
             'guest_reminder_last_error' => $errorMsg,
         ])->save();
 
-        Log::warning('TourReminderDispatcher: WhatsApp send failed', [
+        Log::warning('TourReminderDispatcher: send failed', [
             'inquiry_id' => $inquiry->id,
             'reference' => $inquiry->reference,
             'source' => $source,
+            'channel' => $channel,
             'error' => $errorMsg,
             'attempt_number' => $guardResult['attempt_number'] ?? null,
         ]);
 
-        return ['ok' => false, 'reason' => 'wa_failed', 'error' => $errorMsg];
+        return ['ok' => false, 'reason' => $channel === 'email' ? 'email_failed' : 'wa_failed', 'error' => $errorMsg];
+    }
+
+    /**
+     * Pick the delivery channel for this inquiry.
+     *
+     * @return array{0: 'whatsapp'|'email'|null, 1: ?string}
+     *         [channel, recipient] — recipient is the normalized phone or
+     *         the validated email; [null, null] when no contact is usable.
+     */
+    private function resolveChannel(BookingInquiry $inquiry): array
+    {
+        $phone = $this->whatsApp->normalizePhone($inquiry->customer_phone);
+        if ($phone) {
+            return ['whatsapp', $phone];
+        }
+
+        if (config('tour_experience.email_fallback_enabled')) {
+            $email = BookingInquiry::normalizeEmail($inquiry->customer_email);
+            if ($email !== null && filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                return ['email', $email];
+            }
+        }
+
+        return [null, null];
+    }
+
+    /**
+     * Send the reminder over WhatsApp.
+     *
+     * @return array{0: bool, 1: ?string, 2: bool} [success, error, isTransient]
+     */
+    private function sendViaWhatsApp(string $phone, string $message): array
+    {
+        $result = $this->whatsApp->send($phone, $message);
+
+        if ($result->success) {
+            return [true, null, false];
+        }
+
+        $error = $result->error ?? 'unknown error';
+        $lower = strtolower($error);
+        $isTransient = str_contains($lower, 'timeout')
+            || str_contains($lower, 'timed out')
+            || str_contains($lower, 'connection');
+
+        return [false, $error, $isTransient];
+    }
+
+    /**
+     * Send the reminder over email (OTA fallback).
+     *
+     * Success = an SMTP server (Zoho primary, Resend fallback) ACCEPTED the
+     * message. We cannot observe an async bounce from an OTA relay, so an
+     * accepted-but-later-bounced email is recorded as sent (documented
+     * residual risk; bounce parsing is a separate future ticket).
+     *
+     * @return array{0: bool, 1: ?string, 2: bool} [success, error, isTransient]
+     */
+    private function sendViaEmail(string $email, BookingInquiry $inquiry, string $message): array
+    {
+        try {
+            Mail::to($email)->send(new TourGuestReminderMail(
+                reference: (string) ($inquiry->reference ?? 'Booking'),
+                bodyText: $message,
+            ));
+
+            return [true, null, false];
+        } catch (Throwable $e) {
+            $error = $e->getMessage();
+            $lower = strtolower($error);
+            // Transport/connection/timeout (e.g. both mailers down) = retry-able.
+            // Anything else (malformed address, RFC reject) = hard failure.
+            $isTransient = str_contains($lower, 'timeout')
+                || str_contains($lower, 'timed out')
+                || str_contains($lower, 'connection')
+                || str_contains($lower, 'could not')
+                || str_contains($lower, 'temporarily');
+
+            return [false, $error, $isTransient];
+        }
+    }
+
+    /**
+     * No usable phone or email. Alert the operator once via Telegram, then
+     * mark the booking SUPPRESSED so the daily + hourly runs do not re-alert.
+     */
+    private function handleNoContact(BookingInquiry $inquiry, string $source, Carbon $now): array
+    {
+        try {
+            $this->ownerAlert->sendOpsAlert(implode("\n", [
+                '⚠️ <b>Guest reminder — no contact</b>',
+                '',
+                "Booking: <b>{$inquiry->reference}</b>",
+                'Guest: '.($inquiry->customer_name ?: '—'),
+                'Tour: '.($inquiry->tour_name_snapshot ?: '—'),
+                'Departure: '.($inquiry->travel_date?->format('D, d M Y') ?: '—'),
+                '',
+                'No phone and no email — send the pre-tour reminder manually'
+                .' (e.g. via the OTA platform). This alert fires once.',
+                url('/admin/booking-inquiries/'.$inquiry->id.'/edit'),
+            ]));
+        } catch (Throwable $e) {
+            Log::warning('TourReminderDispatcher: no-contact ops alert failed', [
+                'inquiry_id' => $inquiry->id,
+                'reference' => $inquiry->reference,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
+        // Suppress to prevent repeat alerts. Idempotent: a row already
+        // suppressed is skipped at the top by the status fast-paths.
+        $inquiry->forceFill([
+            'guest_reminder_status' => BookingInquiry::REMINDER_STATUS_SUPPRESSED,
+            'guest_reminder_last_error' => 'no_contact — no phone or email; operator alerted',
+            'guest_reminder_last_attempted_at' => $now,
+        ])->save();
+
+        Log::warning('TourReminderDispatcher: no contact — operator alerted, booking suppressed', [
+            'inquiry_id' => $inquiry->id,
+            'reference' => $inquiry->reference,
+            'source' => $source,
+        ]);
+
+        return ['ok' => false, 'reason' => 'no_contact'];
     }
 
     /**

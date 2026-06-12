@@ -375,15 +375,22 @@ class TourReminderDispatcherTest extends TestCase
         $this->assertNull($inquiry->fresh()->guest_reminder_sent_at);
     }
 
-    public function test_no_phone_skipped(): void
+    public function test_no_phone_no_email_is_no_contact(): void
     {
-        $inquiry = $this->makeInquiry(['customer_phone' => '']);
+        // Phase 28: no phone AND no email → no_contact (operator alerted,
+        // booking suppressed). The makeInquiry helper sets no email.
+        \Illuminate\Support\Facades\Bus::fake();
+        $inquiry = $this->makeInquiry(['customer_phone' => '', 'customer_email' => null]);
         $this->bindWaSuccess(expectedCalls: 0);
 
         $result = $this->dispatcher()->sendGuestReminder($inquiry, source: 'test');
 
         $this->assertFalse($result['ok']);
-        $this->assertEquals('no_phone', $result['reason']);
+        $this->assertEquals('no_contact', $result['reason']);
+        $this->assertEquals(
+            BookingInquiry::REMINDER_STATUS_SUPPRESSED,
+            $inquiry->fresh()->guest_reminder_status,
+        );
     }
 
     // ── Fast-path job still delegates to dispatcher ───────────────────────

@@ -14,6 +14,52 @@ Newest entries at top.
 
 ---
 
+## 2026-06-11 — Guest tour reminder: email fallback for OTA bookings (feature)
+
+**Context:** GYG/Viator bookings arrive with no guest phone but a working
+relay email. The guest WhatsApp reminder hit a `no_phone` dead-end and the
+guest got no pre-tour message (e.g. INQ-2026-000021, Volker Plum, GYG).
+
+**Change:** `TourReminderDispatcher::sendGuestReminder()` now resolves a
+channel before the row lock: phone → WhatsApp (unchanged); no phone + valid
+email → **email** (same content, HTML-rendered); neither → one-shot operator
+Telegram alert then SUPPRESSED (no re-alert). Channel choice happens once,
+outside the lock, so the booking-level idempotency guard still guarantees
+exactly one reminder total — never both channels. New `TourGuestReminderMail`
++ `emails.tour-guest-reminder` blade + `WhatsAppMarkupToHtml` helper. Migration
+widens `tour_reminder_logs.phone` (30→190) to hold relay emails. Gated by
+`tour_experience.email_fallback_enabled` (default true). Email `sent` = SMTP
+accepted (async OTA-relay bounces not detected — documented residual risk).
+
+**Tests:** 5 feature (OTA email send, exactly-once, flag-off, no-contact
+suppress, invalid-email) + 4 unit (markup→HTML). All green.
+
+**Migration:** `2026_06_11_120000_widen_tour_reminder_logs_phone_for_email`
+(additive, reversible). DB backup before deploy.
+
+**Commit:** _(pending deploy)_
+
+---
+
+## 2026-06-11 — Guest reminder WA messages silently broken (undefined $phone)
+
+**Symptom:** Guest WhatsApp reminders stopped sending. Daily 20:00 batch and
+hourly catch-up both crashed. INQ-2026-000156 (Man Shuk Fan, pickup
+2026-06-12 09:00) had no reminder at 23:40 local.
+
+**Root cause:** `TourReminderDispatcher::sendGuestReminder()` — the
+`DB::transaction` closure referenced `$phone` and `$minutesUntil` but neither
+was captured in the `use` clause. `Undefined variable $phone` threw on every
+dispatch.
+
+**Fix:** Added the missing captures (superseded by the channel refactor in
+the entry above, which rewrites that closure). Manually dispatched the late
+reminder for INQ-2026-000156 — sent at 23:42 local (527 min before pickup).
+
+**Commit:** `c493284` (deployed to prod same night).
+
+---
+
 ## 2026-05-20 — Turfirma create rejected for upstream records without bank info
 
 **Symptom:** With the auto-fetch relay live, creating a contract for TIN

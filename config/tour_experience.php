@@ -51,4 +51,13 @@ return [
     ],
 
     'ops_whatsapp' => env('TOUR_OPS_WHATSAPP', '+998 91 555 08 08'),
+
+    // Phase 28 — guest reminder email fallback.
+    // When a confirmed booking within the 24h window has no usable phone
+    // but a valid email (typical for GYG/Viator OTA bookings whose guest
+    // phone is never shared), send the tour-details reminder by email
+    // instead of WhatsApp. Flag lets us disable the email channel instantly
+    // without a redeploy if an OTA compliance concern surfaces; the WhatsApp
+    // path and the no-contact operator alert are unaffected.
+    'email_fallback_enabled' => (bool) env('TOUR_REMINDER_EMAIL_FALLBACK', true),
 ];
