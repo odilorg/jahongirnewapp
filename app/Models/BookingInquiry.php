@@ -253,6 +253,7 @@ class BookingInquiry extends Model
         'has_accessibility_flag',
         'has_language_flag',
         'has_occasion_flag',
+        'experience_messages_opted_out',
         'prep_status',
         'status',
         'confirmation_source',
@@ -281,6 +282,7 @@ class BookingInquiry extends Model
         'has_accessibility_flag' => 'boolean',
         'has_language_flag' => 'boolean',
         'has_occasion_flag' => 'boolean',
+        'experience_messages_opted_out' => 'boolean',
         'price_quoted' => 'decimal:2',
         'payment_link_sent_at' => 'datetime',
         'paid_at' => 'datetime',
@@ -440,6 +442,12 @@ class BookingInquiry extends Model
     public function tourProduct(): BelongsTo
     {
         return $this->belongsTo(TourProduct::class);
+    }
+
+    /** Phase 29 — timed guest experience touchpoints for this booking. */
+    public function experienceMessages(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(GuestExperienceMessage::class);
     }
 
     /**

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Actions\Inquiry;
 
+use App\Actions\GuestExperience\MaterializeExperienceMessages;
 use App\Jobs\SendTourReminderJob;
 use App\Models\BookingInquiry;
 use App\Services\TourReminderDispatcher;
@@ -83,6 +84,12 @@ class ConfirmBookingAction
         // before this DB transaction commits and re-fetch a stale row.
         $this->maybeDispatchFastPathReminder($inquiry);
 
+        // Phase 29: pre-create the guest experience touchpoints (welcome /
+        // sunset tip / feedback) for catalogued multi-day tours. No-op when
+        // the engine is disabled, the booking opted out, or the tour is not
+        // catalogued. Never fails the confirm.
+        $this->materializeExperienceMessages($inquiry);
+
         return $inquiry;
     }
 
@@ -129,6 +136,23 @@ class ConfirmBookingAction
             // Never let queue dispatch failure rollback the confirm.
             // The hourly cron will pick this up within ~1 hour.
             Log::warning('ConfirmBookingAction: fast-path dispatch failed; cron will catch up', [
+                'inquiry_id' => $inquiry->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * Materialize the guest experience touchpoints. Best-effort: a failure
+     * here must never roll back the confirm — the backfill command is the
+     * safety net.
+     */
+    private function materializeExperienceMessages(BookingInquiry $inquiry): void
+    {
+        try {
+            app(MaterializeExperienceMessages::class)->handle($inquiry);
+        } catch (\Throwable $e) {
+            Log::warning('ConfirmBookingAction: experience materialization failed; backfill will catch up', [
                 'inquiry_id' => $inquiry->id,
                 'error' => $e->getMessage(),
             ]);
