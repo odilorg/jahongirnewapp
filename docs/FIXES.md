@@ -14,6 +14,49 @@ Newest entries at top.
 
 ---
 
+## 2026-06-12 — tour_products.duration_days corrected for 3 mis-tagged tours
+
+**Symptom:** Several multi-day tours were stored as `duration_days = 1`,
+which makes the operator calendar's "active today" span (travel_date +
+duration_days − 1) and the website-inquiry duration chip wrong — a 2/4-day
+tour collapses to a single day.
+
+**Fix:** Corrected 3 rows (backup
+`/var/backups/databases/daily/jahongir_tour_products_pre-duration-fix_20260612_205900.sql.gz`):
+- id 6 `bukhara-nuratau-4d-3n`: 1 → 4 (nights 3)
+- id 7 `bukhara-yurt-camp-samarkand`: 1 → 2 (nights 1) — the audit's
+  title-regex missed this one (no number in "Bukhara Yurt Camp tour");
+  caught manually. It's the tour INQ-2026-000156 is on.
+- id 15 `nuratau-homestay-4-days`: 1 → 4 (nights 3)
+
+`duration_nights` re-derived to `duration_days − 1`. New read-only
+`tour-products:duration-audit` command added to flag future mismatches
+(reports only, never mutates). Re-run after the fix: clean.
+
+**Note:** the guest experience engine does NOT depend on this column (it
+is catalog-driven); this corrects the calendar/chip features that do.
+
+**Rollback:** restore the tour_products dump above, or set ids 6/7/15
+back to duration_days=1.
+
+---
+
+## 2026-06-12 — deploy-safety rule: always deploy origin/main HEAD
+
+**Incident:** A Beds24 fan-out deploy of an *isolated* commit (`fda5216`)
+ran `git reset --hard` on prod and silently rolled back the guest-experience
+engine (`5be6822`) deployed 6 minutes earlier — both had branched off the
+same parent, so each was a sibling that excluded the other's work. DB
+migrations survived; the code regressed (config file gone → feature flag
+read NULL). Resolved by deploying the merge `97ed049` which contains both.
+
+**Rule added to CLAUDE.md:** always deploy the current `origin/main` HEAD,
+never an isolated feature commit. If a commit must be isolated, merge
+`origin/main` into it first so the deploy SHA contains everyone's shipped
+work.
+
+---
+
 ## 2026-06-11 — Guest tour reminder: email fallback for OTA bookings (feature)
 
 **Context:** GYG/Viator bookings arrive with no guest phone but a working
