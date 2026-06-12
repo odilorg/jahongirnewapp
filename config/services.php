@@ -90,6 +90,20 @@ return [
         ),
     ],
 
+    // Fan-out of incoming Beds24 webhooks to the hotel-mgmt PMS discovery
+    // receiver. We own the only Beds24 dashboard webhook URL, so hotel-mgmt
+    // gets its copy by us forwarding it. Best-effort, async, idempotent
+    // downstream (hotel-mgmt dedups by payload hash). Default OFF — enabled
+    // only via .env on the Jahongir VPS.
+    'hotel_mgmt' => [
+        'fanout_enabled' => (bool) env('HOTEL_MGMT_FANOUT_ENABLED', false),
+        'webhook_url' => env('HOTEL_MGMT_WEBHOOK_URL'),
+        // Kept low so that, in the unlikely event a context runs
+        // QUEUE_CONNECTION=sync (inline dispatch), worst-case added latency to
+        // the Beds24 200 ack stays well under Beds24's webhook timeout.
+        'timeout' => (int) env('HOTEL_MGMT_FORWARD_TIMEOUT', 3),
+    ],
+
     'mailgun' => [
         'domain' => env('MAILGUN_DOMAIN'),
         'secret' => env('MAILGUN_SECRET'),
