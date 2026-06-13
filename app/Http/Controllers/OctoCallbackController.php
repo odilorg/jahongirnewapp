@@ -62,7 +62,7 @@ class OctoCallbackController extends Controller
             return response()->json(['error' => 'Booking not found'], 404);
         }
 
-        if ($status === 'success') {
+        if ($this->isSuccessStatus($status)) {
             $booking->payment_status = 'paid';
             $booking->save();
 
@@ -197,7 +197,7 @@ class OctoCallbackController extends Controller
             return response()->json(['status' => 'ok', 'note' => 'already_paid']);
         }
 
-        if ($status === 'success') {
+        if ($this->isSuccessStatus($status)) {
             // Guard 2: terminal-status check — don't silently revive a
             // cancelled or spam-marked inquiry. Store payment info for
             // the audit trail, then ping ops for human review.
@@ -464,5 +464,20 @@ class OctoCallbackController extends Controller
             : 'Payment status: ' . ucfirst($status);
 
         return view('payment.success', compact('message', 'status'));
+    }
+
+    /**
+     * Whether an Octo callback status means the payment succeeded.
+     *
+     * Production callbacks report a paid transaction as "succeeded"; older
+     * test fixtures and some legacy flows used "success". Both must route to
+     * the happy path — matching only "success" silently dropped every REAL
+     * payment into the failure branch (link wiped, status reverted, attempt
+     * marked failed) even though Octo had captured the money. Root cause of
+     * the 2026-06-13 stuck-payment incident (INQ-2026-000162 / 000163).
+     */
+    private function isSuccessStatus(?string $status): bool
+    {
+        return in_array(strtolower(trim((string) $status)), ['success', 'succeeded'], true);
     }
 }

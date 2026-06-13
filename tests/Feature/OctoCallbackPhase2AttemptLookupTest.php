@@ -89,7 +89,14 @@ class OctoCallbackPhase2AttemptLookupTest extends TestCase
         $this->assertCount(1, GuestPayment::where('booking_inquiry_id', $inquiry->id)->get());
     }
 
-    /** Payment failure: attempt stamped failed, inquiry stays awaiting_payment. */
+    /**
+     * Payment failure: attempt stamped failed; inquiry reverts to contacted.
+     *
+     * A terminal 'failed' callback triggers "Fix A" — the dead link is cleared
+     * and awaiting_payment reverts to contacted so the operator gets the
+     * "Generate & send" action back. (This assertion previously expected
+     * awaiting_payment, predating Fix A; corrected to match real behavior.)
+     */
     public function test_callback_stamps_attempt_failed_on_payment_failure(): void
     {
         $inquiry = $this->makeInquiry();
@@ -100,7 +107,7 @@ class OctoCallbackPhase2AttemptLookupTest extends TestCase
         $inquiry->refresh();
         $attempt->refresh();
 
-        $this->assertEquals(BookingInquiry::STATUS_AWAITING_PAYMENT, $inquiry->status);
+        $this->assertEquals(BookingInquiry::STATUS_CONTACTED, $inquiry->status);
         $this->assertEquals(OctoPaymentAttempt::STATUS_FAILED, $attempt->status);
         $this->assertCount(0, GuestPayment::where('booking_inquiry_id', $inquiry->id)->get());
     }
