@@ -14,6 +14,43 @@ Newest entries at top.
 
 ---
 
+## 2026-06-13 — Octo callback ignored real "succeeded" payments (stuck-payment incident)
+
+**Symptom:** Online card payments completed on Octo (money captured,
+"Succeeded" on the merchant dashboard) but the booking inquiry stayed
+`awaiting_payment` / `contacted` with the payment link wiped — every real
+payment needed manual reconciliation. Surfaced via INQ-2026-000162 (Alex)
+and INQ-2026-000163 (Franci, $100 deposit).
+
+**Root cause:** Octo's production success callback reports
+`status="succeeded"`. `OctoCallbackController` matched only
+`$status === 'success'` — the literal string our synthetic test fixtures
+used. Real `succeeded` callbacks fell into the `else`/failure branch, which
+for terminal statuses runs "Fix A": clears `payment_link`, reverts
+`awaiting_payment → contacted`, and stamps the `OctoPaymentAttempt` FAILED —
+while the money had already been captured. Tests passed because they only
+exercised the synthetic `'success'` string (no real-sample webhook coverage).
+
+**Fix:** Added `isSuccessStatus()` (accepts `success` + `succeeded`,
+`strtolower`+`trim`) used in both `handleInquiryCallback` and the legacy
+`handleBookingCallback`. Regression test using a sanitized REAL `succeeded`
+payload (asserts confirm + GuestPayment + link survives) + case-insensitivity
+guard. Corrected a stale Phase2 assertion (failed payment reverts to
+`contacted` via Fix A). 32 Octo callback tests green; deep code-review passed.
+
+**Note:** does NOT cover *lost* final callbacks (Octo never delivered
+`succeeded` for INQ-2026-000163 at all) — a follow-up `octo:reconcile-pending`
+poller is planned. Callback signature verification remains OFF
+(`OCTO_VERIFY_CALLBACK_SIGNATURE=false`) — separate hardening item.
+
+**DB touched:** none (code only).
+
+**Rollback:** revert commit 318ba69 and redeploy prior HEAD 56a6592.
+
+**Commit:** 318ba69
+
+---
+
 ## 2026-06-12 — tour_products.duration_days corrected for 3 mis-tagged tours
 
 **Symptom:** Several multi-day tours were stored as `duration_days = 1`,
