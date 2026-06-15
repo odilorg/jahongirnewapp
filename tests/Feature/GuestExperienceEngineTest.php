@@ -84,6 +84,28 @@ class GuestExperienceEngineTest extends TestCase
     }
 
     /** @test */
+    public function welcome_due_at_is_stored_in_app_timezone_not_utc(): void
+    {
+        // Regression for the 2026-06-15 incident: due_at was stored as UTC
+        // while the cron compares against now() in Asia/Samarkand (+5), so
+        // every message fired ~5h early (a 10:00 welcome went out at ~05:00).
+        // A fixed pickup at 09:00 → welcome at 10:00 LOCAL must read back as
+        // 10:00, never 05:00.
+        config(['app.timezone' => 'Asia/Samarkand']);
+
+        $travel = \Carbon\Carbon::now('Asia/Samarkand')->addDay()->toDateString();
+        $b = $this->makeBooking(['travel_date' => $travel, 'pickup_time' => '09:00:00']);
+        $this->materialize($b);
+
+        $welcome = $b->experienceMessages()->where('message_type', 'post_pickup_welcome')->first();
+
+        // due_at reads back through the datetime cast in app tz.
+        $this->assertSame('10:00', $welcome->due_at->format('H:i'),
+            'welcome must fire at pickup+1h local time, not 5h early');
+        $this->assertSame($travel, $welcome->due_at->toDateString());
+    }
+
+    /** @test */
     public function uncatalogued_tour_gets_no_messages(): void
     {
         $b = $this->makeBooking(['tour_slug' => 'samarkand-city-tour']);

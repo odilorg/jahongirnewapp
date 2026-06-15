@@ -68,18 +68,26 @@ class MaterializeExperienceMessages
                 ->where('message_type', $type->value)
                 ->first();
 
+            // Store due_at in the APP timezone (Asia/Samarkand), matching how
+            // Laravel reads timestamps back and how the cron's now() compares.
+            // The enum returns due times in Asia/Tashkent (same +5 offset); a
+            // ->utc() conversion here previously stored them 5h early, firing
+            // every message at ~04:00 local instead of its intended time
+            // (incident 2026-06-15: 04:30 welcome to a guest).
+            $dueLocal = $dueAt->copy()->setTimezone(config('app.timezone'));
+
             if ($existing === null) {
                 GuestExperienceMessage::create([
                     'booking_inquiry_id' => $inquiry->id,
                     'message_type' => $type->value,
                     'status' => GuestExperienceMessage::STATUS_PENDING,
-                    'due_at' => $dueAt->utc(),
+                    'due_at' => $dueLocal,
                 ]);
                 $created++;
             } elseif ($existing->status === GuestExperienceMessage::STATUS_PENDING) {
                 // Still pending → safe to re-time (e.g. travel_date changed).
                 // Never resurrect a sent/skipped/suppressed/failed row.
-                $existing->forceFill(['due_at' => $dueAt->utc()])->save();
+                $existing->forceFill(['due_at' => $dueLocal])->save();
                 $created++;
             }
         }
