@@ -82,11 +82,13 @@ class GuestExperienceTimingTest extends TestCase
     }
 
     /** @test */
-    public function feedback_is_day_two_at_0830(): void
+    public function feedback_is_day_two_at_0930(): void
     {
         $due = GuestExperienceMessageType::NextMorningFeedback->dueAt($this->departure('2026-07-01 09:00'));
 
-        $this->assertSame('2026-07-02 08:30', $due->format('Y-m-d H:i'));
+        // Day-2 09:30: late enough not to interrupt breakfast/packing, still
+        // early enough that the guest is "in the experience" (2026-06-15).
+        $this->assertSame('2026-07-02 09:30', $due->format('Y-m-d H:i'));
     }
 
     /** @test */

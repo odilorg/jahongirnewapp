@@ -35,7 +35,7 @@ enum GuestExperienceMessageType: string
         return match ($this) {
             self::PostPickupWelcome => $departure->copy()->addHour(),
             self::EveningSunsetTip => self::sunsetTipTime($departure),
-            self::NextMorningFeedback => self::localTimeOnDay($departure, dayIndex: 2, hour: 8, minute: 30),
+            self::NextMorningFeedback => self::localTimeOnDay($departure, dayIndex: 2, hour: 9, minute: 30),
         };
     }
 
