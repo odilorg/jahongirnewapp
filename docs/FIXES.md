@@ -14,6 +14,39 @@ Newest entries at top.
 
 ---
 
+## 2026-06-15 — Guest experience messages fired ~5h early (4am to a guest)
+
+**Symptom:** The guest experience welcome message went out to a guest at
+04:30 Samarkand time (intended 09:30/10:00). All touchpoints were firing
+~5 hours early.
+
+**Root cause:** `MaterializeExperienceMessages` stored `due_at` via
+`->utc()`, but the app runs `APP_TIMEZONE=Asia/Samarkand` and Laravel
+reads/compares timestamps — including the send cron's `now()` — in that
+timezone. A 10:00-local welcome was stored as 05:00; the cron fired it
+when the Samarkand wall clock reached 05:00. The 24h reminder was
+unaffected (it computes time live, stores no due_at). Tests missed it
+because they forced `due_at = now()->subMinute()`, bypassing the
+stored-timezone path.
+
+**Fix:** store `$dueAt->setTimezone(config('app.timezone'))` instead of
+`->utc()`. Added a regression test asserting a 09:00 pickup → welcome
+reads back at 10:00 local, never 05:00.
+
+**Recovery:** disabled the engine flag immediately to stop further early
+sends; deployed the fix; deleted the 38 mis-timed pending rows and
+re-ran `guest-experience:backfill` (41 rows, now correct); re-enabled.
+Already-sent rows (2 guests got an early message) left as-is — can't
+unsend; no duplicates (unique constraint + materializer skips non-pending).
+
+**Verification:** stored due_at now shows correct local times (welcome
+09:30, sunset ~19:31, feedback next-day 08:30); `send-due --dry-run`
+reports 0 due at 09:2x local.
+
+**Commit:** `47f2d53`
+
+---
+
 ## 2026-06-13 — Octo callback ignored real "succeeded" payments (stuck-payment incident)
 
 **Symptom:** Online card payments completed on Octo (money captured,
