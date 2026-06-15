@@ -320,7 +320,7 @@ class TourSendReminders extends Command
         } elseif (filled($pickup)) {
             $lines[] = "🏨 {$pickup}";
             $lines[] = '📍 https://maps.google.com/?q='.rawurlencode($pickup);
-            $lines[] = 'You will be met at the reception';
+            $lines[] = 'Our driver will meet you at the reception';
         }
 
         // Drop-off: operator-set value wins; Bukhara default only if left blank.

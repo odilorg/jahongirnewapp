@@ -15,7 +15,7 @@ declare(strict_types=1);
 $yurtExperienceMessages = [
     'post_pickup_welcome' => "Hi {name}! 👋\n\n"
         ."We hope you're enjoying the start of your journey.\n\n"
-        ."Today's highlights include:\n\n"
+        ."During your trip, you can look forward to:\n\n"
         ."🏜 Aydarkul Lake\n"
         ."🐪 Camel riding\n"
         ."🏕 Traditional yurt camp\n"
@@ -37,7 +37,6 @@ $yurtExperienceMessages = [
 
     'next_morning_feedback' => "Good morning {name}! ☀️\n\n"
         ."We hope you enjoyed your evening at the yurt camp.\n\n"
-        ."We'd love to know:\n\n"
         ."What has been your favorite part of the experience so far?\n\n"
         ."🐪 Camel ride\n"
         ."🌅 Sunset\n"
@@ -45,7 +44,7 @@ $yurtExperienceMessages = [
         ."🏕 Yurt camp\n"
         ."🌊 Aydarkul Lake\n\n"
         ."Or something else?\n\n"
-        ."Your feedback helps us improve future tours.\n\n"
+        ."Your feedback helps us improve the experience for future guests.\n\n"
         .'— Jahongir Travel',
 ];
 
