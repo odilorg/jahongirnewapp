@@ -14,6 +14,36 @@ Newest entries at top.
 
 ---
 
+## 2026-06-16 — Yurt-camp quotes unresolvable (data fix: tiers → NULL direction)
+
+**Symptom:** `TourProduct::priceFor()` returned null for ~17 live yurt-camp
+inquiries (and the human Filament "Calculate quote") — no price could be
+computed even though tiers existed.
+
+**Root cause:** `yurt-camp-tour` price tiers (ids 1/2/3 — $286/$176/$145 per
+person) were authored under the route direction `sam-bukhara` (id 1), but
+website/manual inquiries arrive tagged with the `default` direction (id 19),
+which has no tiers. `priceFor` is strict by design (it must not guess across
+routes), so the lookup found nothing. 19 *other* unresolvable inquiries are a
+separate TYPE_GROUP / NO_TIERS issue, untouched here.
+
+**Fix applied:** yurt pricing is route-independent (operator-confirmed
+2026-06-16), so set the 3 tiers' `tour_product_direction_id` to NULL
+(direction-agnostic) via new idempotent command `tours:yurt-tiers-global
+--apply`. No price values changed. After: all 17 resolve (e.g. #176 → group-2
+$176/pp = $352). The TourPriceTier observer recomputed starting_from_usd
+(no-op, $145 unchanged).
+
+**Rollback:** set tiers back to their original direction —
+`tour_product_direction_id = 1` for tier ids 1, 2, 3.
+
+**Backup ref:** `/var/backups/databases/daily/20260616_150730_jahongirnewapp.sql.gz`
+(verified: gzip OK, "Dump completed" marker, contains tour_price_tiers).
+
+**Commit:** `9c4e30c` (the command; the change itself is data, applied via `--apply`).
+
+---
+
 ## 2026-06-15 — Guest experience messages fired ~5h early (4am to a guest)
 
 **Symptom:** The guest experience welcome message went out to a guest at
