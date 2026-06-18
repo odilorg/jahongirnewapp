@@ -60,7 +60,12 @@ class InquiryBackfillOperationalFlags extends Command
                 foreach ($inquiries as $inquiry) {
                     $totals['scanned']++;
 
-                    $notes = $inquiry->operational_notes;
+                    // Flags derive from the UNION of driver + accommodation
+                    // notes (Phase: split-notes). Deriving from operational_notes
+                    // alone would wipe a dietary/occasion flag set from the
+                    // accommodation field.
+                    $notes = trim(((string) $inquiry->operational_notes).' '.((string) $inquiry->accommodation_notes));
+                    $notes = $notes !== '' ? $notes : null;
                     if (filled($notes)) {
                         $totals['with_notes']++;
                     }

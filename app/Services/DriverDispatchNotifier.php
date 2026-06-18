@@ -788,6 +788,13 @@ class DriverDispatchNotifier
         $mealPlan = filled($stay->meal_plan) ? $stay->meal_plan : '—';
         $notes = filled($stay->notes) ? $stay->notes : '—';
 
+        // Booking-level guest needs (dietary/occasion/room setup) authored for
+        // the camp. Empty → '' so the template line collapses (it sits on its
+        // own paragraph and the \n{3,} squeeze below removes the gap).
+        $guestNeeds = filled($inquiry->accommodation_notes)
+            ? '🧑‍🍳 Пожелания гостя: '.$inquiry->accommodation_notes
+            : '';
+
         $inquiry->loadMissing(['driver', 'guide']);
 
         $replacements = [
@@ -804,6 +811,7 @@ class DriverDispatchNotifier
             '{guide_phone}' => $inquiry->guide?->phone01 ?? '—',
             '{meal_plan}' => $mealPlan,
             '{notes}' => $notes,
+            '{guest_needs}' => $guestNeeds,
             '{reference}' => (string) $inquiry->reference,
         ];
 

@@ -484,9 +484,18 @@ class BookingInquiryResource extends Resource
                         ->placeholder('e.g. France, USA'),
 
                     Forms\Components\Textarea::make('operational_notes')
+                        ->label('Driver notes')
                         ->rows(4)
+                        ->maxLength(300)
                         ->columnSpanFull()
-                        ->helperText('Driver brief, dietary needs, languages, special requests.'),
+                        ->helperText('Sent to the assigned driver/guide via Telegram — pickup logistics, cross-border handoff, accessibility, language.'),
+
+                    Forms\Components\Textarea::make('accommodation_notes')
+                        ->label('Accommodation notes')
+                        ->rows(4)
+                        ->maxLength(300)
+                        ->columnSpanFull()
+                        ->helperText('Sent to the camp/hotel via Telegram — dietary needs, occasion, room setup.'),
 
                     Forms\Components\Select::make('prep_status')
                         ->label('Prep status')
@@ -2094,7 +2103,13 @@ class BookingInquiryResource extends Resource
                                 . '?text=' . rawurlencode('Hi ' . $record->guide->first_name . ', you have been assigned to a tour via Jahongir Travel. I will send details shortly.')
                             : null, true),
                     Infolists\Components\TextEntry::make('operational_notes')
-                        ->label('Operational notes')
+                        ->label('Driver notes')
+                        ->helperText('→ driver/guide')
+                        ->placeholder('—')
+                        ->columnSpanFull(),
+                    Infolists\Components\TextEntry::make('accommodation_notes')
+                        ->label('Accommodation notes')
+                        ->helperText('→ camp/hotel')
                         ->placeholder('—')
                         ->columnSpanFull(),
                 ])

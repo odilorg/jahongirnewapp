@@ -10,26 +10,24 @@ use App\Support\OperationalFlagExtractor;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Save operational guest-context notes from the calendar slide-over.
+ * Save one guest-context notes field (driver OR accommodation) from the
+ * calendar slide-over.
  *
- * This is the SOLE write path for `operational_notes` on a calendar slide-over
- * edit. Owns the full workflow:
- *   1. Length cap (300 chars, server-side trust boundary per Principle 10).
- *   2. No-op short-circuit if value unchanged after trim — silences rapid-blur
- *      events that would otherwise spam the audit trail.
- *   3. Single transaction:
- *      - Derive 4 boolean flags via `OperationalFlagExtractor` (single source
- *        of truth, also used by the backfill command).
- *      - `forceFill([...])->save()` — per the operational-timestamps rule
- *        (CLAUDE.md), even though columns are fillable, to be future-proof
- *        against rename refactors that drop `$fillable` entries silently.
- *      - Append a one-line audit entry to `internal_notes` with operator name
- *        + timestamp + truncated diff (old → new). Total `internal_notes`
- *        capped at 8 KB to bound storage growth.
+ * Two recipient-specific fields share this single write path:
+ *   - operational_notes   → sent to the assigned DRIVER/guide
+ *   - accommodation_notes → sent to the CAMP/HOTEL stay supplier
  *
- * Concurrency: last-write-wins. Acceptable for free-text notes (matches
- * existing slide-over behaviour for pickup/dropoff). The audit chain in
- * `internal_notes` preserves both writes chronologically.
+ * Each field has its own Save button, but the four operational flags
+ * (♿🍃🗣🎉) are always derived from the UNION of BOTH fields: the new value
+ * for the field being saved + the currently-stored value of the other field.
+ * So moving a dietary need into the accommodation field never drops the 🍃
+ * icon, and saving one field never wipes a flag the other field set. Saves
+ * are sequential operator clicks reading the persisted counterpart, so there
+ * is no stale-union race.
+ *
+ * Owns: length cap (300, server-side trust boundary), no-op short-circuit,
+ * single-transaction flag derivation + forceFill + audit line to
+ * internal_notes (capped at 8 KB).
  */
 final class QuickSaveOperationalNotesAction
 {
@@ -37,58 +35,70 @@ final class QuickSaveOperationalNotesAction
     public const MAX_AUDIT_NOTE_SIZE = 500;
     public const MAX_INTERNAL_NOTES  = 8000;
 
+    public const FIELD_DRIVER        = 'operational_notes';
+    public const FIELD_ACCOMMODATION = 'accommodation_notes';
+
+    /** Human label per field, used in cap errors + audit lines. */
+    private const FIELD_LABELS = [
+        self::FIELD_DRIVER        => 'driver notes',
+        self::FIELD_ACCOMMODATION => 'accommodation notes',
+    ];
+
     /**
-     * @param  array{notes?: ?string, operator_id?: int|null, operator_name?: ?string}  $data
+     * @param  array{field?: string, notes?: ?string, operator_id?: int|null, operator_name?: ?string}  $data
      */
     public function handle(BookingInquiry $inquiry, array $data): CalendarActionResult
     {
-        // Normalise input: trim + null-on-empty so clearing the field works.
-        $newNotes = $data['notes'] ?? null;
-        if ($newNotes !== null) {
-            $newNotes = trim($newNotes);
-            if ($newNotes === '') {
-                $newNotes = null;
-            }
+        // Whitelist the target column — never trust a caller-supplied field.
+        $field = $data['field'] ?? self::FIELD_DRIVER;
+        if (! array_key_exists($field, self::FIELD_LABELS)) {
+            return CalendarActionResult::failure('Unknown notes field.');
         }
+        $label = self::FIELD_LABELS[$field];
+        $otherField = $field === self::FIELD_DRIVER
+            ? self::FIELD_ACCOMMODATION
+            : self::FIELD_DRIVER;
 
-        // Server-side length cap (the maxlength on the textarea is UX guidance
-        // only; never trust the frontend per Principle 10).
+        // Normalise: trim + null-on-empty so clearing the field works.
+        $newNotes = $this->normalize($data['notes'] ?? null);
+
+        // Server-side length cap (textarea maxlength is UX guidance only).
         if ($newNotes !== null && mb_strlen($newNotes) > self::MAX_NOTES_LENGTH) {
             return CalendarActionResult::failure(
-                'Operational notes exceed ' . self::MAX_NOTES_LENGTH . ' characters.',
+                ucfirst($label) . ' exceed ' . self::MAX_NOTES_LENGTH . ' characters.',
             );
         }
 
-        // No-op short-circuit — equality after trim/null normalisation.
-        $oldNotes = $inquiry->operational_notes !== null ? trim($inquiry->operational_notes) : null;
-        if ($oldNotes === '') {
-            $oldNotes = null;
-        }
+        // No-op short-circuit on the field being saved.
+        $oldNotes = $this->normalize($inquiry->{$field});
         if ($oldNotes === $newNotes) {
-            return CalendarActionResult::success('No changes to operational notes.');
+            return CalendarActionResult::success('No changes to ' . $label . '.');
         }
 
         $operatorName = $data['operator_name'] ?? 'system';
 
-        DB::transaction(function () use ($inquiry, $newNotes, $oldNotes, $operatorName): void {
-            $flags = OperationalFlagExtractor::extract($newNotes);
+        DB::transaction(function () use ($inquiry, $field, $otherField, $newNotes, $oldNotes, $label, $operatorName): void {
+            // Flags derive from the UNION of both fields (order irrelevant —
+            // the extractor is keyword-based). Use the new value for the field
+            // being saved and the stored value of the other field.
+            $otherNotes = $this->normalize($inquiry->{$otherField});
+            $union = trim(((string) $newNotes) . ' ' . ((string) $otherNotes));
+            $flags = OperationalFlagExtractor::extract($union !== '' ? $union : null);
 
-            // Build audit line — capped to keep `internal_notes` bounded.
-            $stamp = now()->format('Y-m-d H:i');
+            $stamp      = now()->format('Y-m-d H:i');
             $oldDisplay = $this->truncate($oldNotes ?? '<empty>', 120);
             $newDisplay = $this->truncate($newNotes ?? '<empty>', 120);
-            $auditLine  = "[{$stamp} {$operatorName}] guest context: \"{$oldDisplay}\" → \"{$newDisplay}\"";
+            $auditLine  = "[{$stamp} {$operatorName}] {$label}: \"{$oldDisplay}\" → \"{$newDisplay}\"";
             $auditLine  = $this->truncate($auditLine, self::MAX_AUDIT_NOTE_SIZE);
 
             $existing = $inquiry->internal_notes ? $inquiry->internal_notes . "\n\n" : '';
             $merged   = $existing . $auditLine;
-            // Bound total internal_notes size — keep tail (most recent) on overflow.
             if (mb_strlen($merged) > self::MAX_INTERNAL_NOTES) {
                 $merged = mb_substr($merged, -self::MAX_INTERNAL_NOTES);
             }
 
             $inquiry->forceFill([
-                'operational_notes'      => $newNotes,
+                $field                   => $newNotes,
                 'has_dietary_flag'       => $flags['dietary'],
                 'has_accessibility_flag' => $flags['accessibility'],
                 'has_language_flag'      => $flags['language'],
@@ -97,7 +107,17 @@ final class QuickSaveOperationalNotesAction
             ])->save();
         });
 
-        return CalendarActionResult::success('Guest context saved');
+        return CalendarActionResult::success(ucfirst($label) . ' saved');
+    }
+
+    private function normalize(?string $value): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+        $value = trim($value);
+
+        return $value === '' ? null : $value;
     }
 
     private function truncate(string $value, int $max): string
@@ -105,6 +125,7 @@ final class QuickSaveOperationalNotesAction
         if (mb_strlen($value) <= $max) {
             return $value;
         }
+
         return mb_substr($value, 0, $max - 1) . '…';
     }
 }

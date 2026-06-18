@@ -144,6 +144,8 @@ TXT,
 🍽 Питание: {meal_plan}
 📝 Примечания: {notes}
 
+{guest_needs}
+
 🤝 Jahongir Travel — {reference}
 TXT,
 

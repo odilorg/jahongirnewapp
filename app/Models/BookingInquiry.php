@@ -249,6 +249,7 @@ class BookingInquiry extends Model
         'pickup_point',
         'dropoff_point',
         'operational_notes',
+        'accommodation_notes',
         'has_dietary_flag',
         'has_accessibility_flag',
         'has_language_flag',

@@ -249,49 +249,103 @@
         @endif
     </div>
 
-    {{-- Operational guest context — drives derived flag booleans --}}
-    <div class="rounded-lg bg-amber-50 dark:bg-amber-900/20 p-2.5 space-y-2 border border-amber-200 dark:border-amber-800/50">
-        <div class="text-xs text-amber-800 dark:text-amber-200 uppercase tracking-wider font-semibold">
-            🟡 Guest context
-        </div>
+    {{-- Operational guest context — two recipient-specific fields. Both feed
+         the derived flag booleans via their union (handled server-side). --}}
+    <div class="rounded-lg bg-amber-50 dark:bg-amber-900/20 p-2.5 space-y-3 border border-amber-200 dark:border-amber-800/50">
 
-        {{-- Quick-add chips: tap to append. Operator still confirms via Save. --}}
-        <div class="flex flex-wrap gap-1">
-            @foreach ([
-                ['🍃', 'Vegetarian'],
-                ['🍃', 'Halal'],
-                ['🍃', 'Allergy'],
-                ['♿', 'Wheelchair'],
-                ['♿', 'Elderly'],
-                ['🗣', 'French speaker'],
-                ['🗣', 'Spanish speaker'],
-                ['🎉', 'Birthday'],
-                ['🎉', 'Honeymoon'],
-            ] as [$emoji, $label])
-                <button type="button"
-                    wire:click="appendOperationalNotesChip({{ \Illuminate\Support\Js::from($label) }})"
-                    class="text-[11px] rounded-full bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 px-2 py-0.5 hover:bg-amber-100 dark:hover:bg-amber-900/40 transition">
-                    {{ $emoji }} {{ $label }}
+        {{-- ── Driver notes → driver/guide ───────────────────────────── --}}
+        <div class="space-y-2">
+            <div>
+                <div class="text-xs text-amber-800 dark:text-amber-200 uppercase tracking-wider font-semibold">
+                    🚗 Driver notes
+                </div>
+                <div class="text-[10px] text-gray-500 dark:text-gray-400">
+                    Sent to the assigned driver/guide via Telegram
+                </div>
+            </div>
+
+            <div class="flex flex-wrap gap-1">
+                @foreach ([
+                    ['♿', 'Wheelchair'],
+                    ['♿', 'Elderly'],
+                    ['🗣', 'French speaker'],
+                    ['🗣', 'Spanish speaker'],
+                ] as [$emoji, $label])
+                    <button type="button"
+                        wire:click="appendOperationalNotesChip({{ \Illuminate\Support\Js::from($label) }})"
+                        class="text-[11px] rounded-full bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 px-2 py-0.5 hover:bg-amber-100 dark:hover:bg-amber-900/40 transition">
+                        {{ $emoji }} {{ $label }}
+                    </button>
+                @endforeach
+            </div>
+
+            <textarea wire:model.defer="editOperationalNotes"
+                rows="2"
+                maxlength="300"
+                placeholder="e.g. wheelchair user, French speaker, cross-border handoff at the border"
+                class="w-full text-xs rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 px-2 py-1.5"></textarea>
+
+            <div class="flex items-center justify-between gap-2">
+                <span class="text-[10px] text-gray-500 dark:text-gray-400">
+                    {{ mb_strlen($editOperationalNotes ?? '') }}/300
+                </span>
+                <button type="button" wire:click="quickSaveOperationalNotes"
+                    class="text-xs font-medium rounded-md px-3 py-1.5 text-white transition"
+                    style="background: #d97706;"
+                    onmouseover="this.style.background='#b45309'" onmouseout="this.style.background='#d97706'">
+                    Save driver notes
                 </button>
-            @endforeach
+            </div>
         </div>
 
-        <textarea wire:model.defer="editOperationalNotes"
-            rows="2"
-            maxlength="300"
-            placeholder="e.g. Vegetarian, wheelchair user, celebrating birthday"
-            class="w-full text-xs rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 px-2 py-1.5"></textarea>
+        <div class="border-t border-amber-200 dark:border-amber-800/50"></div>
 
-        <div class="flex items-center justify-between gap-2">
-            <span class="text-[10px] text-gray-500 dark:text-gray-400">
-                {{ mb_strlen($editOperationalNotes ?? '') }}/300
-            </span>
-            <button type="button" wire:click="quickSaveOperationalNotes"
-                class="text-xs font-medium rounded-md px-3 py-1.5 text-white transition"
-                style="background: #d97706;"
-                onmouseover="this.style.background='#b45309'" onmouseout="this.style.background='#d97706'">
-                Save guest context
-            </button>
+        {{-- ── Accommodation notes → camp/hotel ──────────────────────── --}}
+        <div class="space-y-2">
+            <div>
+                <div class="text-xs text-amber-800 dark:text-amber-200 uppercase tracking-wider font-semibold">
+                    🏕 Accommodation notes
+                </div>
+                <div class="text-[10px] text-gray-500 dark:text-gray-400">
+                    Sent to the camp/hotel via Telegram
+                </div>
+            </div>
+
+            <div class="flex flex-wrap gap-1">
+                @foreach ([
+                    ['🍃', 'Vegetarian'],
+                    ['🍃', 'Halal'],
+                    ['🍃', 'Allergy'],
+                    ['♿', 'Wheelchair'],
+                    ['♿', 'Elderly'],
+                    ['🎉', 'Birthday'],
+                    ['🎉', 'Honeymoon'],
+                ] as [$emoji, $label])
+                    <button type="button"
+                        wire:click="appendAccommodationNotesChip({{ \Illuminate\Support\Js::from($label) }})"
+                        class="text-[11px] rounded-full bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 px-2 py-0.5 hover:bg-amber-100 dark:hover:bg-amber-900/40 transition">
+                        {{ $emoji }} {{ $label }}
+                    </button>
+                @endforeach
+            </div>
+
+            <textarea wire:model.defer="editAccommodationNotes"
+                rows="2"
+                maxlength="300"
+                placeholder="e.g. vegetarian dinner, honeymoon — decorate the yurt, ground-floor room"
+                class="w-full text-xs rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 px-2 py-1.5"></textarea>
+
+            <div class="flex items-center justify-between gap-2">
+                <span class="text-[10px] text-gray-500 dark:text-gray-400">
+                    {{ mb_strlen($editAccommodationNotes ?? '') }}/300
+                </span>
+                <button type="button" wire:click="quickSaveAccommodationNotes"
+                    class="text-xs font-medium rounded-md px-3 py-1.5 text-white transition"
+                    style="background: #d97706;"
+                    onmouseover="this.style.background='#b45309'" onmouseout="this.style.background='#d97706'">
+                    Save accommodation notes
+                </button>
+            </div>
         </div>
     </div>
 

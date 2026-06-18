@@ -140,9 +140,13 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
     public ?string $editPickupTime = null;
     public ?string $editPickupPoint = null;
     public ?string $editDropoffPoint = null;
-    // Operational guest context — free-text notes that drive the four
-    // derived flag booleans (dietary/accessibility/language/occasion).
+    // Operational guest context — two recipient-specific free-text fields.
+    // Both feed the four derived flag booleans (dietary/accessibility/
+    // language/occasion) via their UNION.
+    //   editOperationalNotes   → driver/guide
+    //   editAccommodationNotes → camp/hotel
     public ?string $editOperationalNotes = null;
+    public ?string $editAccommodationNotes = null;
     public ?int $assignAccommodationId = null;
     public ?int $assignAccGuests = null;
     public int $assignAccNights = 1;
@@ -641,6 +645,27 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
      */
     public function quickSaveOperationalNotes(): void
     {
+        $this->quickSaveNotesField(
+            \App\Actions\Calendar\Save\QuickSaveOperationalNotesAction::FIELD_DRIVER,
+            $this->editOperationalNotes,
+        );
+    }
+
+    /**
+     * Quick-save the accommodation guest-context notes (camp/hotel). Same
+     * write path + flag-union derivation as the driver field; just a
+     * different target column.
+     */
+    public function quickSaveAccommodationNotes(): void
+    {
+        $this->quickSaveNotesField(
+            \App\Actions\Calendar\Save\QuickSaveOperationalNotesAction::FIELD_ACCOMMODATION,
+            $this->editAccommodationNotes,
+        );
+    }
+
+    private function quickSaveNotesField(string $field, ?string $value): void
+    {
         $inquiry = BookingInquiry::find($this->selectedInquiryId);
         if (! $inquiry) {
             return;
@@ -650,7 +675,8 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
             app(\App\Actions\Calendar\Save\QuickSaveOperationalNotesAction::class)->handle(
                 $inquiry,
                 [
-                    'notes'         => $this->editOperationalNotes,
+                    'field'         => $field,
+                    'notes'         => $value,
                     'operator_id'   => auth()->id(),
                     'operator_name' => auth()->user()?->name ?? 'system',
                 ],
@@ -659,31 +685,45 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
     }
 
     /**
-     * Append a chip phrase (e.g. 'Vegetarian', 'Wheelchair') to the
-     * operational-notes draft. Pure UI helper — does NOT save; the
-     * operator still confirms via the Save button. Whitespace-aware so
-     * repeated clicks produce a clean comma-joined list.
+     * Append a chip phrase (e.g. 'Wheelchair') to the DRIVER notes draft.
+     * Pure UI helper — does NOT save; operator confirms via the Save button.
      */
     public function appendOperationalNotesChip(string $phrase): void
     {
+        $this->editOperationalNotes = $this->appendChip($this->editOperationalNotes, $phrase);
+    }
+
+    /**
+     * Append a chip phrase (e.g. 'Vegetarian') to the ACCOMMODATION notes
+     * draft. Pure UI helper — does NOT save.
+     */
+    public function appendAccommodationNotesChip(string $phrase): void
+    {
+        $this->editAccommodationNotes = $this->appendChip($this->editAccommodationNotes, $phrase);
+    }
+
+    /**
+     * Whitespace-aware chip append: comma-joins, de-dupes on double-click.
+     */
+    private function appendChip(?string $current, string $phrase): ?string
+    {
         $phrase = trim($phrase);
         if ($phrase === '') {
-            return;
+            return $current;
         }
 
-        $current = trim((string) $this->editOperationalNotes);
+        $current = trim((string) $current);
         if ($current === '') {
-            $this->editOperationalNotes = $phrase;
-            return;
+            return $phrase;
         }
 
-        // Avoid trivially duplicated chip if the operator double-clicks.
         if (mb_stripos($current, $phrase) !== false) {
-            return;
+            return $current;
         }
 
         $separator = str_ends_with($current, ',') ? ' ' : ', ';
-        $this->editOperationalNotes = $current . $separator . $phrase;
+
+        return $current . $separator . $phrase;
     }
 
     /**
@@ -699,6 +739,7 @@ class TourCalendar extends Page implements HasActions, HasForms, HasInfolists
         $this->editPickupPoint      = $inquiry?->pickup_point;
         $this->editDropoffPoint     = $inquiry?->dropoff_point;
         $this->editOperationalNotes = $inquiry?->operational_notes;
+        $this->editAccommodationNotes = $inquiry?->accommodation_notes;
         $this->assignDriverId    = $inquiry?->driver_id;
         $this->assignDriverRateId = $inquiry?->driver_rate_id;
         $this->assignGuideId     = $inquiry?->guide_id;
