@@ -83,6 +83,29 @@ class IngestGmailEmailAsInquiryTest extends TestCase
         $this->assertDatabaseHas('gmail_lead_ingestions', ['status' => GmailLeadIngestion::STATUS_SKIPPED_DUPLICATE_INQUIRY]);
     }
 
+    public function test_over_long_fields_are_capped_not_thrown(): void
+    {
+        $longSubject = str_repeat('Long tour name ', 30);  // ~450 chars > 255
+        $body = "Name : " . str_repeat('X', 300) . "\nEmail : big@guest.com\nSubject : {$longSubject}\nMessage : hello";
+        $res = $this->action()->ingest($this->email($body, '<big@x>'));
+
+        $this->assertSame('created', $res['decision']);
+        $inq = BookingInquiry::find($res['inquiry_id']);
+        $this->assertLessThanOrEqual(255, mb_strlen($inq->tour_name_snapshot));
+        $this->assertLessThanOrEqual(191, mb_strlen($inq->customer_name));
+    }
+
+    public function test_synthetic_key_is_idempotent_when_no_message_id(): void
+    {
+        // messageId null -> action derives sha256(subject|envelopeId); same input twice = one inquiry.
+        $e = new GmailInboundEmail('100', null, 'info@jahongir-travel.uz', 'Jahongir Travel', 'New inquiry', self::ROBERT, false);
+        $this->action()->ingest($e);
+        $second = $this->action()->ingest($e);
+
+        $this->assertSame('already_processed', $second['decision']);
+        $this->assertSame(1, GmailLeadIngestion::count());
+    }
+
     public function test_spam_is_not_ingested(): void
     {
         $res = $this->action()->ingest($this->email('Delivery failed', '<bounce@x>', 'mailer-daemon@googlemail.com'));

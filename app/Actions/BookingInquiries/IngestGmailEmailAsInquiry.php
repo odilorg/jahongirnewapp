@@ -69,10 +69,14 @@ class IngestGmailEmailAsInquiry
                 'reference'          => BookingInquiry::generateReference(),
                 'source'             => BookingInquiry::SOURCE_EMAIL_GMAIL,
                 'status'             => BookingInquiry::STATUS_NEW,
-                'customer_name'      => $guest['name'] !== '' ? $guest['name'] : 'Email guest',
-                'customer_email'     => $guest['email'],
-                'customer_phone'     => $guest['phone'] ?? '',
-                'tour_name_snapshot' => $guest['tour_name'] !== '' ? $guest['tour_name'] : 'Email inquiry',
+                // Cap untrusted body/subject fields to their column lengths
+                // (customer_name/email 191, phone 64, tour_name_snapshot 255) —
+                // otherwise an over-long field throws QueryException and the
+                // message is retried forever.
+                'customer_name'      => mb_substr($guest['name'] !== '' ? $guest['name'] : 'Email guest', 0, 191),
+                'customer_email'     => mb_substr($guest['email'], 0, 191),
+                'customer_phone'     => mb_substr($guest['phone'] ?? '', 0, 64),
+                'tour_name_snapshot' => mb_substr($guest['tour_name'] !== '' ? $guest['tour_name'] : 'Email inquiry', 0, 255),
                 'people_adults'      => 1,
                 'people_children'    => 0,
                 'submitted_at'       => now(),

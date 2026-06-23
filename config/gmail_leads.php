@@ -23,6 +23,11 @@ return [
         explode(',', (string) env('GMAIL_LEAD_NOTIFIER_SENDERS', ''))
     ))),
 
+    // Ingest direct (non-template) emails too? OFF by default — only the website
+    // contact-form template qualifies in v1. The label filter is free-form's only
+    // guard, so opt in deliberately once that filter is trusted.
+    'free_form_enabled' => (bool) env('GMAIL_LEAD_FREEFORM_ENABLED', false),
+
     // Direct (free-form) emails from these senders are never ingested. Does NOT
     // apply to contact-form notifications (their sender is the website mailer).
     'sender_blocklist' => [

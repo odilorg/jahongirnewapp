@@ -56,11 +56,15 @@ class GmailLeadQualifierTest extends TestCase
         $this->assertSame('no_guest_email', $d->rejectReason);
     }
 
-    public function test_direct_freeform_guest_email_qualifies(): void
+    public function test_direct_freeform_qualifies_only_when_enabled(): void
     {
-        $d = (new GmailLeadQualifier([], ['mailer-daemon@']))->qualify(
-            $this->email('Hello, do you run private Samarkand day tours in October?', 'jane@guest.com', 'Jane R', 'Samarkand tour')
-        );
+        $email = $this->email('Hello, do you run private Samarkand day tours in October?', 'jane@guest.com', 'Jane R', 'Samarkand tour');
+
+        // OFF by default -> rejected.
+        $this->assertFalse((new GmailLeadQualifier([], ['mailer-daemon@']))->qualify($email)->qualifies);
+
+        // Opt-in -> qualifies as free_form.
+        $d = (new GmailLeadQualifier([], ['mailer-daemon@'], true))->qualify($email);
         $this->assertTrue($d->qualifies);
         $this->assertSame('free_form', $d->kind);
         $this->assertSame('jane@guest.com', $d->guest['email']);

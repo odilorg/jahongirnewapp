@@ -63,13 +63,19 @@ class GmailLeadInboundClient
         return array_values(array_filter($out, fn ($e): bool => $e['id'] !== ''));
     }
 
-    /** Read-only message fetch. `--preview` guarantees \Seen is NOT set. */
+    /**
+     * Read-only message fetch. `--preview` guarantees \Seen is NOT set; `--header
+     * Message-ID` makes himalaya emit the Message-ID header at the top of the
+     * output (otherwise the body alone is rendered and the idempotency key is
+     * lost — mirrors GygFetchEmails). Output format: "Message-ID: <…>\n\n<body>".
+     */
     public function readRaw(string $envelopeId): string
     {
         $process = new Process([
             'himalaya', 'message', 'read',
             '--account', $this->account,
             '--preview',
+            '--header', 'Message-ID',
             $envelopeId,
         ]);
         $process->setTimeout(45);
@@ -85,11 +91,13 @@ class GmailLeadInboundClient
     /** @param array{id: string, from_addr: string, from_name: string, subject: string, has_attachment: bool} $env */
     public function toInboundEmail(array $env, string $raw): GmailInboundEmail
     {
-        [$headers, $body] = $this->splitHeaders($raw);
+        [, $body] = $this->splitHeaders($raw);
 
+        // Search the FULL output (robust regardless of how the header/body split
+        // lands). Bracket-optional — some servers/himalaya omit the angle brackets.
         $messageId = null;
-        if (preg_match('/^Message-ID:\s*<([^>]+)>/mi', $headers, $m)) {
-            $messageId = trim($m[1]);
+        if (preg_match('/^Message-ID:\s*(.+)$/mi', $raw, $m)) {
+            $messageId = trim($m[1], " \t<>");
         }
 
         return new GmailInboundEmail(

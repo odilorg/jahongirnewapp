@@ -21,10 +21,12 @@ class GmailLeadQualifier
     /**
      * @param array<int, string> $notifierSenders optional contact-form sender allow-list
      * @param array<int, string> $blocklist       direct-email sender blocklist
+     * @param bool $freeFormEnabled               ingest direct (non-template) emails too
      */
     public function __construct(
         private array $notifierSenders = [],
         private array $blocklist = [],
+        private bool $freeFormEnabled = false,
     ) {
     }
 
@@ -49,7 +51,9 @@ class GmailLeadQualifier
         if ($this->senderMatches($from, $this->blocklist)) {
             return GmailLeadDecision::reject('blocklist');
         }
-        if (filter_var($from, FILTER_VALIDATE_EMAIL) && trim($email->body) !== '') {
+        // OFF by default: free-form has no template guard, so the label filter is
+        // its only boundary. Opt in via config once the label is trusted.
+        if ($this->freeFormEnabled && filter_var($from, FILTER_VALIDATE_EMAIL) && trim($email->body) !== '') {
             return GmailLeadDecision::lead('free_form', [
                 'name'      => $email->senderName !== '' ? $email->senderName : explode('@', $from)[0],
                 'email'     => $from,

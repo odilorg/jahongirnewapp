@@ -50,6 +50,7 @@ class FetchGmailLeadEmails extends Command
         $qualifier = new GmailLeadQualifier(
             (array) config('gmail_leads.website_notifier_senders', []),
             (array) config('gmail_leads.sender_blocklist', []),
+            (bool) config('gmail_leads.free_form_enabled', false),
         );
         $action = new IngestGmailEmailAsInquiry($qualifier);
 
