@@ -103,6 +103,28 @@ class GmailLeadInboundClient
         );
     }
 
+    /**
+     * Move a processed message out of the lead label into the processed sublabel.
+     * The ONLY mailbox-mutating call — invoked by the command ONLY after a
+     * successful DB write. himalaya: `message move [--folder SOURCE] <TARGET> <ID>`.
+     */
+    public function markProcessed(string $envelopeId, string $processedLabel): void
+    {
+        $process = new Process([
+            'himalaya', 'message', 'move',
+            '--account', $this->account,
+            '--folder', $this->label,
+            $processedLabel,
+            $envelopeId,
+        ]);
+        $process->setTimeout(45);
+        $process->run();
+
+        if (! $process->isSuccessful()) {
+            throw new \RuntimeException('himalaya message move failed: ' . $process->getErrorOutput());
+        }
+    }
+
     /** @return array{0: string, 1: string} [headers, body] */
     private function splitHeaders(string $raw): array
     {

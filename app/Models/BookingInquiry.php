@@ -169,10 +169,14 @@ class BookingInquiry extends Model
 
     public const SOURCE_VIATOR = 'viator';
 
+    /** Ingested from the Gmail mailbox (website contact-form / direct email). */
+    public const SOURCE_EMAIL_GMAIL = 'email_gmail';
+
     public const SOURCES = [
         self::SOURCE_WEBSITE, self::SOURCE_WHATSAPP, self::SOURCE_TELEGRAM,
         self::SOURCE_PHONE, self::SOURCE_EMAIL, self::SOURCE_WALK_IN,
         self::SOURCE_MANUAL, self::SOURCE_GYG, self::SOURCE_VIATOR,
+        self::SOURCE_EMAIL_GMAIL,
     ];
 
     public const SOURCE_LABELS = [
@@ -185,6 +189,7 @@ class BookingInquiry extends Model
         self::SOURCE_MANUAL => 'Manual',
         self::SOURCE_GYG => 'GetYourGuide',
         self::SOURCE_VIATOR => 'Viator',
+        self::SOURCE_EMAIL_GMAIL => 'Email (Gmail)',
     ];
 
     /** Sources that represent OTA / third-party bookings with external IDs. */

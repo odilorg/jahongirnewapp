@@ -4,19 +4,25 @@ declare(strict_types=1);
 
 namespace App\Console\Commands;
 
+use App\Actions\BookingInquiries\IngestGmailEmailAsInquiry;
 use App\Models\BookingInquiry;
+use App\Models\GmailLeadIngestion;
 use App\Services\Gmail\GmailLeadInboundClient;
 use App\Services\Gmail\GmailLeadQualifier;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Log;
 
 /**
- * Gmail -> CRM lead ingestion.
+ * Gmail -> CRM lead ingestion (Phase 2).
  *
- * PHASE 1 (this version): --dry-run ONLY. It reads the dedicated lead label,
- * qualifies each message, and reports the decision it WOULD make. It writes
- * nothing to the DB and never mutates the mailbox (himalaya `--preview`). The
- * write path (create booking_inquiries + ledger + mark-processed) is Phase 2,
- * behind config('gmail_leads.ingestion_enabled').
+ *   --dry-run : inspect + report decisions, write NOTHING, mailbox untouched.
+ *   live      : gated by config('gmail_leads.ingestion_enabled') (default OFF);
+ *               creates booking_inquiries for qualifying mail, records a ledger
+ *               row per message (idempotent), and moves CREATED messages to the
+ *               processed sublabel ONLY after the DB write succeeds.
+ *
+ * Read-only / qualification lives in GmailLeadQualifier; DB effects in
+ * IngestGmailEmailAsInquiry; the only mailbox mutation is client->markProcessed.
  */
 class FetchGmailLeadEmails extends Command
 {
@@ -24,14 +30,16 @@ class FetchGmailLeadEmails extends Command
         {--dry-run : Inspect + report decisions, write nothing, leave the mailbox untouched}
         {--limit=50 : Maximum messages to inspect per run}';
 
-    protected $description = 'Ingest qualifying Gmail contact-form/direct emails as booking inquiries (Phase 1: --dry-run only)';
+    protected $description = 'Ingest qualifying Gmail contact-form/direct emails as booking inquiries';
 
     public function handle(): int
     {
-        if (! $this->option('dry-run')) {
-            $this->error('Phase 1: only --dry-run is implemented (no writes yet). Re-run with --dry-run.');
+        $dryRun = (bool) $this->option('dry-run');
 
-            return self::FAILURE;
+        if (! $dryRun && ! (bool) config('gmail_leads.ingestion_enabled')) {
+            $this->warn('Gmail lead ingestion is disabled (GMAIL_LEAD_INGESTION_ENABLED=false). Nothing done.');
+
+            return self::SUCCESS;
         }
 
         $label = (string) config('gmail_leads.label');
@@ -43,47 +51,66 @@ class FetchGmailLeadEmails extends Command
             (array) config('gmail_leads.website_notifier_senders', []),
             (array) config('gmail_leads.sender_blocklist', []),
         );
+        $action = new IngestGmailEmailAsInquiry($qualifier);
 
         $envelopes = $client->labeledEnvelopes((int) $this->option('limit'));
-        $this->info("[DRY-RUN] label='{$label}': " . count($envelopes) . ' message(s) to inspect.');
+        $this->info(($dryRun ? '[DRY-RUN] ' : '') . "label='{$label}': " . count($envelopes) . ' message(s) to inspect.');
 
         $counts = [];
         foreach ($envelopes as $env) {
             try {
                 $email = $client->toInboundEmail($env, $client->readRaw($env['id']));
-                $decision = $qualifier->qualify($email);
 
-                $key = $decision->qualifies ? "would_create:{$decision->kind}" : "skip:{$decision->rejectReason}";
-                $note = '';
+                if ($dryRun) {
+                    $key = $this->dryRunDecision($qualifier, $email);
+                    $counts[$key] = ($counts[$key] ?? 0) + 1;
+                    $this->line("  [{$key}] subj=\"" . mb_substr($email->subject !== '' ? $email->subject : '—', 0, 45) . '"');
 
-                // Read-only dedup preview: would this collide with an in-flight inquiry?
-                if ($decision->qualifies && ($decision->guest['email'] ?? '') !== '') {
-                    $dups = BookingInquiry::findInFlightDuplicates(null, $decision->guest['email']);
-                    if ($dups->isNotEmpty()) {
-                        $key = 'skip:duplicate_inquiry';
-                        $note = ' (existing #' . $dups->first()->id . ')';
-                    }
+                    continue;
                 }
 
-                $counts[$key] = ($counts[$key] ?? 0) + 1;
-                $this->line(sprintf(
-                    '  [%s]%s subj="%s"%s',
-                    $key,
-                    $note,
-                    mb_substr($email->subject !== '' ? $email->subject : '—', 0, 45),
-                    $decision->qualifies
-                        ? ' name="' . ($decision->guest['name'] ?? '') . '" email=' . ($decision->guest['email'] ?? '')
-                        : '',
-                ));
+                $res = $action->ingest($email);
+                $counts[$res['decision']] = ($counts[$res['decision']] ?? 0) + 1;
+
+                if ($res['move']) {
+                    $client->markProcessed($env['id'], (string) config('gmail_leads.processed_label'));
+                }
+
+                Log::info('FetchGmailLeadEmails: processed', [
+                    'decision'     => $res['decision'],
+                    'inquiry_id'   => $res['inquiry_id'],
+                    'ingestion_id' => $res['ingestion_id'],
+                ]);
             } catch (\Throwable $e) {
                 $counts['error'] = ($counts['error'] ?? 0) + 1;
                 $this->warn('  ✗ ' . $env['id'] . ': ' . $e->getMessage());
+                Log::warning('FetchGmailLeadEmails: failed on envelope', [
+                    'envelope_id' => $env['id'],
+                    'error'       => $e->getMessage(),
+                ]);
             }
         }
 
         $this->info('Decisions: ' . json_encode($counts));
-        $this->info('No DB writes, no mailbox changes (--preview). Phase 1 dry-run only.');
+        if ($dryRun) {
+            $this->info('No DB writes, no mailbox changes (--preview). Dry-run only.');
+        }
 
         return self::SUCCESS;
+    }
+
+    /** Read-only decision + in-flight-duplicate preview (no writes). */
+    private function dryRunDecision(GmailLeadQualifier $qualifier, \App\Services\Gmail\GmailInboundEmail $email): string
+    {
+        $d = $qualifier->qualify($email);
+        if (! $d->qualifies) {
+            return 'skip:' . $d->rejectReason;
+        }
+        if (($d->guest['email'] ?? '') !== ''
+            && BookingInquiry::findInFlightDuplicates(null, $d->guest['email'])->isNotEmpty()) {
+            return 'skip:duplicate_inquiry';
+        }
+
+        return 'would_create:' . $d->kind;
     }
 }
