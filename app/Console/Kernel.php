@@ -30,6 +30,18 @@ class Kernel extends ConsoleKernel
             ->withoutOverlapping(10)
             ->runInBackground();
 
+        // Gmail -> CRM lead ingestion (Option B) — pull website contact-form
+        // notifier mail from odilorg@gmail.com (server-side filtered to
+        // from:info@jahongir-travel.uz, strict template) and create booking
+        // inquiries. Feature-flagged: the closure short-circuits until an
+        // operator flips GMAIL_LEAD_INGESTION_ENABLED=true; the command itself
+        // ALSO re-checks the gate, so a scheduled run is a safe no-op while off.
+        $schedule->command('leads:fetch-gmail-emails')
+            ->everyFiveMinutes()
+            ->when(fn () => (bool) config('gmail_leads.ingestion_enabled'))
+            ->withoutOverlapping(10)
+            ->runInBackground();
+
         // Phase 21 — email due reminders every 15 minutes.
         // Idempotent via notified_at marker, so safe to run frequently.
         $schedule->command('inquiry:send-reminders')
