@@ -20,6 +20,9 @@ use App\Services\WhatsApp\WaLeadDecision;
  */
 class RecordWaClassification
 {
+    /** Hard cap for the persisted operator-review snippet (chars). */
+    private const SNIPPET_CAP = 1000;
+
     public function __construct(private WaLeadDecision $decision)
     {
     }
@@ -52,6 +55,13 @@ class RecordWaClassification
             'needs_review'        => $decision === WaLeadDecision::REVIEW,
             'classified_at'       => now(),
         ];
+
+        // Capped, already-redacted snippet for the operator review UI. Only set
+        // when the classifier supplies one — never overwrite an existing snippet
+        // with null. The hard cap defends against an over-long bridge payload.
+        if (is_string($result['first_messages'] ?? null) && $result['first_messages'] !== '') {
+            $fields['first_messages'] = mb_substr($result['first_messages'], 0, self::SNIPPET_CAP);
+        }
 
         if ($decision === WaLeadDecision::AUTO_DISMISS && (bool) config('wa_leads.auto_dismiss_enabled')) {
             $fields['status']           = WaLeadCandidate::STATUS_DISMISSED;
