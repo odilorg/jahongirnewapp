@@ -37,8 +37,9 @@ class GmailLeadQualifier
         // 1) Website contact-form notification (the high-value path).
         $contact = $this->parseContactForm($email->body);
         if ($contact !== null) {
-            if ($this->notifierSenders !== [] && ! $this->senderMatches($from, $this->notifierSenders)) {
-                // Template present but not from a configured notifier — ignore.
+            // EXACT notifier-sender match required (not substring) — a contact
+            // form must come from the configured website notifier, nothing else.
+            if ($this->notifierSenders !== [] && ! $this->senderIsNotifier($from)) {
                 return GmailLeadDecision::reject('not_a_lead');
             }
             if ($contact['email'] === '') {
@@ -66,7 +67,18 @@ class GmailLeadQualifier
         return GmailLeadDecision::reject('not_a_lead');
     }
 
-    /** @param array<int, string> $needles */
+    /** EXACT match against the configured notifier sender(s). */
+    private function senderIsNotifier(string $from): bool
+    {
+        foreach ($this->notifierSenders as $n) {
+            if ($n !== '' && strtolower(trim($n)) === $from) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Substring match — used for the (free-form) sender blocklist only. */
     private function senderMatches(string $from, array $needles): bool
     {
         foreach ($needles as $n) {

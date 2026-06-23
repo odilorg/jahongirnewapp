@@ -20,22 +20,30 @@ class GmailLeadInboundClient
 {
     public function __construct(
         private string $account = 'gmail',
-        private string $label = 'CRM-Leads',
+        private string $folder = 'INBOX',
     ) {
     }
 
     /**
+     * List envelopes in the configured folder, optionally scoped SERVER-SIDE by
+     * a himalaya query (e.g. "from info@jahongir-travel.uz"). himalaya quirk: ALL
+     * options must precede the variadic [QUERY], and the query is the final arg.
+     *
      * @return array<int, array{id: string, from_addr: string, from_name: string, subject: string, has_attachment: bool}>
      */
-    public function labeledEnvelopes(int $limit): array
+    public function labeledEnvelopes(int $limit, ?string $query = null): array
     {
-        $process = new Process([
+        $args = [
             'himalaya', 'envelope', 'list',
             '--account', $this->account,
-            '--folder', $this->label,
+            '--folder', $this->folder,
             '--page-size', (string) $limit,
             '--output', 'json',
-        ]);
+        ];
+        if ($query !== null && trim($query) !== '') {
+            $args[] = $query;   // final positional — server-side filter
+        }
+        $process = new Process($args);
         $process->setTimeout(60);
         $process->run();
 
@@ -121,7 +129,7 @@ class GmailLeadInboundClient
         $process = new Process([
             'himalaya', 'message', 'move',
             '--account', $this->account,
-            '--folder', $this->label,
+            '--folder', $this->folder,
             $processedLabel,
             $envelopeId,
         ]);

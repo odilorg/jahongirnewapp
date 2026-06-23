@@ -96,4 +96,15 @@ class GmailLeadQualifierTest extends TestCase
         // ...but from the configured notifier it qualifies.
         $this->assertTrue($q->qualify($this->email(self::ROBERT, 'mailer@jahongir-travel.uz'))->qualifies);
     }
+
+    public function test_notifier_match_is_exact_not_substring(): void
+    {
+        // Option B: only the EXACT notifier address counts.
+        $q = new GmailLeadQualifier(['info@jahongir-travel.uz'], []);
+        $this->assertTrue($q->qualify($this->email(self::ROBERT, 'info@jahongir-travel.uz'))->qualifies);
+        // a look-alike that merely CONTAINS the address must NOT qualify.
+        $this->assertFalse($q->qualify($this->email(self::ROBERT, 'info@jahongir-travel.uz.attacker.com'))->qualifies);
+        // a contact-form template from any other sender is ignored.
+        $this->assertFalse($q->qualify($this->email(self::ROBERT, 'someoneelse@gmail.com'))->qualifies);
+    }
 }

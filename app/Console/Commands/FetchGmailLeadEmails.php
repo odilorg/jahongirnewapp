@@ -42,10 +42,11 @@ class FetchGmailLeadEmails extends Command
             return self::SUCCESS;
         }
 
-        $label = (string) config('gmail_leads.label');
+        $folder = (string) config('gmail_leads.folder', 'INBOX');
+        $query = (string) config('gmail_leads.sender_query', '');
         $client = new GmailLeadInboundClient(
             (string) config('gmail_leads.himalaya_account', 'gmail'),
-            $label,
+            $folder,
         );
         $qualifier = new GmailLeadQualifier(
             (array) config('gmail_leads.website_notifier_senders', []),
@@ -54,8 +55,10 @@ class FetchGmailLeadEmails extends Command
         );
         $action = new IngestGmailEmailAsInquiry($qualifier);
 
-        $envelopes = $client->labeledEnvelopes((int) $this->option('limit'));
-        $this->info(($dryRun ? '[DRY-RUN] ' : '') . "label='{$label}': " . count($envelopes) . ' message(s) to inspect.');
+        $envelopes = $client->labeledEnvelopes((int) $this->option('limit'), $query);
+        $this->info(($dryRun ? '[DRY-RUN] ' : '')
+            . "folder='{$folder}' query='" . ($query !== '' ? $query : '(none)') . "': "
+            . count($envelopes) . ' message(s) to inspect.');
 
         $counts = [];
         foreach ($envelopes as $env) {
@@ -73,8 +76,10 @@ class FetchGmailLeadEmails extends Command
                 $res = $action->ingest($email);
                 $counts[$res['decision']] = ($counts[$res['decision']] ?? 0) + 1;
 
-                if ($res['move']) {
-                    $client->markProcessed($env['id'], (string) config('gmail_leads.processed_label'));
+                // Inbox mode (default) does NOT move messages — idempotency is the
+                // ledger, so we never mutate the mailbox. Only label mode moves.
+                if ($res['move'] && (bool) config('gmail_leads.move_processed', false)) {
+                    $client->markProcessed($env['id'], (string) config('gmail_leads.processed_folder'));
                 }
 
                 Log::info('FetchGmailLeadEmails: processed', [
