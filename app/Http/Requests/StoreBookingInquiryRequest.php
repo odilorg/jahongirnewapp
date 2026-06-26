@@ -64,6 +64,18 @@ class StoreBookingInquiryRequest extends FormRequest
 
             // Source override — default to 'website' if not provided.
             'source' => ['nullable', 'string', Rule::in(BookingInquiry::SOURCES)],
+
+            // Optional yurt-hub routing fields from jahongir-travel.uz.
+            // Intentionally NOT enum-restricted: an unknown direction or an
+            // unrecognised booking_type must NOT 422 the public form
+            // (fail-soft). EnrichWebsiteInquiryFromTourSlugAction resolves
+            // direction against the catalog, and toInquiryData() ignores a
+            // booking_type outside TOUR_TYPES. dropoff_hotel is accepted for
+            // forward-compatibility but has no column yet, so it is not
+            // persisted (the website does not send it today).
+            'direction'     => ['nullable', 'string', 'max:64'],
+            'booking_type'  => ['nullable', 'string', 'max:16'],
+            'dropoff_hotel' => ['nullable', 'string', 'max:255'],
         ];
     }
 
@@ -71,6 +83,30 @@ class StoreBookingInquiryRequest extends FormRequest
     public function isLikelySpam(): bool
     {
         return filled($this->input('hp_company'));
+    }
+
+    /**
+     * The website-requested route code (yurt hub pages), or null. Resolved
+     * against the catalog by EnrichWebsiteInquiryFromTourSlugAction — never
+     * enum-validated here, so an unknown route is fail-soft, not a 422.
+     */
+    public function requestedDirectionCode(): ?string
+    {
+        $code = trim((string) ($this->validated()['direction'] ?? ''));
+
+        return $code !== '' ? $code : null;
+    }
+
+    /**
+     * booking_type → tour_type, but only when it is a recognised type.
+     * An unrecognised value yields null so creation never breaks and the
+     * enrichment Action applies the catalog default instead.
+     */
+    private function resolveTourType(): ?string
+    {
+        $type = trim((string) ($this->validated()['booking_type'] ?? ''));
+
+        return in_array($type, BookingInquiry::TOUR_TYPES, true) ? $type : null;
     }
 
     /**
@@ -115,6 +151,11 @@ class StoreBookingInquiryRequest extends FormRequest
             'flexible_dates' => (bool) ($v['flexible_dates'] ?? false),
 
             'message' => $v['message'] ?? null,
+
+            // booking_type → tour_type (direct column). Only a value within
+            // TOUR_TYPES is applied; anything else stays null so the
+            // enrichment Action falls back to the catalog default.
+            'tour_type' => $this->resolveTourType(),
 
             'status' => BookingInquiry::STATUS_NEW,
         ];

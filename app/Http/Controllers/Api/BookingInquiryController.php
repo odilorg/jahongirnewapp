@@ -74,7 +74,7 @@ class BookingInquiryController extends Controller
         // as notifier/autoReply below.
         if ($inquiry->status !== BookingInquiry::STATUS_SPAM) {
             try {
-                $this->enrichFromSlug->handle($inquiry);
+                $this->enrichFromSlug->handle($inquiry, $request->requestedDirectionCode());
                 $inquiry->refresh();
             } catch (Throwable $e) {
                 Log::warning('BookingInquiry: tour-slug enrichment failed', [
